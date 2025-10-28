@@ -28,7 +28,7 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
                 <configuration>
-                    <mainClass>cz.vsb.minibank.Main</mainClass>
+                    <mainClass>cz.vsb.minibank.App</mainClass>
                 </configuration>
             </plugin>
         </plugins>
