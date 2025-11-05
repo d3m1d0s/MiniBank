@@ -77,7 +77,7 @@ VIS_project_minibank/
    │        │  │  ├─ UnitOfWork.java                (interface)
    │        │  │  ├─ JsonUnitOfWorkFactory.java     (interface)
    │        │  │  ├─ UowContext.java                (class)
-   │        │  │  ├─ UowScope.java                  (class)
+   │        │  │  └─ UowScope.java                  (class)
    │        │  │
    │        │  └─ Bootstrap.java   (class)
    │        │
