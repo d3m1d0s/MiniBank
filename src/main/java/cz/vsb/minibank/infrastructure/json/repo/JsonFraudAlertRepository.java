@@ -5,6 +5,8 @@ import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.dto.JsonFraudAlert;
 import cz.vsb.minibank.infrastructure.json.mapping.JsonMapper;
+import cz.vsb.minibank.infrastructure.uow.UowContext;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
 import java.util.Comparator;
 import java.util.List;
@@ -20,27 +22,68 @@ public class JsonFraudAlertRepository implements FraudAlertRepository {
     }
 
     @Override public void add(FraudAlert a) {
-        store.data().fraudAlerts.add(JsonMapper.toDto(a));
-        try { store.save(); } catch (Exception e) { throw new RuntimeException(e); }
+        UnitOfWork uow = UowContext.current();
+        Runnable mutate = () -> store.data().fraudAlerts.add(JsonMapper.toDto(a));
+        if (uow != null) {
+            uow.registerMutation(mutate);
+            uow.put(FraudAlert.class, a.id(), a);
+        } else {
+            mutate.run();
+            try { store.save(); } catch (Exception e) { throw new RuntimeException(e); }
+        }
     }
 
     @Override public void save(FraudAlert a) {
-        var list = store.data().fraudAlerts;
-        var idx = -1; for (int i=0;i<list.size();i++) if (list.get(i).id == a.id()) { idx=i; break; }
-        JsonFraudAlert dto = JsonMapper.toDto(a);
-        if (idx>=0) list.set(idx, dto); else list.add(dto);
-        try { store.save(); } catch (Exception e) { throw new RuntimeException(e); }
+        UnitOfWork uow = UowContext.current();
+        Runnable mutate = () -> {
+            var list = store.data().fraudAlerts;
+            int idx = -1; for (int i=0;i<list.size();i++) if (list.get(i).id == a.id()) { idx=i; break; }
+            JsonFraudAlert dto = JsonMapper.toDto(a);
+            if (idx>=0) list.set(idx, dto); else list.add(dto);
+        };
+        if (uow != null) {
+            uow.registerMutation(mutate);
+            uow.put(FraudAlert.class, a.id(), a);
+        } else {
+            mutate.run();
+            try { store.save(); } catch (Exception e) { throw new RuntimeException(e); }
+        }
     }
 
     @Override public Optional<FraudAlert> byId(int id) {
-        return store.data().fraudAlerts.stream().filter(a -> a.id == id).findFirst().map(JsonMapper::toDomain);
+        UnitOfWork uow = UowContext.current();
+        if (uow != null) {
+            FraudAlert cached = uow.get(FraudAlert.class, id);
+            if (cached != null) return Optional.of(cached);
+        }
+        var f = store.data().fraudAlerts.stream().filter(x -> x.id == id).findFirst();
+        if (f.isEmpty()) return Optional.empty();
+        FraudAlert d = JsonMapper.toDomain(f.get());
+        if (uow != null) uow.put(FraudAlert.class, d.id(), d);
+        return Optional.of(d);
     }
 
     @Override public Optional<FraudAlert> byTransferId(int transferId) {
-        return store.data().fraudAlerts.stream().filter(a -> a.transferId == transferId).findFirst().map(JsonMapper::toDomain);
+        var uow = UowContext.current();
+        var f = store.data().fraudAlerts.stream().filter(x -> x.transferId == transferId).findFirst();
+        if (f.isEmpty()) return Optional.empty();
+        FraudAlert d = JsonMapper.toDomain(f.get());
+        if (uow != null) uow.put(FraudAlert.class, d.id(), d);
+        return Optional.of(d);
     }
 
     @Override public List<FraudAlert> all() {
-        return store.data().fraudAlerts.stream().map(JsonMapper::toDomain).collect(Collectors.toList());
+        UnitOfWork uow = UowContext.current();
+        return store.data().fraudAlerts.stream()
+                .map(dto -> {
+                    if (uow != null) {
+                        FraudAlert cached = uow.get(FraudAlert.class, dto.id);
+                        if (cached != null) return cached;
+                    }
+                    FraudAlert d = JsonMapper.toDomain(dto);
+                    if (uow != null) uow.put(FraudAlert.class, d.id(), d);
+                    return d;
+                })
+                .collect(Collectors.toList());
     }
 }

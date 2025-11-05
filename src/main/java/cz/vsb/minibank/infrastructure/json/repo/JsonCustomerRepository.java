@@ -7,6 +7,8 @@ import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.dto.JsonBeneficiary;
 import cz.vsb.minibank.infrastructure.json.dto.JsonCustomer;
 import cz.vsb.minibank.infrastructure.json.mapping.JsonMapper;
+import cz.vsb.minibank.infrastructure.uow.UowContext;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
 import java.util.Comparator;
 import java.util.Optional;
@@ -20,15 +22,33 @@ public class JsonCustomerRepository implements CustomerRepository {
     }
 
     @Override public Optional<Customer> byId(int id) {
-        return store.data().customers.stream().filter(c -> c.id == id).findFirst().map(JsonMapper::toDomain);
+        UnitOfWork uow = UowContext.current();
+        if (uow != null) {
+            Customer cached = uow.get(Customer.class, id);
+            if (cached != null) return Optional.of(cached);
+        }
+        var f = store.data().customers.stream().filter(c -> c.id == id).findFirst();
+        if (f.isEmpty()) return Optional.empty();
+        Customer d = JsonMapper.toDomain(f.get());
+        if (uow != null) uow.put(Customer.class, d.id(), d);
+        return Optional.of(d);
     }
 
     @Override public void save(Customer c) {
-        var list = store.data().customers;
-        var idx = -1; for (int i=0;i<list.size();i++) if (list.get(i).id == c.id()) { idx=i; break; }
-        JsonCustomer dto = JsonMapper.toDto(c);
-        if (idx>=0) list.set(idx, dto); else list.add(dto);
-        try { store.save(); } catch (Exception e) { throw new RuntimeException(e); }
+        UnitOfWork uow = UowContext.current();
+        Runnable mutate = () -> {
+            var list = store.data().customers;
+            int idx = -1; for (int i=0;i<list.size();i++) if (list.get(i).id == c.id()) { idx=i; break; }
+            JsonCustomer dto = JsonMapper.toDto(c);
+            if (idx>=0) list.set(idx, dto); else list.add(dto);
+        };
+        if (uow != null) {
+            uow.registerMutation(mutate);
+            uow.put(Customer.class, c.id(), c);
+        } else {
+            mutate.run();
+            try { store.save(); } catch (Exception e) { throw new RuntimeException(e); }
+        }
     }
 
     @Override public int nextBeneficiaryId() {
@@ -36,16 +56,45 @@ public class JsonCustomerRepository implements CustomerRepository {
     }
 
     @Override public Optional<Beneficiary> beneficiaryById(int beneficiaryId) {
-        return store.data().customers.stream().flatMap(c -> c.beneficiaries.stream())
-                .filter(b -> b.id == beneficiaryId).findFirst().map(JsonMapper::toDomain);
+        var uow = UowContext.current();
+        var f = store.data().customers.stream()
+                .flatMap(c -> c.beneficiaries.stream())
+                .filter(b -> b.id == beneficiaryId)
+                .findFirst();
+        if (f.isEmpty()) return Optional.empty();
+        Beneficiary d = JsonMapper.toDomain(f.get());
+        // (beneficiary не кэшируем глобально в Identity Map — он агрегирован внутри Customer)
+        return Optional.of(d);
     }
 
-    @Override public void saveBeneficiary(int customerId, Beneficiary b) {
-        JsonCustomer c = store.data().customers.stream().filter(x -> x.id == customerId).findFirst()
-                .orElseThrow(() -> new RuntimeException("Customer not found"));
-        var idx = -1; for (int i=0;i<c.beneficiaries.size();i++) if (c.beneficiaries.get(i).id == b.id()) { idx=i; break; }
-        JsonBeneficiary jb = JsonMapper.toDto(b);
-        if (idx>=0) c.beneficiaries.set(idx, jb); else c.beneficiaries.add(jb);
-        try { store.save(); } catch (Exception e) { throw new RuntimeException(e); }
+    @Override
+    public void saveBeneficiary(int customerId, Beneficiary b) {
+        UnitOfWork uow = UowContext.current();
+        Runnable mutate = () -> {
+            JsonCustomer c = store.data().customers.stream()
+                    .filter(x -> x.id == customerId)
+                    .findFirst()
+                    .orElseThrow(() -> new RuntimeException("Customer not found"));
+            int idx = -1;
+            for (int i = 0; i < c.beneficiaries.size(); i++) {
+                if (c.beneficiaries.get(i).id == b.id()) { idx = i; break; }
+            }
+            JsonBeneficiary jb = JsonMapper.toDto(b);
+            if (idx >= 0) c.beneficiaries.set(idx, jb);
+            else c.beneficiaries.add(jb);
+        };
+
+        if (uow != null) {
+            uow.registerMutation(mutate);
+            // важное: обновляем агрегат в Identity Map (если он уже загружен в рамках UoW)
+            Customer cached = uow.get(Customer.class, customerId);
+            if (cached != null) {
+                cached.upsertBeneficiary(b);
+            }
+        } else {
+            mutate.run();
+            try { store.save(); } catch (Exception e) { throw new RuntimeException(e); }
+        }
     }
+
 }

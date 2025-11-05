@@ -4,6 +4,8 @@ package cz.vsb.minibank.infrastructure;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.repo.*;
 import cz.vsb.minibank.domain.repository.*;
+import cz.vsb.minibank.infrastructure.uow.JsonUnitOfWorkFactory;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 
 
 public class Bootstrap {
@@ -12,6 +14,7 @@ public class Bootstrap {
     public final CustomerRepository customers;
     public final TransferRepository transfers;
     public final FraudAlertRepository alerts;
+    public final UnitOfWorkFactory uowFactory;
 
 
     public Bootstrap(String path) {
@@ -21,5 +24,6 @@ public class Bootstrap {
         this.customers = new JsonCustomerRepository(store);
         this.transfers = new JsonTransferRepository(store);
         this.alerts = new JsonFraudAlertRepository(store);
+        this.uowFactory = new JsonUnitOfWorkFactory(store);
     }
 }

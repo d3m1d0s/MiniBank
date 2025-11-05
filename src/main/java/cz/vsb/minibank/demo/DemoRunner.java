@@ -24,7 +24,7 @@ public class DemoRunner {
     public static void main(String[] args) {
         String dataPath = "data/demo.json"; // oddělený soubor
         Bootstrap infra = new Bootstrap(dataPath);
-        BootstrapServices services = new BootstrapServices(infra.customers, infra.accounts, infra.transfers, infra.alerts);
+        BootstrapServices services = new BootstrapServices(infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
 
         int customerId = ensureDemoData(infra);
         int accountId = infra.accounts.byCustomerId(customerId).get(0).id();

@@ -3,6 +3,7 @@ package cz.vsb.minibank.domain;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 
 public class Customer {
@@ -21,7 +22,16 @@ public class Customer {
 
     public void addAccountId(int id) { accountIds.add(id); }
     public void addBeneficiary(Beneficiary b) { beneficiaries.add(b); }
-
+    public void upsertBeneficiary(Beneficiary b) {
+        Objects.requireNonNull(b, "beneficiary");
+        for (int i = 0; i < this.beneficiaries.size(); i++) {
+            if (this.beneficiaries.get(i).id() == b.id()) {
+                this.beneficiaries.set(i, b);
+                return;
+            }
+        }
+        this.beneficiaries.add(b);
+    }
 
     public int id() { return id; }
     public String name() { return name; }

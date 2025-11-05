@@ -27,7 +27,7 @@ public class App {
     public static void main(String[] args) {
         String dataPath = "data/data.json";
         Bootstrap infra = new Bootstrap(dataPath);
-        BootstrapServices app = new BootstrapServices(infra.customers, infra.accounts, infra.transfers, infra.alerts);
+        BootstrapServices app = new BootstrapServices(infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
 
 
         int customerId = ensureDemoData(infra);
