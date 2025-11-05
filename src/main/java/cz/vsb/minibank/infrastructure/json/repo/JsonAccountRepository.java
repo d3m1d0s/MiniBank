@@ -17,7 +17,7 @@ public class JsonAccountRepository implements AccountRepository {
     public JsonAccountRepository(JsonDataStore store) { this.store = store; }
 
     @Override public int nextId() {
-        return store.data().accounts.stream().map(a -> a.id).max(Comparator.naturalOrder()).orElse(100) + 1;
+        return store.nextAccountId();
     }
 
     @Override public Optional<Account> byId(int id) {

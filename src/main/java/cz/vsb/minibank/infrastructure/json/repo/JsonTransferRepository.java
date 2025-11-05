@@ -16,7 +16,7 @@ public class JsonTransferRepository implements TransferRepository {
     public JsonTransferRepository(JsonDataStore store) { this.store = store; }
 
     @Override public int nextId() {
-        return store.data().transfers.stream().map(t -> t.id).max(Comparator.naturalOrder()).orElse(5000) + 1;
+        return store.nextTransferId();
     }
 
     @Override public void add(Transfer t) {

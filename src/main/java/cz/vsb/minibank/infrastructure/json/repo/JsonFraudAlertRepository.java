@@ -16,7 +16,7 @@ public class JsonFraudAlertRepository implements FraudAlertRepository {
     public JsonFraudAlertRepository(JsonDataStore store) { this.store = store; }
 
     @Override public int nextId() {
-        return store.data().fraudAlerts.stream().map(a -> a.id).max(Comparator.naturalOrder()).orElse(9000) + 1;
+        return store.nextFraudAlertId();
     }
 
     @Override public void add(FraudAlert a) {

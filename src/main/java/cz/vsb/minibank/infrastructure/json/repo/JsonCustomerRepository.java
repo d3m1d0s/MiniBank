@@ -16,7 +16,7 @@ public class JsonCustomerRepository implements CustomerRepository {
     public JsonCustomerRepository(JsonDataStore store) { this.store = store; }
 
     @Override public int nextId() {
-        return store.data().customers.stream().map(c -> c.id).max(Comparator.naturalOrder()).orElse(1) + 1;
+        return store.nextCustomerId();
     }
 
     @Override public Optional<Customer> byId(int id) {
@@ -32,9 +32,7 @@ public class JsonCustomerRepository implements CustomerRepository {
     }
 
     @Override public int nextBeneficiaryId() {
-        return store.data().customers.stream()
-                .flatMap(c -> c.beneficiaries.stream()).map(b -> b.id)
-                .max(Comparator.naturalOrder()).orElse(10) + 1;
+        return store.nextBeneficiaryId();
     }
 
     @Override public Optional<Beneficiary> beneficiaryById(int beneficiaryId) {
