@@ -29,6 +29,21 @@ public class Customer {
 
     public void addAccountId(int id) { accountIds.add(id); }
     public void addBeneficiary(Beneficiary b) { beneficiaries.add(b); }
+    public void saveBeneficiary(Beneficiary b) {
+        Objects.requireNonNull(b, "beneficiary");
+
+        for (int i = 0; i < beneficiaries.size(); i++) {
+            Beneficiary existing = beneficiaries.get(i);
+            if (existing.id() == b.id()) {
+                // replace existing entry (update)
+                beneficiaries.set(i, b);
+                return;
+            }
+        }
+
+        // not found -> treat as new beneficiary
+        beneficiaries.add(b);
+    }
     public void upsertBeneficiary(Beneficiary b) {
         Objects.requireNonNull(b, "beneficiary");
         for (int i = 0; i < this.beneficiaries.size(); i++) {

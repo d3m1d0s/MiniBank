@@ -3,6 +3,8 @@ VIS_project_minibank/
 ├─ data/
 │  ├─ data.json
 │  └─ demo.json
+├─ db/
+│  └─ schema.sql
 └─ src/
    ├─ main/
    │  └─ java/
@@ -73,11 +75,20 @@ VIS_project_minibank/
    │        │  │  │  ├─ JsonCustomerRepository.java     (class)
    │        │  │  │  ├─ JsonFraudAlertRepository.java   (class)
    │        │  │  │  └─ JsonTransferRepository.java     (class)
-   │        │  │  └─ JsonDataStore.java    (class)
+   │        │  │  ├─ JsonDataStore.java             (class)
+   │        │  │  ├─ JsonUnitOfWork.java            (class)
+   │        │  │  └─ JsonUnitOfWorkFactory.java     (class)
+   │        │  │
+   │        │  ├─ sql/
+   │        │  │  ├─ repo/
+   │        │  │  │  ├─ SqlAccountRepository.java      (class)
+   │        │  │  │  ├─ SqlCustomerRepository.java     (class)
+   │        │  │  │  ├─ SqlFraudAlertRepository.java   (class)
+   │        │  │  │  └─ SqlTransferRepository.java     (class)
+   │        │  │  ├─ SqlUnitOfWork.java            (class)
+   │        │  │  └─ SqlUnitOfWorkFactory.java     (class)
    │        │  │
    │        │  ├─ uow/
-   │        │  │  ├─ JsonUnitOfWork.java            (class)
-   │        │  │  ├─ JsonUnitOfWorkFactory.java     (class)
    │        │  │  ├─ UnitOfWork.java                (interface)
    │        │  │  ├─ JsonUnitOfWorkFactory.java     (interface)
    │        │  │  ├─ UowContext.java                (class)
@@ -95,6 +106,7 @@ VIS_project_minibank/
          └─ cz/vsb/minibank/
             └─ uow/
                ├─ MinibankLazyLoadTest.java     (unit test) 
+               ├─ MinibankSqlUowTest.java       (unit test) 
                └─ MinibankUowTests.java         (unit test) 
 
 ```

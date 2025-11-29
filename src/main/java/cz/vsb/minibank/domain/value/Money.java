@@ -15,6 +15,9 @@ public final class Money implements Comparable<Money> {
         return new Money(currency, BigDecimal.valueOf(amount));
     }
     public static Money czk(double amount) { return of("CZK", amount); }
+    public static Money czk(java.math.BigDecimal amount) {
+        return of("CZK", amount);
+    }
 
     private Money(String currency, BigDecimal amount) {
         this.currency = Objects.requireNonNull(currency);

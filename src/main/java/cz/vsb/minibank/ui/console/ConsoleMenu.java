@@ -7,6 +7,8 @@ import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
+import cz.vsb.minibank.infrastructure.uow.UowScope;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 
 import java.util.*;
@@ -73,19 +75,32 @@ public class ConsoleMenu {
     }
 
     private void addBeneficiary() {
-        var cust = infra.customers.byId(customerId).orElseThrow();
-        System.out.print("Beneficiary name: ");
-        String name = in.nextLine().trim();
-        System.out.print("IBAN (e.g., CZ0201000000000012345678): ");
-        String iban = in.nextLine().trim();
-        System.out.print("Trusted? (y/N): ");
-        boolean trusted = in.nextLine().trim().equalsIgnoreCase("y");
+        UnitOfWork uow = infra.uowFactory.begin();
+        try (UowScope __ = new UowScope(uow)) {
+            var cust = infra.customers.byId(customerId).orElseThrow();
 
-        int bid = infra.customers.nextBeneficiaryId();
-        Beneficiary b = new Beneficiary(bid, name, new IBAN(iban), trusted);
-        infra.customers.saveBeneficiary(customerId, b);
-        System.out.println("[OK] Beneficiary added id=" + bid);
+            System.out.print("Beneficiary name: ");
+            String name = in.nextLine().trim();
+
+            System.out.print("IBAN (e.g., CZ0201000000000012345678): ");
+            String iban = in.nextLine().trim();
+
+            System.out.print("Trusted? (y/N): ");
+            boolean trusted = in.nextLine().trim().equalsIgnoreCase("y");
+
+            int bid = infra.customers.nextBeneficiaryId();
+            Beneficiary b = new Beneficiary(bid, name, new IBAN(iban), trusted);
+
+            infra.customers.saveBeneficiary(customerId, b);
+
+            uow.commit();
+            System.out.println("[OK] Beneficiary added id=" + bid);
+        } catch (RuntimeException e) {
+            uow.rollback();
+            throw e;
+        }
     }
+
 
     private void submitPaymentByBeneficiary() {
         var accounts = infra.accounts.byCustomerId(customerId);

@@ -1,6 +1,7 @@
-package cz.vsb.minibank.infrastructure.uow;
+package cz.vsb.minibank.infrastructure.json;
 
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
 import java.util.*;
 
