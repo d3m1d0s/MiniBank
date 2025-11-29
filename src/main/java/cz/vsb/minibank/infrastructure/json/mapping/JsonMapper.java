@@ -4,6 +4,12 @@ import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.json.dto.*;
+import cz.vsb.minibank.domain.lazy.LazyList;
+import cz.vsb.minibank.domain.lazy.LazyRef;
+import cz.vsb.minibank.infrastructure.json.JsonDataStore;
+import cz.vsb.minibank.infrastructure.uow.UowContext;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
+
 
 import java.time.Instant;
 
@@ -29,6 +35,33 @@ public class JsonMapper {
         for (JsonBeneficiary jb : j.beneficiaries) c.addBeneficiary(toDomain(jb));
         return c;
     }
+
+    public static Customer toDomain(JsonCustomer j, JsonDataStore store) {
+        // basic mapping
+        Customer c = toDomain(j);
+
+        if (store != null) {
+            c.attachAccounts(new LazyList<>(() -> {
+                UnitOfWork uow = UowContext.current();
+
+                return store.data().accounts.stream()
+                        .filter(a -> j.accountIds.contains(a.id))
+                        .map(dto -> {
+                            if (uow != null) {
+                                Account cached = uow.get(Account.class, dto.id);
+                                if (cached != null) return cached;
+                            }
+                            Account acc = JsonMapper.toDomain(dto); // existing mapping
+                            if (uow != null) uow.put(Account.class, acc.id(), acc);
+                            return acc;
+                        })
+                        .toList();
+            }));
+        }
+
+        return c;
+    }
+
 
     // Account
     public static JsonAccount toDto(Account a) {
@@ -92,6 +125,71 @@ public class JsonMapper {
 
         return t;
     }
+
+    public static Transfer toDomain(JsonTransfer j, JsonDataStore store) {
+        // basic mapping (status, authMethod, createdAt)
+        Transfer t = toDomain(j);
+
+        if (store != null) {
+            // Lazy source account
+            t.attachSourceAccount(new LazyRef<>(() -> {
+                UnitOfWork uow = UowContext.current();
+                if (uow != null) {
+                    Account cached = uow.get(Account.class, j.sourceAccountId);
+                    if (cached != null) return cached;
+                }
+
+                JsonAccount accDto = store.data().accounts.stream()
+                        .filter(a -> a.id == j.sourceAccountId)
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalStateException("Account not found: " + j.sourceAccountId));
+
+                Account acc = JsonMapper.toDomain(accDto);
+
+                if (uow != null) {
+                    uow.put(Account.class, acc.id(), acc);
+                }
+
+                return acc;
+            }));
+
+            // Lazy beneficiary (if present)
+            if (j.beneficiaryId != null) {
+                t.attachBeneficiary(new LazyRef<>(() -> {
+                    UnitOfWork uow = UowContext.current();
+                    if (uow != null) {
+                        Beneficiary cached = uow.get(Beneficiary.class, j.beneficiaryId);
+                        if (cached != null) return cached;
+                    }
+
+                    // Beneficiary is stored inside customers
+                    JsonCustomer custDto = store.data().customers.stream()
+                            .filter(c -> c.beneficiaries != null &&
+                                    c.beneficiaries.stream().anyMatch(b -> b.id == j.beneficiaryId))
+                            .findFirst()
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "Customer for beneficiary " + j.beneficiaryId + " not found"));
+
+                    JsonBeneficiary benDto = custDto.beneficiaries.stream()
+                            .filter(b -> b.id == j.beneficiaryId)
+                            .findFirst()
+                            .orElseThrow(() -> new IllegalStateException(
+                                    "Beneficiary not found: " + j.beneficiaryId));
+
+                    Beneficiary b = JsonMapper.toDomain(benDto);
+
+                    if (uow != null) {
+                        uow.put(Beneficiary.class, b.id(), b);
+                    }
+
+                    return b;
+                }));
+            }
+        }
+
+        return t;
+    }
+
 
     // FraudAlert
     public static JsonFraudAlert toDto(FraudAlert a) {

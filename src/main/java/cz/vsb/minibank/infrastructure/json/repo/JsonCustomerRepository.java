@@ -29,7 +29,7 @@ public class JsonCustomerRepository implements CustomerRepository {
         }
         var f = store.data().customers.stream().filter(c -> c.id == id).findFirst();
         if (f.isEmpty()) return Optional.empty();
-        Customer d = JsonMapper.toDomain(f.get());
+        Customer d = JsonMapper.toDomain(f.get(), store);
         if (uow != null) uow.put(Customer.class, d.id(), d);
         return Optional.of(d);
     }

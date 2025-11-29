@@ -3,6 +3,10 @@ package cz.vsb.minibank.domain;
 
 import cz.vsb.minibank.domain.exceptions.InvalidStateTransitionException;
 import cz.vsb.minibank.domain.value.Money;
+import cz.vsb.minibank.domain.lazy.LazyRef;
+import cz.vsb.minibank.domain.Account;
+import cz.vsb.minibank.domain.Beneficiary;
+
 
 
 import java.time.Instant;
@@ -23,6 +27,12 @@ public class Transfer {
     private Instant createdAt;
     private Payment authMethod; // nullable
     private String declineReason;
+
+
+    // --- Lazy navigation properties (optional) ---
+    private LazyRef<Account> sourceAccountRef;
+    private LazyRef<Beneficiary> beneficiaryRef;
+
 
 
     public Transfer(int id, int sourceAccountId, Integer beneficiaryId, String targetIbanSnapshot,
@@ -77,4 +87,31 @@ public class Transfer {
     public Instant createdAt() { return createdAt; }
     public Payment authMethod() { return authMethod; }
     public String declineReason() { return declineReason; }
+
+
+    // --- Lazy navigation API ---
+
+    public void attachSourceAccount(LazyRef<Account> ref) {
+        this.sourceAccountRef = ref;
+    }
+
+    public void attachBeneficiary(LazyRef<Beneficiary> ref) {
+        this.beneficiaryRef = ref;
+    }
+
+    /**
+     * Lazily load the source account (may be null if no loader attached).
+     */
+    public Account sourceAccount() {
+        return (sourceAccountRef != null) ? sourceAccountRef.get() : null;
+    }
+
+    /**
+     * Lazily load the beneficiary (may be null).
+     */
+    public Beneficiary beneficiary() {
+        return (beneficiaryRef != null) ? beneficiaryRef.get() : null;
+    }
+
+
 }

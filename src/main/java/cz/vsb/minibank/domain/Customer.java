@@ -4,6 +4,9 @@ package cz.vsb.minibank.domain;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import cz.vsb.minibank.domain.lazy.LazyList;
+import cz.vsb.minibank.domain.Account;
+
 
 
 public class Customer {
@@ -13,6 +16,10 @@ public class Customer {
     private Address address;
     private final List<Integer> accountIds = new ArrayList<>();
     private final List<Beneficiary> beneficiaries = new ArrayList<>();
+
+
+    // lazy-loaded accounts based on accountIds
+    private LazyList<Account> accountsLazy;
 
 
     public Customer(int id, String name, String email, Address address) {
@@ -39,4 +46,18 @@ public class Customer {
     public Address address() { return address; }
     public List<Integer> accountIds() { return accountIds; }
     public List<Beneficiary> beneficiaries() { return beneficiaries; }
+
+
+    public void attachAccounts(LazyList<Account> accounts) {
+        this.accountsLazy = accounts;
+    }
+
+    /**
+     * Lazily resolve all accounts for this customer.
+     */
+    public List<Account> accounts() {
+        return (accountsLazy != null) ? accountsLazy.getAll() : List.of();
+    }
+
+
 }

@@ -57,7 +57,7 @@ public class JsonTransferRepository implements TransferRepository {
         }
         var found = store.data().transfers.stream().filter(x -> x.id == id).findFirst();
         if (found.isEmpty()) return Optional.empty();
-        Transfer d = JsonMapper.toDomain(found.get());
+        Transfer d = JsonMapper.toDomain(found.get(), store);
         if (uow != null) uow.put(Transfer.class, d.id(), d);
         return Optional.of(d);
     }
@@ -71,7 +71,7 @@ public class JsonTransferRepository implements TransferRepository {
                         Transfer cached = uow.get(Transfer.class, dto.id);
                         if (cached != null) return cached;
                     }
-                    Transfer d = JsonMapper.toDomain(dto);
+                    Transfer d = JsonMapper.toDomain(dto, store);
                     if (uow != null) uow.put(Transfer.class, d.id(), d);
                     return d;
                 })
