@@ -6,6 +6,9 @@ import java.util.List;
 
 
 public class JsonAccount {
-    public int id; public String iban; public double balance; public double dailyLimit;
+    public int id;
+    public String iban;
+    public double balance;
+    public double dailyLimit;
     public List<Integer> transferIds = new ArrayList<>();
 }

@@ -21,7 +21,10 @@ public class FraudApplicationService {
         this.uowFactory = uowFactory;
     }
 
-    /** UC 11 – Review Suspicious Transaction: APPROVE */
+    /** UC 11 – Review Suspicious Transaction: APPROVE.
+     *  Approves the fraud alert. If the transfer is still in CREATED state,
+     *  the transfer is actually sent (fee computed by the injected FeePolicy).
+     */
     public void approve(int transferId) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
@@ -37,14 +40,16 @@ public class FraudApplicationService {
                 accounts.save(acc);
             }
             uow.commit();
-            // pokud je WAITING_AUTH a má authMethod, pokračuje UC 05
+            // If the status is WAITING_AUTH and an auth method is present, continue with UC 05 elsewhere.
         } catch (RuntimeException e) {
             uow.rollback();
             throw e;
         }
     }
 
-    /** UC 11 – Review Suspicious Transaction: DECLINE */
+    /** UC 11 – Review Suspicious Transaction: DECLINE.
+     *  Marks the alert as suspicious with the provided reason and declines the transfer.
+     */
     public void decline(int transferId, String reason) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
@@ -62,12 +67,15 @@ public class FraudApplicationService {
         }
     }
 
-    /** UC 12 – Request Customer Confirmation (zjednodušeně) */
+    /** UC 12 – Request Customer Confirmation (simplified).
+     *  In a full implementation this would send a notification to the customer.
+     *  Here we only update the reason to indicate we are waiting for confirmation.
+     */
     public void requestCustomerConfirmation(int transferId) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
             var alert = alerts.byTransferId(transferId).orElseThrow(() -> new RuntimeException("Alert not found"));
-            // zde by bylo odeslání notifikace; pouze aktualizujeme důvod
+            // Notification would be sent here; we only update the reason for now.
             alert.markSuspicious("Waiting for customer confirmation");
             alerts.save(alert);
             uow.commit();

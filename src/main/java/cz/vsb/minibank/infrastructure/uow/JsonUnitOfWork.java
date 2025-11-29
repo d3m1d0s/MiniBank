@@ -31,7 +31,7 @@ public final class JsonUnitOfWork implements UnitOfWork {
         if (!active) return;
         try {
             for (Runnable r : mutations) r.run();
-            store.save(); // один физический persist
+            store.save(); // single physical persist
         } catch (Exception e) {
             throw new RuntimeException(e);
         } finally {

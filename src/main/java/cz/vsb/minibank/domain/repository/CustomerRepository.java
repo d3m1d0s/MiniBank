@@ -16,5 +16,5 @@ public interface CustomerRepository {
 
     int nextBeneficiaryId();
     Optional<Beneficiary> beneficiaryById(int beneficiaryId);
-    void saveBeneficiary(int customerId, Beneficiary b); // insert/update (ulož i do zákazníka)
+    void saveBeneficiary(int customerId, Beneficiary b); // insert/update (also attach to the customer)
 }

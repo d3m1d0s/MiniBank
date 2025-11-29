@@ -41,7 +41,7 @@ public class TransferApplicationService {
         this.uowFactory = uowFactory;
     }
 
-    /** UC 04 – Submit Payment Order (příjemce z adresáře) */
+    /** UC 04 – Submit Payment Order (to a saved beneficiary). */
     public int submitPaymentByBeneficiary(int customerId, int sourceAccountId, int beneficiaryId, double amountCzk, String message) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
@@ -66,9 +66,9 @@ public class TransferApplicationService {
         }
     }
 
-    /** UC 04 – Submit Payment Order (přímo na IBAN, bez uloženého příjemce) */
+    /** UC 04 – Submit Payment Order (to an arbitrary IBAN). */
     public int submitPaymentToIban(int customerId, int sourceAccountId, String targetIban, double amountCzk, String message) {
-        // validace IBAN (vyhodí IllegalArgumentException při chybě)
+        // IBAN validation (throws IllegalArgumentException on invalid input)
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
             IBAN iban = new IBAN(targetIban);
@@ -76,7 +76,7 @@ public class TransferApplicationService {
             var account = accounts.byId(sourceAccountId).orElseThrow(() -> new RuntimeException("Account not found"));
 
             Money amount = Money.czk(amountCzk);
-            boolean trusted = false; // nový/neupravený příjemce není důvěryhodný
+            boolean trusted = false; // a new/unknown recipient is not trusted
             RiskDecision decision = riskService.evaluate(trusted, amount, account.dailyLimit());
 
             int id = transfers.nextId();
@@ -92,15 +92,15 @@ public class TransferApplicationService {
     }
 
     private void routeTransferCreation(Customer customer, Account account, Transfer t, RiskDecision decision) {
-        // include: Check Funds (nepřímo v Account.debit při send)
+        // include: Check Funds (indirectly enforced in Account.debit during send)
         if (!decision.requireAuthorization() && !decision.createFraudAlert()) {
-            // přímé odeslání
+            // direct send
             t.send(account, feePolicy);
             transfers.add(t);
             account.registerTransfer(t.id());
             accounts.save(account);
         } else {
-            // WAITING_AUTH + případný FraudAlert
+            // WAITING_AUTH and an optional FraudAlert
             t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
             if (decision.createFraudAlert()) {
                 int aid = alerts.nextId();
@@ -113,7 +113,7 @@ public class TransferApplicationService {
         }
     }
 
-    /** UC 05 – Authorize Payment */
+    /** UC 05 – Authorize Payment. */
     public void authorizePayment(int transferId, String otp) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
@@ -134,12 +134,12 @@ public class TransferApplicationService {
         }
     }
 
-    /** UC 19 – Cancel Payment Order */
+    /** UC 19 – Cancel Payment Order. */
     public void cancelPayment(int transferId) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
             var t = transfers.byId(transferId).orElseThrow(() -> new RuntimeException("Transfer not found"));
-            if (t.status() == TransferStatus.SENT) throw new RuntimeException("Cannot cancel already SENT transfer");
+            if (t.status() == TransferStatus.SENT) throw new RuntimeException("Cannot cancel an already SENT transfer");
             t.decline("Canceled by customer");
             transfers.save(t);
             uow.commit();
@@ -149,10 +149,10 @@ public class TransferApplicationService {
         }
     }
 
-    /** Pomocník: nalezení příjemce pro IBAN v adresáři zákazníka */
+    /** Helper: resolves a recipient for a given IBAN within the customer's address book. */
     static class BeneficiaryResolver {
         private final CustomerRepository customers;
         BeneficiaryResolver(CustomerRepository customers) { this.customers = customers; }
-        // případné rozšíření: mapování IBAN -> Beneficiary
+        // possible extension: map IBAN -> Beneficiary
     }
 }

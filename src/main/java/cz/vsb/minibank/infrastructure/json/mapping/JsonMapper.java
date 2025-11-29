@@ -53,7 +53,7 @@ public class JsonMapper {
         j.amount = t.amount().amount().doubleValue();
         j.currency = t.currency();
         j.status = t.status().name();
-        j.createdAt = t.createdAt().toString(); // CHANGED: пишем как ISO-8601 напрямую
+        j.createdAt = t.createdAt().toString(); // write ISO-8601 string directly via Instant#toString
         if (t.authMethod() != null) {
             j.authMethod = t.authMethod().method();
             if (t.authMethod() instanceof CardPayment cp) j.cardNumberMasked = cp.cardNumberMasked();
@@ -67,24 +67,24 @@ public class JsonMapper {
                 Money.czk(j.amount), j.currency
         );
 
-        // CHANGED: восстанавливаем authMethod (если был)
+        // restore authMethod if it was present
         Payment payment = null;
         if (j.authMethod != null) {
             if ("CARD".equalsIgnoreCase(j.authMethod)) {
                 payment = new CardPayment(Money.czk(j.amount), j.cardNumberMasked);
             } else {
-                // простой generic-объект для других методов
+                // generic fallback object for other auth methods
                 payment = new Payment(j.authMethod, Money.czk(j.amount)) { };
             }
         }
 
-        // CHANGED: парсим createdAt (если задан)
+        // parse createdAt if present
         java.time.Instant ts = null;
         try {
             if (j.createdAt != null) ts = java.time.Instant.parse(j.createdAt);
         } catch (Exception ignored) {}
 
-        // CHANGED: восстанавливаем статус БЕЗ побочных эффектов
+        // restore status without side effects
         try {
             var status = TransferStatus.valueOf(j.status);
             t.hydrateForLoad(status, payment, j.declineReason, ts);
@@ -98,10 +98,12 @@ public class JsonMapper {
         JsonFraudAlert j = new JsonFraudAlert(); j.id=a.id(); j.transferId=a.transferId(); j.state=a.state().name(); j.reason=a.reason(); j.createdAt=a.createdAt().toString(); return j; }
     public static FraudAlert toDomain(JsonFraudAlert j) {
         FraudAlert a = new FraudAlert(j.id, j.transferId, j.reason);
+        // parse createdAt if present
         java.time.Instant ts = null;
         try {
             if (j.createdAt != null) ts = java.time.Instant.parse(j.createdAt);
         } catch (Exception ignored) {}
+        // restore state without side effects
         try {
             var st = FraudAlertState.valueOf(j.state);
             a.hydrateForLoad(st, j.reason, ts);

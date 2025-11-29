@@ -1,5 +1,5 @@
 package cz.vsb.minibank.infrastructure.uow;
 
 public interface UnitOfWorkFactory {
-    UnitOfWork begin(); // открывает новый UoW (в SQL это будет транзакция/Connection)
+    UnitOfWork begin(); // opens a new Unit of Work (in SQL this maps to a transaction/Connection)
 }

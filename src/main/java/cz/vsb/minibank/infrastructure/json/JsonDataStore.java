@@ -17,9 +17,7 @@ public class JsonDataStore {
     private final ObjectMapper om;
     private final File file;
 
-
-
-    // NEW: централизованные счётчики ID, которые сериализуются в JSON
+    // Centralized ID sequences that are serialized into JSON
     public static class Sequences {
         public int customer = 1;
         public int account = 100;
@@ -33,7 +31,7 @@ public class JsonDataStore {
         public List<JsonAccount> accounts = new ArrayList<>();
         public List<JsonTransfer> transfers = new ArrayList<>();
         public List<JsonFraudAlert> fraudAlerts = new ArrayList<>();
-        // NEW: секция последовательностей
+        // Sequence section
         public Sequences sequences = new Sequences();
     }
 
@@ -49,7 +47,7 @@ public class JsonDataStore {
 
     public synchronized void save() throws Exception { om.writeValue(file, cache); }
 
-    // CHANGED: инициализация sequences с автоподхватом max+1 для обратной совместимости
+    // Initialize sequences with auto-detected max+1 values for backward compatibility
     public synchronized void load() throws Exception {
         if (!file.exists() || Files.size(file.toPath()) == 0) { cache = new Bundle(); return; }
         cache = om.readValue(file, Bundle.class);
@@ -59,7 +57,7 @@ public class JsonDataStore {
         if (cache.fraudAlerts == null) cache.fraudAlerts = new ArrayList<>();
         if (cache.sequences == null) cache.sequences = new Sequences();
 
-        // если в старом файле нет значений sequences — вычислим безопасные next значения
+        // If a legacy file lacks sequence values, compute safe “next” values
         cache.sequences.customer    = Math.max(cache.sequences.customer,
                 nextFromList(cache.customers,       (cz.vsb.minibank.infrastructure.json.dto.JsonCustomer  c) -> c.id, 1));
         cache.sequences.account     = Math.max(cache.sequences.account,
@@ -70,7 +68,7 @@ public class JsonDataStore {
                 nextFromList(cache.fraudAlerts,     (cz.vsb.minibank.infrastructure.json.dto.JsonFraudAlert f) -> f.id, 9001));
     }
 
-    // NEW: утилиты для расчётов max+1
+    // Utilities for computing max+1
     private static <T> int nextFromList(List<T> list, ToIntFunction<T> getId, int defaultStart) {
         int max = defaultStart - 1;
         for (T o : list) {
@@ -91,12 +89,12 @@ public class JsonDataStore {
         return max + 1;
     }
 
-    // NEW: безопасное сохранение (без checked exceptions)
+    // Safe save (wrap checked exceptions)
     private synchronized void saveQuiet() {
         try { save(); } catch (Exception e) { throw new RuntimeException(e); }
     }
 
-    // NEW: централизованные генераторы ID (persistují se hned po inkrementu)
+    // Centralized ID generators
     public synchronized int nextCustomerId()   { int id = cache.sequences.customer++;    saveQuiet(); return id; }
     public synchronized int nextAccountId()    { int id = cache.sequences.account++;     saveQuiet(); return id; }
     public synchronized int nextBeneficiaryId(){ int id = cache.sequences.beneficiary++; saveQuiet(); return id; }

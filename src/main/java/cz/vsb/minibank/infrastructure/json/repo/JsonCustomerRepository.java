@@ -63,7 +63,7 @@ public class JsonCustomerRepository implements CustomerRepository {
                 .findFirst();
         if (f.isEmpty()) return Optional.empty();
         Beneficiary d = JsonMapper.toDomain(f.get());
-        // (beneficiary не кэшируем глобально в Identity Map — он агрегирован внутри Customer)
+        // do not cache beneficiary globally in the Identity Map - it's aggregated inside Customer
         return Optional.of(d);
     }
 
@@ -86,7 +86,7 @@ public class JsonCustomerRepository implements CustomerRepository {
 
         if (uow != null) {
             uow.registerMutation(mutate);
-            // важное: обновляем агрегат в Identity Map (если он уже загружен в рамках UoW)
+            // important: update the aggregate in the Identity Map (if it has already been loaded within the UoW)
             Customer cached = uow.get(Customer.class, customerId);
             if (cached != null) {
                 cached.upsertBeneficiary(b);

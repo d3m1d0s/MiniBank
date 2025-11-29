@@ -7,6 +7,8 @@ import cz.vsb.minibank.domain.value.Money;
 
 import java.time.Instant;
 
+//Audit log
+//Validation
 
 public class Transfer {
     private int id;
