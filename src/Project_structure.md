@@ -26,6 +26,10 @@ VIS_project_minibank/
    │        │  │  ├─ InsufficientFundsException.java        (exception)
    │        │  │  ├─ InvalidIbanException.java              (exception)
    │        │  │  └─ InvalidStateTransitionException.java   (exception)
+   │        │  │   
+   │        │  ├─ lazy/
+   │        │  │  ├─ LazyList.java      (class)
+   │        │  │  ├─ LazyRef.java       (class)
    │        │  │
    │        │  ├─ repository/
    │        │  │  ├─ AccountRepository.java     (interface)
@@ -90,6 +94,7 @@ VIS_project_minibank/
       └─ java/
          └─ cz/vsb/minibank/
             └─ uow/
-               └─ MinibankUowTests.java     (unit test) 
+               ├─ MinibankLazyLoadTest.java     (unit test) 
+               └─ MinibankUowTests.java         (unit test) 
 
 ```
