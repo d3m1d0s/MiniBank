@@ -20,6 +20,7 @@ public class TransferApplicationService {
     private final FeePolicy feePolicy;
     private final RiskService riskService;
     private final OtpValidator otpValidator;
+    private final PaymentNetworkGateway paymentNetworkGateway;
     private final UnitOfWorkFactory uowFactory;
 
     public TransferApplicationService(CustomerRepository customers,
@@ -29,6 +30,7 @@ public class TransferApplicationService {
                                       FeePolicy feePolicy,
                                       RiskService riskService,
                                       OtpValidator otpValidator,
+                                      PaymentNetworkGateway paymentNetworkGateway,
                                       UnitOfWorkFactory uowFactory) {
         this.customers = customers;
         this.accounts = accounts;
@@ -38,6 +40,7 @@ public class TransferApplicationService {
         this.riskService = riskService;
         this.otpValidator = otpValidator;
         this.beneficiaryResolver = new BeneficiaryResolver(customers);
+        this.paymentNetworkGateway = paymentNetworkGateway;
         this.uowFactory = uowFactory;
     }
 
@@ -99,12 +102,17 @@ public class TransferApplicationService {
             transfers.add(t);
             account.registerTransfer(t.id());
             accounts.save(account);
+
+            // Dispatch to external payment network immediately
+            paymentNetworkGateway.send(t);
+
         } else {
             // WAITING_AUTH and an optional FraudAlert
             t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
             if (decision.createFraudAlert()) {
                 int aid = alerts.nextId();
-                FraudAlert a = new FraudAlert(aid, t.id(), Objects.requireNonNullElse(decision.reason(), "Suspicious"));
+                FraudAlert a = new FraudAlert(aid, t.id(),
+                        Objects.requireNonNullElse(decision.reason(), "Suspicious"));
                 alerts.add(a);
             }
             transfers.add(t);
@@ -113,26 +121,35 @@ public class TransferApplicationService {
         }
     }
 
+
     /** UC 05 – Authorize Payment. */
     public void authorizePayment(int transferId, String otp) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
-            var t = transfers.byId(transferId).orElseThrow(() -> new RuntimeException("Transfer not found"));
-            var acc = accounts.byId(t.sourceAccountId()).orElseThrow(() -> new RuntimeException("Source account not found"));
+            var t = transfers.byId(transferId)
+                    .orElseThrow(() -> new RuntimeException("Transfer not found"));
+            var acc = accounts.byId(t.sourceAccountId())
+                    .orElseThrow(() -> new RuntimeException("Source account not found"));
             if (!otpValidator.isValid(transferId, otp)) {
                 t.decline("OTP failed");
                 transfers.save(t);
                 return;
             }
+
             t.send(acc, feePolicy);
             transfers.save(t);
             accounts.save(acc);
+
+            // After successful authorization, dispatch to payment network
+            paymentNetworkGateway.send(t);
+
             uow.commit();
         } catch (RuntimeException e) {
             uow.rollback();
             throw e;
         }
     }
+
 
     /** UC 19 – Cancel Payment Order. */
     public void cancelPayment(int transferId) {

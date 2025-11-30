@@ -12,9 +12,12 @@ VIS_project_minibank/
    │        │                                       
    │        ├─ application/                         
    │        │  ├─ BootstrapServices.java            (class)  
+   │        │  ├─ FakePaymentNetworkGateway.java    (class)
    │        │  ├─ FixedOtpValidator.java            (class)
    │        │  ├─ FraudApplicationService.java      (class)
+   │        │  ├─ HttpPaymentNetworkGateway.java    (class)
    │        │  ├─ OtpValidator.java                 (interface)
+   │        │  ├─ PaymentNetworkGateway.java        (interface)
    │        │  └─ TransferApplicationService.java   (class)
    │        │
    │        ├─ demo/
@@ -57,7 +60,8 @@ VIS_project_minibank/
    │        │  ├─ RuleBasedRiskService.java     (interface)
    │        │  ├─ SimpleFeePolicy.java          (class)
    │        │  ├─ Transfer.java                 (class)
-   │        │  └─ TransferStatus.java           (enum)
+   │        │  ├─ TransferStatus.java           (enum)
+   │        │  └─ ZeroFeePolicy.java            (class)
    │        │
    │        ├─ infrastructure/
    │        │  ├─ json/
@@ -104,6 +108,12 @@ VIS_project_minibank/
    └─ test/
       └─ java/
          └─ cz/vsb/minibank/
+            ├─ application/
+            │  └─ FakePaymentNetworkGatewayTest.java     (unit test) 
+            │   
+            ├─ domain/
+            │  └─ ZeroFeePolicyTest.java     (unit test) 
+            │   
             └─ uow/
                ├─ MinibankLazyLoadTest.java     (unit test) 
                ├─ MinibankSqlUowTest.java       (unit test) 
