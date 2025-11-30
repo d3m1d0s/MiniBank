@@ -26,7 +26,7 @@ public class MinibankUowTests {
         dataPath = tempDir.resolve("data.json").toString();
         infra = new Bootstrap(dataPath);
 
-        // начальные данные (вне UoW — можно сразу сохранить)
+        // initial data (outside UoW - can be saved directly)
         int cid = infra.customers.nextId();
         Customer c = new Customer(cid, "Test User", "test@example.com", new Address("Street 1", "City"));
         infra.customers.save(c);
@@ -42,7 +42,7 @@ public class MinibankUowTests {
     @AfterEach
     void tearDown() throws IOException {
         if (tempDir != null) {
-            // очищаем временную папку
+            // clean up temporary folder
             Files.walk(tempDir)
                     .sorted((p1, p2) -> p2.compareTo(p1))
                     .forEach(p -> { try { Files.deleteIfExists(p); } catch (IOException ignored) {} });
@@ -59,7 +59,7 @@ public class MinibankUowTests {
             Account a1 = infra.accounts.byId(accId).orElseThrow();
             Account a2 = infra.accounts.byId(accId).orElseThrow();
 
-            assertSame(a1, a2, "В пределах одного UoW должны возвращаться один и тот же объект Account");
+            assertSame(a1, a2, "Within a single UoW the same Account instance should be returned");
             uow.commit();
         } catch (RuntimeException e) {
             uow.rollback(); throw e;
@@ -72,28 +72,28 @@ public class MinibankUowTests {
 
         UnitOfWork uow = infra.uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
-            // загружаем Customer в кэш
+            // load Customer into cache
             Customer cached = infra.customers.byId(customerId).orElseThrow();
-            assertTrue(cached.beneficiaries().isEmpty(), "Старт без получателей");
+            assertTrue(cached.beneficiaries().isEmpty(), "Start with no beneficiaries");
 
-            // сохраняем нового получателя — идёт через репозиторий с UoW
+            // save a new beneficiary - goes through repository with UoW
             int bid = infra.customers.nextBeneficiaryId();
             Beneficiary b = new Beneficiary(bid, "Alice", new IBAN("CZ0201000000000098765432"), false);
             infra.customers.saveBeneficiary(customerId, b);
 
-            // кэш агрегата должен быть обновлён немедленно:
-            assertEquals(1, cached.beneficiaries().size(), "Кэш агрегата Customer в UoW должен отражать изменения");
+            // aggregate cache should be updated immediately:
+            assertEquals(1, cached.beneficiaries().size(), "Customer aggregate cache in UoW should reflect changes");
             assertEquals(bid, cached.beneficiaries().get(0).id());
             uow.commit();
         } catch (RuntimeException e) {
             uow.rollback(); throw e;
         }
 
-        // новая сессия/UoW → читаем из персистентного хранилища
+        // new session/UoW -> read from persistent store
         UnitOfWork uow2 = infra.uowFactory.begin();
         try (UowScope __ = new UowScope(uow2)) {
             Customer reloaded = infra.customers.byId(customerId).orElseThrow();
-            assertEquals(1, reloaded.beneficiaries().size(), "После commit данные должны быть сохранены в JSON");
+            assertEquals(1, reloaded.beneficiaries().size(), "After commit, data should be saved in JSON");
             assertEquals("Alice", reloaded.beneficiaries().get(0).name());
             uow2.commit();
         } catch (RuntimeException e) {
@@ -107,16 +107,16 @@ public class MinibankUowTests {
 
         UnitOfWork uow = infra.uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
-            // сначала byId — кладём аккаунт в кэш
+            // first byId - put account into cache
             int accId = infra.accounts.byCustomerId(customerId).get(0).id();
             Account byId = infra.accounts.byId(accId).orElseThrow();
 
-            // затем byCustomerId — должен вернуть тот же инстанс
+            // then byCustomerId - should return the same instance
             List<Account> list = infra.accounts.byCustomerId(customerId);
             assertFalse(list.isEmpty());
             Account fromList = list.get(0);
 
-            assertSame(byId, fromList, "byCustomerId должен возвращать тот же инстанс из Identity Map в рамках UoW");
+            assertSame(byId, fromList, "byCustomerId should return the same instance from the Identity Map within the UoW");
             uow.commit();
         } catch (RuntimeException e) {
             uow.rollback(); throw e;
