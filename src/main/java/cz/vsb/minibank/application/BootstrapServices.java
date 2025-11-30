@@ -28,10 +28,32 @@ public class BootstrapServices {
                              UnitOfWorkFactory uowFactory,
                              boolean demoMode) {
 
-        FeePolicy feePolicy = demoMode ? new ZeroFeePolicy() : new SimpleFeePolicy();
-        RiskService risk = new RuleBasedRiskService();
-        OtpValidator otp = new FixedOtpValidator();
-        this.paymentGateway = new FakePaymentNetworkGateway();  // Service Stub
+        this(
+                customers,
+                accounts,
+                transfers,
+                alerts,
+                demoMode ? new ZeroFeePolicy() : new SimpleFeePolicy(),
+                new RuleBasedRiskService(),
+                new FixedOtpValidator(),
+                new FakePaymentNetworkGateway(),  // Service Stub
+                uowFactory
+        );
+    }
+
+    public BootstrapServices(CustomerRepository customers,
+                             AccountRepository accounts,
+                             TransferRepository transfers,
+                             FraudAlertRepository alerts,
+                             FeePolicy feePolicy,
+                             RiskService riskService,
+                             OtpValidator otp,
+                             PaymentNetworkGateway paymentGateway,
+                             UnitOfWorkFactory uowFactory) {
+
+        TransferEvents.register(new TransferAuditLogObserver());
+
+        this.paymentGateway = paymentGateway;
 
         this.transferService = new TransferApplicationService(
                 customers,
@@ -39,7 +61,7 @@ public class BootstrapServices {
                 transfers,
                 alerts,
                 feePolicy,
-                risk,
+                riskService,
                 otp,
                 paymentGateway,
                 uowFactory

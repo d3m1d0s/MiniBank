@@ -18,7 +18,8 @@ VIS_project_minibank/
    │        │  ├─ HttpPaymentNetworkGateway.java    (class)
    │        │  ├─ OtpValidator.java                 (interface)
    │        │  ├─ PaymentNetworkGateway.java        (interface)
-   │        │  └─ TransferApplicationService.java   (class)
+   │        │  ├─ TransferApplicationService.java   (class)   
+   │        │  └─ TransferAuditLogObserver.java     (class)
    │        │
    │        ├─ demo/
    │        │  └─ DemoRunner.java       (class)
@@ -60,6 +61,8 @@ VIS_project_minibank/
    │        │  ├─ RuleBasedRiskService.java     (interface)
    │        │  ├─ SimpleFeePolicy.java          (class)
    │        │  ├─ Transfer.java                 (class)
+   │        │  ├─ TransferEvents.java           (class)
+   │        │  ├─ TransferObserver.java         (interface)       
    │        │  ├─ TransferStatus.java           (enum)
    │        │  └─ ZeroFeePolicy.java            (class)
    │        │
@@ -103,7 +106,7 @@ VIS_project_minibank/
    │        ├─ ui/console/
    │        │  └─ ConsoleMenu.java    (class)
    │        │
-   │        └─ App.java      (class)
+   │        ├─ App.java      (class)
    │        └─ AppSql.java   (class)
    │
    └─ test/
@@ -114,7 +117,9 @@ VIS_project_minibank/
             │  └─ PaymentNetworkIntegrationTest.java     (unit test) 
             │   
             ├─ domain/
-            │  └─ ZeroFeePolicyTest.java     (unit test) 
+            │  ├─ TransferEventsTest.java                     (unit test)             
+            │  ├─ TransferStatusObserverIntegrationTest.java  (unit test) 
+            │  └─ ZeroFeePolicyTest.java                      (unit test) 
             │   
             └─ uow/
                ├─ MinibankLazyLoadTest.java     (unit test) 

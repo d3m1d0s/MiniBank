@@ -6,6 +6,7 @@ import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.domain.lazy.LazyRef;
 import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.Beneficiary;
+import cz.vsb.minibank.domain.TransferEvents;
 
 
 
@@ -49,24 +50,38 @@ public class Transfer {
     public void requestAuthorization(Payment method) {
         if (status != TransferStatus.CREATED)
             throw new InvalidStateTransitionException("Authorization allowed only from CREATED");
+
+        TransferStatus old = this.status;
+
         this.authMethod = method;
         this.status = TransferStatus.WAITING_AUTH;
+
+        TransferEvents.notifyStatusChanged(this, old, this.status);
     }
 
 
     public void send(Account source, FeePolicy policy) {
         if (status != TransferStatus.CREATED && status != TransferStatus.WAITING_AUTH)
             throw new InvalidStateTransitionException("Cannot send from status: " + status);
+
         source.debit(this.amount, feeAmount(policy));
+
+        TransferStatus old = this.status;
         this.status = TransferStatus.SENT;
+
+        TransferEvents.notifyStatusChanged(this, old, this.status);
     }
 
 
     public void decline(String reason) {
         if (status == TransferStatus.SENT)
             throw new InvalidStateTransitionException("Cannot decline already SENT transfer");
+
+        TransferStatus old = this.status;
         this.status = TransferStatus.DECLINED;
         this.declineReason = reason;
+
+        TransferEvents.notifyStatusChanged(this, old, this.status);
     }
 
     public void hydrateForLoad(TransferStatus status, Payment authMethod, String declineReason, java.time.Instant createdAt) {
