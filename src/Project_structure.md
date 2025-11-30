@@ -104,6 +104,7 @@ VIS_project_minibank/
    │        │  └─ ConsoleMenu.java    (class)
    │        │
    │        └─ App.java      (class)
+   │        └─ AppSql.java   (class)
    │
    └─ test/
       └─ java/
