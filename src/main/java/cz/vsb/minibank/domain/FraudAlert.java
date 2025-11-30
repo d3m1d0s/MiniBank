@@ -26,8 +26,17 @@ public class FraudAlert {
     }
 
 
-    public void approve() { this.state = FraudAlertState.OK; }
-    public void markSuspicious(String reason) { this.state = FraudAlertState.SUSPICIOUS; this.reason = reason; }
+    public void approve() {
+        FraudAlertState old = this.state;
+        this.state = FraudAlertState.OK;
+        FraudAlertEvents.notifyStateChanged(this, old, this.state);
+    }
+    public void markSuspicious(String reason) {
+        FraudAlertState old = this.state;
+        this.state = FraudAlertState.SUSPICIOUS;
+        this.reason = reason;
+        FraudAlertEvents.notifyStateChanged(this, old, this.state);
+    }
 
 
     public int id() { return id; }

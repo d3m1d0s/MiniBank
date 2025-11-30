@@ -3,6 +3,7 @@ package cz.vsb.minibank.application;
 import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
+import cz.vsb.minibank.domain.FraudAlertEvents;
 
 public class BootstrapServices {
 
@@ -52,6 +53,7 @@ public class BootstrapServices {
                              UnitOfWorkFactory uowFactory) {
 
         TransferEvents.register(new TransferAuditLogObserver());
+        FraudAlertEvents.register(new FraudAlertAuditLogObserver());
 
         this.paymentGateway = paymentGateway;
 

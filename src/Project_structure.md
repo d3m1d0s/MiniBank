@@ -14,6 +14,7 @@ VIS_project_minibank/
    │        │  ├─ BootstrapServices.java            (class)  
    │        │  ├─ FakePaymentNetworkGateway.java    (class)
    │        │  ├─ FixedOtpValidator.java            (class)
+   │        │  ├─ FraudAlertAuditLogObserver.java   (class)
    │        │  ├─ FraudApplicationService.java      (class)
    │        │  ├─ HttpPaymentNetworkGateway.java    (class)
    │        │  ├─ OtpValidator.java                 (interface)
@@ -54,6 +55,8 @@ VIS_project_minibank/
    │        │  ├─ Customer.java                 (class)
    │        │  ├─ FeePolicy.java                (interface)
    │        │  ├─ FraudAlert.java               (class)
+   │        │  ├─ FraudAlertEvents.java         (class)   
+   │        │  ├─ FraudAlertObserver.java        (class)    
    │        │  ├─ FraudAlertState.java          (enum)
    │        │  ├─ Payment.java                  (abstract)
    │        │  ├─ RiskDecision.java             (final)
@@ -117,6 +120,7 @@ VIS_project_minibank/
             │  └─ PaymentNetworkIntegrationTest.java     (unit test) 
             │   
             ├─ domain/
+            │  ├─ FraudAlertEventsTest.java                   (unit test)               
             │  ├─ TransferEventsTest.java                     (unit test)             
             │  ├─ TransferStatusObserverIntegrationTest.java  (unit test) 
             │  └─ ZeroFeePolicyTest.java                      (unit test) 
