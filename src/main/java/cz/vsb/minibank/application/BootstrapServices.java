@@ -8,6 +8,7 @@ public class BootstrapServices {
 
     public final TransferApplicationService transferService;
     public final FraudApplicationService fraudService;
+    public final PaymentNetworkGateway paymentGateway; // for integration tests and possibly UI
 
     public BootstrapServices(CustomerRepository customers,
                              AccountRepository accounts,
@@ -30,7 +31,7 @@ public class BootstrapServices {
         FeePolicy feePolicy = demoMode ? new ZeroFeePolicy() : new SimpleFeePolicy();
         RiskService risk = new RuleBasedRiskService();
         OtpValidator otp = new FixedOtpValidator();
-        PaymentNetworkGateway paymentGateway = new FakePaymentNetworkGateway();
+        this.paymentGateway = new FakePaymentNetworkGateway();  // Service Stub
 
         this.transferService = new TransferApplicationService(
                 customers,
@@ -43,6 +44,7 @@ public class BootstrapServices {
                 paymentGateway,
                 uowFactory
         );
+
         this.fraudService = new FraudApplicationService(
                 transfers,
                 alerts,

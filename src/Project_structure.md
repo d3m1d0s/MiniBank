@@ -109,7 +109,8 @@ VIS_project_minibank/
       └─ java/
          └─ cz/vsb/minibank/
             ├─ application/
-            │  └─ FakePaymentNetworkGatewayTest.java     (unit test) 
+            │  ├─ FakePaymentNetworkGatewayTest.java     (unit test) 
+            │  └─ PaymentNetworkIntegrationTest.java     (unit test) 
             │   
             ├─ domain/
             │  └─ ZeroFeePolicyTest.java     (unit test) 
