@@ -107,7 +107,8 @@ VIS_project_minibank/
    │        │  └─ Bootstrap.java   (class)
    │        │
    │        ├─ ui/console/
-   │        │  └─ ConsoleMenu.java    (class)
+   │        │  ├─ ConsoleCommand.java    (interface)   
+   │        │  └─ ConsoleMenu.java       (class)
    │        │
    │        ├─ App.java      (class)
    │        └─ AppSql.java   (class)
@@ -125,6 +126,10 @@ VIS_project_minibank/
             │  ├─ TransferStatusObserverIntegrationTest.java  (unit test) 
             │  └─ ZeroFeePolicyTest.java                      (unit test) 
             │   
+            ├─ ui/
+            │  └─ console/      
+            │     └─ ConsoleMenuCommandTests.java      (unit test)                                         
+            │
             └─ uow/
                ├─ MinibankLazyLoadTest.java     (unit test) 
                ├─ MinibankSqlUowTest.java       (unit test) 

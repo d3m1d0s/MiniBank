@@ -18,40 +18,86 @@ public class ConsoleMenu {
     private final Bootstrap infra;
     private final int customerId;
     private final Scanner in = new Scanner(System.in);
+    private final List<ConsoleCommand> commands = new ArrayList<>();
 
     public ConsoleMenu(BootstrapServices services, Bootstrap infra, int customerId) {
         this.services = services;
         this.infra = infra;
         this.customerId = customerId;
+
+        // NOTE: SimpleCommand is an internal implementation of ConsoleCommand
+        commands.add(new SimpleCommand("1", "Display customer and accounts",
+                this::showCustomerAndAccounts));
+        commands.add(new SimpleCommand("2", "Add beneficiary",
+                this::addBeneficiary));
+        commands.add(new SimpleCommand("3", "Send payment to a saved beneficiary",
+                this::submitPaymentByBeneficiary));
+        commands.add(new SimpleCommand("4", "Send payment to IBAN",
+                this::submitPaymentToIban));
+        commands.add(new SimpleCommand("5", "Authorize payment (UC 05)",
+                this::authorizePayment));
+        commands.add(new SimpleCommand("6", "Fraud alerts: list / approve / decline / request (UC 11/12)",
+                this::fraudMenu));
+        commands.add(new SimpleCommand("7", "Cancel payment (UC 19)",
+                this::cancelPayment));
+        commands.add(new SimpleCommand("8", "List transfers by account",
+                this::listTransfersByAccount));
+        // The "Exit" command could be a separate command, but it is simpler to handle it in run()
+    }
+
+    /**
+     * Simple implementation of ConsoleCommand that delegates to a Runnable.
+     * This is our concrete Command type.
+     */
+    private static final class SimpleCommand implements ConsoleCommand {
+        private final String code;
+        private final String description;
+        private final Runnable action;
+
+        SimpleCommand(String code, String description, Runnable action) {
+            this.code = code;
+            this.description = description;
+            this.action = action;
+        }
+
+        @Override public String code() { return code; }
+        @Override public String description() { return description; }
+
+        @Override
+        public void execute() {
+            // You can add user action logging here:
+            // System.out.println("[CMD] " + code + " - " + description);
+            action.run();
+        }
     }
 
     public void run() {
         while (true) {
             System.out.println("\n=== Mini-bank (Domain Model) ===");
-            System.out.println("1) Display customer and accounts");
-            System.out.println("2) Add beneficiary");
-            System.out.println("3) Send payment to a saved beneficiary");
-            System.out.println("4) Send payment to IBAN");
-            System.out.println("5) Authorize payment (UC 05)");
-            System.out.println("6) Fraud alerts: list / approve / decline / request confirm (UC 11/12)");
-            System.out.println("7) Cancel payment (UC 19)");
-            System.out.println("8) List transfers by account");
+            for (ConsoleCommand cmd : commands) {
+                System.out.printf("%s) %s%n", cmd.code(), cmd.description());
+            }
             System.out.println("9) Exit");
             System.out.print("Choice: ");
             String choice = in.nextLine().trim();
+
+            if ("9".equals(choice)) {
+                System.out.println("Bye!");
+                return;
+            }
+
+            ConsoleCommand cmd = commands.stream()
+                    .filter(c -> c.code().equals(choice))
+                    .findFirst()
+                    .orElse(null);
+
+            if (cmd == null) {
+                System.out.println("Invalid choice");
+                continue;
+            }
+
             try {
-                switch (choice) {
-                    case "1" -> showCustomerAndAccounts();
-                    case "2" -> addBeneficiary();
-                    case "3" -> submitPaymentByBeneficiary();
-                    case "4" -> submitPaymentToIban();
-                    case "5" -> authorizePayment();
-                    case "6" -> fraudMenu();
-                    case "7" -> cancelPayment();
-                    case "8" -> listTransfersByAccount();
-                    case "9" -> { System.out.println("Bye!"); return; }
-                    default -> System.out.println("Invalid choice");
-                }
+                cmd.execute();
             } catch (Exception e) {
                 System.out.println("[Error] " + e.getMessage());
             }
@@ -100,7 +146,6 @@ public class ConsoleMenu {
             throw e;
         }
     }
-
 
     private void submitPaymentByBeneficiary() {
         var accounts = infra.accounts.byCustomerId(customerId);
