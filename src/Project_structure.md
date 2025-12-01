@@ -10,7 +10,8 @@ VIS_project_minibank/
    │  └─ java/
    │     └─ cz/vsb/minibank/
    │        │                                       
-   │        ├─ application/                         
+   │        ├─ application/     
+   │        │  ├─ AuthService.java                  (class)                    
    │        │  ├─ BootstrapServices.java            (class)  
    │        │  ├─ FakePaymentNetworkGateway.java    (class)
    │        │  ├─ FixedOtpValidator.java            (class)
@@ -18,7 +19,10 @@ VIS_project_minibank/
    │        │  ├─ FraudApplicationService.java      (class)
    │        │  ├─ HttpPaymentNetworkGateway.java    (class)
    │        │  ├─ OtpValidator.java                 (interface)
+   │        │  ├─ PasswordEncoder.java              (interface)   
    │        │  ├─ PaymentNetworkGateway.java        (interface)
+   │        │  ├─ Pbkdf2PasswordEncoder.java        (class)   
+   │        │  ├─ SecurityContext.java              (class)    
    │        │  ├─ TransferApplicationService.java   (class)   
    │        │  └─ TransferAuditLogObserver.java     (class)
    │        │
@@ -42,7 +46,8 @@ VIS_project_minibank/
    │        │  │  ├─ AccountRepository.java     (interface)
    │        │  │  ├─ CustomerRepository.java    (interface)
    │        │  │  ├─ FraudAlertRepository.java  (interface)
-   │        │  │  └─ TransferRepository.java    (interface)
+   │        │  │  ├─ TransferRepository.java    (interface)
+   │        │  │  └─ UserRepository.java        (interface)   
    │        │  │
    │        │  ├─ value/
    │        │  │  ├─ IBAN.java      (class)
@@ -67,6 +72,8 @@ VIS_project_minibank/
    │        │  ├─ TransferEvents.java           (class)
    │        │  ├─ TransferObserver.java         (interface)       
    │        │  ├─ TransferStatus.java           (enum)
+   │        │  ├─ User.java                     (class) 
+   │        │  ├─ UserRole.java                 (enum)  
    │        │  └─ ZeroFeePolicy.java            (class)
    │        │
    │        ├─ infrastructure/
@@ -89,12 +96,16 @@ VIS_project_minibank/
    │        │  │  ├─ JsonUnitOfWork.java            (class)
    │        │  │  └─ JsonUnitOfWorkFactory.java     (class)
    │        │  │
+   │        │  ├─ memory/
+   │        │  │  └─ InMemoryUserRepository    (class)
+   │        │  │   
    │        │  ├─ sql/
    │        │  │  ├─ repo/
    │        │  │  │  ├─ SqlAccountRepository.java      (class)
    │        │  │  │  ├─ SqlCustomerRepository.java     (class)
    │        │  │  │  ├─ SqlFraudAlertRepository.java   (class)
-   │        │  │  │  └─ SqlTransferRepository.java     (class)
+   │        │  │  │  ├─ SqlTransferRepository.java     (class)
+   │        │  │  │  └─ SqlUserRepository.java         (class)   
    │        │  │  ├─ SqlUnitOfWork.java            (class)
    │        │  │  └─ SqlUnitOfWorkFactory.java     (class)
    │        │  │
@@ -117,7 +128,9 @@ VIS_project_minibank/
       └─ java/
          └─ cz/vsb/minibank/
             ├─ application/
+            │  ├─ AuthServiceTest.java                   (unit test)            
             │  ├─ FakePaymentNetworkGatewayTest.java     (unit test) 
+            │  ├─ Pbkdf2PasswordEncoderTest.java         (unit test)            
             │  └─ PaymentNetworkIntegrationTest.java     (unit test) 
             │   
             ├─ domain/
@@ -128,7 +141,8 @@ VIS_project_minibank/
             │   
             ├─ ui/
             │  └─ console/      
-            │     └─ ConsoleMenuCommandTests.java      (unit test)                                         
+            │     ├─ ConsoleMenuCommandTests.java      (unit test)  
+            │     └─ ConsoleMenuRolesTest.java         (unit test)                                                   
             │
             └─ uow/
                ├─ MinibankLazyLoadTest.java     (unit test) 

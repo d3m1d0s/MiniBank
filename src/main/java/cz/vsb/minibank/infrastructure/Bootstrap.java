@@ -8,6 +8,9 @@ import cz.vsb.minibank.infrastructure.json.JsonUnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.sql.repo.*;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
+import cz.vsb.minibank.domain.repository.UserRepository;
+import cz.vsb.minibank.infrastructure.memory.InMemoryUserRepository;
+import cz.vsb.minibank.infrastructure.sql.repo.SqlUserRepository;
 
 
 public class Bootstrap {
@@ -16,6 +19,7 @@ public class Bootstrap {
     public final CustomerRepository customers;
     public final TransferRepository transfers;
     public final FraudAlertRepository alerts;
+    public final UserRepository users;
     public final UnitOfWorkFactory uowFactory;
 
 
@@ -26,6 +30,7 @@ public class Bootstrap {
         this.customers = new JsonCustomerRepository(store);
         this.transfers = new JsonTransferRepository(store);
         this.alerts = new JsonFraudAlertRepository(store);
+        this.users = new InMemoryUserRepository();
         this.uowFactory = new JsonUnitOfWorkFactory(store);
     }
 
@@ -36,7 +41,7 @@ public class Bootstrap {
         this.customers = new SqlCustomerRepository(jdbcUrl, user, password);
         this.transfers = new SqlTransferRepository(jdbcUrl, user, password);
         this.alerts = new SqlFraudAlertRepository(jdbcUrl, user, password);
-
+        this.users = new SqlUserRepository(jdbcUrl, user, password);
         this.uowFactory = new SqlUnitOfWorkFactory(jdbcUrl, user, password);
     }
 }

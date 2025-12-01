@@ -1,80 +1,213 @@
 package cz.vsb.minibank.ui.console;
 
+import cz.vsb.minibank.application.AuthService;
 import cz.vsb.minibank.application.BootstrapServices;
-import cz.vsb.minibank.application.TransferApplicationService;
-import cz.vsb.minibank.application.FraudApplicationService;
 import cz.vsb.minibank.domain.*;
-import cz.vsb.minibank.domain.repository.*;
+import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
+import cz.vsb.minibank.domain.repository.AccountRepository;
+import cz.vsb.minibank.domain.repository.CustomerRepository;
+import cz.vsb.minibank.domain.repository.FraudAlertRepository;
+import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
-import cz.vsb.minibank.domain.value.Money;
+import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
-import cz.vsb.minibank.infrastructure.Bootstrap;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Scanner;
 
 public class ConsoleMenu {
     private final BootstrapServices services;
     private final Bootstrap infra;
-    private final int customerId;
+    private final AuthService authService;        // null = legacy mode without login
+    private final int customerId;                // >0 = legacy mode with fixed customer
+
     private final Scanner in = new Scanner(System.in);
     private final List<ConsoleCommand> commands = new ArrayList<>();
 
+    private User currentUser;                    // user obtained from AuthService/login
+
+    // Legacy constructor: used by tests and App (JSON mode)
     public ConsoleMenu(BootstrapServices services, Bootstrap infra, int customerId) {
         this.services = services;
         this.infra = infra;
+        this.authService = null;
         this.customerId = customerId;
+        initCommands();
+    }
 
-        // NOTE: SimpleCommand is an internal implementation of ConsoleCommand
-        commands.add(new SimpleCommand("1", "Display customer and accounts",
-                this::showCustomerAndAccounts));
-        commands.add(new SimpleCommand("2", "Add beneficiary",
-                this::addBeneficiary));
-        commands.add(new SimpleCommand("3", "Send payment to a saved beneficiary",
-                this::submitPaymentByBeneficiary));
-        commands.add(new SimpleCommand("4", "Send payment to IBAN",
-                this::submitPaymentToIban));
-        commands.add(new SimpleCommand("5", "Authorize payment (UC 05)",
-                this::authorizePayment));
-        commands.add(new SimpleCommand("6", "Fraud alerts: list / approve / decline / request (UC 11/12)",
-                this::fraudMenu));
-        commands.add(new SimpleCommand("7", "Cancel payment (UC 19)",
-                this::cancelPayment));
-        commands.add(new SimpleCommand("8", "List transfers by account",
-                this::listTransfersByAccount));
-        // The "Exit" command could be a separate command, but it is simpler to handle it in run()
+    // New constructor: used by AppSql, with login + roles
+    public ConsoleMenu(BootstrapServices services, Bootstrap infra, AuthService authService) {
+        this.services = services;
+        this.infra = infra;
+        this.authService = authService;
+        this.customerId = -1;
+        initCommands();
     }
 
     /**
      * Simple implementation of ConsoleCommand that delegates to a Runnable.
-     * This is our concrete Command type.
+     * Supports RBAC: allowedRoles == null => command is visible to all roles.
      */
     private static final class SimpleCommand implements ConsoleCommand {
         private final String code;
         private final String description;
         private final Runnable action;
+        private final UserRole[] allowedRoles; // null = visible to all roles
 
         SimpleCommand(String code, String description, Runnable action) {
+            this(code, description, action, (UserRole[]) null);
+        }
+
+        SimpleCommand(String code,
+                      String description,
+                      Runnable action,
+                      UserRole... allowedRoles) {
             this.code = code;
             this.description = description;
             this.action = action;
+            this.allowedRoles = allowedRoles;
         }
 
-        @Override public String code() { return code; }
-        @Override public String description() { return description; }
+        @Override
+        public String code() { return code; }
 
         @Override
-        public void execute() {
-            // You can add user action logging here:
-            // System.out.println("[CMD] " + code + " - " + description);
-            action.run();
+        public String description() { return description; }
+
+        @Override
+        public void execute() { action.run(); }
+
+        @Override
+        public boolean isVisibleFor(UserRole role) {
+            if (allowedRoles == null || role == null) {
+                return true;
+            }
+            for (UserRole r : allowedRoles) {
+                if (r == role) return true;
+            }
+            return false;
         }
     }
 
+    private void initCommands() {
+        // CUSTOMER commands
+        commands.add(new SimpleCommand(
+                "1",
+                "Display customer and accounts",
+                this::showCustomerAndAccounts,
+                UserRole.CUSTOMER
+        ));
+        commands.add(new SimpleCommand(
+                "2",
+                "Add beneficiary",
+                this::addBeneficiary,
+                UserRole.CUSTOMER
+        ));
+        commands.add(new SimpleCommand(
+                "3",
+                "Send payment to a saved beneficiary",
+                this::submitPaymentByBeneficiary,
+                UserRole.CUSTOMER
+        ));
+        commands.add(new SimpleCommand(
+                "4",
+                "Send payment to IBAN",
+                this::submitPaymentToIban,
+                UserRole.CUSTOMER
+        ));
+        commands.add(new SimpleCommand(
+                "5",
+                "Authorize payment (UC 05)",
+                this::authorizePayment,
+                UserRole.CUSTOMER
+        ));
+        commands.add(new SimpleCommand(
+                "7",
+                "Cancel payment (UC 19)",
+                this::cancelPayment,
+                UserRole.CUSTOMER
+        ));
+        commands.add(new SimpleCommand(
+                "8",
+                "List transfers by account",
+                this::listTransfersByAccount,
+                UserRole.CUSTOMER
+        ));
+
+        // FRAUD_ANALYST commands
+        commands.add(new SimpleCommand(
+                "6",
+                "Fraud alerts: list / approve / decline / request (UC 11/12)",
+                this::fraudMenu,
+                UserRole.FRAUD_ANALYST
+        ));
+
+        // Exit is kept out of the list and handled as option 9
+    }
+
+    /**
+     * Login is required only when:
+     * - we have AuthService (new mode),
+     * - and there is no fixed customerId (legacy mode).
+     */
+    private void loginIfNeeded() {
+        if (authService == null || customerId > 0) {
+            return; // legacy mode, no login required
+        }
+
+        while (true) {
+            System.out.println("=== Login ===");
+            System.out.print("Username: ");
+            String username = in.nextLine().trim();
+
+            System.out.print("Password: ");
+            String password = in.nextLine(); // for console demo this is acceptable
+
+            try {
+                currentUser = authService.login(username, password.toCharArray());
+                System.out.println("Welcome, " + currentUser.username()
+                        + " (" + currentUser.role() + ")");
+                break;
+            } catch (AuthorizationFailedException e) {
+                System.out.println("Invalid username or password, please try again.");
+            }
+        }
+    }
+
+    /**
+     * Resolves the customer id for a CUSTOMER:
+     * - in the new mode it is taken from currentUser.customerId()
+     * - in the legacy mode it uses the customerId field.
+     */
+    private int resolveCustomerId() {
+        if (currentUser != null) {
+            Integer cid = currentUser.customerId();
+            if (cid == null) {
+                throw new AuthorizationFailedException("Current user is not a customer");
+            }
+            return cid;
+        }
+        if (customerId <= 0) {
+            throw new AuthorizationFailedException("No customer id available");
+        }
+        return customerId;
+    }
+
     public void run() {
+        // enable login if needed
+        loginIfNeeded();
+
         while (true) {
             System.out.println("\n=== Mini-bank (Domain Model) ===");
+
             for (ConsoleCommand cmd : commands) {
+                if (currentUser != null) {
+                    if (!cmd.isVisibleFor(currentUser.role())) {
+                        continue;
+                    }
+                }
                 System.out.printf("%s) %s%n", cmd.code(), cmd.description());
             }
             System.out.println("9) Exit");
@@ -88,6 +221,7 @@ public class ConsoleMenu {
 
             ConsoleCommand cmd = commands.stream()
                     .filter(c -> c.code().equals(choice))
+                    .filter(c -> currentUser == null || c.isVisibleFor(currentUser.role()))
                     .findFirst()
                     .orElse(null);
 
@@ -105,13 +239,17 @@ public class ConsoleMenu {
     }
 
     private void showCustomerAndAccounts() {
-        var cust = infra.customers.byId(customerId).orElseThrow();
+        int cid = resolveCustomerId();
+        CustomerRepository customers = infra.customers;
+        AccountRepository accounts = infra.accounts;
+
+        var cust = customers.byId(cid).orElseThrow();
         System.out.println("\nCustomer: " + cust.name() + " (id=" + cust.id() + ")");
         System.out.println("Email: " + cust.email());
         System.out.println("Address: " + cust.address().street() + ", " + cust.address().city());
         System.out.println("Accounts:");
-        var accounts = infra.accounts.byCustomerId(customerId);
-        for (Account a : accounts) {
+        var accs = accounts.byCustomerId(cid);
+        for (Account a : accs) {
             System.out.println("  - id=" + a.id() + ", IBAN=" + a.iban().value() + ", balance=" + a.balance());
         }
         System.out.println("Beneficiaries:");
@@ -121,9 +259,12 @@ public class ConsoleMenu {
     }
 
     private void addBeneficiary() {
+        int cid = resolveCustomerId();
+        CustomerRepository customers = infra.customers;
+
         UnitOfWork uow = infra.uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
-            var cust = infra.customers.byId(customerId).orElseThrow();
+            var cust = customers.byId(cid).orElseThrow();
 
             System.out.print("Beneficiary name: ");
             String name = in.nextLine().trim();
@@ -134,10 +275,10 @@ public class ConsoleMenu {
             System.out.print("Trusted? (y/N): ");
             boolean trusted = in.nextLine().trim().equalsIgnoreCase("y");
 
-            int bid = infra.customers.nextBeneficiaryId();
+            int bid = customers.nextBeneficiaryId();
             Beneficiary b = new Beneficiary(bid, name, new IBAN(iban), trusted);
 
-            infra.customers.saveBeneficiary(customerId, b);
+            customers.saveBeneficiary(cust.id(), b);
 
             uow.commit();
             System.out.println("[OK] Beneficiary added id=" + bid);
@@ -148,23 +289,39 @@ public class ConsoleMenu {
     }
 
     private void submitPaymentByBeneficiary() {
-        var accounts = infra.accounts.byCustomerId(customerId);
-        if (accounts.isEmpty()) { System.out.println("No accounts"); return; }
-        int accId = askInt("Source account id", accounts.get(0).id());
+        int cid = resolveCustomerId();
+        AccountRepository accounts = infra.accounts;
+
+        var accs = accounts.byCustomerId(cid);
+        if (accs.isEmpty()) {
+            System.out.println("No accounts");
+            return;
+        }
+
+        int accId = askInt("Source account id", accs.get(0).id());
         int benId = askInt("Beneficiary id", -1);
         double amount = askDouble("Amount CZK", 1000);
-        int tid = services.transferService.submitPaymentByBeneficiary(customerId, accId, benId, amount, "");
+
+        int tid = services.transferService.submitPaymentByBeneficiary(cid, accId, benId, amount, "");
         System.out.println("[OK] Transfer created id=" + tid);
     }
 
     private void submitPaymentToIban() {
-        var accounts = infra.accounts.byCustomerId(customerId);
-        if (accounts.isEmpty()) { System.out.println("No accounts"); return; }
-        int accId = askInt("Source account id", accounts.get(0).id());
+        int cid = resolveCustomerId();
+        AccountRepository accounts = infra.accounts;
+
+        var accs = accounts.byCustomerId(cid);
+        if (accs.isEmpty()) {
+            System.out.println("No accounts");
+            return;
+        }
+
+        int accId = askInt("Source account id", accs.get(0).id());
         System.out.print("Target IBAN: ");
         String iban = in.nextLine().trim();
         double amount = askDouble("Amount CZK", 6000);
-        int tid = services.transferService.submitPaymentToIban(customerId, accId, iban, amount, "");
+
+        int tid = services.transferService.submitPaymentToIban(cid, accId, iban, amount, "");
         System.out.println("[OK] Transfer created id=" + tid);
     }
 
@@ -172,23 +329,37 @@ public class ConsoleMenu {
         int tid = askInt("Transfer id", -1);
         System.out.print("OTP (0000/123456): ");
         String otp = in.nextLine().trim();
+
         services.transferService.authorizePayment(tid, otp);
-        var t = infra.transfers.byId(tid).orElseThrow();
+
+        TransferRepository transfers = infra.transfers;
+        AccountRepository accounts = infra.accounts;
+
+        var t = transfers.byId(tid).orElseThrow();
         System.out.println("[Result] Transfer " + tid + " has status " + t.status());
-        var acc = infra.accounts.byId(t.sourceAccountId()).orElseThrow();
+
+        var acc = accounts.byId(t.sourceAccountId()).orElseThrow();
         System.out.println("Account id=" + acc.id() + " balance=" + acc.balance());
     }
 
     private void fraudMenu() {
-        var list = infra.alerts.all();
-        if (list.isEmpty()) { System.out.println("No alerts"); return; }
+        FraudAlertRepository alerts = infra.alerts;
+        var list = alerts.all();
+        if (list.isEmpty()) {
+            System.out.println("No alerts");
+            return;
+        }
+
         System.out.println("Alerts:");
         for (FraudAlert a : list) {
-            System.out.println("  - id=" + a.id() + ", transfer=" + a.transferId() + ", state=" + a.state() + ", reason=" + a.reason());
+            System.out.println("  - id=" + a.id() + ", transfer=" + a.transferId()
+                    + ", state=" + a.state() + ", reason=" + a.reason());
         }
+
         System.out.print("Action (approve/decline/request): ");
         String act = in.nextLine().trim();
         int tid = askInt("Transfer id", -1);
+
         switch (act.toLowerCase()) {
             case "approve" -> services.fraudService.approve(tid);
             case "decline" -> {
@@ -204,18 +375,35 @@ public class ConsoleMenu {
     private void cancelPayment() {
         int tid = askInt("Transfer id", -1);
         services.transferService.cancelPayment(tid);
-        var t = infra.transfers.byId(tid).orElseThrow();
+
+        TransferRepository transfers = infra.transfers;
+        var t = transfers.byId(tid).orElseThrow();
         System.out.println("[Result] Transfer " + tid + " has status " + t.status());
     }
 
     private void listTransfersByAccount() {
-        var accounts = infra.accounts.byCustomerId(customerId);
-        if (accounts.isEmpty()) { System.out.println("No accounts"); return; }
-        int accId = askInt("Account id", accounts.get(0).id());
-        var list = infra.transfers.bySourceAccount(accId);
-        if (list.isEmpty()) { System.out.println("No transfers"); return; }
+        int cid = resolveCustomerId();
+        AccountRepository accounts = infra.accounts;
+        TransferRepository transfers = infra.transfers;
+
+        var accs = accounts.byCustomerId(cid);
+        if (accs.isEmpty()) {
+            System.out.println("No accounts");
+            return;
+        }
+
+        int accId = askInt("Account id", accs.get(0).id());
+        var list = transfers.bySourceAccount(accId);
+        if (list.isEmpty()) {
+            System.out.println("No transfers");
+            return;
+        }
+
         for (Transfer t : list) {
-            System.out.println("  - id=" + t.id() + ", status=" + t.status() + ", amount=" + t.amount() + ", to=" + t.targetIbanSnapshot());
+            System.out.println("  - id=" + t.id()
+                    + ", status=" + t.status()
+                    + ", amount=" + t.amount()
+                    + ", to=" + t.targetIbanSnapshot());
         }
     }
 

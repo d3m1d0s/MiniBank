@@ -4,12 +4,14 @@ DROP TABLE IF EXISTS transfers CASCADE;
 DROP TABLE IF EXISTS beneficiaries CASCADE;
 DROP TABLE IF EXISTS accounts CASCADE;
 DROP TABLE IF EXISTS customers CASCADE;
+DROP TABLE IF EXISTS users CASCADE;
 
 DROP SEQUENCE IF EXISTS fraud_alerts_id_seq;
 DROP SEQUENCE IF EXISTS transfers_id_seq;
 DROP SEQUENCE IF EXISTS beneficiaries_id_seq;
 DROP SEQUENCE IF EXISTS accounts_id_seq;
 DROP SEQUENCE IF EXISTS customers_id_seq;
+DROP SEQUENCE IF EXISTS users_id_seq;
 
 ------------------------------------------------------------
 -- CUSTOMERS
@@ -26,6 +28,23 @@ CREATE TABLE customers (
 CREATE SEQUENCE customers_id_seq;
 ALTER TABLE customers
     ALTER COLUMN id SET DEFAULT nextval('customers_id_seq');
+
+------------------------------------------------------------
+-- USERS (authentication / roles)
+------------------------------------------------------------
+
+CREATE TABLE users (
+                       id             INTEGER PRIMARY KEY,
+                       username       VARCHAR(64) NOT NULL UNIQUE,
+                       role           VARCHAR(32) NOT NULL, -- name of UserRole enum
+                       customer_id    INTEGER NULL REFERENCES customers(id) ON DELETE SET NULL,
+                       password_hash  BYTEA NOT NULL,
+                       password_salt  BYTEA NOT NULL
+);
+
+CREATE SEQUENCE users_id_seq;
+ALTER TABLE users
+    ALTER COLUMN id SET DEFAULT nextval('users_id_seq');
 
 ------------------------------------------------------------
 -- ACCOUNTS
