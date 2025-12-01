@@ -10,7 +10,8 @@ VIS_project_minibank/
    │  └─ java/
    │     └─ cz/vsb/minibank/
    │        │                                       
-   │        ├─ application/     
+   │        ├─ application/    
+   │        │  ├─ AppLogger.java                    (class) 
    │        │  ├─ AuthService.java                  (class)                    
    │        │  ├─ BootstrapServices.java            (class)  
    │        │  ├─ FakePaymentNetworkGateway.java    (class)
@@ -18,6 +19,7 @@ VIS_project_minibank/
    │        │  ├─ FraudAlertAuditLogObserver.java   (class)
    │        │  ├─ FraudApplicationService.java      (class)
    │        │  ├─ HttpPaymentNetworkGateway.java    (class)
+   │        │  ├─ LogLevel.java                     (enum)   
    │        │  ├─ OtpValidator.java                 (interface)
    │        │  ├─ PasswordEncoder.java              (interface)   
    │        │  ├─ PaymentNetworkGateway.java        (interface)
@@ -61,7 +63,7 @@ VIS_project_minibank/
    │        │  ├─ FeePolicy.java                (interface)
    │        │  ├─ FraudAlert.java               (class)
    │        │  ├─ FraudAlertEvents.java         (class)   
-   │        │  ├─ FraudAlertObserver.java        (class)    
+   │        │  ├─ FraudAlertObserver.java       (class)    
    │        │  ├─ FraudAlertState.java          (enum)
    │        │  ├─ Payment.java                  (abstract)
    │        │  ├─ RiskDecision.java             (final)
@@ -128,6 +130,7 @@ VIS_project_minibank/
       └─ java/
          └─ cz/vsb/minibank/
             ├─ application/
+            │  ├─ AppLoggerTest.java                     (unit test)            
             │  ├─ AuthServiceTest.java                   (unit test)            
             │  ├─ FakePaymentNetworkGatewayTest.java     (unit test) 
             │  ├─ Pbkdf2PasswordEncoderTest.java         (unit test)            

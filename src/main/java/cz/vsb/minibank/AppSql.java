@@ -1,9 +1,6 @@
 package cz.vsb.minibank;
 
-import cz.vsb.minibank.application.AuthService;
-import cz.vsb.minibank.application.BootstrapServices;
-import cz.vsb.minibank.application.PasswordEncoder;
-import cz.vsb.minibank.application.Pbkdf2PasswordEncoder;
+import cz.vsb.minibank.application.*;
 import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
@@ -18,6 +15,9 @@ import cz.vsb.minibank.ui.console.ConsoleMenu;
 public class AppSql {
 
     public static void main(String[] args) {
+        AppLogger.info("app", "Starting MiniBank in SQL mode");
+
+
         String jdbcUrl = System.getProperty("minibank.jdbcUrl", "jdbc:postgresql://localhost:5432/minibank");
         String dbUser  = System.getProperty("minibank.dbUser",  "minibank");
         String dbPass  = System.getProperty("minibank.dbPass",  "minibank");
@@ -43,6 +43,8 @@ public class AppSql {
         // Console menu with login and roles
         ConsoleMenu menu = new ConsoleMenu(app, infra, authService);
         menu.run();
+
+        AppLogger.info("app", "MiniBank terminated");
     }
 
     /**
@@ -61,7 +63,7 @@ public class AppSql {
             var existing = customers.byId(cid);
 
             if (existing.isPresent()) {
-                // Customer with id=1 already exists – use it to bind user alice
+                // Customer with id=1 already exists - use it to bind user alice
                 cid = existing.get().id();
             } else {
                 // Create demo customer

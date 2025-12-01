@@ -4,46 +4,25 @@ import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferObserver;
 import cz.vsb.minibank.domain.TransferStatus;
 
-import java.io.BufferedWriter;
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
-import java.time.Instant;
-
 /**
- * Simple observer that prints an audit log line
- * whenever a transfer status changes.
+ * Observer that writes transfer status changes into the central audit log.
  */
 public class TransferAuditLogObserver implements TransferObserver {
-
-    private static final Path LOG_FILE = Paths.get("transfer_audit.log");
 
     @Override
     public void onStatusChanged(Transfer transfer,
                                 TransferStatus oldStatus,
                                 TransferStatus newStatus) {
-        String line = String.format(
-                "%s Transfer %d: %s -> %s%n",
-                Instant.now(),
+
+        String msg = String.format(
+                "Transfer %d: %s -> %s, amount=%s, sourceAccountId=%d",
                 transfer.id(),
                 oldStatus,
-                newStatus
+                newStatus,
+                transfer.amount(),
+                transfer.sourceAccountId()
         );
 
-        // 1) to console
-        System.out.print("[AUDIT] " + line);
-
-        // 2) to file
-        try (BufferedWriter out = Files.newBufferedWriter(
-                LOG_FILE,
-                StandardOpenOption.CREATE,
-                StandardOpenOption.APPEND
-        )) {
-            out.write(line);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        AppLogger.audit("audit.transfer", msg);
     }
 }

@@ -7,7 +7,7 @@ import cz.vsb.minibank.domain.FraudAlertState;
 import java.time.Instant;
 
 /**
- * Simple observer that logs fraud alert state changes.
+ * Observer that writes fraud alert state changes into the central audit log.
  */
 public class FraudAlertAuditLogObserver implements FraudAlertObserver {
 
@@ -16,8 +16,8 @@ public class FraudAlertAuditLogObserver implements FraudAlertObserver {
                                FraudAlertState oldState,
                                FraudAlertState newState) {
 
-        System.out.printf(
-                "[FRAUD-AUDIT] %s FraudAlert %d for transfer %d: %s -> %s, reason: %s%n",
+        String msg = String.format(
+                "%s FraudAlert %d for transfer %d: %s -> %s, reason=%s",
                 Instant.now(),
                 alert.id(),
                 alert.transferId(),
@@ -25,5 +25,7 @@ public class FraudAlertAuditLogObserver implements FraudAlertObserver {
                 newState,
                 alert.reason()
         );
+
+        AppLogger.audit("audit.fraud", msg);
     }
 }

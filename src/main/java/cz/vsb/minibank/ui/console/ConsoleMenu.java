@@ -12,6 +12,8 @@ import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
+import cz.vsb.minibank.application.AppLogger;
+import cz.vsb.minibank.domain.exceptions.DomainException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -21,12 +23,12 @@ public class ConsoleMenu {
     private final BootstrapServices services;
     private final Bootstrap infra;
     private final AuthService authService;        // null = legacy mode without login
-    private final int customerId;                // >0 = legacy mode with fixed customer
+    private final int customerId;                 // >0 = legacy mode with fixed customer
 
     private final Scanner in = new Scanner(System.in);
     private final List<ConsoleCommand> commands = new ArrayList<>();
 
-    private User currentUser;                    // user obtained from AuthService/login
+    private User currentUser;                     // user obtained from AuthService/login
 
     // Legacy constructor: used by tests and App (JSON mode)
     public ConsoleMenu(BootstrapServices services, Bootstrap infra, int customerId) {
@@ -232,9 +234,25 @@ public class ConsoleMenu {
 
             try {
                 cmd.execute();
-            } catch (Exception e) {
+            } catch (DomainException e) {
+                // Business errors: log as WARN and show the message to the user
+                AppLogger.warn(
+                        "ui.console",
+                        "Domain error in command " + cmd.code() + ": " + e.getMessage(),
+                        e
+                );
                 System.out.println("[Error] " + e.getMessage());
+            } catch (Exception e) {
+                // Unexpected (technical) errors: log as ERROR with full stack trace
+                // and show only a generic message to the user without internal details.
+                AppLogger.error(
+                        "ui.console",
+                        "Unexpected error in command " + cmd.code(),
+                        e
+                );
+                System.out.println("[Error] Operation could not be completed. Please try again.");
             }
+
         }
     }
 
