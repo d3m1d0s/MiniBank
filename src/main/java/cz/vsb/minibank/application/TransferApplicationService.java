@@ -133,6 +133,7 @@ public class TransferApplicationService {
             if (!otpValidator.isValid(transferId, otp)) {
                 t.decline("OTP failed");
                 transfers.save(t);
+                uow.commit();
                 return;
             }
 

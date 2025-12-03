@@ -5,11 +5,56 @@ VIS_project_minibank/
 │  └─ demo.json
 ├─ db/
 │  └─ schema.sql
+├─ minibank-web/
+│  ├─ node_modules/...
+│  ├─ public/
+│  │  └─ vite.svg
+│  ├─ src/
+│  │  ├─ api/
+│  │  │  └─ client.ts
+│  │  ├─ assets/
+│  │  │  └─ react.svg
+│  │  │  
+│  │  ├─ api.ts 
+│  │  ├─ App.css
+│  │  ├─ App.tsx
+│  │  ├─ index.css
+│  │  ├─ main.tsx
+│  │  ├─ NewPaymentPage.tsx
+│  │  └─ WaitingAuthorizationsPage.tsx
+│  │
+│  ├─ .gitignore
+│  ├─ eslint.config.js
+│  ├─ index.html
+│  ├─ package.json
+│  ├─ package-lock.json
+│  ├─ README.md
+│  ├─ tsconfig.app.json
+│  ├─ tsconfig.json
+│  ├─ tsconfig.node.json
+│  └─ vite.config.ts
+│  
 └─ src/
    ├─ main/
    │  └─ java/
    │     └─ cz/vsb/minibank/
-   │        │                                       
+   │        │                    
+   │        ├─ api/    
+   │        │  ├─ dto/
+   │        │  │  ├─ AccountSummaryDto.java          (record)
+   │        │  │  ├─ AuthorizePaymentRequest.java    (record)
+   │        │  │  ├─ AuthorizePaymentResult.java     (record)
+   │        │  │  ├─ NewPaymentRequest.java          (record)
+   │        │  │  ├─ NewPaymentResultDto.java        (record)
+   │        │  │  ├─ TransferDetailsDto.java         (record)
+   │        │  │  └─ WaitingTransferItemDto.java     (record)   
+   │        │  │   
+   │        │  ├─ AppError.java                   (record) 
+   │        │  ├─ AuthorizationController.java    (class)                    
+   │        │  ├─ MinibankApiConfig.java          (class)  
+   │        │  ├─ PaymentController.java          (class)
+   │        │  └─ RestExceptionHandler.java       (class)     
+   │        │                   
    │        ├─ application/    
    │        │  ├─ AppLogger.java                    (class) 
    │        │  ├─ AuthService.java                  (class)                    
@@ -123,12 +168,16 @@ VIS_project_minibank/
    │        │  ├─ ConsoleCommand.java    (interface)   
    │        │  └─ ConsoleMenu.java       (class)
    │        │
-   │        ├─ App.java      (class)
-   │        └─ AppSql.java   (class)
+   │        ├─ ApiApplication.java      (class)   
+   │        ├─ App.java                 (class)
+   │        └─ AppSql.java              (class)
    │
    └─ test/
       └─ java/
          └─ cz/vsb/minibank/
+            ├─ application/
+            │  └─ PaymentAndAuthorizationApiTest.java   (unit test)    
+            │                   
             ├─ application/
             │  ├─ AppLoggerTest.java                     (unit test)            
             │  ├─ AuthServiceTest.java                   (unit test)            

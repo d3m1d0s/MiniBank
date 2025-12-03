@@ -1,0 +1,131 @@
+package cz.vsb.minibank.api;
+
+import cz.vsb.minibank.api.dto.AuthorizePaymentRequest;
+import cz.vsb.minibank.api.dto.AuthorizePaymentResult;
+import cz.vsb.minibank.api.dto.TransferDetailsDto;
+import cz.vsb.minibank.api.dto.WaitingTransferItemDto;
+import cz.vsb.minibank.application.TransferApplicationService;
+import cz.vsb.minibank.domain.Account;
+import cz.vsb.minibank.domain.Transfer;
+import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.repository.AccountRepository;
+import cz.vsb.minibank.domain.repository.TransferRepository;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.RequestMapping;
+
+@CrossOrigin(origins = "http://localhost:5173")
+@RestController
+@RequestMapping("/api")
+public class AuthorizationController {
+
+    private final TransferApplicationService transferService;
+    private final AccountRepository accounts;
+    private final TransferRepository transfers;
+
+    // тот же временный customerId, что и в PaymentController
+    private static final int CURRENT_CUSTOMER_ID = 2;
+
+    public AuthorizationController(TransferApplicationService transferService,
+                                   AccountRepository accounts,
+                                   TransferRepository transfers) {
+        this.transferService = transferService;
+        this.accounts = accounts;
+        this.transfers = transfers;
+    }
+
+    // 1) Список всех WAITING_AUTH переводов клиента (таблица слева на WEB-2)
+    @GetMapping("/customers/{customerId}/waiting-transfers")
+    public List<WaitingTransferItemDto> listWaiting(@PathVariable("customerId") int customerId) {
+        List<WaitingTransferItemDto> result = new ArrayList<>();
+
+        // Берём все счета клиента
+        for (Account acc : accounts.byCustomerId(customerId)) {
+            // И все переводы с каждого счёта
+            for (Transfer t : transfers.bySourceAccount(acc.id())) {
+                if (t.status() == TransferStatus.WAITING_AUTH) {
+                    result.add(new WaitingTransferItemDto(
+                            t.id(),
+                            t.targetIbanSnapshot(),
+                            t.amount().toString(),             // "1340.00 CZK"
+                            t.createdAt().toString(),          // ISO-строка
+                            t.authMethod() != null
+                                    ? t.authMethod().toString()
+                                    : ""
+                    ));
+                }
+            }
+        }
+        return result;
+    }
+
+    // Шорткат: /api/me/waiting-transfers
+    @GetMapping("/me/waiting-transfers")
+    public List<WaitingTransferItemDto> listMyWaiting() {
+        return listWaiting(CURRENT_CUSTOMER_ID);
+    }
+
+    // 2) Детали конкретного перевода (правая панель WEB-2)
+    @GetMapping("/transfers/{id}")
+    public TransferDetailsDto transferDetails(@PathVariable("id") int id) {
+        Transfer t = transfers.byId(id)
+                .orElseThrow(() -> new RuntimeException("Transfer not found"));
+        Account acc = accounts.byId(t.sourceAccountId())
+                .orElseThrow(() -> new RuntimeException("Account not found"));
+
+        return new TransferDetailsDto(
+                t.id(),
+                acc.iban().value(),             // fromIban
+                acc.balance().toString(),       // fromBalance
+                t.targetIbanSnapshot(),         // toIban
+                t.amount().toString(),          // amount
+                t.status().name(),              // status
+                t.createdAt().toString(),       // createdAt
+                t.authMethod() != null
+                        ? t.authMethod().toString()
+                        : ""
+        );
+    }
+
+    // 3) Авторизация платежа (UC05)
+    @PostMapping("/transfers/{id}/authorize")
+    public AuthorizePaymentResult authorize(@PathVariable("id") int id,
+                                            @RequestBody AuthorizePaymentRequest req) {
+        // Вся бизнес-логика уже в сервисе
+        transferService.authorizePayment(id, req.otp());
+
+        // Достаём обновлённое состояние
+        Transfer t = transfers.byId(id)
+                .orElseThrow(() -> new RuntimeException("Transfer not found"));
+        Account acc = accounts.byId(t.sourceAccountId())
+                .orElseThrow(() -> new RuntimeException("Account not found"));
+
+        return new AuthorizePaymentResult(
+                t.status().name(),
+                acc.balance().toString(),
+                t.declineReason()
+        );
+    }
+
+    // 4) Отмена платежа клиентом (UC19)
+    @PostMapping("/transfers/{id}/cancel")
+    public AuthorizePaymentResult cancel(@PathVariable("id") int id) {
+        transferService.cancelPayment(id);
+
+        Transfer t = transfers.byId(id)
+                .orElseThrow(() -> new RuntimeException("Transfer not found"));
+        Account acc = accounts.byId(t.sourceAccountId())
+                .orElseThrow(() -> new RuntimeException("Account not found"));
+
+        return new AuthorizePaymentResult(
+                t.status().name(),
+                acc.balance().toString(),
+                t.declineReason()
+        );
+    }
+}

@@ -1,0 +1,607 @@
+{
+  "customers" : [ {
+    "id" : 2,
+    "name" : "Alice Customer",
+    "email" : "alice@example.com",
+    "address" : {
+      "street" : "Hlavní 1",
+      "city" : "Ostrava"
+    },
+    "accountIds" : [ 101 ],
+    "beneficiaries" : [ {
+      "id" : 11,
+      "name" : "Bob Receiver",
+      "iban" : "CZ0201000000000012345678",
+      "trusted" : false
+    } ]
+  }, {
+    "id" : 3,
+    "name" : "Alice Customer",
+    "email" : "alice@example.com",
+    "address" : {
+      "street" : "Hlavní 1",
+      "city" : "Ostrava"
+    },
+    "accountIds" : [ 102 ],
+    "beneficiaries" : [ {
+      "id" : 12,
+      "name" : "Bob Receiver",
+      "iban" : "CZ0201000000000012345678",
+      "trusted" : false
+    } ]
+  }, {
+    "id" : 4,
+    "name" : "Alice Customer",
+    "email" : "alice@example.com",
+    "address" : {
+      "street" : "Hlavní 1",
+      "city" : "Ostrava"
+    },
+    "accountIds" : [ 103 ],
+    "beneficiaries" : [ {
+      "id" : 13,
+      "name" : "Bob Receiver",
+      "iban" : "CZ0201000000000012345678",
+      "trusted" : false
+    } ]
+  }, {
+    "id" : 5,
+    "name" : "Alice Customer",
+    "email" : "alice@example.com",
+    "address" : {
+      "street" : "Hlavní 1",
+      "city" : "Ostrava"
+    },
+    "accountIds" : [ 104 ],
+    "beneficiaries" : [ {
+      "id" : 14,
+      "name" : "Bob Receiver",
+      "iban" : "CZ0201000000000012345678",
+      "trusted" : false
+    } ]
+  }, {
+    "id" : 6,
+    "name" : "Alice Customer",
+    "email" : "alice@example.com",
+    "address" : {
+      "street" : "Hlavní 1",
+      "city" : "Ostrava"
+    },
+    "accountIds" : [ 105 ],
+    "beneficiaries" : [ {
+      "id" : 15,
+      "name" : "Bob Receiver",
+      "iban" : "CZ0201000000000012345678",
+      "trusted" : false
+    } ]
+  }, {
+    "id" : 7,
+    "name" : "Alice Customer",
+    "email" : "alice@example.com",
+    "address" : {
+      "street" : "Hlavní 1",
+      "city" : "Ostrava"
+    },
+    "accountIds" : [ 106 ],
+    "beneficiaries" : [ {
+      "id" : 10,
+      "name" : "Bob Receiver",
+      "iban" : "CZ0201000000000012345678",
+      "trusted" : false
+    } ]
+  }, {
+    "id" : 8,
+    "name" : "Alice Customer",
+    "email" : "alice@example.com",
+    "address" : {
+      "street" : "Hlavní 1",
+      "city" : "Ostrava"
+    },
+    "accountIds" : [ 107 ],
+    "beneficiaries" : [ {
+      "id" : 11,
+      "name" : "Bob Receiver",
+      "iban" : "CZ0201000000000012345678",
+      "trusted" : false
+    } ]
+  }, {
+    "id" : 9,
+    "name" : "Alice Customer",
+    "email" : "alice@example.com",
+    "address" : {
+      "street" : "Hlavní 1",
+      "city" : "Ostrava"
+    },
+    "accountIds" : [ 108 ],
+    "beneficiaries" : [ {
+      "id" : 12,
+      "name" : "Bob Receiver",
+      "iban" : "CZ0201000000000012345678",
+      "trusted" : false
+    } ]
+  }, {
+    "id" : 10,
+    "name" : "Alice Customer",
+    "email" : "alice@example.com",
+    "address" : {
+      "street" : "Hlavní 1",
+      "city" : "Ostrava"
+    },
+    "accountIds" : [ 109 ],
+    "beneficiaries" : [ {
+      "id" : 13,
+      "name" : "Bob Receiver",
+      "iban" : "CZ0201000000000012345678",
+      "trusted" : false
+    } ]
+  }, {
+    "id" : 11,
+    "name" : "Alice Customer",
+    "email" : "alice@example.com",
+    "address" : {
+      "street" : "Hlavní 1",
+      "city" : "Ostrava"
+    },
+    "accountIds" : [ 110 ],
+    "beneficiaries" : [ {
+      "id" : 14,
+      "name" : "Bob Receiver",
+      "iban" : "CZ0201000000000012345678",
+      "trusted" : false
+    } ]
+  } ],
+  "accounts" : [ {
+    "id" : 101,
+    "iban" : "CZ6508000000192000145399",
+    "balance" : 20000.0,
+    "dailyLimit" : 5000.0,
+    "transferIds" : [ 5002, 5003, 5004, 5005, 5006, 5007, 5008, 5009, 5010, 5011, 5012, 5013, 5014, 5015, 5016, 5017, 5018, 5019, 5020, 5021, 5022, 5023, 5024, 5025, 5026, 5027, 5028, 5029, 5030, 5031, 5032 ]
+  }, {
+    "id" : 102,
+    "iban" : "CZ6508000000192000145399",
+    "balance" : 20000.0,
+    "dailyLimit" : 5000.0,
+    "transferIds" : [ ]
+  }, {
+    "id" : 103,
+    "iban" : "CZ6508000000192000145399",
+    "balance" : 20000.0,
+    "dailyLimit" : 5000.0,
+    "transferIds" : [ ]
+  }, {
+    "id" : 104,
+    "iban" : "CZ6508000000192000145399",
+    "balance" : 20000.0,
+    "dailyLimit" : 5000.0,
+    "transferIds" : [ ]
+  }, {
+    "id" : 105,
+    "iban" : "CZ6508000000192000145399",
+    "balance" : 20000.0,
+    "dailyLimit" : 5000.0,
+    "transferIds" : [ ]
+  }, {
+    "id" : 106,
+    "iban" : "CZ6508000000192000145399",
+    "balance" : 20000.0,
+    "dailyLimit" : 5000.0,
+    "transferIds" : [ ]
+  }, {
+    "id" : 107,
+    "iban" : "CZ6508000000192000145399",
+    "balance" : 20000.0,
+    "dailyLimit" : 5000.0,
+    "transferIds" : [ ]
+  }, {
+    "id" : 108,
+    "iban" : "CZ6508000000192000145399",
+    "balance" : 20000.0,
+    "dailyLimit" : 5000.0,
+    "transferIds" : [ 5001 ]
+  }, {
+    "id" : 109,
+    "iban" : "CZ6508000000192000145399",
+    "balance" : 20000.0,
+    "dailyLimit" : 5000.0,
+    "transferIds" : [ ]
+  }, {
+    "id" : 110,
+    "iban" : "CZ6508000000192000145399",
+    "balance" : 20000.0,
+    "dailyLimit" : 5000.0,
+    "transferIds" : [ ]
+  } ],
+  "transfers" : [ {
+    "id" : 5001,
+    "sourceAccountId" : 108,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 5000.0,
+    "currency" : "CZK",
+    "status" : "DECLINED",
+    "createdAt" : "2025-11-19T14:36:13.026113100Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : "Canceled by customer"
+  }, {
+    "id" : 5002,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 1000.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T21:10:34.093329200Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5003,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 1000.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T21:28:06.368958100Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5004,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 1000.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T21:38:24.183721300Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5005,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 1000.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T21:47:32.705826Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5006,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 1000.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T21:47:32.824721Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5007,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 1000.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T21:47:32.888422700Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5008,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 1000.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T21:47:32.945689900Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5009,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 1000.0,
+    "currency" : "CZK",
+    "status" : "DECLINED",
+    "createdAt" : "2025-12-02T21:47:33.043056800Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : "Canceled by customer"
+  }, {
+    "id" : 5010,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 1000.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T21:48:38.263406900Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5011,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 1000.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T21:48:38.378839600Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5012,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 1000.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T21:48:38.446202200Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5013,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 1000.0,
+    "currency" : "CZK",
+    "status" : "DECLINED",
+    "createdAt" : "2025-12-02T21:48:38.510697800Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : "OTP failed"
+  }, {
+    "id" : 5014,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 1000.0,
+    "currency" : "CZK",
+    "status" : "DECLINED",
+    "createdAt" : "2025-12-02T21:48:38.591240400Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : "Canceled by customer"
+  }, {
+    "id" : 5015,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 123.45,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T23:41:32.471695600Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5016,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 123.45,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T23:41:39.637838Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5017,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 123.45,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T23:41:42.509537100Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5018,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 123.45,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T23:41:43.136178200Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5019,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 123.45,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T23:41:46.805037700Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5020,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 123.45,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T23:42:00.506210300Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5021,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 123.45,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T23:45:56.048689200Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5022,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 123.45,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T23:45:57.306183500Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5023,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 123.45,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T23:45:58.018032900Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5024,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 123.45,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T23:46:01.142534500Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5025,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 123.45,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T23:46:10.411025800Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5026,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 123.45,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-02T23:46:12.922628800Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5027,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 500.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-03T00:00:41.139555400Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5028,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 200.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-03T00:17:18.149914900Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5029,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 5000.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-03T00:17:58.335636200Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5030,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 200.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-03T00:25:20.197955400Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5031,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 500.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-03T00:25:50.706811500Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  }, {
+    "id" : 5032,
+    "sourceAccountId" : 101,
+    "beneficiaryId" : null,
+    "targetIbanSnapshot" : "CZ0201000000000012345678",
+    "amount" : 200.0,
+    "currency" : "CZK",
+    "status" : "WAITING_AUTH",
+    "createdAt" : "2025-12-03T00:48:37.739700100Z",
+    "authMethod" : "CARD",
+    "cardNumberMasked" : "****0000",
+    "declineReason" : null
+  } ],
+  "fraudAlerts" : [ ],
+  "sequences" : {
+    "customer" : 12,
+    "account" : 111,
+    "beneficiary" : 15,
+    "transfer" : 5033,
+    "fraudAlert" : 9001
+  }
+}

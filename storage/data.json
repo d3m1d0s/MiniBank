@@ -1,0 +1,16 @@
+{
+  "customers" : [ {
+    "id" : 1,
+    "name" : "Igor",
+    "email" : "igor@mail.com",
+    "address" : {
+      "street" : "Igoreva 76",
+      "city" : "Ostrava"
+    },
+    "accountIds" : [ ],
+    "beneficiaries" : [ ]
+  } ],
+  "accounts" : [ ],
+  "beneficiaries" : [ ],
+  "transfers" : [ ]
+}

@@ -1,0 +1,159 @@
+2025-12-02T21:10:27.268696500Z ERROR [test.category] user=<none> | Failure
+java.lang.RuntimeException: Boom
+	at cz.vsb.minibank.application.AppLoggerTest.logsErrorWithStacktrace(AppLoggerTest.java:75)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
+	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke(NativeMethodAccessorImpl.java:77)
+	at java.base/jdk.internal.reflect.DelegatingMethodAccessorImpl.invoke(DelegatingMethodAccessorImpl.java:43)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:568)
+	at org.junit.platform.commons.util.ReflectionUtils.invokeMethod(ReflectionUtils.java:728)
+	at org.junit.jupiter.engine.execution.MethodInvocation.proceed(MethodInvocation.java:60)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$ValidatingInvocation.proceed(InvocationInterceptorChain.java:131)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.intercept(TimeoutExtension.java:156)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestableMethod(TimeoutExtension.java:147)
+	at org.junit.jupiter.engine.extension.TimeoutExtension.interceptTestMethod(TimeoutExtension.java:86)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker$ReflectiveInterceptorCall.lambda$ofVoidMethod$0(InterceptingExecutableInvoker.java:103)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.lambda$invoke$0(InterceptingExecutableInvoker.java:93)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain$InterceptedInvocation.proceed(InvocationInterceptorChain.java:106)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.proceed(InvocationInterceptorChain.java:64)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.chainAndInvoke(InvocationInterceptorChain.java:45)
+	at org.junit.jupiter.engine.execution.InvocationInterceptorChain.invoke(InvocationInterceptorChain.java:37)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:92)
+	at org.junit.jupiter.engine.execution.InterceptingExecutableInvoker.invoke(InterceptingExecutableInvoker.java:86)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.lambda$invokeTestMethod$7(TestMethodTestDescriptor.java:218)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.invokeTestMethod(TestMethodTestDescriptor.java:214)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:139)
+	at org.junit.jupiter.engine.descriptor.TestMethodTestDescriptor.execute(TestMethodTestDescriptor.java:69)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:151)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.invokeAll(SameThreadHierarchicalTestExecutorService.java:41)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$6(NodeTestTask.java:155)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$8(NodeTestTask.java:141)
+	at org.junit.platform.engine.support.hierarchical.Node.around(Node.java:137)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.lambda$executeRecursively$9(NodeTestTask.java:139)
+	at org.junit.platform.engine.support.hierarchical.ThrowableCollector.execute(ThrowableCollector.java:73)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.executeRecursively(NodeTestTask.java:138)
+	at org.junit.platform.engine.support.hierarchical.NodeTestTask.execute(NodeTestTask.java:95)
+	at org.junit.platform.engine.support.hierarchical.SameThreadHierarchicalTestExecutorService.submit(SameThreadHierarchicalTestExecutorService.java:35)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestExecutor.execute(HierarchicalTestExecutor.java:57)
+	at org.junit.platform.engine.support.hierarchical.HierarchicalTestEngine.execute(HierarchicalTestEngine.java:54)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:198)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:169)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:93)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.lambda$execute$0(EngineExecutionOrchestrator.java:58)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.withInterceptedStreams(EngineExecutionOrchestrator.java:141)
+	at org.junit.platform.launcher.core.EngineExecutionOrchestrator.execute(EngineExecutionOrchestrator.java:57)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:103)
+	at org.junit.platform.launcher.core.DefaultLauncher.execute(DefaultLauncher.java:85)
+	at org.junit.platform.launcher.core.DelegatingLauncher.execute(DelegatingLauncher.java:47)
+	at org.junit.platform.launcher.core.SessionPerRequestLauncher.execute(SessionPerRequestLauncher.java:63)
+	at com.intellij.junit5.JUnit5IdeaTestRunner.startRunnerWithArgs(JUnit5IdeaTestRunner.java:57)
+	at com.intellij.rt.junit.IdeaTestRunner$Repeater$1.execute(IdeaTestRunner.java:38)
+	at com.intellij.rt.execution.junit.TestsRepeater.repeat(TestsRepeater.java:11)
+	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
+	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
+	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
+2025-12-02T21:10:34.093329200Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5002: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:10:34.747879100Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
+2025-12-02T21:10:34.783431Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
+2025-12-02T21:10:34.889424100Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
+2025-12-02T21:10:34.913582800Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
+2025-12-02T21:10:34.923116900Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
+2025-12-02T21:10:34.925122Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
+2025-12-02T21:10:34.926116800Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
+2025-12-02T21:10:34.927118900Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
+2025-12-02T21:28:06.377284900Z AUDIT [audit.transfer] user=<none> | Transfer 5003: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:28:06.512134200Z AUDIT [audit.transfer] user=<none> | Transfer 5001: WAITING_AUTH -> DECLINED, amount=5000.00 CZK, sourceAccountId=108
+2025-12-02T21:28:06.556819Z AUDIT [audit.transfer] user=<none> | Transfer 5001: WAITING_AUTH -> DECLINED, amount=5000.00 CZK, sourceAccountId=108
+2025-12-02T21:38:24.188416700Z AUDIT [audit.transfer] user=<none> | Transfer 5004: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:38:24.336255600Z AUDIT [audit.transfer] user=<none> | Transfer 5001: DECLINED -> DECLINED, amount=5000.00 CZK, sourceAccountId=108
+2025-12-02T21:38:24.337992200Z AUDIT [audit.transfer] user=<none> | Transfer 5001: DECLINED -> DECLINED, amount=5000.00 CZK, sourceAccountId=108
+2025-12-02T21:38:24.339157700Z AUDIT [audit.transfer] user=<none> | Transfer 5001: DECLINED -> DECLINED, amount=5000.00 CZK, sourceAccountId=108
+2025-12-02T21:47:32.712353500Z AUDIT [audit.transfer] user=<none> | Transfer 5005: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:32.824721Z AUDIT [audit.transfer] user=<none> | Transfer 5006: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:32.825736900Z AUDIT [audit.transfer] user=<none> | Transfer 5006: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:32.888422700Z AUDIT [audit.transfer] user=<none> | Transfer 5007: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:32.889418700Z AUDIT [audit.transfer] user=<none> | Transfer 5007: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:32.890419500Z AUDIT [audit.transfer] user=<none> | Transfer 5007: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:32.945689900Z AUDIT [audit.transfer] user=<none> | Transfer 5008: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:32.946689600Z AUDIT [audit.transfer] user=<none> | Transfer 5008: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:32.947689100Z AUDIT [audit.transfer] user=<none> | Transfer 5008: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:32.948696500Z AUDIT [audit.transfer] user=<none> | Transfer 5008: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:32.956759500Z AUDIT [audit.transfer] user=<none> | Transfer 5008: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:32.958753Z AUDIT [audit.transfer] user=<none> | Transfer 5008: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:32.959751500Z AUDIT [audit.transfer] user=<none> | Transfer 5008: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:32.961271800Z AUDIT [audit.transfer] user=<none> | Transfer 5008: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:33.043056800Z AUDIT [audit.transfer] user=<none> | Transfer 5009: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:33.044719400Z AUDIT [audit.transfer] user=<none> | Transfer 5009: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:33.045595100Z AUDIT [audit.transfer] user=<none> | Transfer 5009: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:33.046590700Z AUDIT [audit.transfer] user=<none> | Transfer 5009: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:33.048591400Z AUDIT [audit.transfer] user=<none> | Transfer 5009: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:33.049590500Z AUDIT [audit.transfer] user=<none> | Transfer 5009: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:33.055111Z AUDIT [audit.transfer] user=<none> | Transfer 5009: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:33.056124Z AUDIT [audit.transfer] user=<none> | Transfer 5009: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:33.057124800Z AUDIT [audit.transfer] user=<none> | Transfer 5009: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:33.059128900Z AUDIT [audit.transfer] user=<none> | Transfer 5009: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:33.060127300Z AUDIT [audit.transfer] user=<none> | Transfer 5009: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:47:33.061123200Z AUDIT [audit.transfer] user=<none> | Transfer 5009: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.268943500Z AUDIT [audit.transfer] user=<none> | Transfer 5010: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.378839600Z AUDIT [audit.transfer] user=<none> | Transfer 5011: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.380832100Z AUDIT [audit.transfer] user=<none> | Transfer 5011: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.446202200Z AUDIT [audit.transfer] user=<none> | Transfer 5012: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.448198700Z AUDIT [audit.transfer] user=<none> | Transfer 5012: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.448922700Z AUDIT [audit.transfer] user=<none> | Transfer 5012: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.510697800Z AUDIT [audit.transfer] user=<none> | Transfer 5013: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.511695300Z AUDIT [audit.transfer] user=<none> | Transfer 5013: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.512697800Z AUDIT [audit.transfer] user=<none> | Transfer 5013: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.513694500Z AUDIT [audit.transfer] user=<none> | Transfer 5013: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.520229100Z AUDIT [audit.transfer] user=<none> | Transfer 5013: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.522225300Z AUDIT [audit.transfer] user=<none> | Transfer 5013: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.523226400Z AUDIT [audit.transfer] user=<none> | Transfer 5013: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.524305800Z AUDIT [audit.transfer] user=<none> | Transfer 5013: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.591240400Z AUDIT [audit.transfer] user=<none> | Transfer 5014: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.592924500Z AUDIT [audit.transfer] user=<none> | Transfer 5014: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.593772200Z AUDIT [audit.transfer] user=<none> | Transfer 5014: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.594770500Z AUDIT [audit.transfer] user=<none> | Transfer 5014: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.595766500Z AUDIT [audit.transfer] user=<none> | Transfer 5014: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.596767200Z AUDIT [audit.transfer] user=<none> | Transfer 5014: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.601769400Z AUDIT [audit.transfer] user=<none> | Transfer 5014: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.603940600Z AUDIT [audit.transfer] user=<none> | Transfer 5014: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.604954500Z AUDIT [audit.transfer] user=<none> | Transfer 5014: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.605955600Z AUDIT [audit.transfer] user=<none> | Transfer 5014: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.606962200Z AUDIT [audit.transfer] user=<none> | Transfer 5014: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T21:48:38.607956200Z AUDIT [audit.transfer] user=<none> | Transfer 5014: WAITING_AUTH -> DECLINED, amount=1000.00 CZK, sourceAccountId=101
+2025-12-02T23:41:32.476645900Z AUDIT [audit.transfer] user=<none> | Transfer 5015: CREATED -> WAITING_AUTH, amount=123.45 CZK, sourceAccountId=101
+2025-12-02T23:41:39.637838Z AUDIT [audit.transfer] user=<none> | Transfer 5016: CREATED -> WAITING_AUTH, amount=123.45 CZK, sourceAccountId=101
+2025-12-02T23:41:42.510140100Z AUDIT [audit.transfer] user=<none> | Transfer 5017: CREATED -> WAITING_AUTH, amount=123.45 CZK, sourceAccountId=101
+2025-12-02T23:41:43.137191500Z AUDIT [audit.transfer] user=<none> | Transfer 5018: CREATED -> WAITING_AUTH, amount=123.45 CZK, sourceAccountId=101
+2025-12-02T23:41:46.805545Z AUDIT [audit.transfer] user=<none> | Transfer 5019: CREATED -> WAITING_AUTH, amount=123.45 CZK, sourceAccountId=101
+2025-12-02T23:42:00.506210300Z AUDIT [audit.transfer] user=<none> | Transfer 5020: CREATED -> WAITING_AUTH, amount=123.45 CZK, sourceAccountId=101
+2025-12-02T23:45:56.049694100Z AUDIT [audit.transfer] user=<none> | Transfer 5021: CREATED -> WAITING_AUTH, amount=123.45 CZK, sourceAccountId=101
+2025-12-02T23:45:57.306183500Z AUDIT [audit.transfer] user=<none> | Transfer 5022: CREATED -> WAITING_AUTH, amount=123.45 CZK, sourceAccountId=101
+2025-12-02T23:45:58.018032900Z AUDIT [audit.transfer] user=<none> | Transfer 5023: CREATED -> WAITING_AUTH, amount=123.45 CZK, sourceAccountId=101
+2025-12-02T23:46:01.143545Z AUDIT [audit.transfer] user=<none> | Transfer 5024: CREATED -> WAITING_AUTH, amount=123.45 CZK, sourceAccountId=101
+2025-12-02T23:46:10.411025800Z AUDIT [audit.transfer] user=<none> | Transfer 5025: CREATED -> WAITING_AUTH, amount=123.45 CZK, sourceAccountId=101
+2025-12-02T23:46:12.923628500Z AUDIT [audit.transfer] user=<none> | Transfer 5026: CREATED -> WAITING_AUTH, amount=123.45 CZK, sourceAccountId=101
+2025-12-03T00:00:41.143068500Z AUDIT [audit.transfer] user=<none> | Transfer 5027: CREATED -> WAITING_AUTH, amount=500.00 CZK, sourceAccountId=101
+2025-12-03T00:17:18.149914900Z AUDIT [audit.transfer] user=<none> | Transfer 5028: CREATED -> WAITING_AUTH, amount=200.00 CZK, sourceAccountId=101
+2025-12-03T00:17:58.335636200Z AUDIT [audit.transfer] user=<none> | Transfer 5029: CREATED -> WAITING_AUTH, amount=5000.00 CZK, sourceAccountId=101
+2025-12-03T00:25:20.201978600Z AUDIT [audit.transfer] user=<none> | Transfer 5030: CREATED -> WAITING_AUTH, amount=200.00 CZK, sourceAccountId=101
+2025-12-03T00:25:50.707823600Z AUDIT [audit.transfer] user=<none> | Transfer 5031: CREATED -> WAITING_AUTH, amount=500.00 CZK, sourceAccountId=101
+2025-12-03T00:48:37.743708900Z AUDIT [audit.transfer] user=<none> | Transfer 5032: CREATED -> WAITING_AUTH, amount=200.00 CZK, sourceAccountId=101
