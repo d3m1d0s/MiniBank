@@ -10,6 +10,7 @@ public class BootstrapServices {
     public final TransferApplicationService transferService;
     public final FraudApplicationService fraudService;
     public final PaymentNetworkGateway paymentGateway; // for integration tests and possibly UI
+    public final FeePolicy feePolicy;
 
     public BootstrapServices(CustomerRepository customers,
                              AccountRepository accounts,
@@ -56,6 +57,7 @@ public class BootstrapServices {
         FraudAlertEvents.register(new FraudAlertAuditLogObserver());
 
         this.paymentGateway = paymentGateway;
+        this.feePolicy = feePolicy;
 
         this.transferService = new TransferApplicationService(
                 customers,

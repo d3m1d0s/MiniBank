@@ -18,8 +18,6 @@ type InfoState =
 interface Props {
     onNavigate: (view: 'new-payment' | 'waiting-auth') => void;
 }
-//TODO: change Authorization will be required / Confirmation header so it will only show "Authorization will be required" or "Confirmation"
-//TODO: add charged and fee
 export default function NewPaymentPage({ onNavigate }: Props) {
     const [accounts, setAccounts] = useState<AccountSummary[]>([])
     const [selectedAccountId, setSelectedAccountId] = useState<number | null>(

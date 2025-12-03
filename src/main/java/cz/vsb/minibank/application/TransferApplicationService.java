@@ -8,6 +8,9 @@ import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
+// TransferApplicationService.java
+import cz.vsb.minibank.domain.exceptions.InsufficientFundsException;
+import cz.vsb.minibank.domain.value.Money;
 
 import java.util.Objects;
 
@@ -94,8 +97,15 @@ public class TransferApplicationService {
         }
     }
 
+
     private void routeTransferCreation(Customer customer, Account account, Transfer t, RiskDecision decision) {
-        // include: Check Funds (indirectly enforced in Account.debit during send)
+
+        // Calculate the commission and immediately check if there is enough money
+        Money fee = t.feeAmount(feePolicy);
+        if (!account.canDebit(t.amount(), fee)) {
+            throw new InsufficientFundsException("Insufficient funds");
+        }
+
         if (!decision.requireAuthorization() && !decision.createFraudAlert()) {
             // direct send
             t.send(account, feePolicy);
@@ -103,7 +113,6 @@ public class TransferApplicationService {
             account.registerTransfer(t.id());
             accounts.save(account);
 
-            // Dispatch to external payment network immediately
             paymentNetworkGateway.send(t);
 
         } else {
@@ -120,6 +129,7 @@ public class TransferApplicationService {
             accounts.save(account);
         }
     }
+
 
 
     /** UC 05 – Authorize Payment. */
