@@ -39,7 +39,7 @@ public class RestExceptionHandler {
 
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ApiError> handleRuntime(RuntimeException ex) {
-        // для учебного проекта можно так, на проде — нет
+        // I know that it doesn't fit for prod, it will stay here as long it is a study project
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)
                 .body(new ApiError("INTERNAL_ERROR", ex.getMessage()));

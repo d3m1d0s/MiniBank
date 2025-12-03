@@ -18,7 +18,8 @@ type InfoState =
 interface Props {
     onNavigate: (view: 'new-payment' | 'waiting-auth') => void;
 }
-
+//TODO: change Authorization will be required / Confirmation header so it will only show "Authorization will be required" or "Confirmation"
+//TODO: add charged and fee
 export default function NewPaymentPage({ onNavigate }: Props) {
     const [accounts, setAccounts] = useState<AccountSummary[]>([])
     const [selectedAccountId, setSelectedAccountId] = useState<number | null>(
@@ -140,6 +141,11 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                 </button>
                             </li>
                             <li>
+                                <button type="button" className="nav-link">
+                                    History & Statements
+                                </button>
+                            </li>
+                            <li>
                                 <button
                                     type="button"
                                     className="nav-link"
@@ -245,13 +251,23 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                 {info.type === 'success' && (
                                     <div className="summary">
                                         <div className="summary-title">
-                                            Authorization will be required / Confirmation
+                                            {info.result.authorizationRequired
+                                                ? 'Authorization will be required'
+                                                : 'Confirmation'}
                                         </div>
                                         <ul>
                                             <li>Transfer ID: {info.result.transferId}</li>
                                             <li>Status: {info.result.status}</li>
-                                            <li>Charged: {info.result.chargedAmount}</li>
-                                            <li>New balance: {info.result.newBalance}</li>
+                                            <li>
+                                                {info.result.authorizationRequired
+                                                    ? <>Amount: {info.result.chargedAmount}</>    // ещё НЕ списано
+                                                    : <>Charged: {info.result.chargedAmount}</>}
+                                            </li>
+                                            <li>
+                                                {info.result.authorizationRequired
+                                                    ? <>Current balance: {info.result.newBalance}</>
+                                                    : <>New balance: {info.result.newBalance}</>}
+                                            </li>
                                             <li>
                                                 Authorization required:{' '}
                                                 {info.result.authorizationRequired ? 'YES' : 'NO'}
@@ -259,6 +275,8 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                         </ul>
                                     </div>
                                 )}
+
+
 
                                 <div className="actions">
                                     <button

@@ -14,13 +14,25 @@ interface Props {
     onNavigate: (view: 'new-payment' | 'waiting-auth') => void
 }
 
+function mapDeclineReason(reason: string): string {
+    if (reason === 'OTP failed') return 'Wrong code.';
+    if (reason === 'Insufficient funds') {
+        return 'Insufficient balance – top up your account or cancel this transfer.';
+    }
+    return reason;
+}
+
 export function WaitingAuthorizationsPage({ onNavigate }: Props) {
     const [items, setItems] = useState<WaitingTransferItem[]>([])
     const [selectedId, setSelectedId] = useState<number | null>(null)
     const [details, setDetails] = useState<TransferDetails | null>(null)
     const [otp, setOtp] = useState('')
     const [result, setResult] = useState<AuthorizePaymentResult | null>(null)
-    const [error, setError] = useState<string | null>(null)
+
+    // 🔹 Разделяем ошибки: одна для списка/деталей, другая для подтверждения
+    const [listError, setListError] = useState<string | null>(null)
+    const [confirmError, setConfirmError] = useState<string | null>(null)
+
     const [loading, setLoading] = useState(false)
 
     useEffect(() => {
@@ -29,7 +41,8 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
 
     async function loadList() {
         try {
-            setError(null)
+            // ошибки списка не должны влиять на ошибки подтверждения
+            setListError(null)
             const data = await fetchWaitingTransfers()
             setItems(data)
             // если выбранный перевод пропал — сбросить выбор
@@ -38,7 +51,7 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                 setDetails(null)
             }
         } catch (e) {
-            setError((e as Error).message)
+            setListError((e as Error).message)
         }
     }
 
@@ -46,10 +59,11 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
         setSelectedId(id)
         setResult(null)
         try {
+            setListError(null)
             const d = await fetchTransferDetails(id)
             setDetails(d)
         } catch (e) {
-            setError((e as Error).message)
+            setListError((e as Error).message)
         }
     }
 
@@ -57,13 +71,14 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
         if (!selectedId || !otp) return
         try {
             setLoading(true)
-            setError(null)
+            // сбрасываем именно ошибку подтверждения
+            setConfirmError(null)
             const res = await confirmAuthorization({ transferId: selectedId, otp })
             setResult(res)
             setOtp('')
             await loadList()
         } catch (e) {
-            setError((e as Error).message)
+            setConfirmError((e as Error).message)
         } finally {
             setLoading(false)
         }
@@ -101,6 +116,11 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                 </button>
                             </li>
                             <li>
+                                <button type="button" className="nav-link">
+                                    History & Statements
+                                </button>
+                            </li>
+                            <li>
                                 <button
                                     type="button"
                                     className="nav-link nav-link--active"
@@ -119,22 +139,23 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
 
                     {/* Правая часть: таблица + детали + подтверждение */}
                     <main className="form-panel">
-                        {/* Ошибка общего уровня */}
-                        {error && (
-                            <div
-                                className="summary"
-                                style={{ borderColor: 'salmon', marginBottom: 8 }}
-                            >
-                                <div className="summary-title">Error</div>
-                                <ul>
-                                    <li>{error}</li>
-                                </ul>
-                            </div>
-                        )}
-
                         {/* Секция: список ожидающих переводов */}
                         <section className="section">
                             <h2 className="section-title">Waiting transfers</h2>
+
+                            {/* 🔹 Ошибки, связанные со списком / деталями */}
+                            {listError && (
+                                <div
+                                    className="summary"
+                                    style={{ borderColor: 'salmon', marginBottom: 8 }}
+                                >
+                                    <div className="summary-title">Error</div>
+                                    <ul>
+                                        <li>{listError}</li>
+                                    </ul>
+                                </div>
+                            )}
+
                             {items.length === 0 ? (
                                 <p className="helper-text">No waiting transfers.</p>
                             ) : (
@@ -182,19 +203,17 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                 {details ? (
                                     <div>
                                         <p>
-                                            <strong>From:</strong> {details.sourceIban}{' '}
-                                            {details.sourceBalance &&
-                                                `(Balance: ${details.sourceBalance})`}
+                                            <strong>From:</strong> {details.fromIban}{' '}
+                                            {details.fromBalance &&
+                                                `(Balance: ${details.fromBalance})`}
                                         </p>
                                         <p>
-                                            <strong>To:</strong> {details.targetIban}
-                                        </p>
+                                            <strong>To:</strong> {details.toIban}</p>
                                         <p>
                                             <strong>Amount:</strong> {details.amount}
                                         </p>
                                         <p>
-                                            <strong>Fee:</strong> {details.feeAmount}
-                                        </p>
+                                            <strong>Fee:</strong> {details.feeAmount}</p>
                                         <p>
                                             <strong>Created:</strong>{' '}
                                             {details.createdAt
@@ -202,7 +221,9 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                                 : ''}
                                         </p>
                                         <p>
-                                            <strong>Status:</strong> {details.status}
+                                            <strong>Status:</strong> {details.status}</p>
+                                        <p>
+                                            <strong>Auth method:</strong> {details.authMethod || '—'}
                                         </p>
                                     </div>
                                 ) : (
@@ -233,14 +254,44 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                 </button>
                             </div>
 
+                            {/* 🔹 Ошибки именно подтверждения авторизации */}
+                            {confirmError && (
+                                <div
+                                    className="summary"
+                                    style={{ borderColor: 'salmon', marginTop: 8 }}
+                                >
+                                    <div className="summary-title">Error</div>
+                                    <ul>
+                                        <li>{confirmError}</li>
+                                    </ul>
+                                </div>
+                            )}
+
                             {result && (
                                 <div className="summary" style={{ marginTop: 10 }}>
                                     <div className="summary-title">Result</div>
                                     <ul>
-                                        <li>Transfer ID: {result.transferId}</li>
+                                        <li>
+                                            Transfer ID:{' '}
+                                            {result.transferId ?? details?.id ?? selectedId ?? '—'}
+                                        </li>
+
                                         <li>Status: {result.status}</li>
-                                        <li>Charged: {result.chargedAmount}</li>
-                                        <li>New balance: {result.newBalance}</li>
+
+                                        {/* Показываем Charged только если реально отправили платёж */}
+                                        {result.status === 'SENT' && (
+                                            <li>Charged: {result.chargedAmount ?? '—'}</li>
+                                        )}
+
+                                        <li>
+                                            {result.status === 'SENT' ? 'New balance' : 'Current balance'}:{' '}
+                                            {result.newBalance ?? '—'}
+                                        </li>
+
+                                        {/* Сообщение для DECLINED/ошибок */}
+                                        {result.declineReason && (
+                                            <li>Message: {mapDeclineReason(result.declineReason)}</li>
+                                        )}
                                     </ul>
                                 </div>
                             )}

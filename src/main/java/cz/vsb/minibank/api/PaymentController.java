@@ -11,6 +11,9 @@ import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import cz.vsb.minibank.domain.FeePolicy;
+import cz.vsb.minibank.domain.value.Money;
+
 
 import java.util.List;
 
@@ -26,16 +29,19 @@ public class PaymentController {
     private final TransferApplicationService transferService;
     private final AccountRepository accounts;
     private final TransferRepository transfers;
+    private final FeePolicy feePolicy;
 
     // Пока без логина — считаем, что работаем от имени customerId = 1
     private static final int CURRENT_CUSTOMER_ID = 2;
 
     public PaymentController(TransferApplicationService transferService,
                              AccountRepository accounts,
-                             TransferRepository transfers) {
+                             TransferRepository transfers,
+                             FeePolicy feePolicy) {
         this.transferService = transferService;
         this.accounts = accounts;
         this.transfers = transfers;
+        this.feePolicy = feePolicy;
     }
 
     // 1) Список счетов клиента для select "From"
@@ -77,11 +83,15 @@ public class PaymentController {
 
         boolean authorizationRequired = (t.status() == TransferStatus.WAITING_AUTH);
 
+        Money fee = t.feeAmount(feePolicy);
+        Money charged = t.amount().plus(fee);
+
         NewPaymentResultDto dto = new NewPaymentResultDto(
                 t.id(),
                 t.status().name(),
-                t.amount().toString(),      // пример: "1340.00 CZK"
-                acc.balance().toString(),   // пример: "10000.00 CZK"
+                charged.toString(),      // chargedAmount
+                fee.toString(),          // feeAmount
+                acc.balance().toString(),
                 authorizationRequired
         );
 

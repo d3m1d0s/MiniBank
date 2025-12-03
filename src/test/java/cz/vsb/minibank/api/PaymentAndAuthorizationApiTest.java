@@ -24,7 +24,6 @@ public class PaymentAndAuthorizationApiTest {
 
     @BeforeEach
     void setup() {
-        // каждый тест поднимает своё "мини-приложение" из текущего data.json
         Bootstrap infra = new Bootstrap("data/data.json");
 
         accounts = infra.accounts;
@@ -43,15 +42,18 @@ public class PaymentAndAuthorizationApiTest {
         paymentController = new PaymentController(
                 transferService,
                 accounts,
-                transfers
+                transfers,
+                services.feePolicy
         );
 
         authorizationController = new AuthorizationController(
                 transferService,
                 accounts,
-                transfers
+                transfers,
+                services.feePolicy
         );
     }
+
 
     /**
      * Утилита: создать новый платёж клиента 2, который попадёт в WAITING_AUTH,

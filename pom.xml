@@ -32,7 +32,7 @@
             <version>5.10.2</version>
             <scope>test</scope>
         </dependency>
-        <!-- Spring Boot Web (REST + встроенный Tomcat) -->
+        <!-- Spring Boot Web (REST + Tomcat) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>

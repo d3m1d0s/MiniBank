@@ -10,6 +10,8 @@ import cz.vsb.minibank.application.PaymentNetworkGateway;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import cz.vsb.minibank.domain.FeePolicy;
+
 
 /**
  * Связывает инфраструктуру (Bootstrap) с Spring-контекстом.
@@ -34,7 +36,7 @@ public class MinibankApiConfig {
                 infra.transfers,   // TransferRepository
                 infra.alerts,      // FraudAlertRepository
                 infra.uowFactory,  // UnitOfWorkFactory
-                true               // demoMode
+                false               // demoMode
         );
     }
 
@@ -48,6 +50,12 @@ public class MinibankApiConfig {
     @Bean
     public AccountRepository accountRepository(Bootstrap infra) {
         return infra.accounts;
+    }
+
+    // 5) FeePolicy — нужен контроллеру, чтобы посчитать fee/charged
+    @Bean
+    public FeePolicy feePolicy(BootstrapServices services) {
+        return services.feePolicy;
     }
 
     @Bean

@@ -10,6 +10,10 @@ import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
+import cz.vsb.minibank.domain.FeePolicy;
+import cz.vsb.minibank.domain.value.Money;
+
+
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
@@ -27,17 +31,21 @@ public class AuthorizationController {
     private final TransferApplicationService transferService;
     private final AccountRepository accounts;
     private final TransferRepository transfers;
+    private final FeePolicy feePolicy;
 
     // тот же временный customerId, что и в PaymentController
     private static final int CURRENT_CUSTOMER_ID = 2;
 
     public AuthorizationController(TransferApplicationService transferService,
                                    AccountRepository accounts,
-                                   TransferRepository transfers) {
+                                   TransferRepository transfers,
+                                   FeePolicy feePolicy) {
         this.transferService = transferService;
         this.accounts = accounts;
         this.transfers = transfers;
+        this.feePolicy = feePolicy;
     }
+
 
     // 1) Список всех WAITING_AUTH переводов клиента (таблица слева на WEB-2)
     @GetMapping("/customers/{customerId}/waiting-transfers")
@@ -78,19 +86,23 @@ public class AuthorizationController {
         Account acc = accounts.byId(t.sourceAccountId())
                 .orElseThrow(() -> new RuntimeException("Account not found"));
 
+        var fee = t.feeAmount(feePolicy); // Money, та же политика, что в UC04
+
         return new TransferDetailsDto(
                 t.id(),
-                acc.iban().value(),             // fromIban
-                acc.balance().toString(),       // fromBalance
-                t.targetIbanSnapshot(),         // toIban
-                t.amount().toString(),          // amount
-                t.status().name(),              // status
-                t.createdAt().toString(),       // createdAt
+                acc.iban().value(),        // fromIban
+                acc.balance().toString(),  // fromBalance (текущий баланс счёта)
+                t.targetIbanSnapshot(),    // toIban
+                t.amount().toString(),     // amount (голая сумма перевода)
+                fee.toString(),            // feeAmount, например "525.00 CZK"
+                t.status().name(),         // status
+                t.createdAt().toString(),  // createdAt
                 t.authMethod() != null
                         ? t.authMethod().toString()
                         : ""
         );
     }
+
 
     // 3) Авторизация платежа (UC05)
     @PostMapping("/transfers/{id}/authorize")
@@ -105,12 +117,23 @@ public class AuthorizationController {
         Account acc = accounts.byId(t.sourceAccountId())
                 .orElseThrow(() -> new RuntimeException("Account not found"));
 
+        // Считаем chargedAmount только если реально отправили платёж
+        String chargedAmount = null;
+        if (t.status() == TransferStatus.SENT) {
+            var fee = t.feeAmount(feePolicy);        // Money
+            var total = t.amount().plus(fee);        // amount + fee
+            chargedAmount = total.toString();        // "10525.00 CZK"
+        }
+
         return new AuthorizePaymentResult(
+                t.id(),
                 t.status().name(),
+                chargedAmount,                // null, если DECLINED / WAITING_AUTH
                 acc.balance().toString(),
                 t.declineReason()
         );
     }
+
 
     // 4) Отмена платежа клиентом (UC19)
     @PostMapping("/transfers/{id}/cancel")
@@ -123,7 +146,9 @@ public class AuthorizationController {
                 .orElseThrow(() -> new RuntimeException("Account not found"));
 
         return new AuthorizePaymentResult(
+                t.id(),
                 t.status().name(),
+                null,                        // ничего не списывали
                 acc.balance().toString(),
                 t.declineReason()
         );

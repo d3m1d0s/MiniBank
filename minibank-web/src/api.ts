@@ -1,4 +1,9 @@
 // src/api.ts
+
+//TODO: I have client.ts and this api.ts, it seems that some functions
+// are the same in both files, I think that maybe I should get rid of
+// one of the file and use a complete logic in one of these files for
+// both UC04 and UC05
 export interface AccountSummary {
     id: number;
     iban: string;
@@ -35,14 +40,14 @@ export interface WaitingTransferItem {
 
 export interface TransferDetails {
     id: number;
-    sourceIban?: string;
-    sourceBalance?: string;
-    targetIban?: string;
-    amount?: string;
-    feeAmount?: string;
-    status?: string;
-    createdAt?: string;
-    [key: string]: unknown;
+    fromIban: string;
+    fromBalance: string;
+    toIban: string;
+    amount: string;
+    feeAmount: string;
+    status: string;
+    createdAt: string;
+    authMethod?: string;
 }
 
 export interface AuthorizePaymentRequest {
@@ -53,10 +58,12 @@ export interface AuthorizePaymentRequest {
 export interface AuthorizePaymentResult {
     transferId: number;
     status: string;
-    chargedAmount?: string;
-    newBalance?: string;
+    chargedAmount?: string | null;
+    newBalance?: string | null;
+    declineReason?: string | null;
     [key: string]: unknown;
 }
+
 
 const API_BASE = 'http://localhost:8080/api';
 
@@ -113,10 +120,15 @@ export async function fetchTransferDetails(
 export async function confirmAuthorization(
     payload: AuthorizePaymentRequest,
 ): Promise<AuthorizePaymentResult> {
-    const res = await fetch(`${API_BASE}/authorizations/confirm`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-    });
-    return handle<AuthorizePaymentResult>(res);
+    const res = await fetch(
+        `${API_BASE}/transfers/${payload.transferId}/authorize`,
+        {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            // бэкенду нужен только otp, id он берёт из URL
+            body: JSON.stringify({ otp: payload.otp }),
+        },
+    )
+    return handle<AuthorizePaymentResult>(res)
 }
+

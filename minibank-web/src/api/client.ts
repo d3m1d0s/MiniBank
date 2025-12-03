@@ -22,6 +22,7 @@ export type NewPaymentResultDto = {
     transferId: number
     status: string
     chargedAmount: string
+    feeAmount: string
     newBalance: string
     authorizationRequired: boolean
 }
