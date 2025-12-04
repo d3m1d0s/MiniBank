@@ -4,6 +4,7 @@ package cz.vsb.minibank.domain;
 import cz.vsb.minibank.domain.exceptions.InvalidStateTransitionException;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.domain.lazy.LazyRef;
+import java.time.Duration;
 import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.Beneficiary;
 import cz.vsb.minibank.domain.TransferEvents;
@@ -29,6 +30,9 @@ public class Transfer {
     private Payment authMethod; // nullable
     private String declineReason;
 
+    private int authAttempts;
+
+    private Instant authValidUntil;
 
     // --- Lazy navigation properties (optional) ---
     private LazyRef<Account> sourceAccountRef;
@@ -41,6 +45,9 @@ public class Transfer {
         this.id = id; this.sourceAccountId = sourceAccountId; this.beneficiaryId = beneficiaryId;
         this.targetIbanSnapshot = targetIbanSnapshot; this.amount = amount; this.currency = currency;
         this.status = TransferStatus.CREATED; this.createdAt = Instant.now();
+
+        this.authAttempts = 0;
+        this.authValidUntil = null;
     }
 
 
@@ -55,6 +62,9 @@ public class Transfer {
 
         this.authMethod = method;
         this.status = TransferStatus.WAITING_AUTH;
+
+        this.authAttempts = 0;
+        this.authValidUntil = Instant.now().plus(Duration.ofMinutes(5));
 
         TransferEvents.notifyStatusChanged(this, old, this.status);
     }
@@ -84,12 +94,27 @@ public class Transfer {
         TransferEvents.notifyStatusChanged(this, old, this.status);
     }
 
-    public void hydrateForLoad(TransferStatus status, Payment authMethod, String declineReason, java.time.Instant createdAt) {
+    public void hydrateForLoad(TransferStatus status,
+                               Payment authMethod,
+                               String declineReason,
+                               Instant createdAt) {
+        hydrateForLoad(status, authMethod, declineReason, createdAt, null, null);
+    }
+
+    public void hydrateForLoad(TransferStatus status,
+                               Payment authMethod,
+                               String declineReason,
+                               Instant createdAt,
+                               Integer authAttempts,
+                               Instant authValidUntil) {
         this.status = status;
         this.authMethod = authMethod;
         this.declineReason = declineReason;
         if (createdAt != null) this.createdAt = createdAt;
+        if (authAttempts != null) this.authAttempts = authAttempts;
+        this.authValidUntil = authValidUntil;
     }
+
 
 
     public int id() { return id; }
@@ -102,6 +127,27 @@ public class Transfer {
     public Instant createdAt() { return createdAt; }
     public Payment authMethod() { return authMethod; }
     public String declineReason() { return declineReason; }
+    public int authAttempts() { return authAttempts; }
+    public Instant authValidUntil() { return authValidUntil; }
+
+    public boolean isAuthExpired() {
+        return status == TransferStatus.WAITING_AUTH
+                && authValidUntil != null
+                && Instant.now().isAfter(authValidUntil);
+    }
+
+    public void registerFailedOtpAttempt(int maxAttempts) {
+        if (status != TransferStatus.WAITING_AUTH) {
+            throw new InvalidStateTransitionException("OTP attempts allowed only in WAITING_AUTH");
+        }
+
+        this.authAttempts++;
+
+        if (this.authAttempts >= maxAttempts) {
+            // финальное отклонение
+            decline("Too many invalid OTP attempts");
+        }
+    }
 
 
     // --- Lazy navigation API ---

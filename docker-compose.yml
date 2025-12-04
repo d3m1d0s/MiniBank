@@ -1,0 +1,18 @@
+version: "3.8"
+
+services:
+  db:
+    image: postgres:14
+    container_name: minibank-db
+    environment:
+      POSTGRES_DB: minibank
+      POSTGRES_USER: minibank
+      POSTGRES_PASSWORD: minibank
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - minibank_pgdata:/var/lib/postgresql/data
+
+volumes:
+  minibank_pgdata:

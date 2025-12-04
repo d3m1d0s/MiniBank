@@ -86,22 +86,35 @@ public class AuthorizationController {
         Account acc = accounts.byId(t.sourceAccountId())
                 .orElseThrow(() -> new RuntimeException("Account not found"));
 
-        var fee = t.feeAmount(feePolicy); // Money, та же политика, что в UC04
+        var fee = t.feeAmount(feePolicy);
+
+        // Остаток попыток
+        int maxAttempts = TransferApplicationService.MAX_OTP_ATTEMPTS;       // или своё значение
+        int triesLeft = Math.max(0, maxAttempts - t.authAttempts());
+
+        // Время, когда истечёт авторизация
+        String authValidUntilStr = null;
+        if (t.authValidUntil() != null) {
+            authValidUntilStr = t.authValidUntil().toString(); // ISO-строка
+        }
 
         return new TransferDetailsDto(
                 t.id(),
-                acc.iban().value(),        // fromIban
-                acc.balance().toString(),  // fromBalance (текущий баланс счёта)
-                t.targetIbanSnapshot(),    // toIban
-                t.amount().toString(),     // amount (голая сумма перевода)
-                fee.toString(),            // feeAmount, например "525.00 CZK"
-                t.status().name(),         // status
-                t.createdAt().toString(),  // createdAt
+                acc.iban().value(),            // fromIban
+                acc.balance().toString(),      // fromBalance
+                t.targetIbanSnapshot(),        // toIban
+                t.amount().toString(),         // amount
+                fee.toString(),                // feeAmount
+                t.status().name(),             // status
+                t.createdAt().toString(),      // createdAt
                 t.authMethod() != null
                         ? t.authMethod().toString()
-                        : ""
+                        : "",
+                triesLeft,                     // triesLeft
+                authValidUntilStr              // authValidUntil
         );
     }
+
 
 
     // 3) Авторизация платежа (UC05)

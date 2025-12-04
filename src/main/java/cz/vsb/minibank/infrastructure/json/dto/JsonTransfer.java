@@ -13,4 +13,7 @@ public class JsonTransfer {
     public String authMethod;
     public String cardNumberMasked;
     public String declineReason;
+
+    public Integer authAttempts;
+    public String authValidUntil;
 }

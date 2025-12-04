@@ -48,6 +48,8 @@ export interface TransferDetails {
     status: string;
     createdAt: string;
     authMethod?: string;
+    triesLeft?: number;
+    authValidUntil?: string;
 }
 
 export interface AuthorizePaymentRequest {
@@ -58,31 +60,51 @@ export interface AuthorizePaymentRequest {
 export interface AuthorizePaymentResult {
     transferId: number;
     status: string;
-    chargedAmount?: string | null;
-    newBalance?: string | null;
-    declineReason?: string | null;
-    [key: string]: unknown;
+    chargedAmount: string | null;   // null, если ничего не списывали
+    newBalance: string;             // всегда актуальный баланс счёта
+    declineReason: string | null;   // текст причины при DECLINED, иначе null
 }
+
 
 
 const API_BASE = 'http://localhost:8080/api';
 
+// src/api.ts
+
 async function handle<T>(res: Response): Promise<T> {
-    if (!res.ok) {
-        // пробуем прочитать тело как JSON с AppError
-        const text = await res.text();
-        try {
-            const parsed = JSON.parse(text) as { code?: string; message?: string };
-            throw new Error(parsed.message || parsed.code || res.statusText);
-        } catch {
-            // не JSON
-            throw new Error(text || res.statusText);
-        }
-    }
-    // если тело пустое
     const text = await res.text();
-    if (!text) return {} as T;
-    return JSON.parse(text) as T;
+
+    if (!res.ok) {
+        if (text) {
+            // пробуем распарсить AppError { code, message }
+            try {
+                const parsed = JSON.parse(text) as { code?: string; message?: string };
+                const error = new Error(parsed.message || parsed.code || res.statusText);
+                if (parsed.code) {
+                    (error as any).code = parsed.code;
+                }
+                throw error;
+            } catch {
+                // ответ не JSON
+                throw new Error(text || res.statusText);
+            }
+        }
+
+        throw new Error(res.statusText);
+    }
+
+    // успешный ответ
+    if (!text) {
+        // на случай 204 / пустого ответа
+        return {} as T;
+    }
+
+    try {
+        return JSON.parse(text) as T;
+    } catch {
+        // если вдруг вернулся не-JSON
+        return text as unknown as T;
+    }
 }
 
 // === UC04 ===
@@ -132,3 +154,11 @@ export async function confirmAuthorization(
     return handle<AuthorizePaymentResult>(res)
 }
 
+export async function cancelTransfer(
+    id: number,
+): Promise<AuthorizePaymentResult> {
+    const res = await fetch(`${API_BASE}/transfers/${id}/cancel`, {
+        method: 'POST',
+    });
+    return handle<AuthorizePaymentResult>(res);
+}

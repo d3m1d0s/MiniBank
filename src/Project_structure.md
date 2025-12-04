@@ -1,5 +1,11 @@
 ```pgsql
 VIS_project_minibank/
+├─ .gitignore
+├─ docker-compose.yml
+├─ minibank.log
+├─ pom.xml
+├─ transfer_audit.log
+│
 ├─ data/
 │  ├─ data.json
 │  └─ demo.json

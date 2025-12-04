@@ -116,7 +116,9 @@ CREATE TABLE transfers (
 
                            auth_method          VARCHAR(32),
                            card_number_masked   VARCHAR(64),
-                           decline_reason       TEXT
+                           decline_reason       TEXT,
+                           auth_attempts        INTEGER,
+                           auth_valid_until     TIMESTAMPTZ
 );
 
 CREATE SEQUENCE transfers_id_seq;

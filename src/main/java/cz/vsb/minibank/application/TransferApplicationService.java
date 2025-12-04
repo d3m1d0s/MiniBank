@@ -15,6 +15,9 @@ import cz.vsb.minibank.domain.value.Money;
 import java.util.Objects;
 
 public class TransferApplicationService {
+
+    /** Максимальное число попыток ввода OTP. */
+    public static final int MAX_OTP_ATTEMPTS = 3;
     private final CustomerRepository customers;
     private final AccountRepository accounts;
     private final BeneficiaryResolver beneficiaryResolver;
@@ -25,6 +28,7 @@ public class TransferApplicationService {
     private final OtpValidator otpValidator;
     private final PaymentNetworkGateway paymentNetworkGateway;
     private final UnitOfWorkFactory uowFactory;
+
 
     public TransferApplicationService(CustomerRepository customers,
                                       AccountRepository accounts,
@@ -132,26 +136,39 @@ public class TransferApplicationService {
 
 
 
-    /** UC 05 – Authorize Payment. */
+    /** UC 05 – Authorize Payment (с попытками и таймером). */
     public void authorizePayment(int transferId, String otp) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
             var t = transfers.byId(transferId)
                     .orElseThrow(() -> new RuntimeException("Transfer not found"));
+
             var acc = accounts.byId(t.sourceAccountId())
                     .orElseThrow(() -> new RuntimeException("Source account not found"));
-            if (!otpValidator.isValid(transferId, otp)) {
-                t.decline("OTP failed");
+
+            if (t.status() != TransferStatus.WAITING_AUTH) {
+                throw new RuntimeException("Transfer is not waiting for authorization");
+            }
+
+            if (t.isAuthExpired()) {
+                t.decline("Authorization window expired");
+                transfers.save(t);
+                uow.commit();
+                return;
+            }
+
+            boolean valid = otpValidator.isValid(transferId, otp);
+            if (!valid) {
+                t.registerFailedOtpAttempt(MAX_OTP_ATTEMPTS);
                 transfers.save(t);
                 uow.commit();
                 return;
             }
 
             t.send(acc, feePolicy);
-            transfers.save(t);
-            accounts.save(acc);
 
-            // After successful authorization, dispatch to payment network
+            accounts.save(acc);
+            transfers.save(t);
             paymentNetworkGateway.send(t);
 
             uow.commit();
@@ -162,7 +179,8 @@ public class TransferApplicationService {
     }
 
 
-    /** UC 19 – Cancel Payment Order. */
+
+    /** UC 19 - Cancel Payment Order. */
     public void cancelPayment(int transferId) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {

@@ -55,10 +55,6 @@ public class PaymentAndAuthorizationApiTest {
     }
 
 
-    /**
-     * Утилита: создать новый платёж клиента 2, который попадёт в WAITING_AUTH,
-     * и вернуть его id.
-     */
     private int createWaitingTransferForCustomer2() {
         // берём первый счёт клиента 2 (в твоём data.json это 101)
         List<AccountSummaryDto> accList = paymentController.listAccounts(2);
@@ -80,8 +76,6 @@ public class PaymentAndAuthorizationApiTest {
         Transfer t = transfers.byId(transferId)
                 .orElseThrow(() -> new AssertionError("New transfer not found in repository"));
 
-        // По бизнес-правилам (см. твой RuleBasedRiskService) для 1000 CZK
-        // и лимита 5000 перевод уходит в WAITING_AUTH.
         assertEquals(
                 TransferStatus.WAITING_AUTH,
                 t.status(),
@@ -126,7 +120,7 @@ public class PaymentAndAuthorizationApiTest {
     }
 
     @Test
-    void authorizePayment_withInvalidOtp_declinesNewTransfer() {
+    void authorizePayment_withInvalidOtp_keepsTransferWaitingAuth() {
         int transferId = createWaitingTransferForCustomer2();
 
         Transfer before = transfers.byId(transferId)
@@ -144,9 +138,10 @@ public class PaymentAndAuthorizationApiTest {
         Transfer after = transfers.byId(transferId)
                 .orElseThrow(() -> new AssertionError("Transfer not found after auth"));
 
-        assertEquals(TransferStatus.DECLINED.name(), result.status());
-        assertEquals(TransferStatus.DECLINED, after.status());
+        assertEquals(TransferStatus.WAITING_AUTH.name(), result.status());
+        assertEquals(TransferStatus.WAITING_AUTH, after.status());
     }
+
 
     @Test
     void cancelPayment_setsStatusDeclinedForNewWaitingTransfer() {

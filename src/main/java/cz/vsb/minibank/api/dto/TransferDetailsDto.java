@@ -9,5 +9,7 @@ public record TransferDetailsDto(
         String feeAmount,
         String status,
         String createdAt,
-        String authMethod
+        String authMethod,
+        int triesLeft,
+        String authValidUntil
 ) {}

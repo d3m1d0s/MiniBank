@@ -92,6 +92,11 @@ public class JsonMapper {
             if (t.authMethod() instanceof CardPayment cp) j.cardNumberMasked = cp.cardNumberMasked();
         }
         j.declineReason = t.declineReason();
+        j.authAttempts = t.authAttempts();
+        if (t.authValidUntil() != null) {
+            j.authValidUntil = t.authValidUntil().toString();
+        }
+
         return j;
     }
     public static Transfer toDomain(JsonTransfer j) {
@@ -112,15 +117,22 @@ public class JsonMapper {
         }
 
         // parse createdAt if present
-        java.time.Instant ts = null;
+        Instant ts = null;
         try {
-            if (j.createdAt != null) ts = java.time.Instant.parse(j.createdAt);
+            if (j.createdAt != null) ts = Instant.parse(j.createdAt);
+        } catch (Exception ignored) {}
+
+        // parse OTP metadata
+        Integer attempts = j.authAttempts;
+        Instant validUntil = null;
+        try {
+            if (j.authValidUntil != null) validUntil = Instant.parse(j.authValidUntil);
         } catch (Exception ignored) {}
 
         // restore status without side effects
         try {
             var status = TransferStatus.valueOf(j.status);
-            t.hydrateForLoad(status, payment, j.declineReason, ts);
+            t.hydrateForLoad(status, payment, j.declineReason, ts, attempts, validUntil);
         } catch (Exception ignored) {}
 
         return t;

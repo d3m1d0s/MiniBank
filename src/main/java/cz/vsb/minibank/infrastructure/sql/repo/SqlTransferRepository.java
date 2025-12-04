@@ -120,21 +120,26 @@ public final class SqlTransferRepository implements TransferRepository {
                     created_at,
                     auth_method,
                     card_number_masked,
-                    decline_reason
+                    decline_reason,
+                    auth_attempts,
+                    auth_valid_until
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO UPDATE SET
-                    source_account_id   = EXCLUDED.source_account_id,
-                    beneficiary_id      = EXCLUDED.beneficiary_id,
+                    source_account_id    = EXCLUDED.source_account_id,
+                    beneficiary_id       = EXCLUDED.beneficiary_id,
                     target_iban_snapshot = EXCLUDED.target_iban_snapshot,
-                    amount              = EXCLUDED.amount,
-                    currency            = EXCLUDED.currency,
-                    status              = EXCLUDED.status,
-                    created_at          = EXCLUDED.created_at,
-                    auth_method         = EXCLUDED.auth_method,
-                    card_number_masked  = EXCLUDED.card_number_masked,
-                    decline_reason      = EXCLUDED.decline_reason
+                    amount               = EXCLUDED.amount,
+                    currency             = EXCLUDED.currency,
+                    status               = EXCLUDED.status,
+                    created_at           = EXCLUDED.created_at,
+                    auth_method          = EXCLUDED.auth_method,
+                    card_number_masked   = EXCLUDED.card_number_masked,
+                    decline_reason       = EXCLUDED.decline_reason,
+                    auth_attempts        = EXCLUDED.auth_attempts,
+                    auth_valid_until     = EXCLUDED.auth_valid_until
                 """;
+
 
         Payment auth = t.authMethod();
         String authMethod = null;
@@ -179,6 +184,21 @@ public final class SqlTransferRepository implements TransferRepository {
                 ps.setNull(11, Types.VARCHAR);
             }
 
+            // auth_attempts
+            if (t.authAttempts() > 0) {
+                ps.setInt(12, t.authAttempts());
+            } else {
+                ps.setNull(12, Types.INTEGER);
+            }
+
+            // auth_valid_until
+            if (t.authValidUntil() != null) {
+                ps.setTimestamp(13, Timestamp.from(t.authValidUntil()));
+            } else {
+                ps.setNull(13, Types.TIMESTAMP_WITH_TIMEZONE);
+            }
+
+
             ps.executeUpdate();
         }
     }
@@ -212,20 +232,23 @@ public final class SqlTransferRepository implements TransferRepository {
             throws SQLException {
 
         String sql = """
-                SELECT id,
-                       source_account_id,
-                       beneficiary_id,
-                       target_iban_snapshot,
-                       amount,
-                       currency,
-                       status,
-                       created_at,
-                       auth_method,
-                       card_number_masked,
-                       decline_reason
-                  FROM transfers
-                 WHERE id = ?
-                """;
+            SELECT id,
+                   source_account_id,
+                   beneficiary_id,
+                   target_iban_snapshot,
+                   amount,
+                   currency,
+                   status,
+                   created_at,
+                   auth_method,
+                   card_number_masked,
+                   decline_reason,
+                   auth_attempts,
+                   auth_valid_until
+              FROM transfers
+             WHERE id = ?
+            """;
+
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, id);
@@ -261,20 +284,23 @@ public final class SqlTransferRepository implements TransferRepository {
             throws SQLException {
 
         String sql = """
-                SELECT id,
-                       source_account_id,
-                       beneficiary_id,
-                       target_iban_snapshot,
-                       amount,
-                       currency,
-                       status,
-                       created_at,
-                       auth_method,
-                       card_number_masked,
-                       decline_reason
-                  FROM transfers
-                 WHERE source_account_id = ?
-                """;
+        SELECT id,
+               source_account_id,
+               beneficiary_id,
+               target_iban_snapshot,
+               amount,
+               currency,
+               status,
+               created_at,
+               auth_method,
+               card_number_masked,
+               decline_reason,
+               auth_attempts,
+               auth_valid_until
+          FROM transfers
+         WHERE source_account_id = ?
+        """;
+
 
         List<Transfer> result = new ArrayList<>();
 
@@ -332,6 +358,13 @@ public final class SqlTransferRepository implements TransferRepository {
         String authMethod = rs.getString("auth_method");
         String cardMask = rs.getString("card_number_masked");
 
+        Integer authAttempts = null;
+        int attemptsRaw = rs.getInt("auth_attempts");
+        if (!rs.wasNull()) authAttempts = attemptsRaw;
+
+        Timestamp validTs = rs.getTimestamp("auth_valid_until");
+        Instant authValidUntil = (validTs != null ? validTs.toInstant() : null);
+
         Payment payment = null;
         if (authMethod != null) {
             if ("CARD".equalsIgnoreCase(authMethod)) {
@@ -344,7 +377,7 @@ public final class SqlTransferRepository implements TransferRepository {
 
         try {
             TransferStatus status = TransferStatus.valueOf(statusStr);
-            t.hydrateForLoad(status, payment, declineReason, createdAt);
+            t.hydrateForLoad(status, payment, declineReason, createdAt, authAttempts, authValidUntil);
         } catch (Exception ignored) {
             // if status is invalid, keep whatever Transfer constructor set
         }
