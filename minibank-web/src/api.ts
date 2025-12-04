@@ -1,9 +1,5 @@
 // src/api.ts
 
-//TODO: I have client.ts and this api.ts, it seems that some functions
-// are the same in both files, I think that maybe I should get rid of
-// one of the file and use a complete logic in one of these files for
-// both UC04 and UC05
 export interface AccountSummary {
     id: number;
     iban: string;
