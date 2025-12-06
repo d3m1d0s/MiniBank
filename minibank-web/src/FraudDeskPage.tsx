@@ -156,36 +156,6 @@ export default function FraudDeskPage({ onNavigate }: Props) {
                             </li>
                             <li>
                                 <button type="button" className="nav-link">
-                                    Accounts
-                                </button>
-                            </li>
-                            <li>
-                                <button
-                                    type="button"
-                                    className="nav-link"
-                                    onClick={() => onNavigate('new-payment')}
-                                >
-                                    New payment
-                                </button>
-                            </li>
-                            <li>
-                                <button type="button" className="nav-link">
-                                    History & Statements
-                                </button>
-                            </li>
-                            <li>
-                                <button
-                                    type="button"
-                                    className="nav-link"
-                                    onClick={() =>
-                                        onNavigate('waiting-auth')
-                                    }
-                                >
-                                    Waiting authorizations
-                                </button>
-                            </li>
-                            <li>
-                                <button type="button" className="nav-link">
                                     Settings
                                 </button>
                             </li>
@@ -194,7 +164,7 @@ export default function FraudDeskPage({ onNavigate }: Props) {
                                     type="button"
                                     className="nav-link nav-link--active"
                                 >
-                                    Fraud desk (Temporarily)
+                                    Fraud desk
                                 </button>
                             </li>
                         </ul>

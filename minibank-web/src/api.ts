@@ -51,7 +51,6 @@ export interface AccountSummary {
 }
 
 export interface NewPaymentRequest {
-    customerId?: number;
     sourceAccountId: number;
     targetIban: string;
     amountCzk: number;
@@ -110,6 +109,38 @@ export interface AuthorizePaymentResult {
 
 const API_BASE = 'http://localhost:8080/api';
 
+let currentSessionId: string | null = null;
+
+export function setSessionId(id: string | null) {
+    currentSessionId = id;
+}
+
+
+async function apiFetch(input: RequestInfo, init: RequestInit = {}): Promise<Response> {
+    const headers = new Headers(init.headers || {});
+    if (currentSessionId) {
+        headers.set('X-Session-Id', currentSessionId);
+    }
+    return fetch(input, { ...init, headers });
+}
+
+
+export async function login(payload: LoginRequest): Promise<LoginResponse> {
+    const res = await fetch(`${API_BASE}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    const data = await handle<LoginResponse>(res);
+    setSessionId(data.sessionId);
+    return data;
+}
+
+export function logoutSession() {
+    setSessionId(null);
+}
+
+
 async function handle<T>(res: Response): Promise<T> {
     const text = await res.text();
 
@@ -149,14 +180,14 @@ async function handle<T>(res: Response): Promise<T> {
 // === UC04 ===
 
 export async function getMyAccounts(): Promise<AccountSummary[]> {
-    const res = await fetch(`${API_BASE}/me/accounts`);
+    const res = await apiFetch(`${API_BASE}/me/accounts`);
     return handle<AccountSummary[]>(res);
 }
 
 export async function createPayment(
     payload: NewPaymentRequest,
 ): Promise<NewPaymentResult> {
-    const res = await fetch(`${API_BASE}/payments`, {
+    const res = await apiFetch(`${API_BASE}/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -167,21 +198,21 @@ export async function createPayment(
 // === UC05 ===
 
 export async function fetchWaitingTransfers(): Promise<WaitingTransferItem[]> {
-    const res = await fetch(`${API_BASE}/me/waiting-transfers`);
+    const res = await apiFetch(`${API_BASE}/me/waiting-transfers`);
     return handle<WaitingTransferItem[]>(res);
 }
 
 export async function fetchTransferDetails(
     id: number,
 ): Promise<TransferDetails> {
-    const res = await fetch(`${API_BASE}/transfers/${id}`);
+    const res = await apiFetch(`${API_BASE}/transfers/${id}`);
     return handle<TransferDetails>(res);
 }
 
 export async function confirmAuthorization(
     payload: AuthorizePaymentRequest,
 ): Promise<AuthorizePaymentResult> {
-    const res = await fetch(
+    const res = await apiFetch(
         `${API_BASE}/transfers/${payload.transferId}/authorize`,
         {
             method: 'POST',
@@ -196,7 +227,7 @@ export async function confirmAuthorization(
 export async function cancelTransfer(
     id: number,
 ): Promise<AuthorizePaymentResult> {
-    const res = await fetch(`${API_BASE}/transfers/${id}/cancel`, {
+    const res = await apiFetch(`${API_BASE}/transfers/${id}/cancel`, {
         method: 'POST',
     });
     return handle<AuthorizePaymentResult>(res);
@@ -288,6 +319,19 @@ export interface AlertFilters {
     assignee?: string;
 }
 
+export interface LoginRequest {
+    username: string;
+    password: string;
+}
+
+export interface LoginResponse {
+    sessionId: string;
+    username: string;
+    role: 'CUSTOMER' | 'FRAUD_ANALYST' | 'OPERATIONS' | 'MANAGEMENT';
+    customerId: number | null;
+}
+
+
 
 export async function fetchAlerts(
     filters: AlertFilters = {},
@@ -306,12 +350,12 @@ export async function fetchAlerts(
         ? `${API_BASE}/fraud/alerts?${qs}`
         : `${API_BASE}/fraud/alerts`;
 
-    const res = await fetch(url);
+    const res = await apiFetch(url);
     return handle<AlertQueueResponse>(res);
 }
 
 export async function fetchAlertDetail(id: number): Promise<AlertDetail> {
-    const res = await fetch(`${API_BASE}/fraud/alerts/${id}`);
+    const res = await apiFetch(`${API_BASE}/fraud/alerts/${id}`);
     return handle<AlertDetail>(res);
 }
 
@@ -319,7 +363,7 @@ export async function postFraudDecision(
     id: number,
     payload: FraudDecisionRequest,
 ): Promise<AlertDetail> {
-    const res = await fetch(`${API_BASE}/fraud/alerts/${id}/decision`, {
+    const res = await apiFetch(`${API_BASE}/fraud/alerts/${id}/decision`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

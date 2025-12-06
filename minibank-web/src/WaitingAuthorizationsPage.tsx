@@ -293,15 +293,6 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                     Settings
                                 </button>
                             </li>
-                            <li>
-                                <button
-                                    type="button"
-                                    className="nav-link"
-                                    onClick={() => onNavigate('fraud-desk')}
-                                >
-                                    Fraud desk (Temporarily)
-                                </button>
-                            </li>
                         </ul>
                     </nav>
 

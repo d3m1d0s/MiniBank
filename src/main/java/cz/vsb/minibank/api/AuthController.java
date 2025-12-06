@@ -1,0 +1,49 @@
+package cz.vsb.minibank.api;
+
+import cz.vsb.minibank.application.AuthService;
+import cz.vsb.minibank.application.SessionStore;
+import cz.vsb.minibank.application.SecurityContext;
+import cz.vsb.minibank.domain.User;
+import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
+import org.springframework.web.bind.annotation.*;
+
+record LoginRequest(String username, String password) {}
+record LoginResponse(String sessionId, String username, String role, Integer customerId) {}
+
+
+@RestController
+@RequestMapping("/api/auth")
+@CrossOrigin(origins = "http://localhost:5173")
+public class AuthController {
+
+    private final AuthService authService;
+    private final SessionStore sessions;
+
+    public AuthController(AuthService authService, SessionStore sessions) {
+        this.authService = authService;
+        this.sessions = sessions;
+    }
+
+    @PostMapping("/login")
+    public LoginResponse login(@RequestBody LoginRequest req) {
+        if (req.username() == null || req.password() == null) {
+            throw new AuthorizationFailedException("Username and password are required");
+        }
+
+        User u = authService.login(req.username(), req.password().toCharArray());
+        String sessionId = sessions.createSession(u);
+
+        // На всякий случай очистим SecurityContext здесь (перезапишется в интерсепторе)
+        SecurityContext.clear();
+
+        return new LoginResponse(sessionId, u.username(), u.role().name(), u.customerId());
+    }
+
+    @PostMapping("/logout")
+    public void logout(@RequestHeader(name = "X-Session-Id", required = false) String sessionId) {
+        if (sessionId != null) {
+            sessions.remove(sessionId);
+        }
+        authService.logout();
+    }
+}

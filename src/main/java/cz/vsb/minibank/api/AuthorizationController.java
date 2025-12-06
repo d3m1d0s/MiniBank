@@ -23,6 +23,8 @@ import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RequestMapping;
 
+import static cz.vsb.minibank.api.AuthHelpers.requireCustomerId;
+
 @CrossOrigin(origins = "http://localhost:5173")
 @RestController
 @RequestMapping("/api")
@@ -33,8 +35,6 @@ public class AuthorizationController {
     private final TransferRepository transfers;
     private final FeePolicy feePolicy;
 
-    // тот же временный customerId, что и в PaymentController
-    private static final int CURRENT_CUSTOMER_ID = 2;
 
     public AuthorizationController(TransferApplicationService transferService,
                                    AccountRepository accounts,
@@ -75,7 +75,8 @@ public class AuthorizationController {
     // Шорткат: /api/me/waiting-transfers
     @GetMapping("/me/waiting-transfers")
     public List<WaitingTransferItemDto> listMyWaiting() {
-        return listWaiting(CURRENT_CUSTOMER_ID);
+        int customerId = requireCustomerId();
+        return listWaiting(customerId);
     }
 
     // 2) Детали конкретного перевода (правая панель WEB-2)

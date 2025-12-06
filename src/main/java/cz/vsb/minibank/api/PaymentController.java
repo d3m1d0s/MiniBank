@@ -21,6 +21,8 @@ import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.RequestMapping;
 
+import static cz.vsb.minibank.api.AuthHelpers.requireCustomerId;
+
 @CrossOrigin(origins = "http://localhost:5173")
 @RestController
 @RequestMapping("/api")
@@ -31,8 +33,6 @@ public class PaymentController {
     private final TransferRepository transfers;
     private final FeePolicy feePolicy;
 
-    // Пока без логина — считаем, что работаем от имени customerId = 1
-    private static final int CURRENT_CUSTOMER_ID = 2;
 
     public PaymentController(TransferApplicationService transferService,
                              AccountRepository accounts,
@@ -44,7 +44,7 @@ public class PaymentController {
         this.feePolicy = feePolicy;
     }
 
-    // 1) Список счетов клиента для select "From"
+
     @GetMapping("/customers/{customerId}/accounts")
     public List<AccountSummaryDto> listAccounts(@PathVariable("customerId") int customerId) {
         return accounts.byCustomerId(customerId).stream()
@@ -52,21 +52,18 @@ public class PaymentController {
                 .toList();
     }
 
-    // Шорткат: /api/me/accounts → current customer
+
     @GetMapping("/me/accounts")
     public List<AccountSummaryDto> listMyAccounts() {
-        return listAccounts(CURRENT_CUSTOMER_ID);
+        int customerId = requireCustomerId();
+        return listAccounts(customerId);
     }
 
-    // 2) Создать платёж по IBAN (форма WEB-1)
     @PostMapping("/payments")
     public ResponseEntity<NewPaymentResultDto> createPayment(@RequestBody NewPaymentRequest req) {
 
-        int customerId = (req.customerId() != 0)
-                ? req.customerId()
-                : CURRENT_CUSTOMER_ID;
+        int customerId = requireCustomerId();
 
-        // UC 04 – Submit Payment Order (to an arbitrary IBAN)
         int transferId = transferService.submitPaymentToIban(
                 customerId,
                 req.sourceAccountId(),
@@ -75,7 +72,7 @@ public class PaymentController {
                 req.message()
         );
 
-        // Репозиторий возвращает Optional → orElseThrow
+
         Transfer t = transfers.byId(transferId)
                 .orElseThrow(() -> new RuntimeException("Transfer not found"));
         Account acc = accounts.byId(t.sourceAccountId())
@@ -101,8 +98,8 @@ public class PaymentController {
     private AccountSummaryDto toAccountSummary(Account a) {
         return new AccountSummaryDto(
                 a.id(),
-                a.iban().value(),         // IBAN → String
-                a.balance().toString()    // Money → "amount currency"
+                a.iban().value(),
+                a.balance().toString()
         );
     }
 }

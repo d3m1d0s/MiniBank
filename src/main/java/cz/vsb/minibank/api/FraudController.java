@@ -18,6 +18,9 @@ import java.time.Instant;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import static cz.vsb.minibank.api.AuthHelpers.requireRole;
+import cz.vsb.minibank.domain.UserRole;
+
 @CrossOrigin(origins = "http://localhost:5173")
 @RestController
 @RequestMapping("/api/fraud")
@@ -54,6 +57,7 @@ public class FraudController {
             @RequestParam(name = "createdTo",   required = false) String createdTo,
             @RequestParam(name = "assignee",    required = false) String assignee
     ) {
+        requireRole(UserRole.FRAUD_ANALYST);
         List<FraudAlert> all = alerts.all();
 
         // Фильтрация по state
@@ -134,6 +138,7 @@ public class FraudController {
 
     @GetMapping("/alerts/{id}")
     public AlertDetailDto getAlert(@PathVariable("id") int id) {
+        requireRole(UserRole.FRAUD_ANALYST);
         FraudAlert alert = alerts.byId(id)
                 .orElseThrow(() -> new DomainException("Fraud alert not found: " + id));
 
@@ -159,6 +164,7 @@ public class FraudController {
             @PathVariable("id") int id,
             @RequestBody FraudDecisionRequest req
     ) {
+        requireRole(UserRole.FRAUD_ANALYST);
         FraudAlert alert = alerts.byId(id)
                 .orElseThrow(() -> new DomainException("Fraud alert not found: " + id));
 

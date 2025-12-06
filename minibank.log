@@ -1,4 +1,4 @@
-2025-12-06T02:35:49.518864800Z ERROR [test.category] user=<none> | Failure
+2025-12-06T16:52:05.016372900Z ERROR [test.category] user=<none> | Failure
 java.lang.RuntimeException: Boom
 	at cz.vsb.minibank.application.AppLoggerTest.logsErrorWithStacktrace(AppLoggerTest.java:75)
 	at java.base/jdk.internal.reflect.NativeMethodAccessorImpl.invoke0(Native Method)
@@ -71,57 +71,44 @@ java.lang.RuntimeException: Boom
 	at com.intellij.rt.junit.IdeaTestRunner$Repeater.startRunnerWithArgs(IdeaTestRunner.java:35)
 	at com.intellij.rt.junit.JUnitStarter.prepareStreamsAndStart(JUnitStarter.java:232)
 	at com.intellij.rt.junit.JUnitStarter.main(JUnitStarter.java:55)
-2025-12-06T02:35:54.741213300Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5159: CREATED -> SENT, amount=1000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:54.868591Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5160: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:54.871248400Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5160: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.001008300Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5161: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.007026Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5161: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.012706800Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5161: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.127722700Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5162: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.130249400Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5162: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.147118700Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5162: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.151131900Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5162: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.159440500Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5162: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.253539700Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5163: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.267571500Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5163: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.269852Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5163: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.273864900Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5163: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.279877200Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5163: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.284410300Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5163: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.298581900Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5163: WAITING_AUTH -> DECLINED, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.300242800Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5163: WAITING_AUTH -> DECLINED, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.302817900Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5163: WAITING_AUTH -> DECLINED, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.308801600Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5163: WAITING_AUTH -> DECLINED, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.310804400Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5163: WAITING_AUTH -> DECLINED, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.314794900Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5163: WAITING_AUTH -> DECLINED, amount=6000.00 CZK, sourceAccountId=101
-2025-12-06T02:35:55.537054200Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.539055700Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.540058800Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.541056600Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.542055700Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.543573700Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.545586700Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.550564200Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.564630600Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.581357700Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.584361800Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.585363800Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.587887800Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.591257800Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.592603Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.594126Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.595128200Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T02:35:55.597129Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
-2025-12-06T04:39:56.102050400Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:39:56.100230900Z FraudAlert 9001 for transfer 5042: NEW -> SUSPICIOUS, reason=Declined by fraud analyst
-2025-12-06T04:39:56.107096700Z AUDIT [audit.transfer] user=<none> | Transfer 5042: DECLINED -> DECLINED, amount=50000.00 CZK, sourceAccountId=101
-2025-12-06T04:40:11.423853100Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:40:11.423853100Z FraudAlert 9001 for transfer 5042: SUSPICIOUS -> SUSPICIOUS, reason=Waiting for customer confirmation
-2025-12-06T04:40:59.393869100Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:40:59.393869100Z FraudAlert 9001 for transfer 5042: SUSPICIOUS -> OK, reason=Waiting for customer confirmation
-2025-12-06T04:41:22.083125600Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:41:22.083125600Z FraudAlert 9001 for transfer 5042: OK -> SUSPICIOUS, reason=Declined by fraud analyst
-2025-12-06T04:41:22.091288200Z AUDIT [audit.transfer] user=<none> | Transfer 5042: DECLINED -> DECLINED, amount=50000.00 CZK, sourceAccountId=101
-2025-12-06T04:41:26.153163Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:41:26.153163Z FraudAlert 9001 for transfer 5042: SUSPICIOUS -> SUSPICIOUS, reason=Waiting for customer confirmation
-2025-12-06T04:41:30.034436900Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:41:30.034436900Z FraudAlert 9001 for transfer 5042: SUSPICIOUS -> OK, reason=Waiting for customer confirmation
-2025-12-06T04:41:36.619580400Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:41:36.619580400Z FraudAlert 9001 for transfer 5042: OK -> SUSPICIOUS, reason=Declined by fraud analyst
-2025-12-06T04:41:36.619580400Z AUDIT [audit.transfer] user=<none> | Transfer 5042: DECLINED -> DECLINED, amount=50000.00 CZK, sourceAccountId=101
-2025-12-06T04:45:23.310496700Z AUDIT [audit.transfer] user=<none> | Transfer 5165: CREATED -> WAITING_AUTH, amount=11000.00 CZK, sourceAccountId=101
-2025-12-06T05:12:10.751166700Z AUDIT [audit.fraud] user=<none> | 2025-12-06T05:12:10.751166700Z FraudAlert 9002 for transfer 5165: NEW -> SUSPICIOUS, reason=Waiting for customer confirmation
-2025-12-06T05:12:27.961651800Z AUDIT [audit.transfer] user=<none> | Transfer 5165: WAITING_AUTH -> DECLINED, amount=11000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:12.997239200Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5201: CREATED -> SENT, amount=1000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.146805500Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5202: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.147808700Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5202: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.296214600Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5203: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.298217400Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5203: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.299214600Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5203: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.409653800Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5204: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.414175500Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5204: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.438658400Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5204: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.444849200Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5204: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.450864200Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5204: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.561886700Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5205: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.562921600Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5205: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.564941900Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5205: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.565938100Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5205: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.568945Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5205: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.571474900Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5205: CREATED -> WAITING_AUTH, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.593593600Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5205: WAITING_AUTH -> DECLINED, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.595704200Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5205: WAITING_AUTH -> DECLINED, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.596717Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5205: WAITING_AUTH -> DECLINED, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.597722100Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5205: WAITING_AUTH -> DECLINED, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.600146600Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5205: WAITING_AUTH -> DECLINED, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:13.601675900Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5205: WAITING_AUTH -> DECLINED, amount=6000.00 CZK, sourceAccountId=101
+2025-12-06T16:52:14.078807Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.079804Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.080804100Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.086430700Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.090449700Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.094450600Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.096451700Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.099911400Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.102218Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: CREATED -> WAITING_AUTH, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.111755Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.113754600Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.118826100Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.121739600Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.125103800Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.133624400Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.138156900Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.139154800Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T16:52:14.145054200Z AUDIT [audit.transfer] user=test-customer(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100

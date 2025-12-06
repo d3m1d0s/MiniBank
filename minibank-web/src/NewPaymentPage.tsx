@@ -105,7 +105,6 @@ export default function NewPaymentPage({ onNavigate }: Props) {
         }
 
         const payload: NewPaymentRequest = {
-            customerId: 2, // демо-пользователь
             sourceAccountId: selectedAccountId,
             targetIban: targetIban.trim(),
             amountCzk: amountValue,
@@ -181,15 +180,6 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                             <li>
                                 <button type="button" className="nav-link">
                                     Settings
-                                </button>
-                            </li>
-                            <li>
-                                <button
-                                    type="button"
-                                    className="nav-link"
-                                    onClick={() => onNavigate('fraud-desk')}
-                                >
-                                    Fraud desk (Temporarily)
                                 </button>
                             </li>
                         </ul>

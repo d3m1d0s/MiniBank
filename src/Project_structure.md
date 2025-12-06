@@ -24,6 +24,7 @@ VIS_project_minibank/
 │  │  ├─ App.tsx
 │  │  ├─ FraudDeskPage.tsx
 │  │  ├─ index.css
+│  │  ├─ LoginDialog.tsx
 │  │  ├─ main.tsx
 │  │  ├─ NewPaymentPage.tsx
 │  │  └─ WaitingAuthorizationsPage.tsx
@@ -63,11 +64,20 @@ VIS_project_minibank/
    │        │  │  └─ WaitingTransferItemDto.java     (record)   
    │        │  │   
    │        │  ├─ ApiError.java                   (record) 
+   │        │  ├─ AuthController.java             (class) 
+   │        │  │  ├─ AuthController               (class)
+   │        │  │  ├─ LoginRequest                 (record)
+   │        │  │  └─ LoginResponse                (record)   
+   │        │  │   
+   │        │  ├─ AuthHelpers.java                (class)    
    │        │  ├─ AuthorizationController.java    (class)    
+   │        │  ├─ DemoUserInitializer.java        (class)   
    │        │  ├─ FraudController.java            (class)                     
    │        │  ├─ MinibankApiConfig.java          (class)  
    │        │  ├─ PaymentController.java          (class)
-   │        │  └─ RestExceptionHandler.java       (class)     
+   │        │  ├─ RestExceptionHandler.java       (class)     
+   │        │  ├─ SessionAuthInterceptor.java     (class)   
+   │        │  └─ WebConfig.java                  (class)     
    │        │                   
    │        ├─ application/    
    │        │  ├─ AppLogger.java                    (class) 
@@ -83,7 +93,8 @@ VIS_project_minibank/
    │        │  ├─ PasswordEncoder.java              (interface)   
    │        │  ├─ PaymentNetworkGateway.java        (interface)
    │        │  ├─ Pbkdf2PasswordEncoder.java        (class)   
-   │        │  ├─ SecurityContext.java              (class)    
+   │        │  ├─ SecurityContext.java              (class)   
+   │        │  ├─ SessionStore.java                 (class)    
    │        │  ├─ TransferApplicationService.java   (class)   
    │        │  └─ TransferAuditLogObserver.java     (class)
    │        │
@@ -189,15 +200,19 @@ VIS_project_minibank/
    └─ test/
       └─ java/
          └─ cz/vsb/minibank/
-            ├─ application/
-            │  └─ PaymentAndAuthorizationApiTest.java   (unit test)    
+            ├─ api/
+            │  ├─ AuthHelpersTest.java                  (unit test)    
+            │  ├─ FraudControllerAuthTest.java          (unit test)
+            │  ├─ PaymentAndAuthorizationApiTest.java   (unit test)
+            │  └─ PaymentControllerApiTest.java         (unit test)                                    
             │                   
             ├─ application/
             │  ├─ AppLoggerTest.java                     (unit test)            
             │  ├─ AuthServiceTest.java                   (unit test)            
-            │  ├─ FakePaymentNetworkGatewayTest.java     (unit test) 
-            │  ├─ Pbkdf2PasswordEncoderTest.java         (unit test)            
-            │  └─ PaymentNetworkIntegrationTest.java     (unit test) 
+            │  ├─ FakePaymentNetworkGatewayTest.java     (unit test)             
+            │  ├─ PaymentNetworkIntegrationTest.java     (unit test) 
+            │  ├─ Pbkdf2PasswordEncoderTest.java         (unit test)     
+            │  └─ SessionStoreTest.java                  (unit test)                     
             │   
             ├─ domain/
             │  ├─ FraudAlertEventsTest.java                   (unit test)     
