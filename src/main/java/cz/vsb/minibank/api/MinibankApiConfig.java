@@ -1,6 +1,7 @@
 package cz.vsb.minibank.api;
 
 import cz.vsb.minibank.application.BootstrapServices;
+import cz.vsb.minibank.application.FraudApplicationService;
 import cz.vsb.minibank.application.TransferApplicationService;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
@@ -44,6 +45,11 @@ public class MinibankApiConfig {
     @Bean
     public TransferApplicationService transferApplicationService(BootstrapServices services) {
         return services.transferService;
+    }
+
+    @Bean
+    public FraudApplicationService fraudApplicationService(BootstrapServices services) {
+        return services.fraudService;
     }
 
     // 4) Репозитории, если их удобно отдельно инжектить в контроллеры

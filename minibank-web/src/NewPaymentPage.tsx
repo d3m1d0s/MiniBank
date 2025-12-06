@@ -20,7 +20,7 @@ type InfoState =
     | { type: 'error'; messages: string[] };
 
 interface Props {
-    onNavigate: (view: 'new-payment' | 'waiting-auth') => void;
+    onNavigate: (view: 'new-payment' | 'waiting-auth' | 'fraud-desk') => void;
 }
 
 export default function NewPaymentPage({ onNavigate }: Props) {
@@ -181,6 +181,15 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                             <li>
                                 <button type="button" className="nav-link">
                                     Settings
+                                </button>
+                            </li>
+                            <li>
+                                <button
+                                    type="button"
+                                    className="nav-link"
+                                    onClick={() => onNavigate('fraud-desk')}
+                                >
+                                    Fraud desk (Temporarily)
                                 </button>
                             </li>
                         </ul>

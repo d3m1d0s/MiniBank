@@ -59,11 +59,13 @@ public class RestExceptionHandler {
 
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ApiError> handleRuntime(RuntimeException ex) {
-        // Последний рубеж, чтобы фронт не получал HTML/stacktrace
+        ex.printStackTrace(); // или AppLogger.error("REST runtime error", ex);
         return error(HttpStatus.INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
                 "Unexpected error occurred.");
     }
+
+
 
     private ResponseEntity<ApiError> error(HttpStatus status, String code, String message) {
         return ResponseEntity.status(status).body(new ApiError(code, message));

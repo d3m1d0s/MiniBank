@@ -201,3 +201,129 @@ export async function cancelTransfer(
     });
     return handle<AuthorizePaymentResult>(res);
 }
+
+// === DESK-1: Fraud Desk (alerts) ===
+
+export interface AlertQueueItem {
+    id: number;
+    alertCode: string;
+    transferCode: string;
+    state: string;
+    amount: string;
+    currency: string;
+    shortReason: string;
+    createdAt: string | null;
+    riskScore: number | null;
+    assignee: string | null;
+}
+
+export interface AlertCounters {
+    newCount: number;
+    suspiciousCount: number;
+    okCount: number;
+}
+
+export interface AlertQueueResponse {
+    items: AlertQueueItem[];
+    counters: AlertCounters;
+}
+
+export interface AlertInfo {
+    id: number;
+    state: string;
+    reason: string;
+    riskScore: number | null;
+    createdAt: string | null;
+    assignee: string | null;
+    tags: string[];
+    notes: string | null;
+}
+
+export interface TransferInfo {
+    id: number;
+    code: string;
+    status: string;
+    fromIban: string;
+    fromBalance: string;
+    toIban: string;
+    amount: string;
+    feeAmount: string;
+    currency: string;
+    createdAt: string | null;
+    authMethod: string | null;
+}
+
+export interface HistoryItem {
+    id: number;
+    createdAt: string | null;
+    amount: string;
+    currency: string;
+    status: string;
+    toIban: string;
+    declineReason: string | null;
+}
+
+export interface AlertDetail {
+    alert: AlertInfo;
+    transfer: TransferInfo;
+    history: HistoryItem[];
+}
+
+export type FraudDecision = 'APPROVE' | 'DECLINE' | 'REQUEST_CONFIRMATION';
+
+export interface FraudDecisionRequest {
+    decision: FraudDecision;
+    reason?: string;
+    assignee?: string;
+    tags?: string[];
+    notes?: string;
+}
+
+export interface AlertFilters {
+    state?: string;
+    minAmount?: string;
+    maxAmount?: string;
+    createdFrom?: string;
+    createdTo?: string;
+    assignee?: string;
+}
+
+
+export async function fetchAlerts(
+    filters: AlertFilters = {},
+): Promise<AlertQueueResponse> {
+    const params = new URLSearchParams();
+
+    if (filters.state) params.set('state', filters.state);
+    if (filters.minAmount) params.set('minAmount', filters.minAmount);
+    if (filters.maxAmount) params.set('maxAmount', filters.maxAmount);
+    if (filters.createdFrom) params.set('createdFrom', filters.createdFrom);
+    if (filters.createdTo) params.set('createdTo', filters.createdTo);
+    if (filters.assignee) params.set('assignee', filters.assignee);
+
+    const qs = params.toString();
+    const url = qs
+        ? `${API_BASE}/fraud/alerts?${qs}`
+        : `${API_BASE}/fraud/alerts`;
+
+    const res = await fetch(url);
+    return handle<AlertQueueResponse>(res);
+}
+
+export async function fetchAlertDetail(id: number): Promise<AlertDetail> {
+    const res = await fetch(`${API_BASE}/fraud/alerts/${id}`);
+    return handle<AlertDetail>(res);
+}
+
+export async function postFraudDecision(
+    id: number,
+    payload: FraudDecisionRequest,
+): Promise<AlertDetail> {
+    const res = await fetch(`${API_BASE}/fraud/alerts/${id}/decision`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    return handle<AlertDetail>(res);
+}
+

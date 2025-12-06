@@ -11,7 +11,7 @@ import {
 } from './api'
 
 interface Props {
-    onNavigate: (view: 'new-payment' | 'waiting-auth') => void
+    onNavigate: (view: 'new-payment' | 'waiting-auth' | 'fraud-desk') => void;
 }
 
 function mapDeclineReason(reason: string): string {
@@ -291,6 +291,15 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                             <li>
                                 <button type="button" className="nav-link">
                                     Settings
+                                </button>
+                            </li>
+                            <li>
+                                <button
+                                    type="button"
+                                    className="nav-link"
+                                    onClick={() => onNavigate('fraud-desk')}
+                                >
+                                    Fraud desk (Temporarily)
                                 </button>
                             </li>
                         </ul>

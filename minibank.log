@@ -112,3 +112,16 @@ java.lang.RuntimeException: Boom
 2025-12-06T02:35:55.594126Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
 2025-12-06T02:35:55.595128200Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
 2025-12-06T02:35:55.597129Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5001: WAITING_AUTH -> SENT, amount=1000.00 CZK, sourceAccountId=100
+2025-12-06T04:39:56.102050400Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:39:56.100230900Z FraudAlert 9001 for transfer 5042: NEW -> SUSPICIOUS, reason=Declined by fraud analyst
+2025-12-06T04:39:56.107096700Z AUDIT [audit.transfer] user=<none> | Transfer 5042: DECLINED -> DECLINED, amount=50000.00 CZK, sourceAccountId=101
+2025-12-06T04:40:11.423853100Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:40:11.423853100Z FraudAlert 9001 for transfer 5042: SUSPICIOUS -> SUSPICIOUS, reason=Waiting for customer confirmation
+2025-12-06T04:40:59.393869100Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:40:59.393869100Z FraudAlert 9001 for transfer 5042: SUSPICIOUS -> OK, reason=Waiting for customer confirmation
+2025-12-06T04:41:22.083125600Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:41:22.083125600Z FraudAlert 9001 for transfer 5042: OK -> SUSPICIOUS, reason=Declined by fraud analyst
+2025-12-06T04:41:22.091288200Z AUDIT [audit.transfer] user=<none> | Transfer 5042: DECLINED -> DECLINED, amount=50000.00 CZK, sourceAccountId=101
+2025-12-06T04:41:26.153163Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:41:26.153163Z FraudAlert 9001 for transfer 5042: SUSPICIOUS -> SUSPICIOUS, reason=Waiting for customer confirmation
+2025-12-06T04:41:30.034436900Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:41:30.034436900Z FraudAlert 9001 for transfer 5042: SUSPICIOUS -> OK, reason=Waiting for customer confirmation
+2025-12-06T04:41:36.619580400Z AUDIT [audit.fraud] user=<none> | 2025-12-06T04:41:36.619580400Z FraudAlert 9001 for transfer 5042: OK -> SUSPICIOUS, reason=Declined by fraud analyst
+2025-12-06T04:41:36.619580400Z AUDIT [audit.transfer] user=<none> | Transfer 5042: DECLINED -> DECLINED, amount=50000.00 CZK, sourceAccountId=101
+2025-12-06T04:45:23.310496700Z AUDIT [audit.transfer] user=<none> | Transfer 5165: CREATED -> WAITING_AUTH, amount=11000.00 CZK, sourceAccountId=101
+2025-12-06T05:12:10.751166700Z AUDIT [audit.fraud] user=<none> | 2025-12-06T05:12:10.751166700Z FraudAlert 9002 for transfer 5165: NEW -> SUSPICIOUS, reason=Waiting for customer confirmation
+2025-12-06T05:12:27.961651800Z AUDIT [audit.transfer] user=<none> | Transfer 5165: WAITING_AUTH -> DECLINED, amount=11000.00 CZK, sourceAccountId=101

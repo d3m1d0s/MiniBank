@@ -22,6 +22,7 @@ VIS_project_minibank/
 │  │  ├─ api.ts 
 │  │  ├─ App.css
 │  │  ├─ App.tsx
+│  │  ├─ FraudDeskPage.tsx
 │  │  ├─ index.css
 │  │  ├─ main.tsx
 │  │  ├─ NewPaymentPage.tsx
@@ -46,15 +47,24 @@ VIS_project_minibank/
    │        ├─ api/    
    │        │  ├─ dto/
    │        │  │  ├─ AccountSummaryDto.java          (record)
+   │        │  │  ├─ AlertCountersDto.java           (record)   
+   │        │  │  ├─ AlertDetailDto.java             (record) 
+   │        │  │  ├─ AlertInfoDto.java               (record)   
+   │        │  │  ├─ AlertQueueItemDto.java          (record)    
+   │        │  │  ├─ AlertQueueResponseDto.java      (record)     
    │        │  │  ├─ AuthorizePaymentRequest.java    (record)
    │        │  │  ├─ AuthorizePaymentResult.java     (record)
+   │        │  │  ├─ FraudDecisionRequest.java       (record)  
+   │        │  │  ├─ HistoryItemDto.java             (record)    
    │        │  │  ├─ NewPaymentRequest.java          (record)
    │        │  │  ├─ NewPaymentResultDto.java        (record)
+   │        │  │  ├─ TransferInfoDto.java            (record) 
    │        │  │  ├─ TransferDetailsDto.java         (record)
    │        │  │  └─ WaitingTransferItemDto.java     (record)   
    │        │  │   
    │        │  ├─ ApiError.java                   (record) 
-   │        │  ├─ AuthorizationController.java    (class)                    
+   │        │  ├─ AuthorizationController.java    (class)    
+   │        │  ├─ FraudController.java            (class)                     
    │        │  ├─ MinibankApiConfig.java          (class)  
    │        │  ├─ PaymentController.java          (class)
    │        │  └─ RestExceptionHandler.java       (class)     
