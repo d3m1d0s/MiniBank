@@ -1,113 +1,139 @@
-// src/pages/NewPaymentPage.tsx
-import { useEffect, useState } from 'react'
-import './App.css'
+// src/NewPaymentPage.tsx
+
+import { useEffect, useState } from 'react';
+import './App.css';
 import {
     getMyAccounts,
     createPayment,
     type AccountSummary,
-    type NewPaymentResultDto,
-} from './api/client.ts'
+    type NewPaymentRequest,
+    type NewPaymentResult,
+    isApiError,
+    mapPaymentError,
+} from './api';
 
-const MAX_MESSAGE_LENGTH = 140
+const MAX_MESSAGE_LENGTH = 140;
 
 type InfoState =
     | { type: 'none' }
-    | { type: 'success'; result: NewPaymentResultDto }
-    | { type: 'error'; message: string }
+    | { type: 'success'; result: NewPaymentResult }
+    | { type: 'error'; messages: string[] };
 
 interface Props {
     onNavigate: (view: 'new-payment' | 'waiting-auth') => void;
 }
+
 export default function NewPaymentPage({ onNavigate }: Props) {
-    const [accounts, setAccounts] = useState<AccountSummary[]>([])
-    const [selectedAccountId, setSelectedAccountId] = useState<number | null>(
-        null,
-    )
+    const [accounts, setAccounts] = useState<AccountSummary[]>([]);
+    const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
 
-    const [targetIban, setTargetIban] = useState('')
-    const [amount, setAmount] = useState('')
-    const [message, setMessage] = useState('')
+    const [targetIban, setTargetIban] = useState('');
+    const [amount, setAmount] = useState('');
+    const [message, setMessage] = useState('');
 
-    const [loadingAccounts, setLoadingAccounts] = useState(true)
-    const [accountsError, setAccountsError] = useState<string | null>(null)
+    const [loadingAccounts, setLoadingAccounts] = useState(true);
+    const [accountsError, setAccountsError] = useState<string | null>(null);
 
-    const [submitting, setSubmitting] = useState(false)
-    const [info, setInfo] = useState<InfoState>({ type: 'none' })
+    const [submitting, setSubmitting] = useState(false);
+    const [info, setInfo] = useState<InfoState>({ type: 'none' });
 
     // --- загрузка счетов при монтировании ---
-
     useEffect(() => {
-        let cancelled = false
+        let cancelled = false;
 
         async function load() {
             try {
-                setLoadingAccounts(true)
-                setAccountsError(null)
-                const data = await getMyAccounts()
-                if (cancelled) return
-                setAccounts(data)
+                setLoadingAccounts(true);
+                setAccountsError(null);
+                const data = await getMyAccounts();
+                if (cancelled) return;
+                setAccounts(data);
                 if (data.length > 0) {
-                    setSelectedAccountId(data[0].id)
+                    setSelectedAccountId(data[0].id);
                 }
             } catch (e) {
-                if (cancelled) return
-                setAccountsError((e as Error).message)
+                if (cancelled) return;
+                setAccountsError((e as Error).message);
             } finally {
-                if (!cancelled) setLoadingAccounts(false)
+                if (!cancelled) setLoadingAccounts(false);
             }
         }
 
-        load()
+        load();
         return () => {
-            cancelled = true
-        }
-    }, [])
+            cancelled = true;
+        };
+    }, []);
 
-    const selectedAccount = accounts.find((a) => a.id === selectedAccountId ?? -1)
+    const selectedAccount = selectedAccountId != null
+        ? accounts.find((a) => a.id === selectedAccountId) ?? null
+        : null;
 
     // --- отправка платежа ---
-
     async function handleSendClick(e: React.FormEvent) {
-        e.preventDefault()
-        setInfo({ type: 'none' })
+        e.preventDefault();
+        setInfo({ type: 'none' });
 
-        if (!selectedAccountId) {
-            setInfo({ type: 'error', message: 'Please select source account.' })
-            return
+        // валидация выбранного счёта
+        if (selectedAccountId == null) {
+            setInfo({
+                type: 'error',
+                messages: ['Please select source account.'],
+            });
+            return;
         }
 
+        // парсинг суммы
         const amountValue = Number(
             amount.replace(/\s+/g, '').replace(',', '.'),
-        )
+        );
         if (!Number.isFinite(amountValue) || amountValue <= 0) {
-            setInfo({ type: 'error', message: 'Please enter a valid amount.' })
-            return
+            setInfo({
+                type: 'error',
+                messages: ['Please enter a valid amount.'],
+            });
+            return;
         }
 
+        // проверка IBAN
         if (!targetIban.trim()) {
-            setInfo({ type: 'error', message: 'Target IBAN is required.' })
-            return
+            setInfo({
+                type: 'error',
+                messages: ['Target IBAN is required.'],
+            });
+            return;
         }
+
+        const payload: NewPaymentRequest = {
+            customerId: 2, // демо-пользователь
+            sourceAccountId: selectedAccountId,
+            targetIban: targetIban.trim(),
+            amountCzk: amountValue,
+            message: message.trim(),
+        };
 
         try {
-            setSubmitting(true)
-            const result = await createPayment({
-                customerId: 2, // у тебя в data.json первый "живой" customer = 2
-                sourceAccountId: selectedAccountId,
-                targetIban: targetIban.trim(),
-                amountCzk: amountValue,
-                message: message.trim(),
-            })
-            setInfo({ type: 'success', result })
+            setSubmitting(true);
+            const result = await createPayment(payload);
+            setInfo({ type: 'success', result });
         } catch (e) {
-            setInfo({ type: 'error', message: (e as Error).message })
+            if (isApiError(e)) {
+                setInfo({
+                    type: 'error',
+                    messages: mapPaymentError(e),
+                });
+            } else {
+                setInfo({
+                    type: 'error',
+                    messages: ['Unexpected error. Please try again later.'],
+                });
+            }
         } finally {
-            setSubmitting(false)
+            setSubmitting(false);
         }
     }
 
     // --- UI ---
-
     return (
         <div className="app-shell">
             <div className="card">
@@ -160,14 +186,13 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                         </ul>
                     </nav>
 
-
                     {/* Form */}
                     <main className="form-panel">
                         <h2>Form – New payment</h2>
 
                         {loadingAccounts && <p>Loading accounts…</p>}
                         {accountsError && (
-                            <p style={{color: 'salmon'}}>Error: {accountsError}</p>
+                            <p style={{ color: 'salmon' }}>Error: {accountsError}</p>
                         )}
 
                         {!loadingAccounts && !accountsError && accounts.length === 0 && (
@@ -238,10 +263,12 @@ export default function NewPaymentPage({ onNavigate }: Props) {
 
                                 {/* Result / errors */}
                                 {info.type === 'error' && (
-                                    <div className="summary" style={{borderColor: 'salmon'}}>
-                                        <div className="summary-title">Error</div>
+                                    <div className="summary" style={{ borderColor: 'salmon' }}>
+                                        <div className="summary-title">We could not send this payment</div>
                                         <ul>
-                                            <li>{info.message}</li>
+                                            {info.messages.map((m, idx) => (
+                                                <li key={idx}>{m}</li>
+                                            ))}
                                         </ul>
                                     </div>
                                 )}
@@ -256,10 +283,13 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                         <ul>
                                             <li>Transfer ID: {info.result.transferId}</li>
                                             <li>Status: {info.result.status}</li>
+
+                                            {/* Здесь учитываем fee */}
                                             <li>
-                                                {info.result.authorizationRequired
-                                                    ? <>Amount: {info.result.chargedAmount}</>    // ещё НЕ списано
-                                                    : <>Charged: {info.result.chargedAmount}</>}
+                                                Amount requested: {info.result.chargedAmount}
+                                            </li>
+                                            <li>
+                                                Fee: {info.result.feeAmount}
                                             </li>
                                             <li>
                                                 {info.result.authorizationRequired
@@ -273,8 +303,6 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                         </ul>
                                     </div>
                                 )}
-
-
 
                                 <div className="actions">
                                     <button
@@ -299,5 +327,5 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                 </div>
             </div>
         </div>
-    )
+    );
 }

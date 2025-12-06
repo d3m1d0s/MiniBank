@@ -22,7 +22,7 @@ function mapDeclineReason(reason: string): string {
     }
 
     if (r.includes('too many') || r.includes('attempts exceeded')) {
-        return 'Too many incorrect OTP attempts – this transfer was declined for security reasons.';
+        return 'Too many incorrect OTP attempts - this transfer was declined for security reasons.';
     }
 
     if (r.includes('expired') || r.includes('authorization window')) {
@@ -30,12 +30,15 @@ function mapDeclineReason(reason: string): string {
     }
 
     if (r.includes('insufficient funds')) {
-        return 'Insufficient balance – top up your account or cancel this transfer.';
+        return 'Insufficient balance - top up your account or cancel this transfer.';
+    }
+
+    if (r.includes('canceled by customer') || r.includes('cancelled by customer') || r.includes('canceled')) {
+        return 'The transfer was canceled by the customer.';
     }
 
     return reason;
 }
-
 
 
 export function WaitingAuthorizationsPage({ onNavigate }: Props) {

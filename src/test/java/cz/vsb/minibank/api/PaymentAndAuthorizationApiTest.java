@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -21,6 +22,8 @@ public class PaymentAndAuthorizationApiTest {
     private AuthorizationController authorizationController;
     private AccountRepository accounts;
     private TransferRepository transfers;
+    private static final double WAITING_TRANSFER_AMOUNT = 6000.0;
+
 
     @BeforeEach
     void setup() {
@@ -56,7 +59,6 @@ public class PaymentAndAuthorizationApiTest {
 
 
     private int createWaitingTransferForCustomer2() {
-        // берём первый счёт клиента 2 (в твоём data.json это 101)
         List<AccountSummaryDto> accList = paymentController.listAccounts(2);
         assertFalse(accList.isEmpty(), "Customer 2 should have at least one account");
         AccountSummaryDto acc = accList.get(0);
@@ -65,7 +67,7 @@ public class PaymentAndAuthorizationApiTest {
                 2,
                 acc.id(),
                 "CZ0201000000000012345678",
-                1000.0,
+                WAITING_TRANSFER_AMOUNT,
                 "Test waiting transfer"
         );
 
@@ -113,7 +115,11 @@ public class PaymentAndAuthorizationApiTest {
 
         assertEquals(transferId, details.id());
         assertEquals("CZ0201000000000012345678", details.toIban());
-        assertTrue(details.amount().startsWith("1000.00"), "Expected amount to start with 1000.00");
+        String expectedPrefix = String.format(Locale.US, "%.2f", WAITING_TRANSFER_AMOUNT);
+        assertTrue(
+                details.amount().startsWith(expectedPrefix),
+                "Expected amount to start with " + expectedPrefix
+        );
         assertEquals("WAITING_AUTH", details.status());
         assertNotNull(details.fromIban());
         assertTrue(details.fromIban().startsWith("CZ"));

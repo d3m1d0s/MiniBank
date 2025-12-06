@@ -16,8 +16,6 @@ VIS_project_minibank/
 │  ├─ public/
 │  │  └─ vite.svg
 │  ├─ src/
-│  │  ├─ api/
-│  │  │  └─ client.ts
 │  │  ├─ assets/
 │  │  │  └─ react.svg
 │  │  │  
@@ -55,7 +53,7 @@ VIS_project_minibank/
    │        │  │  ├─ TransferDetailsDto.java         (record)
    │        │  │  └─ WaitingTransferItemDto.java     (record)   
    │        │  │   
-   │        │  ├─ AppError.java                   (record) 
+   │        │  ├─ ApiError.java                   (record) 
    │        │  ├─ AuthorizationController.java    (class)                    
    │        │  ├─ MinibankApiConfig.java          (class)  
    │        │  ├─ PaymentController.java          (class)

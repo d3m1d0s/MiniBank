@@ -1,5 +1,49 @@
 // src/api.ts
 
+export type ApiError = Error & { code?: string };
+
+export function isApiError(e: unknown): e is ApiError {
+    return e instanceof Error;
+}
+
+export function mapPaymentError(error: ApiError): string[] {
+    let code = error.code;
+    let message = error.message || '';
+
+    // Если код не проставлен, но message выглядит как JSON – попробуем его распарсить
+    if (!code && message && message.trim().startsWith('{')) {
+        try {
+            const parsed = JSON.parse(message) as { code?: string; message?: string };
+            if (parsed.code) code = parsed.code;
+            if (parsed.message) message = parsed.message;
+        } catch {
+            // не JSON – оставляем как есть
+        }
+    }
+
+    switch (code) {
+        case 'INVALID_IBAN':
+            return [
+                'The IBAN is not valid.',
+                'Please check the country code and all digits.',
+            ];
+        case 'INSUFFICIENT_FUNDS':
+            return [
+                'There are not enough funds on the selected account.',
+                'Try lowering the amount or use a different account.',
+            ];
+        case 'DAILY_LIMIT_EXCEEDED':
+            return [
+                'Daily limit for this account has been exceeded.',
+                'You can try a lower amount or wait until tomorrow.',
+            ];
+        default:
+            // fallback – используем уже очищенный message
+            return [message || 'Unexpected error while creating payment.'];
+    }
+}
+
+
 export interface AccountSummary {
     id: number;
     iban: string;
@@ -19,6 +63,7 @@ export interface NewPaymentResult {
     status: string;
     chargedAmount: string;
     newBalance: string;
+    feeAmount: string;
     authorizationRequired: boolean;
 }
 
@@ -65,8 +110,6 @@ export interface AuthorizePaymentResult {
 
 const API_BASE = 'http://localhost:8080/api';
 
-// src/api.ts
-
 async function handle<T>(res: Response): Promise<T> {
     const text = await res.text();
 
@@ -105,7 +148,7 @@ async function handle<T>(res: Response): Promise<T> {
 
 // === UC04 ===
 
-export async function fetchMyAccounts(): Promise<AccountSummary[]> {
+export async function getMyAccounts(): Promise<AccountSummary[]> {
     const res = await fetch(`${API_BASE}/me/accounts`);
     return handle<AccountSummary[]>(res);
 }
