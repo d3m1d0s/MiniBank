@@ -372,20 +372,25 @@ public class MinibankSqlUowTests {
             throw e;
         }
 
-        // UoW #2: create FraudAlert and test IdentityMap via byId() twice
+        // UoW #2: create FraudAlert with metadata and test IdentityMap via byId() twice
         UnitOfWork uow2 = infra.uowFactory.begin();
         try (UowScope __ = new UowScope(uow2)) {
             FraudAlertRepository alerts = infra.alerts;
 
             alertId = alerts.nextId();
+
             FraudAlert alert = new FraudAlert(
                     alertId,
                     transferId,
-                    "Suspicious SQL transfer"
+                    "Suspicious SQL transfer",
+                    87,                               // riskScore
+                    "fraud-analyst-1",               // assignee
+                    List.of("HIGH_AMOUNT", "NEW_BENEFICIARY"),
+                    "Initial note from SQL test"
             );
+
             alerts.add(alert);
 
-            // IdentityMap: two calls to byId() should return the same instance
             FraudAlert a1 = alerts.byId(alertId)
                     .orElseThrow(() -> new AssertionError("FraudAlert must exist in UoW"));
             FraudAlert a2 = alerts.byId(alertId)
@@ -396,6 +401,11 @@ public class MinibankSqlUowTests {
                     a2,
                     "Within a single SQL UoW, byId() must return the same FraudAlert instance from IdentityMap"
             );
+
+            assertEquals(87, a1.riskScore());
+            assertEquals("fraud-analyst-1", a1.assignee());
+            assertEquals(List.of("HIGH_AMOUNT", "NEW_BENEFICIARY"), a1.tags());
+            assertEquals("Initial note from SQL test", a1.notes());
 
             uow2.commit();
         } catch (RuntimeException e) {
@@ -430,12 +440,18 @@ public class MinibankSqlUowTests {
                     "all() must contain our persisted FraudAlert"
             );
 
+            assertEquals(87, byId.riskScore());
+            assertEquals("fraud-analyst-1", byId.assignee());
+            assertEquals(List.of("HIGH_AMOUNT", "NEW_BENEFICIARY"), byId.tags());
+            assertEquals("Initial note from SQL test", byId.notes());
+
             uow3.commit();
         } catch (RuntimeException e) {
             uow3.rollback();
             throw e;
         }
     }
+
 
 // -------------------------------------------------------------------------
 // 5) Account.byCustomerId uses IdentityMap within a single SQL UnitOfWork

@@ -13,6 +13,9 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Arrays;
+import java.util.Collections;
+
 
 /**
  * PostgreSQL implementation of FraudAlertRepository.
@@ -99,29 +102,57 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
 
     private void upsertAlert(Connection conn, FraudAlert a) throws SQLException {
         String sql = """
-                INSERT INTO fraud_alerts (id, transfer_id, state, reason, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT (id) DO UPDATE SET
-                    transfer_id = EXCLUDED.transfer_id,
-                    state       = EXCLUDED.state,
-                    reason      = EXCLUDED.reason,
-                    created_at  = EXCLUDED.created_at
-                """;
+            INSERT INTO fraud_alerts
+                (id, transfer_id, state, reason, risk_score, assignee, tags, notes, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (id) DO UPDATE SET
+                transfer_id = EXCLUDED.transfer_id,
+                state       = EXCLUDED.state,
+                reason      = EXCLUDED.reason,
+                risk_score  = EXCLUDED.risk_score,
+                assignee    = EXCLUDED.assignee,
+                tags        = EXCLUDED.tags,
+                notes       = EXCLUDED.notes,
+                created_at  = EXCLUDED.created_at
+            """;
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, a.id());
             ps.setInt(2, a.transferId());
             ps.setString(3, a.state().name());
             ps.setString(4, a.reason());
+
+            if (a.riskScore() != null) {
+                ps.setInt(5, a.riskScore());
+            } else {
+                ps.setNull(5, Types.INTEGER);
+            }
+
+            ps.setString(6, a.assignee());
+
+            String tagsJoined = null;
+            if (a.tags() != null && !a.tags().isEmpty()) {
+                tagsJoined = String.join(",", a.tags());
+            }
+            if (tagsJoined != null) {
+                ps.setString(7, tagsJoined);
+            } else {
+                ps.setNull(7, Types.VARCHAR);
+            }
+
+            ps.setString(8, a.notes());
+
             Instant createdAt = a.createdAt();
             if (createdAt != null) {
-                ps.setTimestamp(5, Timestamp.from(createdAt));
+                ps.setTimestamp(9, Timestamp.from(createdAt));
             } else {
-                ps.setNull(5, Types.TIMESTAMP_WITH_TIMEZONE);
+                ps.setNull(9, Types.TIMESTAMP_WITH_TIMEZONE);
             }
+
             ps.executeUpdate();
         }
     }
+
 
     // -------------------------------------------------------------------------
     // Load
@@ -151,11 +182,20 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
     private Optional<FraudAlert> loadByIdWithConnection(Connection conn, int id, UnitOfWork uow)
             throws SQLException {
 
+        // 1) loadByIdWithConnection
         String sql = """
-                SELECT id, transfer_id, state, reason, created_at
-                  FROM fraud_alerts
-                 WHERE id = ?
-                """;
+        SELECT id,
+               transfer_id,
+               state,
+               reason,
+               risk_score,
+               assignee,
+               tags,
+               notes,
+               created_at
+          FROM fraud_alerts
+         WHERE id = ?
+        """;
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, id);
@@ -190,13 +230,23 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
     private Optional<FraudAlert> loadByTransferIdWithConnection(Connection conn, int transferId, UnitOfWork uow)
             throws SQLException {
 
+        // 2) loadByTransferIdWithConnection
         String sql = """
-            SELECT id, transfer_id, state, reason, created_at
-              FROM fraud_alerts
-             WHERE transfer_id = ?
-             ORDER BY id ASC
-             LIMIT 1
-            """;
+        SELECT id,
+               transfer_id,
+               state,
+               reason,
+               risk_score,
+               assignee,
+               tags,
+               notes,
+               created_at
+          FROM fraud_alerts
+         WHERE transfer_id = ?
+         ORDER BY id ASC
+         LIMIT 1
+        """;
+
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, transferId);
@@ -245,10 +295,20 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
     private List<FraudAlert> loadAllWithConnection(Connection conn, UnitOfWork uow)
             throws SQLException {
 
+        // 3) loadAllWithConnection
         String sql = """
-                SELECT id, transfer_id, state, reason, created_at
-                  FROM fraud_alerts
-                """;
+        SELECT id,
+               transfer_id,
+               state,
+               reason,
+               risk_score,
+               assignee,
+               tags,
+               notes,
+               created_at
+          FROM fraud_alerts
+        """;
+
 
         List<FraudAlert> result = new ArrayList<>();
 
@@ -285,15 +345,29 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
         Timestamp ts = rs.getTimestamp("created_at");
         Instant createdAt = (ts != null ? ts.toInstant() : null);
 
+        Integer riskScore = (Integer) rs.getObject("risk_score");
+        String assignee = rs.getString("assignee");
+        String tagsText = rs.getString("tags");
+        String notes = rs.getString("notes");
+
+        java.util.List<String> tags = java.util.Collections.emptyList();
+        if (tagsText != null && !tagsText.isBlank()) {
+            tags = java.util.Arrays.stream(tagsText.split(","))
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .toList();
+        }
+
         FraudAlert alert = new FraudAlert(id, transferId, reason);
 
         try {
             FraudAlertState st = FraudAlertState.valueOf(stateStr);
-            alert.hydrateForLoad(st, reason, createdAt);
+            alert.hydrateForLoad(st, reason, createdAt, riskScore, assignee, tags, notes);
         } catch (Exception ignored) {
-            // keep whatever constructor set
+
         }
 
         return alert;
     }
+
 }

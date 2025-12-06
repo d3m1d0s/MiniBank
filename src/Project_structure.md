@@ -190,11 +190,16 @@ VIS_project_minibank/
             │  └─ PaymentNetworkIntegrationTest.java     (unit test) 
             │   
             ├─ domain/
-            │  ├─ FraudAlertEventsTest.java                   (unit test)               
+            │  ├─ FraudAlertEventsTest.java                   (unit test)     
+            │  ├─ FraudAlertMetadataTest.java                 (unit test)            
             │  ├─ TransferEventsTest.java                     (unit test)             
             │  ├─ TransferStatusObserverIntegrationTest.java  (unit test) 
             │  └─ ZeroFeePolicyTest.java                      (unit test) 
             │   
+            ├─ infrastructure/
+            │  └─ json/  
+            │     └─ FraudAlertJsonMapperTest.java      (unit test)   
+            │                      
             ├─ ui/
             │  └─ console/      
             │     ├─ ConsoleMenuCommandTests.java      (unit test)  

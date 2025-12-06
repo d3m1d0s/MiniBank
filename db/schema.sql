@@ -135,16 +135,19 @@ CREATE INDEX idx_transfers_beneficiary ON transfers(beneficiary_id);
 ------------------------------------------------------------
 
 CREATE TABLE fraud_alerts (
-                              id           INTEGER PRIMARY KEY,
-                              transfer_id  INTEGER NOT NULL REFERENCES transfers(id) ON DELETE CASCADE,
-
-                              state        VARCHAR(32) NOT NULL,  -- FraudAlertState enum name
-                              decision     VARCHAR(32),           -- RiskDecision enum name (if any)
-                              reason       TEXT,
-
-                              created_at   TIMESTAMPTZ,
-                              resolved_at  TIMESTAMPTZ
+                              id          INTEGER PRIMARY KEY,
+                              transfer_id INTEGER NOT NULL REFERENCES transfers(id) ON DELETE CASCADE,
+                              state       VARCHAR(32) NOT NULL,
+                              decision    VARCHAR(32),
+                              reason      TEXT,
+                              risk_score  INTEGER,
+                              assignee    VARCHAR(100),
+                              tags        TEXT,
+                              notes       TEXT,
+                              created_at  TIMESTAMPTZ,
+                              resolved_at TIMESTAMPTZ
 );
+
 
 CREATE SEQUENCE fraud_alerts_id_seq;
 ALTER TABLE fraud_alerts

@@ -16,7 +16,6 @@ import java.util.Objects;
 
 public class TransferApplicationService {
 
-    /** Максимальное число попыток ввода OTP. */
     public static final int MAX_OTP_ATTEMPTS = 3;
     private final CustomerRepository customers;
     private final AccountRepository accounts;
@@ -51,7 +50,7 @@ public class TransferApplicationService {
         this.uowFactory = uowFactory;
     }
 
-    /** UC 04 – Submit Payment Order (to a saved beneficiary). */
+    /** UC 04 - Submit Payment Order (to a saved beneficiary). */
     public int submitPaymentByBeneficiary(int customerId, int sourceAccountId, int beneficiaryId, double amountCzk, String message) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
@@ -76,7 +75,7 @@ public class TransferApplicationService {
         }
     }
 
-    /** UC 04 – Submit Payment Order (to an arbitrary IBAN). */
+    /** UC 04 - Submit Payment Order (to an arbitrary IBAN). */
     public int submitPaymentToIban(int customerId, int sourceAccountId, String targetIban, double amountCzk, String message) {
         // IBAN validation (throws IllegalArgumentException on invalid input)
         var uow = uowFactory.begin();
@@ -124,10 +123,20 @@ public class TransferApplicationService {
             t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
             if (decision.createFraudAlert()) {
                 int aid = alerts.nextId();
-                FraudAlert a = new FraudAlert(aid, t.id(),
-                        Objects.requireNonNullElse(decision.reason(), "Suspicious"));
+                int riskScore = decision.riskScore();
+
+                FraudAlert a = new FraudAlert(
+                        aid,
+                        t.id(),
+                        Objects.requireNonNullElse(decision.reason(), "Suspicious"),
+                        riskScore,
+                        null,   // assignee
+                        null,   // tags
+                        null    // notes
+                );
                 alerts.add(a);
             }
+
             transfers.add(t);
             account.registerTransfer(t.id());
             accounts.save(account);
@@ -136,7 +145,7 @@ public class TransferApplicationService {
 
 
 
-    /** UC 05 – Authorize Payment (с попытками и таймером). */
+    /** UC 05 - Authorize Payment. */
     public void authorizePayment(int transferId, String otp) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {

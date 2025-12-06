@@ -205,19 +205,50 @@ public class JsonMapper {
 
     // FraudAlert
     public static JsonFraudAlert toDto(FraudAlert a) {
-        JsonFraudAlert j = new JsonFraudAlert(); j.id=a.id(); j.transferId=a.transferId(); j.state=a.state().name(); j.reason=a.reason(); j.createdAt=a.createdAt().toString(); return j; }
+        JsonFraudAlert j = new JsonFraudAlert();
+        j.id = a.id();
+        j.transferId = a.transferId();
+        j.state = a.state().name();
+        j.reason = a.reason();
+        if (a.createdAt() != null) {
+            j.createdAt = a.createdAt().toString();
+        }
+
+        j.riskScore = a.riskScore();
+        j.assignee = a.assignee();
+        if (a.tags() != null) {
+            j.tags.addAll(a.tags());
+        }
+        j.notes = a.notes();
+
+        return j;
+    }
+
     public static FraudAlert toDomain(JsonFraudAlert j) {
         FraudAlert a = new FraudAlert(j.id, j.transferId, j.reason);
-        // parse createdAt if present
+
         java.time.Instant ts = null;
         try {
             if (j.createdAt != null) ts = java.time.Instant.parse(j.createdAt);
-        } catch (Exception ignored) {}
-        // restore state without side effects
+        } catch (Exception ignored) { }
+
+        java.util.List<String> tags =
+                (j.tags != null) ? j.tags : java.util.Collections.emptyList();
+
         try {
             var st = FraudAlertState.valueOf(j.state);
-            a.hydrateForLoad(st, j.reason, ts);
-        } catch (Exception ignored) {}
+            a.hydrateForLoad(
+                    st,
+                    j.reason,
+                    ts,
+                    j.riskScore,
+                    j.assignee,
+                    tags,
+                    j.notes
+            );
+        } catch (Exception ignored) { }
+
         return a;
     }
+
 }
