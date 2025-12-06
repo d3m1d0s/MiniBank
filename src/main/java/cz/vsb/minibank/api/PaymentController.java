@@ -14,15 +14,13 @@ import org.springframework.web.bind.annotation.*;
 import cz.vsb.minibank.domain.FeePolicy;
 import cz.vsb.minibank.domain.value.Money;
 
-
 import java.util.List;
-
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.RequestMapping;
 
 import static cz.vsb.minibank.api.AuthHelpers.requireCustomerId;
 
+/**
+ * REST controller for customer accounts and payment operations.
+ */
 @CrossOrigin(origins = "http://localhost:5173")
 @RestController
 @RequestMapping("/api")
@@ -32,7 +30,6 @@ public class PaymentController {
     private final AccountRepository accounts;
     private final TransferRepository transfers;
     private final FeePolicy feePolicy;
-
 
     public PaymentController(TransferApplicationService transferService,
                              AccountRepository accounts,
@@ -44,7 +41,9 @@ public class PaymentController {
         this.feePolicy = feePolicy;
     }
 
-
+    /**
+     * Lists all accounts for the given customer identifier.
+     */
     @GetMapping("/customers/{customerId}/accounts")
     public List<AccountSummaryDto> listAccounts(@PathVariable("customerId") int customerId) {
         return accounts.byCustomerId(customerId).stream()
@@ -52,13 +51,18 @@ public class PaymentController {
                 .toList();
     }
 
-
+    /**
+     * Lists accounts for the currently authenticated customer.
+     */
     @GetMapping("/me/accounts")
     public List<AccountSummaryDto> listMyAccounts() {
         int customerId = requireCustomerId();
         return listAccounts(customerId);
     }
 
+    /**
+     * Creates a new payment and returns information about status, charged amount and fee.
+     */
     @PostMapping("/payments")
     public ResponseEntity<NewPaymentResultDto> createPayment(@RequestBody NewPaymentRequest req) {
 
@@ -71,7 +75,6 @@ public class PaymentController {
                 req.amountCzk(),
                 req.message()
         );
-
 
         Transfer t = transfers.byId(transferId)
                 .orElseThrow(() -> new RuntimeException("Transfer not found"));
@@ -86,8 +89,8 @@ public class PaymentController {
         NewPaymentResultDto dto = new NewPaymentResultDto(
                 t.id(),
                 t.status().name(),
-                charged.toString(),      // chargedAmount
-                fee.toString(),          // feeAmount
+                charged.toString(),
+                fee.toString(),
                 acc.balance().toString(),
                 authorizationRequired
         );
@@ -95,6 +98,9 @@ public class PaymentController {
         return ResponseEntity.ok(dto);
     }
 
+    /**
+     * Maps an account entity to its API summary representation.
+     */
     private AccountSummaryDto toAccountSummary(Account a) {
         return new AccountSummaryDto(
                 a.id(),

@@ -1,14 +1,14 @@
+// src/LoginDialog.tsx
 import { useState } from 'react';
 import { login, type LoginResponse } from './api';
 
 interface Props {
     onLoggedIn: (info: {
         username: string;
-        role: LoginResponse['role']; // вместо any
+        role: LoginResponse['role'];
         customerId: number | null;
     }) => void;
 }
-
 
 export default function LoginDialog({ onLoggedIn }: Props) {
     const [username, setUsername] = useState('');

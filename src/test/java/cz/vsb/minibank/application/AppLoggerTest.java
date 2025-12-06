@@ -19,7 +19,7 @@ class AppLoggerTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        // before each test, clear the log file and SecurityContext
+        // Clear the log file and SecurityContext before each test
         Files.deleteIfExists(LOG_PATH);
         SecurityContext.clear();
     }

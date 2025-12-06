@@ -13,8 +13,7 @@ import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 
 /**
- * Simple application-wide logger.
- * Writes logs to stderr and to a text file minibank.log.
+ * Simple application wide logger that writes to stderr and a text file minibank.log.
  */
 public final class AppLogger {
 

@@ -1,10 +1,13 @@
 package cz.vsb.minibank.infrastructure.json;
 
-import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
 import java.util.*;
 
+/**
+ * UnitOfWork implementation for JsonDataStore with an in-memory identity map
+ * and buffered mutations persisted in a single save operation.
+ */
 public final class JsonUnitOfWork implements UnitOfWork {
     private final JsonDataStore store;
     private final Map<Class<?>, Map<Integer, Object>> identities = new HashMap<>();

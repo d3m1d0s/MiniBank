@@ -19,22 +19,22 @@ function App() {
     const [view, setView] = useState<View>('new-payment');
     const [auth, setAuth] = useState<AuthState | null>(null);
 
-    // Пока пользователь не залогинен — показываем только диалог логина
+    // While the user is not logged in, show only the login dialog
     if (!auth) {
         return (
             <LoginDialog
                 onLoggedIn={(info) => {
                     setAuth(info);
-                    // стартовый экран зависит от роли
+                    // Initial view depends on the logged-in role
                     setView(info.role === 'FRAUD_ANALYST' ? 'fraud-desk' : 'new-payment');
                 }}
             />
         );
     }
 
-    // Централизованная навигация с учётом роли
+    // Centralized navigation that applies role-based restrictions
     const handleNavigate = (next: View) => {
-        // пример: аналитику запрещаем ходить на клиентские экраны
+        // Example: fraud analyst cannot go to customer-facing views
         if (auth.role === 'FRAUD_ANALYST' && next !== 'fraud-desk') {
             return;
         }

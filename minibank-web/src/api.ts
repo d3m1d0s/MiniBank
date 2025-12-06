@@ -10,14 +10,14 @@ export function mapPaymentError(error: ApiError): string[] {
     let code = error.code;
     let message = error.message || '';
 
-    // Если код не проставлен, но message выглядит как JSON – попробуем его распарсить
+    // If there is no explicit error code but the message looks like JSON, try to parse it
     if (!code && message && message.trim().startsWith('{')) {
         try {
             const parsed = JSON.parse(message) as { code?: string; message?: string };
             if (parsed.code) code = parsed.code;
             if (parsed.message) message = parsed.message;
         } catch {
-            // не JSON – оставляем как есть
+            // Not JSON, keep original message
         }
     }
 
@@ -38,11 +38,10 @@ export function mapPaymentError(error: ApiError): string[] {
                 'You can try a lower amount or wait until tomorrow.',
             ];
         default:
-            // fallback – используем уже очищенный message
+            // Fallback – use cleaned message, or a generic one if message is empty
             return [message || 'Unexpected error while creating payment.'];
     }
 }
-
 
 export interface AccountSummary {
     id: number;
@@ -66,7 +65,7 @@ export interface NewPaymentResult {
     authorizationRequired: boolean;
 }
 
-// === UC05 DTOs (держим типы гибкими, чтобы не упираться в расхождения) ===
+// === UC05 DTOs (keep types flexible so minor backend differences do not break the UI) ===
 
 export interface WaitingTransferItem {
     id: number;
@@ -100,12 +99,10 @@ export interface AuthorizePaymentRequest {
 export interface AuthorizePaymentResult {
     transferId: number;
     status: string;
-    chargedAmount: string | null;   // null, если ничего не списывали
-    newBalance: string;             // всегда актуальный баланс счёта
-    declineReason: string | null;   // текст причины при DECLINED, иначе null
+    chargedAmount: string | null;   // null if no funds were charged yet
+    newBalance: string;             // always represents the current account balance
+    declineReason: string | null;   // decline reason text for DECLINED, otherwise null
 }
-
-
 
 const API_BASE = 'http://localhost:8080/api';
 
@@ -115,7 +112,9 @@ export function setSessionId(id: string | null) {
     currentSessionId = id;
 }
 
-
+/**
+ * Low-level fetch wrapper that automatically attaches the current session header.
+ */
 async function apiFetch(input: RequestInfo, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers || {});
     if (currentSessionId) {
@@ -123,7 +122,6 @@ async function apiFetch(input: RequestInfo, init: RequestInit = {}): Promise<Res
     }
     return fetch(input, { ...init, headers });
 }
-
 
 export async function login(payload: LoginRequest): Promise<LoginResponse> {
     const res = await fetch(`${API_BASE}/auth/login`, {
@@ -140,13 +138,17 @@ export function logoutSession() {
     setSessionId(null);
 }
 
-
+/**
+ * Common response handler:
+ * - throws an Error for non-2xx responses, preferring JSON { code, message }
+ * - parses JSON on success, or returns plain text as a fallback
+ */
 async function handle<T>(res: Response): Promise<T> {
     const text = await res.text();
 
     if (!res.ok) {
         if (text) {
-            // пробуем распарсить AppError { code, message }
+            // Try to parse AppError payload { code, message }
             try {
                 const parsed = JSON.parse(text) as { code?: string; message?: string };
                 const error = new Error(parsed.message || parsed.code || res.statusText);
@@ -155,7 +157,7 @@ async function handle<T>(res: Response): Promise<T> {
                 }
                 throw error;
             } catch {
-                // ответ не JSON
+                // Response is not JSON, throw raw text
                 throw new Error(text || res.statusText);
             }
         }
@@ -163,16 +165,16 @@ async function handle<T>(res: Response): Promise<T> {
         throw new Error(res.statusText);
     }
 
-    // успешный ответ
+    // Successful response
     if (!text) {
-        // на случай 204 / пустого ответа
+        // For empty body (for example 204 No Content)
         return {} as T;
     }
 
     try {
         return JSON.parse(text) as T;
     } catch {
-        // если вдруг вернулся не-JSON
+        // Backend returned non-JSON payload, return it as text
         return text as unknown as T;
     }
 }
@@ -217,11 +219,11 @@ export async function confirmAuthorization(
         {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            // бэкенду нужен только otp, id он берёт из URL
+            // Backend needs only OTP in the body; transfer id is taken from URL
             body: JSON.stringify({ otp: payload.otp }),
         },
-    )
-    return handle<AuthorizePaymentResult>(res)
+    );
+    return handle<AuthorizePaymentResult>(res);
 }
 
 export async function cancelTransfer(
@@ -331,8 +333,6 @@ export interface LoginResponse {
     customerId: number | null;
 }
 
-
-
 export async function fetchAlerts(
     filters: AlertFilters = {},
 ): Promise<AlertQueueResponse> {
@@ -370,4 +370,3 @@ export async function postFraudDecision(
     });
     return handle<AlertDetail>(res);
 }
-

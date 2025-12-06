@@ -7,10 +7,19 @@ import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
 import org.springframework.web.bind.annotation.*;
 
+/**
+ * Request payload for authentication.
+ */
 record LoginRequest(String username, String password) {}
+
+/**
+ * Response payload for authentication containing session and identity information.
+ */
 record LoginResponse(String sessionId, String username, String role, Integer customerId) {}
 
-
+/**
+ * REST controller for authentication and session management.
+ */
 @RestController
 @RequestMapping("/api/auth")
 @CrossOrigin(origins = "http://localhost:5173")
@@ -24,6 +33,9 @@ public class AuthController {
         this.sessions = sessions;
     }
 
+    /**
+     * Authenticates the user and returns a new session ID.
+     */
     @PostMapping("/login")
     public LoginResponse login(@RequestBody LoginRequest req) {
         if (req.username() == null || req.password() == null) {
@@ -33,12 +45,14 @@ public class AuthController {
         User u = authService.login(req.username(), req.password().toCharArray());
         String sessionId = sessions.createSession(u);
 
-        // На всякий случай очистим SecurityContext здесь (перезапишется в интерсепторе)
         SecurityContext.clear();
 
         return new LoginResponse(sessionId, u.username(), u.role().name(), u.customerId());
     }
 
+    /**
+     * Logs the user out and removes the session if the session ID is provided.
+     */
     @PostMapping("/logout")
     public void logout(@RequestHeader(name = "X-Session-Id", required = false) String sessionId) {
         if (sessionId != null) {

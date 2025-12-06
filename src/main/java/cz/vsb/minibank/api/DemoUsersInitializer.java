@@ -8,6 +8,10 @@ import cz.vsb.minibank.infrastructure.Bootstrap;
 import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Component;
 
+/**
+ * Initializes demo users for local development and demos.
+ * Creates a customer user and a fraud analyst user if they do not exist.
+ */
 @Component
 public class DemoUsersInitializer {
 
@@ -23,7 +27,7 @@ public class DemoUsersInitializer {
     void initDemoUsers() {
         UserRepository users = infra.users;
 
-        // CUSTOMER: alice / alice123
+        // Demo customer user: alice / alice123
         if (users.findByUsername("alice").isEmpty()) {
             int uid = users.nextId();
             byte[] salt = encoder.generateSalt();
@@ -32,7 +36,7 @@ public class DemoUsersInitializer {
             users.save(alice);
         }
 
-        // FRAUD_ANALYST: fraud / fraud123
+        // Demo fraud analyst user: fraud / fraud123
         if (users.findByUsername("fraud").isEmpty()) {
             int uid = users.nextId();
             byte[] salt = encoder.generateSalt();

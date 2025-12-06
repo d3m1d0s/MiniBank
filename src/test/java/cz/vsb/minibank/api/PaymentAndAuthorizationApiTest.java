@@ -34,10 +34,10 @@ public class PaymentAndAuthorizationApiTest {
     void setup() {
         Bootstrap infra = new Bootstrap("data/data.json");
 
-        // --- гарантируем наличие customer=2 и account=101 ---
+        // Ensure that customer=2 and account=101 exist for tests
         CustomerRepository customers = infra.customers;
 
-        // 1) Клиент 2
+        // 1) Ensure customer 2
         Customer customer = customers.byId(TEST_CUSTOMER_ID)
                 .orElseGet(() -> {
                     Customer c = new Customer(
@@ -50,7 +50,7 @@ public class PaymentAndAuthorizationApiTest {
                     return c;
                 });
 
-        // 2) Счёт 101, привязанный к этому клиенту
+        // 2) Ensure account 101 is linked to this customer
         boolean hasTestAccount = infra.accounts.byCustomerId(TEST_CUSTOMER_ID).stream()
                 .anyMatch(a -> a.id() == TEST_ACCOUNT_ID);
 
@@ -66,7 +66,7 @@ public class PaymentAndAuthorizationApiTest {
             customers.save(customer);
         }
 
-        // 3) Имитация залогиненного кастомера с customerId = 2 (на будущее, если контроллеры перейдут на SecurityContext)
+        // 3) Simulate logged-in customer with customerId = 2 via SecurityContext
         byte[] dummy = new byte[0];
         User user = new User(
                 1,
@@ -78,7 +78,7 @@ public class PaymentAndAuthorizationApiTest {
         );
         SecurityContext.setCurrentUser(user);
 
-        // --- остальное как было ---
+        // Initialize shared test dependencies
         accounts = infra.accounts;
         transfers = infra.transfers;
 
@@ -113,7 +113,7 @@ public class PaymentAndAuthorizationApiTest {
         AccountSummaryDto acc = accList.get(0);
 
         NewPaymentRequest req = new NewPaymentRequest(
-                TEST_CUSTOMER_ID,                // поле всё ещё есть в record, но контроллер может его и игнорировать
+                TEST_CUSTOMER_ID, // field is still present in the record but controller may ignore it
                 acc.id(),
                 "CZ0201000000000012345678",
                 WAITING_TRANSFER_AMOUNT,

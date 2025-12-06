@@ -5,6 +5,9 @@ import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
 
+/**
+ * Application service for fraud related use cases such as approving, declining and confirming suspicious transfers.
+ */
 public class FraudApplicationService {
     private final TransferRepository transfers;
     private final FraudAlertRepository alerts;
@@ -21,9 +24,9 @@ public class FraudApplicationService {
         this.uowFactory = uowFactory;
     }
 
-    /** UC 11 – Review Suspicious Transaction: APPROVE.
-     *  Approves the fraud alert. If the transfer is still in CREATED state,
-     *  the transfer is actually sent (fee computed by the injected FeePolicy).
+    /**
+     * UC 11 - Review Suspicious Transaction: APPROVE.
+     * Approves the fraud alert and, if the transfer is still in CREATED state, sends the transfer with the configured fee policy.
      */
     public void approve(int transferId) {
         var uow = uowFactory.begin();
@@ -40,15 +43,15 @@ public class FraudApplicationService {
                 accounts.save(acc);
             }
             uow.commit();
-            // If the status is WAITING_AUTH and an auth method is present, continue with UC 05 elsewhere.
         } catch (RuntimeException e) {
             uow.rollback();
             throw e;
         }
     }
 
-    /** UC 11 – Review Suspicious Transaction: DECLINE.
-     *  Marks the alert as suspicious with the provided reason and declines the transfer.
+    /**
+     * UC 11 - Review Suspicious Transaction: DECLINE.
+     * Marks the alert as suspicious with the provided reason and declines the transfer.
      */
     public void decline(int transferId, String reason) {
         var uow = uowFactory.begin();
@@ -67,15 +70,14 @@ public class FraudApplicationService {
         }
     }
 
-    /** UC 12 – Request Customer Confirmation (simplified).
-     *  In a full implementation this would send a notification to the customer.
-     *  Here we only update the reason to indicate we are waiting for confirmation.
+    /**
+     * UC 12 - Request Customer Confirmation (simplified).
+     * Updates the alert reason to indicate the system is waiting for customer confirmation.
      */
     public void requestCustomerConfirmation(int transferId) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
             var alert = alerts.byTransferId(transferId).orElseThrow(() -> new RuntimeException("Alert not found"));
-            // Notification would be sent here; we only update the reason for now.
             alert.markSuspicious("Waiting for customer confirmation");
             alerts.save(alert);
             uow.commit();

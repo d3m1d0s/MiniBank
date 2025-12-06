@@ -11,6 +11,13 @@ import java.sql.*;
 import java.util.Objects;
 import java.util.Optional;
 
+/**
+ * PostgreSQL implementation of {@link UserRepository}.
+ * <p>
+ * Uses {@code users_id_seq} for id generation and stores credentials
+ * (hash + salt) and role/customer mapping. Read operations can use
+ * the UnitOfWork Identity Map when present.
+ */
 public class SqlUserRepository implements UserRepository {
 
     private final String url;
@@ -126,6 +133,9 @@ public class SqlUserRepository implements UserRepository {
         uow.put(User.class, entity.id(), entity);
     }
 
+    /**
+     * Inserts or updates a user row including credentials and role mapping.
+     */
     private void upsert(Connection conn, User u) throws SQLException {
         String sql = """
             INSERT INTO users (id, username, role, customer_id, password_hash, password_salt)
@@ -152,6 +162,10 @@ public class SqlUserRepository implements UserRepository {
         }
     }
 
+    /**
+     * Maps a {@link ResultSet} row to a {@link User}, reconstructing role and
+     * optional customer id and credential fields.
+     */
     private User mapRow(ResultSet rs) throws SQLException {
         int id = rs.getInt("id");
         String username = rs.getString("username");

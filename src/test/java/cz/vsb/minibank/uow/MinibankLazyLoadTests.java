@@ -1,3 +1,4 @@
+// src/test/java/cz/vsb/minibank/uow/MinibankLazyLoadTests.java
 package cz.vsb.minibank.uow;
 
 import cz.vsb.minibank.domain.*;
@@ -66,7 +67,7 @@ public class MinibankLazyLoadTests {
         try (UowScope __ = new UowScope(uow)) {
             transferId = infra.transfers.nextId();
 
-            // ⚠️ If your Transfer constructor differs, adjust parameters accordingly
+            // If your Transfer constructor differs, adjust parameters accordingly
             Transfer t = new Transfer(
                     transferId,
                     accountId,
@@ -193,7 +194,7 @@ public class MinibankLazyLoadTests {
                     .orElseThrow(() -> new AssertionError("Customer must exist"));
 
             // 1) trigger LazyList<Account> in Customer
-            List<Account> lazyAccounts = c.accounts();  // method we added earlier
+            List<Account> lazyAccounts = c.accounts();
             assertFalse(lazyAccounts.isEmpty(), "Lazy-loaded accounts must not be empty");
             assertEquals(accountId, lazyAccounts.get(0).id());
 

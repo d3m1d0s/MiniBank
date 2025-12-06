@@ -1,14 +1,15 @@
 // src/WaitingAuthorizationsPage.tsx
-import { useEffect, useState } from 'react'
-import './App.css'
+import { useEffect, useState } from 'react';
+import './App.css';
 import {
     fetchWaitingTransfers,
     fetchTransferDetails,
     confirmAuthorization,
     type WaitingTransferItem,
     type TransferDetails,
-    type AuthorizePaymentResult, cancelTransfer,
-} from './api'
+    type AuthorizePaymentResult,
+    cancelTransfer,
+} from './api';
 
 interface Props {
     onNavigate: (view: 'new-payment' | 'waiting-auth' | 'fraud-desk') => void;
@@ -40,138 +41,133 @@ function mapDeclineReason(reason: string): string {
     return reason;
 }
 
-
 export function WaitingAuthorizationsPage({ onNavigate }: Props) {
-    const [items, setItems] = useState<WaitingTransferItem[]>([])
-    const [selectedId, setSelectedId] = useState<number | null>(null)
-    const [details, setDetails] = useState<TransferDetails | null>(null)
-    const [otp, setOtp] = useState('')
-    const [result, setResult] = useState<AuthorizePaymentResult | null>(null)
+    const [items, setItems] = useState<WaitingTransferItem[]>([]);
+    const [selectedId, setSelectedId] = useState<number | null>(null);
+    const [details, setDetails] = useState<TransferDetails | null>(null);
+    const [otp, setOtp] = useState('');
+    const [result, setResult] = useState<AuthorizePaymentResult | null>(null);
 
-    // 🔹 Разделяем ошибки: одна для списка/деталей, другая для подтверждения
-    const [listError, setListError] = useState<string | null>(null)
-    const [confirmError, setConfirmError] = useState<string | null>(null)
+    // Separate errors for list/details and for authorization confirmation
+    const [listError, setListError] = useState<string | null>(null);
+    const [confirmError, setConfirmError] = useState<string | null>(null);
 
-    const [loading, setLoading] = useState(false)
+    const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        void loadList()
-    }, [])
+        void loadList();
+    }, []);
 
     async function loadList() {
         try {
-            // ошибки списка не должны влиять на ошибки подтверждения
-            setListError(null)
-            const data = await fetchWaitingTransfers()
-            setItems(data)
-            // если выбранный перевод пропал — сбросить выбор
+            // Errors from the list should not overwrite errors from confirm step
+            setListError(null);
+            const data = await fetchWaitingTransfers();
+            setItems(data);
+            // If selected transfer disappeared from the list, clear selection and details
             if (selectedId && !data.some((x) => x.id === selectedId)) {
-                setSelectedId(null)
-                setDetails(null)
+                setSelectedId(null);
+                setDetails(null);
             }
         } catch (e) {
-            setListError((e as Error).message)
+            setListError((e as Error).message);
         }
     }
 
     async function handleSelect(id: number) {
-        setSelectedId(id)
-        setResult(null)
+        setSelectedId(id);
+        setResult(null);
         try {
-            setListError(null)
-            const d = await fetchTransferDetails(id)
-            setDetails(d)
+            setListError(null);
+            const d = await fetchTransferDetails(id);
+            setDetails(d);
         } catch (e) {
-            setListError((e as Error).message)
+            setListError((e as Error).message);
         }
     }
 
-    // src/WaitingAuthorizationsPage.tsx
-
     async function handleConfirm() {
-        if (!selectedId || !otp) return
+        if (!selectedId || !otp) return;
 
         try {
-            setLoading(true)
-            setConfirmError(null)
+            setLoading(true);
+            setConfirmError(null);
 
-            // 1) Пытаемся авторизовать
-            const res = await confirmAuthorization({ transferId: selectedId, otp })
-            setResult(res)
-            setOtp('')
+            // Step 1: try to authorize the transfer with given OTP
+            const res = await confirmAuthorization({ transferId: selectedId, otp });
+            setResult(res);
+            setOtp('');
 
-            // 2) Обновляем список (уйдут переводы, которые уже не WAITING_AUTH)
-            await loadList()
+            // Step 2: refresh the list (transfers that are no longer WAITING_AUTH will disappear)
+            await loadList();
 
-            // 3) Подтягиваем свежие детали, чтобы видеть обновлённые triesLeft/authValidUntil
-            let freshDetails: TransferDetails | null = null
+            // Step 3: reload details to reflect updated triesLeft / authValidUntil
+            let freshDetails: TransferDetails | null = null;
             try {
-                const d = await fetchTransferDetails(selectedId)
-                setDetails(d)
-                freshDetails = d
+                const d = await fetchTransferDetails(selectedId);
+                setDetails(d);
+                freshDetails = d;
             } catch {
-                // если деталей уже нет – просто игнорируем
+                // If details are no longer available, ignore
             }
 
-            // 4) Разбор результата и установка человекочитаемого сообщения
+            // Step 4: interpret result and set a human-readable message
 
             if (res.status === 'SENT') {
-                // Успешная авторизация – ошибок нет
-                setConfirmError(null)
+                // Successful authorization, nothing to report as error
+                setConfirmError(null);
             } else if (res.status === 'DECLINED') {
-                // Окончательный отказ – используем declineReason с маппингом
+                // Final decline – show normalized decline reason if available
                 if (res.declineReason) {
-                    setConfirmError(mapDeclineReason(res.declineReason))
+                    setConfirmError(mapDeclineReason(res.declineReason));
                 } else {
-                    setConfirmError('Authorization was declined.')
+                    setConfirmError('Authorization was declined.');
                 }
             } else if (res.status === 'WAITING_AUTH') {
-                // ❗ Кейс неверного OTP: статус всё ещё WAITING_AUTH,
-                // но счётчик попыток уменьшился.
-
+                // Wrong OTP: status is still WAITING_AUTH but attempts counter decreased
                 const tries =
                     freshDetails?.triesLeft ??
-                    details?.triesLeft
+                    details?.triesLeft;
 
                 const extra =
                     tries !== undefined && tries !== null
                         ? ` You have ${tries} attempt${tries === 1 ? '' : 's'} left.`
-                        : ''
+                        : '';
 
                 setConfirmError(
                     'Wrong one-time password (OTP). Please check the code and try again.' +
                     extra,
-                )
+                );
             } else {
-                // На всякий случай – прочие статусы
-                setConfirmError(null)
+                // Fallback for other statuses
+                setConfirmError(null);
             }
         } catch (e) {
-            const err = e as Error
-            let code: string | undefined
-            let msg = err.message ?? ''
+            const err = e as Error;
+            let code: string | undefined;
+            let msg = err.message ?? '';
 
-            // Попробуем распарсить JSON {"code":"...","message":"..."}
-            const trimmed = msg.trim()
+            // Try to parse JSON payload {"code":"...","message":"..."}
+            const trimmed = msg.trim();
             if (trimmed.startsWith('{')) {
                 try {
-                    const parsed = JSON.parse(trimmed) as { code?: string; message?: string }
-                    code = parsed.code
-                    msg = parsed.message || msg
+                    const parsed = JSON.parse(trimmed) as { code?: string; message?: string };
+                    code = parsed.code;
+                    msg = parsed.message || msg;
                 } catch {
-                    // не JSON – оставляем как есть
+                    // Not JSON, keep original message
                 }
             }
 
-            const lower = msg.toLowerCase()
+            const lower = msg.toLowerCase();
 
-            // Недостаточно средств
+            // Insufficient funds
             if (code === 'INSUFFICIENT_FUNDS' || lower.includes('insufficient funds')) {
                 setConfirmError(
                     'Insufficient balance – top up your account and try again or cancel this transfer.',
-                )
+                );
             }
-            // Неверный OTP (если когда-нибудь начнём слать это ошибкой с бэка)
+            // Wrong OTP returned as error
             else if (
                 code === 'WRONG_OTP' ||
                 lower.includes('otp failed') ||
@@ -179,9 +175,9 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
             ) {
                 setConfirmError(
                     'Wrong one-time password (OTP). Please check the code and try again.',
-                )
+                );
             }
-            // Слишком много попыток (как ошибка)
+            // Too many attempts returned as error
             else if (
                 code === 'OTP_ATTEMPTS_EXCEEDED' ||
                 lower.includes('too many attempts') ||
@@ -189,9 +185,9 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
             ) {
                 setConfirmError(
                     'Too many incorrect OTP attempts – this transfer was declined for security reasons.',
-                )
+                );
             }
-            // Истёк срок действия (как ошибка)
+            // Authorization window expired returned as error
             else if (
                 code === 'OTP_EXPIRED' ||
                 lower.includes('expired') ||
@@ -199,49 +195,42 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
             ) {
                 setConfirmError(
                     'Authorization time window has expired – this transfer can no longer be confirmed.',
-                )
+                );
             } else {
-                setConfirmError(msg || 'Authorization failed.')
+                setConfirmError(msg || 'Authorization failed.');
             }
         } finally {
-            setLoading(false)
+            setLoading(false);
         }
     }
-
-
-
-
 
     async function handleCancel() {
-        if (!selectedId) return
+        if (!selectedId) return;
 
         try {
-            setLoading(true)
-            setConfirmError(null)
+            setLoading(true);
+            setConfirmError(null);
 
-            const res = await cancelTransfer(selectedId)
-            setResult(res)
+            const res = await cancelTransfer(selectedId);
+            setResult(res);
 
-            // после отмены перевод исчезнет из списка WAITING_AUTH
-            await loadList()
+            // After cancellation the transfer will disappear from WAITING_AUTH list
+            await loadList();
 
-            // детали больше не так важны, но можно попытаться обновить
+            // Details are less important after cancel, but we can try to refresh them
             try {
-                const d = await fetchTransferDetails(selectedId)
-                setDetails(d)
+                const d = await fetchTransferDetails(selectedId);
+                setDetails(d);
             } catch {
-                setDetails(null)
+                setDetails(null);
             }
         } catch (e) {
-            const err = e as Error
-            setConfirmError(err.message || 'Failed to cancel transfer.')
+            const err = e as Error;
+            setConfirmError(err.message || 'Failed to cancel transfer.');
         } finally {
-            setLoading(false)
+            setLoading(false);
         }
     }
-
-
-
 
     return (
         <div className="app-shell">
@@ -251,7 +240,7 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                 </header>
 
                 <div className="card-body layout">
-                    {/* Навигация слева */}
+                    {/* Left: navigation for customer views */}
                     <nav className="nav">
                         <div className="nav-title">Navigation</div>
                         <ul>
@@ -296,13 +285,13 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                         </ul>
                     </nav>
 
-                    {/* Правая часть: таблица + детали + подтверждение */}
+                    {/* Right: waiting transfers table, details and authorization controls */}
                     <main className="form-panel">
-                        {/* Секция: список ожидающих переводов */}
+                        {/* Section: list of waiting transfers */}
                         <section className="section">
                             <h2 className="section-title">Waiting transfers</h2>
 
-                            {/* 🔹 Ошибки, связанные со списком / деталями */}
+                            {/* Errors related to list/details loading */}
                             {listError && (
                                 <div
                                     className="summary"
@@ -355,7 +344,7 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                             )}
                         </section>
 
-                        {/* Секция: детали выбранного перевода */}
+                        {/* Section: details of selected transfer */}
                         <section className="section">
                             <h2 className="section-title">Selected transfer details</h2>
                             <div className="section-block">
@@ -391,7 +380,7 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                             </div>
                         </section>
 
-                        {/* Секция: подтверждение OTP + результат */}
+                        {/* Section: OTP confirmation + result */}
                         <section className="section">
                             <h2 className="section-title">Confirm authorization</h2>
                             <div className="section-block inline">
@@ -417,13 +406,13 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                     className="btn-secondary"
                                     onClick={handleCancel}
                                     disabled={!selectedId || loading}
-                                    style={{marginLeft: 8}}
+                                    style={{ marginLeft: 8 }}
                                 >
                                     Cancel transfer
                                 </button>
                             </div>
 
-                            <p className="helper-text">
+                            <div className="helper-text">
                                 <p>
                                     <strong>Tries left:</strong>{' '}
                                     {details?.triesLeft ?? '—'}
@@ -434,13 +423,13 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                         ? new Date(details.authValidUntil).toLocaleString()
                                         : '—'}
                                 </p>
-                            </p>
+                            </div>
 
-                            {/* Ошибки именно подтверждения авторизации */}
+                            {/* Errors related to authorization confirmation */}
                             {confirmError && (
                                 <div
                                     className="summary"
-                                    style={{borderColor: 'salmon', marginTop: 8}}
+                                    style={{ borderColor: 'salmon', marginTop: 8 }}
                                 >
                                     <div className="summary-title">Error</div>
                                     <ul>
@@ -450,7 +439,7 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                             )}
 
                             {result && (
-                                <div className="summary" style={{marginTop: 10}}>
+                                <div className="summary" style={{ marginTop: 10 }}>
                                     <div className="summary-title">
                                         {result.status === 'SENT'
                                             ? 'Payment authorized'
@@ -460,18 +449,18 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                         <li>Transfer ID: {result.transferId}</li>
                                         <li>Status: {result.status}</li>
 
-                                        {/* Показываем Charged только если реально что-то списали */}
+                                        {/* Show charged amount only if funds were actually debited */}
                                         {result.chargedAmount && (
                                             <li>Charged: {result.chargedAmount}</li>
                                         )}
 
-                                        {/* Баланс всегда актуальный, но подпись можно различать */}
+                                        {/* newBalance is always current; wording changes depending on status */}
                                         <li>
                                             {result.status === 'SENT' ? 'New balance: ' : 'Current balance: '}
                                             {result.newBalance}
                                         </li>
 
-                                        {/* Причина отказа, если есть */}
+                                        {/* Decline reason, if present */}
                                         {result.declineReason && (
                                             <li>Reason: {mapDeclineReason(result.declineReason)}</li>
                                         )}
@@ -484,5 +473,5 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                 </div>
             </div>
         </div>
-    )
+    );
 }

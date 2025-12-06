@@ -1,9 +1,10 @@
 package cz.vsb.minibank.domain;
 
-
 import cz.vsb.minibank.domain.value.Money;
 
-
+/**
+ * Rule based implementation of RiskService using thresholds for untrusted beneficiaries.
+ */
 public class RuleBasedRiskService implements RiskService {
 
     private static final Money AUTH_THRESHOLD_FOR_UNTRUSTED = Money.czk(5_000.00);
@@ -14,8 +15,8 @@ public class RuleBasedRiskService implements RiskService {
         boolean overDailyLimit = amount.gt(dailyLimit);
         boolean untrustedAndHigh = !beneficiaryTrusted && amount.gt(AUTH_THRESHOLD_FOR_UNTRUSTED);
 
-        boolean requireAuth  = overDailyLimit || untrustedAndHigh;
-        boolean createAlert  = !beneficiaryTrusted && amount.gt(ALERT_THRESHOLD_FOR_UNTRUSTED);
+        boolean requireAuth = overDailyLimit || untrustedAndHigh;
+        boolean createAlert = !beneficiaryTrusted && amount.gt(ALERT_THRESHOLD_FOR_UNTRUSTED);
 
         String reason = createAlert
                 ? "New beneficiary + high amount"

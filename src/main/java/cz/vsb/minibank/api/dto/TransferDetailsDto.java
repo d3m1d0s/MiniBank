@@ -1,5 +1,8 @@
 package cz.vsb.minibank.api.dto;
 
+/**
+ * Detailed view of a single transfer, including authorization metadata.
+ */
 public record TransferDetailsDto(
         int id,
         String fromIban,
@@ -12,4 +15,5 @@ public record TransferDetailsDto(
         String authMethod,
         int triesLeft,
         String authValidUntil
-) {}
+) {
+}

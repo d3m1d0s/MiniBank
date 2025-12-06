@@ -8,6 +8,10 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 
+/**
+ * Thread-safe in-memory implementation of UserRepository.
+ * Intended for demo and JSON-based modes where users are not persisted.
+ */
 public class InMemoryUserRepository implements UserRepository {
 
     private final Map<Integer, User> byId = new ConcurrentHashMap<>();

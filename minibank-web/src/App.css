@@ -1,3 +1,5 @@
+/* src/App.css */
+
 /* ====== Base ====== */
 
 *,
@@ -55,7 +57,7 @@ body {
   letter-spacing: 0.03em;
 }
 
-/* ====== Нижний контейнер: слева меню, справа форма/контент ====== */
+/* ====== Main layout: left navigation, right content ====== */
 
 .card-body.layout {
   display: flex;
@@ -63,10 +65,10 @@ body {
   gap: 32px;
 }
 
-/* ====== Navigation (левый подконтейнер) ====== */
+/* ====== Navigation (left column) ====== */
 
 .nav {
-  flex: 0 0 260px;              /* фиксированная ширина колонки меню */
+  flex: 0 0 260px;
   padding-right: 24px;
   border-right: 1px solid rgba(55, 65, 81, 0.9);
 }
@@ -110,7 +112,7 @@ body {
   color: #f9fafb;
 }
 
-/* ====== Правая колонка (форма / список) ====== */
+/* ====== Right column (form / content) ====== */
 
 .form-panel {
   flex: 1 1 auto;
@@ -121,7 +123,7 @@ body {
   font-size: 1.4rem;
 }
 
-/* ====== Формы / поля ====== */
+/* ====== Forms / form fields ====== */
 
 .form {
   display: flex;
@@ -193,7 +195,14 @@ body {
   color: #9ca3af;
 }
 
-/* ====== Summary (подтверждение / ошибка) ====== */
+/* Helper text (for hints, empty states, etc.) */
+
+.helper-text {
+  font-size: 0.85rem;
+  color: #9ca3af;
+}
+
+/* ====== Summary box (confirmation / error) ====== */
 
 .summary {
   margin-top: 8px;
@@ -214,7 +223,7 @@ body {
   padding-left: 18px;
 }
 
-/* ====== Кнопки ====== */
+/* ====== Buttons ====== */
 
 .actions {
   margin-top: 4px;
@@ -258,7 +267,7 @@ body {
   cursor: default;
 }
 
-/* ====== Таблица для WaitingAuthorizationsPage ====== */
+/* ====== Table for WaitingAuthorizationsPage / FraudDeskPage ====== */
 
 .table-wrapper {
   border-radius: 16px;
@@ -287,11 +296,12 @@ body {
   background: rgba(24, 35, 55, 0.9);
 }
 
+.table-row--selected,
 .table-row--active {
   background: rgba(59, 130, 246, 0.14);
 }
 
-/* ====== Блок деталей и OTP ====== */
+/* ====== Details card and OTP input ====== */
 
 .details-card {
   margin-top: 16px;
@@ -322,7 +332,7 @@ body {
   color: #f9fafb;
 }
 
-/* ====== Адаптив ====== */
+/* ====== Responsive layout tweaks ====== */
 
 @media (max-width: 900px) {
   .card {
@@ -342,5 +352,3 @@ body {
     margin-bottom: 16px;
   }
 }
-
-

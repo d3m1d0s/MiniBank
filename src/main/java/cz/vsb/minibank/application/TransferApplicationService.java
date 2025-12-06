@@ -8,12 +8,14 @@ import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
-// TransferApplicationService.java
 import cz.vsb.minibank.domain.exceptions.InsufficientFundsException;
 import cz.vsb.minibank.domain.value.Money;
 
 import java.util.Objects;
 
+/**
+ * Application service for payment related use cases such as submitting, authorizing and canceling transfers.
+ */
 public class TransferApplicationService {
 
     public static final int MAX_OTP_ATTEMPTS = 3;
@@ -27,7 +29,6 @@ public class TransferApplicationService {
     private final OtpValidator otpValidator;
     private final PaymentNetworkGateway paymentNetworkGateway;
     private final UnitOfWorkFactory uowFactory;
-
 
     public TransferApplicationService(CustomerRepository customers,
                                       AccountRepository accounts,
@@ -50,7 +51,11 @@ public class TransferApplicationService {
         this.uowFactory = uowFactory;
     }
 
-    /** UC 04 - Submit Payment Order (to a saved beneficiary). */
+    /**
+     * UC 04 - Submit Payment Order to a saved beneficiary.
+     *
+     * @return identifier of the created transfer
+     */
     public int submitPaymentByBeneficiary(int customerId, int sourceAccountId, int beneficiaryId, double amountCzk, String message) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
@@ -75,9 +80,13 @@ public class TransferApplicationService {
         }
     }
 
-    /** UC 04 - Submit Payment Order (to an arbitrary IBAN). */
+    /**
+     * UC 04 - Submit Payment Order to an arbitrary IBAN.
+     * The IBAN is validated by the value object and invalid input results in an exception.
+     *
+     * @return identifier of the created transfer
+     */
     public int submitPaymentToIban(int customerId, int sourceAccountId, String targetIban, double amountCzk, String message) {
-        // IBAN validation (throws IllegalArgumentException on invalid input)
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
             IBAN iban = new IBAN(targetIban);
@@ -85,7 +94,7 @@ public class TransferApplicationService {
             var account = accounts.byId(sourceAccountId).orElseThrow(() -> new RuntimeException("Account not found"));
 
             Money amount = Money.czk(amountCzk);
-            boolean trusted = false; // a new/unknown recipient is not trusted
+            boolean trusted = false;
             RiskDecision decision = riskService.evaluate(trusted, amount, account.dailyLimit());
 
             int id = transfers.nextId();
@@ -100,17 +109,17 @@ public class TransferApplicationService {
         }
     }
 
-
+    /**
+     * Routes transfer creation based on risk decision by either sending immediately or requiring authorization and an optional fraud alert.
+     */
     private void routeTransferCreation(Customer customer, Account account, Transfer t, RiskDecision decision) {
 
-        // Calculate the commission and immediately check if there is enough money
         Money fee = t.feeAmount(feePolicy);
         if (!account.canDebit(t.amount(), fee)) {
             throw new InsufficientFundsException("Insufficient funds");
         }
 
         if (!decision.requireAuthorization() && !decision.createFraudAlert()) {
-            // direct send
             t.send(account, feePolicy);
             transfers.add(t);
             account.registerTransfer(t.id());
@@ -119,7 +128,6 @@ public class TransferApplicationService {
             paymentNetworkGateway.send(t);
 
         } else {
-            // WAITING_AUTH and an optional FraudAlert
             t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
             if (decision.createFraudAlert()) {
                 int aid = alerts.nextId();
@@ -130,9 +138,9 @@ public class TransferApplicationService {
                         t.id(),
                         Objects.requireNonNullElse(decision.reason(), "Suspicious"),
                         riskScore,
-                        null,   // assignee
-                        null,   // tags
-                        null    // notes
+                        null,
+                        null,
+                        null
                 );
                 alerts.add(a);
             }
@@ -143,9 +151,9 @@ public class TransferApplicationService {
         }
     }
 
-
-
-    /** UC 05 - Authorize Payment. */
+    /**
+     * UC 05 - Authorize Payment.
+     */
     public void authorizePayment(int transferId, String otp) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
@@ -187,9 +195,9 @@ public class TransferApplicationService {
         }
     }
 
-
-
-    /** UC 19 - Cancel Payment Order. */
+    /**
+     * UC 19 - Cancel Payment Order if it has not been sent yet.
+     */
     public void cancelPayment(int transferId) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
@@ -204,10 +212,12 @@ public class TransferApplicationService {
         }
     }
 
-    /** Helper: resolves a recipient for a given IBAN within the customer's address book. */
+    /**
+     * Helper for resolving beneficiary information from the customer's address book.
+     */
     static class BeneficiaryResolver {
         private final CustomerRepository customers;
+
         BeneficiaryResolver(CustomerRepository customers) { this.customers = customers; }
-        // possible extension: map IBAN -> Beneficiary
     }
 }

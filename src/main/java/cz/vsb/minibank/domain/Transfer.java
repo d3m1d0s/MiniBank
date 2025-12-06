@@ -1,6 +1,5 @@
 package cz.vsb.minibank.domain;
 
-
 import cz.vsb.minibank.domain.exceptions.InvalidStateTransitionException;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.domain.lazy.LazyRef;
@@ -9,22 +8,19 @@ import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.Beneficiary;
 import cz.vsb.minibank.domain.TransferEvents;
 
-
-
 import java.time.Instant;
 
-//Audit log
-//Validation
-
+/**
+ * Domain model representing an outgoing transfer with status, authorization and audit data.
+ */
 public class Transfer {
     private int id;
     private int sourceAccountId;
-    private Integer beneficiaryId; // optional snapshot of target
-    private String targetIbanSnapshot; // for výpisy
-
+    private Integer beneficiaryId; // optional snapshot of target beneficiary
+    private String targetIbanSnapshot; // IBAN captured at creation time
 
     private Money amount;
-    private String currency; // e.g. CZK
+    private String currency; // for example CZK
     private TransferStatus status;
     private Instant createdAt;
     private Payment authMethod; // nullable
@@ -34,11 +30,9 @@ public class Transfer {
 
     private Instant authValidUntil;
 
-    // --- Lazy navigation properties (optional) ---
+    // Lazy navigation properties (optional)
     private LazyRef<Account> sourceAccountRef;
     private LazyRef<Beneficiary> beneficiaryRef;
-
-
 
     public Transfer(int id, int sourceAccountId, Integer beneficiaryId, String targetIbanSnapshot,
                     Money amount, String currency) {
@@ -50,10 +44,14 @@ public class Transfer {
         this.authValidUntil = null;
     }
 
-
+    /**
+     * Computes the fee for this transfer using the given policy.
+     */
     public Money feeAmount(FeePolicy policy) { return policy.compute(amount); }
 
-
+    /**
+     * Requests authorization for the transfer and moves it to WAITING_AUTH.
+     */
     public void requestAuthorization(Payment method) {
         if (status != TransferStatus.CREATED)
             throw new InvalidStateTransitionException("Authorization allowed only from CREATED");
@@ -69,7 +67,9 @@ public class Transfer {
         TransferEvents.notifyStatusChanged(this, old, this.status);
     }
 
-
+    /**
+     * Sends the transfer and debits the source account, applying the fee policy.
+     */
     public void send(Account source, FeePolicy policy) {
         if (status != TransferStatus.CREATED && status != TransferStatus.WAITING_AUTH)
             throw new InvalidStateTransitionException("Cannot send from status: " + status);
@@ -82,7 +82,9 @@ public class Transfer {
         TransferEvents.notifyStatusChanged(this, old, this.status);
     }
 
-
+    /**
+     * Declines the transfer with the given reason.
+     */
     public void decline(String reason) {
         if (status == TransferStatus.SENT)
             throw new InvalidStateTransitionException("Cannot decline already SENT transfer");
@@ -94,6 +96,9 @@ public class Transfer {
         TransferEvents.notifyStatusChanged(this, old, this.status);
     }
 
+    /**
+     * Populates runtime fields when loading from persistence without authorization metadata.
+     */
     public void hydrateForLoad(TransferStatus status,
                                Payment authMethod,
                                String declineReason,
@@ -101,6 +106,9 @@ public class Transfer {
         hydrateForLoad(status, authMethod, declineReason, createdAt, null, null);
     }
 
+    /**
+     * Populates runtime fields when loading from persistence including authorization metadata.
+     */
     public void hydrateForLoad(TransferStatus status,
                                Payment authMethod,
                                String declineReason,
@@ -115,8 +123,6 @@ public class Transfer {
         this.authValidUntil = authValidUntil;
     }
 
-
-
     public int id() { return id; }
     public int sourceAccountId() { return sourceAccountId; }
     public Integer beneficiaryId() { return beneficiaryId; }
@@ -130,12 +136,18 @@ public class Transfer {
     public int authAttempts() { return authAttempts; }
     public Instant authValidUntil() { return authValidUntil; }
 
+    /**
+     * Returns true when the transfer is waiting for authorization and the validity window has expired.
+     */
     public boolean isAuthExpired() {
         return status == TransferStatus.WAITING_AUTH
                 && authValidUntil != null
                 && Instant.now().isAfter(authValidUntil);
     }
 
+    /**
+     * Registers a failed OTP attempt and declines the transfer when the maximum is reached.
+     */
     public void registerFailedOtpAttempt(int maxAttempts) {
         if (status != TransferStatus.WAITING_AUTH) {
             throw new InvalidStateTransitionException("OTP attempts allowed only in WAITING_AUTH");
@@ -144,13 +156,12 @@ public class Transfer {
         this.authAttempts++;
 
         if (this.authAttempts >= maxAttempts) {
-            // финальное отклонение
+            // final decline after too many invalid OTP attempts
             decline("Too many invalid OTP attempts");
         }
     }
 
-
-    // --- Lazy navigation API ---
+    // Lazy navigation API
 
     public void attachSourceAccount(LazyRef<Account> ref) {
         this.sourceAccountRef = ref;
@@ -161,18 +172,16 @@ public class Transfer {
     }
 
     /**
-     * Lazily load the source account (may be null if no loader attached).
+     * Lazily loads the source account, or returns null if no loader is attached.
      */
     public Account sourceAccount() {
         return (sourceAccountRef != null) ? sourceAccountRef.get() : null;
     }
 
     /**
-     * Lazily load the beneficiary (may be null).
+     * Lazily loads the beneficiary, or returns null when unavailable.
      */
     public Beneficiary beneficiary() {
         return (beneficiaryRef != null) ? beneficiaryRef.get() : null;
     }
-
-
 }

@@ -37,7 +37,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
     const [submitting, setSubmitting] = useState(false);
     const [info, setInfo] = useState<InfoState>({ type: 'none' });
 
-    // --- загрузка счетов при монтировании ---
+    // Load accounts when the component is mounted
     useEffect(() => {
         let cancelled = false;
 
@@ -69,12 +69,12 @@ export default function NewPaymentPage({ onNavigate }: Props) {
         ? accounts.find((a) => a.id === selectedAccountId) ?? null
         : null;
 
-    // --- отправка платежа ---
+    // Submit payment
     async function handleSendClick(e: React.FormEvent) {
         e.preventDefault();
         setInfo({ type: 'none' });
 
-        // валидация выбранного счёта
+        // Validate selected account
         if (selectedAccountId == null) {
             setInfo({
                 type: 'error',
@@ -83,7 +83,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
             return;
         }
 
-        // парсинг суммы
+        // Parse amount
         const amountValue = Number(
             amount.replace(/\s+/g, '').replace(',', '.'),
         );
@@ -95,7 +95,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
             return;
         }
 
-        // проверка IBAN
+        // Basic IBAN check
         if (!targetIban.trim()) {
             setInfo({
                 type: 'error',
@@ -132,7 +132,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
         }
     }
 
-    // --- UI ---
+    // Render UI
     return (
         <div className="app-shell">
             <div className="card">
@@ -141,7 +141,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                 </header>
 
                 <div className="card-body layout">
-                    {/* Navigation */}
+                    {/* Navigation for customer views */}
                     <nav className="nav">
                         <div className="nav-title">Navigation</div>
                         <ul>
@@ -185,7 +185,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                         </ul>
                     </nav>
 
-                    {/* Form */}
+                    {/* Main payment form */}
                     <main className="form-panel">
                         <h2>Form – New payment</h2>
 
@@ -200,7 +200,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
 
                         {accounts.length > 0 && (
                             <form className="form" onSubmit={handleSendClick}>
-                                {/* From */}
+                                {/* From account */}
                                 <div className="field-row">
                                     <label className="field-label">From:</label>
                                     <select
@@ -221,7 +221,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                     </div>
                                 </div>
 
-                                {/* To + Amount */}
+                                {/* Target IBAN + amount */}
                                 <div className="field-row">
                                     <label className="field-label">To:</label>
                                     <input
@@ -243,7 +243,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                     </div>
                                 </div>
 
-                                {/* Message */}
+                                {/* Message for recipient */}
                                 <div className="field-column">
                                     <label className="field-label">
                                         Message for recipient:
@@ -283,7 +283,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                             <li>Transfer ID: {info.result.transferId}</li>
                                             <li>Status: {info.result.status}</li>
 
-                                            {/* Здесь учитываем fee */}
+                                            {/* Display charged amount including fee */}
                                             <li>
                                                 Amount requested: {info.result.chargedAmount}
                                             </li>

@@ -7,6 +7,9 @@ import cz.vsb.minibank.domain.FeePolicy;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * Spring configuration for MiniBank REST API wiring repositories, services and authentication.
+ */
 @Configuration
 public class MinibankApiConfig {
 
@@ -66,8 +69,6 @@ public class MinibankApiConfig {
     public PaymentNetworkGateway paymentNetworkGateway(BootstrapServices services) {
         return services.paymentGateway;
     }
-
-    // --- Аутентификация / сессии ---
 
     @Bean
     public PasswordEncoder passwordEncoder() {

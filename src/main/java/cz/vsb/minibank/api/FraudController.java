@@ -21,6 +21,9 @@ import java.util.stream.Collectors;
 import static cz.vsb.minibank.api.AuthHelpers.requireRole;
 import cz.vsb.minibank.domain.UserRole;
 
+/**
+ * REST controller for fraud alert queue, details and analyst decisions.
+ */
 @CrossOrigin(origins = "http://localhost:5173")
 @RestController
 @RequestMapping("/api/fraud")
@@ -45,9 +48,12 @@ public class FraudController {
     }
 
     // -------------------------------------------------------------------------
-    // Очередь алертов
+    // Alert queue
     // -------------------------------------------------------------------------
 
+    /**
+     * Returns a filtered list of fraud alerts for the analyst queue.
+     */
     @GetMapping("/alerts")
     public AlertQueueResponseDto listAlerts(
             @RequestParam(name = "state",       required = false) String state,
@@ -60,7 +66,6 @@ public class FraudController {
         requireRole(UserRole.FRAUD_ANALYST);
         List<FraudAlert> all = alerts.all();
 
-        // Фильтрация по state
         FraudAlertState stateFilter = null;
         if (state != null && !state.isBlank()) {
             stateFilter = FraudAlertState.valueOf(state.toUpperCase(Locale.ROOT));
@@ -97,7 +102,7 @@ public class FraudController {
 
             Optional<Transfer> optT = transfers.byId(alert.transferId());
             if (optT.isEmpty()) {
-                continue; // "битый" алерт - просто игнорируем
+                continue;
             }
 
             Transfer t = optT.get();
@@ -133,9 +138,12 @@ public class FraudController {
     }
 
     // -------------------------------------------------------------------------
-    // Детали алерта
+    // Alert details
     // -------------------------------------------------------------------------
 
+    /**
+     * Returns detailed information about a fraud alert including transfer and account history.
+     */
     @GetMapping("/alerts/{id}")
     public AlertDetailDto getAlert(@PathVariable("id") int id) {
         requireRole(UserRole.FRAUD_ANALYST);
@@ -156,9 +164,12 @@ public class FraudController {
     }
 
     // -------------------------------------------------------------------------
-    // Принятие решения по алерту
+    // Alert decision
     // -------------------------------------------------------------------------
 
+    /**
+     * Applies a decision to a fraud alert (approve, decline or request customer confirmation).
+     */
     @PostMapping("/alerts/{id}/decision")
     public AlertDetailDto decide(
             @PathVariable("id") int id,
@@ -186,7 +197,6 @@ public class FraudController {
             default -> throw new DomainException("Unsupported decision: " + raw);
         }
 
-        // обновляем метаданные алерта (assignee/tags/notes), если переданы
         alerts.byId(id).ifPresent(updated -> {
             if (req.assignee() != null && !req.assignee().isBlank()) {
                 updated.assignTo(req.assignee().trim());
@@ -204,12 +214,11 @@ public class FraudController {
             alerts.save(updated);
         });
 
-        // возвращаем актуальные детали
         return getAlert(id);
     }
 
     // -------------------------------------------------------------------------
-    // Маппинг и утилиты
+    // Mapping and utilities
     // -------------------------------------------------------------------------
 
     private AlertInfoDto mapAlertInfo(FraudAlert alert) {
@@ -254,8 +263,10 @@ public class FraudController {
         );
     }
 
+    /**
+     * Builds recent outgoing transfer history for the given account.
+     */
     private List<HistoryItemDto> mapHistoryForAccount(int accountId) {
-        // История по исходящим переводам этого счёта
         List<Transfer> list = transfers.bySourceAccount(accountId);
 
         list.sort(Comparator.comparing(Transfer::createdAt,
@@ -276,6 +287,9 @@ public class FraudController {
                 .toList();
     }
 
+    /**
+     * Parses an ISO instant string or returns null when parsing fails.
+     */
     private static Instant parseInstantOrNull(String value) {
         if (value == null || value.isBlank()) return null;
         try {

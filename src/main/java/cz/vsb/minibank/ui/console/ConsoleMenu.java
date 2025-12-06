@@ -19,6 +19,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
 
+/**
+ * Text-based console UI for interacting with the minibank domain model.
+ * Supports both legacy mode with a fixed customer and login-based mode with roles.
+ */
 public class ConsoleMenu {
     private final BootstrapServices services;
     private final Bootstrap infra;
@@ -39,7 +43,7 @@ public class ConsoleMenu {
         initCommands();
     }
 
-    // New constructor: used by AppSql, with login + roles
+    // New constructor: used by AppSql, with login and roles
     public ConsoleMenu(BootstrapServices services, Bootstrap infra, AuthService authService) {
         this.services = services;
         this.infra = infra;
@@ -50,7 +54,7 @@ public class ConsoleMenu {
 
     /**
      * Simple implementation of ConsoleCommand that delegates to a Runnable.
-     * Supports RBAC: allowedRoles == null => command is visible to all roles.
+     * Supports RBAC: allowedRoles == null means the command is visible to all roles.
      */
     private static final class SimpleCommand implements ConsoleCommand {
         private final String code;
@@ -73,13 +77,19 @@ public class ConsoleMenu {
         }
 
         @Override
-        public String code() { return code; }
+        public String code() {
+            return code;
+        }
 
         @Override
-        public String description() { return description; }
+        public String description() {
+            return description;
+        }
 
         @Override
-        public void execute() { action.run(); }
+        public void execute() {
+            action.run();
+        }
 
         @Override
         public boolean isVisibleFor(UserRole role) {
@@ -151,12 +161,12 @@ public class ConsoleMenu {
 
     /**
      * Login is required only when:
-     * - we have AuthService (new mode),
+     * - AuthService is available (new mode)
      * - and there is no fixed customerId (legacy mode).
      */
     private void loginIfNeeded() {
         if (authService == null || customerId > 0) {
-            return; // legacy mode, no login required
+            return;
         }
 
         while (true) {
@@ -165,7 +175,7 @@ public class ConsoleMenu {
             String username = in.nextLine().trim();
 
             System.out.print("Password: ");
-            String password = in.nextLine(); // for console demo this is acceptable
+            String password = in.nextLine();
 
             try {
                 currentUser = authService.login(username, password.toCharArray());
@@ -198,17 +208,14 @@ public class ConsoleMenu {
     }
 
     public void run() {
-        // enable login if needed
         loginIfNeeded();
 
         while (true) {
             System.out.println("\n=== Mini-bank (Domain Model) ===");
 
             for (ConsoleCommand cmd : commands) {
-                if (currentUser != null) {
-                    if (!cmd.isVisibleFor(currentUser.role())) {
-                        continue;
-                    }
+                if (currentUser != null && !cmd.isVisibleFor(currentUser.role())) {
+                    continue;
                 }
                 System.out.printf("%s) %s%n", cmd.code(), cmd.description());
             }
@@ -235,7 +242,6 @@ public class ConsoleMenu {
             try {
                 cmd.execute();
             } catch (DomainException e) {
-                // Business errors: log as WARN and show the message to the user
                 AppLogger.warn(
                         "ui.console",
                         "Domain error in command " + cmd.code() + ": " + e.getMessage(),
@@ -243,8 +249,6 @@ public class ConsoleMenu {
                 );
                 System.out.println("[Error] " + e.getMessage());
             } catch (Exception e) {
-                // Unexpected (technical) errors: log as ERROR with full stack trace
-                // and show only a generic message to the user without internal details.
                 AppLogger.error(
                         "ui.console",
                         "Unexpected error in command " + cmd.code(),
@@ -252,7 +256,6 @@ public class ConsoleMenu {
                 );
                 System.out.println("[Error] Operation could not be completed. Please try again.");
             }
-
         }
     }
 
@@ -268,11 +271,16 @@ public class ConsoleMenu {
         System.out.println("Accounts:");
         var accs = accounts.byCustomerId(cid);
         for (Account a : accs) {
-            System.out.println("  - id=" + a.id() + ", IBAN=" + a.iban().value() + ", balance=" + a.balance());
+            System.out.println("  - id=" + a.id()
+                    + ", IBAN=" + a.iban().value()
+                    + ", balance=" + a.balance());
         }
         System.out.println("Beneficiaries:");
         for (Beneficiary b : cust.beneficiaries()) {
-            System.out.println("  - id=" + b.id() + ", " + b.name() + ", IBAN=" + b.iban().value() + ", trusted=" + b.trusted());
+            System.out.println("  - id=" + b.id()
+                    + ", " + b.name()
+                    + ", IBAN=" + b.iban().value()
+                    + ", trusted=" + b.trusted());
         }
     }
 
@@ -281,7 +289,7 @@ public class ConsoleMenu {
         CustomerRepository customers = infra.customers;
 
         UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope ignored = new UowScope(uow)) {
             var cust = customers.byId(cid).orElseThrow();
 
             System.out.print("Beneficiary name: ");
@@ -370,8 +378,10 @@ public class ConsoleMenu {
 
         System.out.println("Alerts:");
         for (FraudAlert a : list) {
-            System.out.println("  - id=" + a.id() + ", transfer=" + a.transferId()
-                    + ", state=" + a.state() + ", reason=" + a.reason());
+            System.out.println("  - id=" + a.id()
+                    + ", transfer=" + a.transferId()
+                    + ", state=" + a.state()
+                    + ", reason=" + a.reason());
         }
 
         System.out.print("Action (approve/decline/request): ");

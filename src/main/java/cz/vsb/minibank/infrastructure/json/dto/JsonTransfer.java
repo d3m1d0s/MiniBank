@@ -1,6 +1,8 @@
 package cz.vsb.minibank.infrastructure.json.dto;
 
-
+/**
+ * JSON representation of a transfer including authorization metadata.
+ */
 public class JsonTransfer {
     public int id;
     public int sourceAccountId;

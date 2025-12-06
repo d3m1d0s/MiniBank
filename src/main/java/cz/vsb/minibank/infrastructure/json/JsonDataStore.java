@@ -13,11 +13,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.function.ToIntFunction;
 
+/**
+ * JSON-based persistence store for customers, accounts, transfers and fraud alerts,
+ * including centralized ID sequences.
+ */
 public class JsonDataStore {
     private final ObjectMapper om;
     private final File file;
 
-    // Centralized ID sequences that are serialized into JSON
+    /**
+     * Centralized ID sequences that are serialized into JSON.
+     */
     public static class Sequences {
         public int customer = 1;
         public int account = 100;
@@ -26,6 +32,9 @@ public class JsonDataStore {
         public int fraudAlert = 9001;
     }
 
+    /**
+     * Container for all persisted entities and their ID sequences.
+     */
     public static class Bundle {
         public List<JsonCustomer> customers = new ArrayList<>();
         public List<JsonAccount> accounts = new ArrayList<>();
@@ -37,19 +46,42 @@ public class JsonDataStore {
 
     private Bundle cache = new Bundle();
 
+    /**
+     * Creates a JSON data store backed by the given file path.
+     *
+     * @param path path to the JSON file
+     */
     public JsonDataStore(String path) {
         this.file = new File(path);
         this.om = new ObjectMapper().enable(SerializationFeature.INDENT_OUTPUT);
-        File dir = this.file.getParentFile(); if (dir != null) dir.mkdirs();
+        File dir = this.file.getParentFile();
+        if (dir != null) {
+            dir.mkdirs();
+        }
     }
 
-    public synchronized Bundle data() { return cache; }
+    /**
+     * Returns the in-memory snapshot of all persisted data.
+     */
+    public synchronized Bundle data() {
+        return cache;
+    }
 
-    public synchronized void save() throws Exception { om.writeValue(file, cache); }
+    /**
+     * Writes the current in-memory data to disk.
+     *
+     * @throws Exception when saving fails
+     */
+    public synchronized void save() throws Exception {
+        om.writeValue(file, cache);
+    }
 
     // Initialize sequences with auto-detected max+1 values for backward compatibility
     public synchronized void load() throws Exception {
-        if (!file.exists() || Files.size(file.toPath()) == 0) { cache = new Bundle(); return; }
+        if (!file.exists() || Files.size(file.toPath()) == 0) {
+            cache = new Bundle();
+            return;
+        }
         cache = om.readValue(file, Bundle.class);
         if (cache.customers == null) cache.customers = new ArrayList<>();
         if (cache.accounts == null) cache.accounts = new ArrayList<>();
@@ -57,7 +89,7 @@ public class JsonDataStore {
         if (cache.fraudAlerts == null) cache.fraudAlerts = new ArrayList<>();
         if (cache.sequences == null) cache.sequences = new Sequences();
 
-        // If a legacy file lacks sequence values, compute safe “next” values
+        // If a legacy file lacks sequence values, compute safe "next" values
         cache.sequences.customer    = Math.max(cache.sequences.customer,
                 nextFromList(cache.customers,       (cz.vsb.minibank.infrastructure.json.dto.JsonCustomer  c) -> c.id, 1));
         cache.sequences.account     = Math.max(cache.sequences.account,
@@ -68,7 +100,9 @@ public class JsonDataStore {
                 nextFromList(cache.fraudAlerts,     (cz.vsb.minibank.infrastructure.json.dto.JsonFraudAlert f) -> f.id, 9001));
     }
 
-    // Utilities for computing max+1
+    /**
+     * Computes "max existing id or defaultStart - 1" plus one for the given list.
+     */
     private static <T> int nextFromList(List<T> list, ToIntFunction<T> getId, int defaultStart) {
         int max = defaultStart - 1;
         for (T o : list) {
@@ -77,6 +111,10 @@ public class JsonDataStore {
         }
         return max + 1;
     }
+
+    /**
+     * Computes next beneficiary id based on all customers.
+     */
     private static int nextFromCustomersBeneficiaries(List<JsonCustomer> customers, int defaultStart) {
         int max = defaultStart - 1;
         for (JsonCustomer c : customers) {
@@ -91,7 +129,11 @@ public class JsonDataStore {
 
     // Safe save (wrap checked exceptions)
     private synchronized void saveQuiet() {
-        try { save(); } catch (Exception e) { throw new RuntimeException(e); }
+        try {
+            save();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     // Centralized ID generators

@@ -1,5 +1,8 @@
 package cz.vsb.minibank.api.dto;
 
+/**
+ * High-level transfer overview used in list or summary views.
+ */
 public record TransferInfoDto(
         int id,
         String code,
@@ -12,4 +15,5 @@ public record TransferInfoDto(
         String currency,
         String createdAt,
         String authMethod
-) {}
+) {
+}

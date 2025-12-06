@@ -11,20 +11,17 @@ import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.FeePolicy;
-import cz.vsb.minibank.domain.value.Money;
-
 
 import org.springframework.web.bind.annotation.*;
 
 import java.util.ArrayList;
 import java.util.List;
 
-import org.springframework.web.bind.annotation.CrossOrigin;
-import org.springframework.web.bind.annotation.RestController;
-import org.springframework.web.bind.annotation.RequestMapping;
-
 import static cz.vsb.minibank.api.AuthHelpers.requireCustomerId;
 
+/**
+ * REST controller for transfer authorization and cancellation use cases.
+ */
 @CrossOrigin(origins = "http://localhost:5173")
 @RestController
 @RequestMapping("/api")
@@ -34,7 +31,6 @@ public class AuthorizationController {
     private final AccountRepository accounts;
     private final TransferRepository transfers;
     private final FeePolicy feePolicy;
-
 
     public AuthorizationController(TransferApplicationService transferService,
                                    AccountRepository accounts,
@@ -46,22 +42,21 @@ public class AuthorizationController {
         this.feePolicy = feePolicy;
     }
 
-
-    // 1) Список всех WAITING_AUTH переводов клиента (таблица слева на WEB-2)
+    /**
+     * Lists all transfers in WAITING_AUTH state for the specified customer.
+     */
     @GetMapping("/customers/{customerId}/waiting-transfers")
     public List<WaitingTransferItemDto> listWaiting(@PathVariable("customerId") int customerId) {
         List<WaitingTransferItemDto> result = new ArrayList<>();
 
-        // Берём все счета клиента
         for (Account acc : accounts.byCustomerId(customerId)) {
-            // И все переводы с каждого счёта
             for (Transfer t : transfers.bySourceAccount(acc.id())) {
                 if (t.status() == TransferStatus.WAITING_AUTH) {
                     result.add(new WaitingTransferItemDto(
                             t.id(),
                             t.targetIbanSnapshot(),
-                            t.amount().toString(),             // "1340.00 CZK"
-                            t.createdAt().toString(),          // ISO-строка
+                            t.amount().toString(),
+                            t.createdAt().toString(),
                             t.authMethod() != null
                                     ? t.authMethod().toString()
                                     : ""
@@ -72,14 +67,18 @@ public class AuthorizationController {
         return result;
     }
 
-    // Шорткат: /api/me/waiting-transfers
+    /**
+     * Shortcut endpoint that lists waiting transfers for the current authenticated customer.
+     */
     @GetMapping("/me/waiting-transfers")
     public List<WaitingTransferItemDto> listMyWaiting() {
         int customerId = requireCustomerId();
         return listWaiting(customerId);
     }
 
-    // 2) Детали конкретного перевода (правая панель WEB-2)
+    /**
+     * Returns detailed information for a transfer including fee, status and authorization metadata.
+     */
     @GetMapping("/transfers/{id}")
     public TransferDetailsDto transferDetails(@PathVariable("id") int id) {
         Transfer t = transfers.byId(id)
@@ -89,67 +88,63 @@ public class AuthorizationController {
 
         var fee = t.feeAmount(feePolicy);
 
-        // Остаток попыток
-        int maxAttempts = TransferApplicationService.MAX_OTP_ATTEMPTS;       // или своё значение
+        int maxAttempts = TransferApplicationService.MAX_OTP_ATTEMPTS;
         int triesLeft = Math.max(0, maxAttempts - t.authAttempts());
 
-        // Время, когда истечёт авторизация
         String authValidUntilStr = null;
         if (t.authValidUntil() != null) {
-            authValidUntilStr = t.authValidUntil().toString(); // ISO-строка
+            authValidUntilStr = t.authValidUntil().toString();
         }
 
         return new TransferDetailsDto(
                 t.id(),
-                acc.iban().value(),            // fromIban
-                acc.balance().toString(),      // fromBalance
-                t.targetIbanSnapshot(),        // toIban
-                t.amount().toString(),         // amount
-                fee.toString(),                // feeAmount
-                t.status().name(),             // status
-                t.createdAt().toString(),      // createdAt
+                acc.iban().value(),
+                acc.balance().toString(),
+                t.targetIbanSnapshot(),
+                t.amount().toString(),
+                fee.toString(),
+                t.status().name(),
+                t.createdAt().toString(),
                 t.authMethod() != null
                         ? t.authMethod().toString()
                         : "",
-                triesLeft,                     // triesLeft
-                authValidUntilStr              // authValidUntil
+                triesLeft,
+                authValidUntilStr
         );
     }
 
-
-
-    // 3) Авторизация платежа (UC05)
+    /**
+     * UC 05 - Authorizes a payment using the provided one time password.
+     */
     @PostMapping("/transfers/{id}/authorize")
     public AuthorizePaymentResult authorize(@PathVariable("id") int id,
                                             @RequestBody AuthorizePaymentRequest req) {
-        // Вся бизнес-логика уже в сервисе
         transferService.authorizePayment(id, req.otp());
 
-        // Достаём обновлённое состояние
         Transfer t = transfers.byId(id)
                 .orElseThrow(() -> new RuntimeException("Transfer not found"));
         Account acc = accounts.byId(t.sourceAccountId())
                 .orElseThrow(() -> new RuntimeException("Account not found"));
 
-        // Считаем chargedAmount только если реально отправили платёж
         String chargedAmount = null;
         if (t.status() == TransferStatus.SENT) {
-            var fee = t.feeAmount(feePolicy);        // Money
-            var total = t.amount().plus(fee);        // amount + fee
-            chargedAmount = total.toString();        // "10525.00 CZK"
+            var fee = t.feeAmount(feePolicy);
+            var total = t.amount().plus(fee);
+            chargedAmount = total.toString();
         }
 
         return new AuthorizePaymentResult(
                 t.id(),
                 t.status().name(),
-                chargedAmount,                // null, если DECLINED / WAITING_AUTH
+                chargedAmount,
                 acc.balance().toString(),
                 t.declineReason()
         );
     }
 
-
-    // 4) Отмена платежа клиентом (UC19)
+    /**
+     * UC 19 - Cancels a payment order initiated by the customer.
+     */
     @PostMapping("/transfers/{id}/cancel")
     public AuthorizePaymentResult cancel(@PathVariable("id") int id) {
         transferService.cancelPayment(id);
@@ -162,7 +157,7 @@ public class AuthorizationController {
         return new AuthorizePaymentResult(
                 t.id(),
                 t.status().name(),
-                null,                        // ничего не списывали
+                null,
                 acc.balance().toString(),
                 t.declineReason()
         );

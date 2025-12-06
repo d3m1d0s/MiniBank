@@ -4,7 +4,7 @@ import cz.vsb.minibank.domain.value.Money;
 
 /**
  * FeePolicy special case that always returns zero fee.
- * Useful for demo / test environments where fees are not applied.
+ * Useful for demo or test environments where fees are disabled.
  */
 public final class ZeroFeePolicy implements FeePolicy {
 

@@ -15,6 +15,15 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
+/**
+ * PostgreSQL implementation of {@link AccountRepository}.
+ * <p>
+ * Uses sequences (accounts_id_seq) for ID generation and either:
+ * <ul>
+ *     <li>the current {@link SqlUnitOfWork} connection, when a UnitOfWork is active</li>
+ *     <li>a short-lived standalone connection otherwise (mainly for tests/tools)</li>
+ * </ul>
+ */
 public final class SqlAccountRepository implements AccountRepository {
 
     private final String url;
@@ -171,9 +180,12 @@ public final class SqlAccountRepository implements AccountRepository {
         uow.put(Account.class, account.id(), account);
     }
 
+    /**
+     * Inserts or updates an account row.
+     * The customer_id column is intentionally not updated on conflict;
+     * it is managed by {@code SqlCustomerRepository} based on Customer.accountIds().
+     */
     private void upsertAccount(Connection conn, Account account) throws SQLException {
-        // customer_id is intentionally NOT updated on conflict:
-        // it is managed by SqlCustomerRepository based on Customer.accountIds().
         String sql = """
             INSERT INTO accounts (id, iban, balance_czk, daily_limit_czk, customer_id)
             VALUES (?, ?, ?, ?, ?)
@@ -189,14 +201,13 @@ public final class SqlAccountRepository implements AccountRepository {
             ps.setBigDecimal(3, account.balance().amount());
             ps.setBigDecimal(4, account.dailyLimit().amount());
 
-            // At insert time we do not know the owner yet → keep it NULL.
+            // At insert time we do not know the owner yet; keep it NULL.
             // SqlCustomerRepository will later assign customer_id via UPDATE.
             ps.setNull(5, java.sql.Types.INTEGER);
 
             ps.executeUpdate();
         }
     }
-
 
     @Override
     public List<Account> byCustomerId(int customerId) {

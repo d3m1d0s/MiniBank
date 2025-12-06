@@ -19,25 +19,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * PostgreSQL implementation of TransferRepository.
- *
- * Expected table:
- *
- *   CREATE TABLE transfers (
- *       id                 INTEGER PRIMARY KEY,
- *       source_account_id  INTEGER NOT NULL REFERENCES accounts(id),
- *       beneficiary_id     INTEGER REFERENCES beneficiaries(id),
- *       target_iban_snapshot VARCHAR(34) NOT NULL,
- *       amount             NUMERIC(14,2) NOT NULL,
- *       currency           VARCHAR(3) NOT NULL,
- *       status             VARCHAR(32) NOT NULL,
- *       created_at         TIMESTAMPTZ,
- *       auth_method        VARCHAR(32),
- *       card_number_masked VARCHAR(64),
- *       decline_reason     TEXT
- *   );
- *
- *   CREATE SEQUENCE transfers_id_seq;
+ * PostgreSQL implementation of {@link TransferRepository}.
+ * <p>
+ * Persists transfers in the {@code transfers} table and stores authorization
+ * metadata (auth method, masked card, OTP attempts, expiry) alongside business
+ * fields.
  */
 public final class SqlTransferRepository implements TransferRepository {
 
@@ -84,7 +70,7 @@ public final class SqlTransferRepository implements TransferRepository {
 
     @Override
     public void add(Transfer t) {
-        // We treat add/save the same way (UPSERT), semantics are fine for this project.
+        // For this project we treat add() and save() the same (UPSERT).
         save(t);
     }
 
@@ -107,6 +93,9 @@ public final class SqlTransferRepository implements TransferRepository {
         uow.put(Transfer.class, t.id(), t);
     }
 
+    /**
+     * Inserts or updates a transfer row including authorization metadata.
+     */
     private void upsertTransfer(Connection conn, Transfer t) throws SQLException {
         String sql = """
                 INSERT INTO transfers (
@@ -139,7 +128,6 @@ public final class SqlTransferRepository implements TransferRepository {
                     auth_attempts        = EXCLUDED.auth_attempts,
                     auth_valid_until     = EXCLUDED.auth_valid_until
                 """;
-
 
         Payment auth = t.authMethod();
         String authMethod = null;
@@ -198,7 +186,6 @@ public final class SqlTransferRepository implements TransferRepository {
                 ps.setNull(13, Types.TIMESTAMP_WITH_TIMEZONE);
             }
 
-
             ps.executeUpdate();
         }
     }
@@ -248,7 +235,6 @@ public final class SqlTransferRepository implements TransferRepository {
               FROM transfers
              WHERE id = ?
             """;
-
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, id);
@@ -301,7 +287,6 @@ public final class SqlTransferRepository implements TransferRepository {
          WHERE source_account_id = ?
         """;
 
-
         List<Transfer> result = new ArrayList<>();
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -331,6 +316,10 @@ public final class SqlTransferRepository implements TransferRepository {
     // Helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Maps a single {@link ResultSet} row to a {@link Transfer}, including
+     * authorization metadata and status restoration.
+     */
     private Transfer mapRowToTransfer(ResultSet rs) throws SQLException {
         int id = rs.getInt("id");
         int sourceAccountId = rs.getInt("source_account_id");
@@ -368,7 +357,7 @@ public final class SqlTransferRepository implements TransferRepository {
         Payment payment = null;
         if (authMethod != null) {
             if ("CARD".equalsIgnoreCase(authMethod)) {
-                // recreate CardPayment exactly as JsonMapper does
+                // Recreate CardPayment exactly as JsonMapper does.
                 payment = new CardPayment(amount, cardMask);
             } else {
                 payment = new Payment(authMethod, amount) { };
@@ -379,7 +368,7 @@ public final class SqlTransferRepository implements TransferRepository {
             TransferStatus status = TransferStatus.valueOf(statusStr);
             t.hydrateForLoad(status, payment, declineReason, createdAt, authAttempts, authValidUntil);
         } catch (Exception ignored) {
-            // if status is invalid, keep whatever Transfer constructor set
+            // If status is invalid, keep default constructor state.
         }
 
         return t;

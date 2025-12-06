@@ -5,6 +5,9 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+/**
+ * Domain model representing a fraud alert attached to a transfer.
+ */
 public class FraudAlert {
 
     private final int id;
@@ -45,6 +48,9 @@ public class FraudAlert {
         this.notes = notes;
     }
 
+    /**
+     * Populates fields when loading an alert from persistence.
+     */
     public void hydrateForLoad(
             FraudAlertState state,
             String reason,
@@ -74,19 +80,24 @@ public class FraudAlert {
         hydrateForLoad(state, reason, createdAt, null, null, null, null);
     }
 
+    /**
+     * Marks the alert as OK and publishes a state change event.
+     */
     public void approve() {
         FraudAlertState old = this.state;
         this.state = FraudAlertState.OK;
         FraudAlertEvents.notifyStateChanged(this, old, this.state);
     }
 
+    /**
+     * Marks the alert as suspicious with the given reason and publishes a state change event.
+     */
     public void markSuspicious(String reason) {
         FraudAlertState old = this.state;
         this.state = FraudAlertState.SUSPICIOUS;
         this.reason = reason;
         FraudAlertEvents.notifyStateChanged(this, old, this.state);
     }
-
 
     public void setRiskScore(Integer riskScore) {
         this.riskScore = riskScore;
@@ -106,7 +117,6 @@ public class FraudAlert {
     public void updateNotes(String notes) {
         this.notes = notes;
     }
-
 
     public int id() { return id; }
     public int transferId() { return transferId; }

@@ -13,24 +13,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Arrays;
-import java.util.Collections;
-
 
 /**
- * PostgreSQL implementation of FraudAlertRepository.
- *
- * Expected table (simplified example):
- *
- *   CREATE TABLE fraud_alerts (
- *       id          INTEGER PRIMARY KEY,
- *       transfer_id INTEGER NOT NULL REFERENCES transfers(id) ON DELETE CASCADE,
- *       state       VARCHAR(32) NOT NULL,
- *       reason      TEXT NOT NULL,
- *       created_at  TIMESTAMPTZ
- *   );
- *
- *   CREATE SEQUENCE fraud_alerts_id_seq;
+ * PostgreSQL implementation of {@link FraudAlertRepository}.
+ * <p>
+ * Persists fraud alerts in the {@code fraud_alerts} table and supports
+ * UnitOfWork + Identity Map semantics when a {@link SqlUnitOfWork} is active.
  */
 public final class SqlFraudAlertRepository implements FraudAlertRepository {
 
@@ -77,7 +65,8 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
 
     @Override
     public void add(FraudAlert a) {
-        save(a); // semantics are the same (UPSERT)
+        // For this project add() and save() share the same upsert semantics.
+        save(a);
     }
 
     @Override
@@ -95,11 +84,13 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
             }
         });
 
-        if (uow != null) {
-            uow.put(FraudAlert.class, a.id(), a);
-        }
+        uow.put(FraudAlert.class, a.id(), a);
     }
 
+    /**
+     * Inserts or updates a fraud alert row, including metadata like risk score,
+     * assignee, tags (stored as comma-separated text) and notes.
+     */
     private void upsertAlert(Connection conn, FraudAlert a) throws SQLException {
         String sql = """
             INSERT INTO fraud_alerts
@@ -153,7 +144,6 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
         }
     }
 
-
     // -------------------------------------------------------------------------
     // Load
     // -------------------------------------------------------------------------
@@ -182,7 +172,6 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
     private Optional<FraudAlert> loadByIdWithConnection(Connection conn, int id, UnitOfWork uow)
             throws SQLException {
 
-        // 1) loadByIdWithConnection
         String sql = """
         SELECT id,
                transfer_id,
@@ -230,7 +219,6 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
     private Optional<FraudAlert> loadByTransferIdWithConnection(Connection conn, int transferId, UnitOfWork uow)
             throws SQLException {
 
-        // 2) loadByTransferIdWithConnection
         String sql = """
         SELECT id,
                transfer_id,
@@ -247,7 +235,6 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
          LIMIT 1
         """;
 
-
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, transferId);
             try (ResultSet rs = ps.executeQuery()) {
@@ -263,7 +250,6 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
                     }
                 }
 
-                // If not cached, map the row and store it in IdentityMap
                 FraudAlert alert = mapRowToAlert(rs);
 
                 if (uow != null) {
@@ -295,7 +281,6 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
     private List<FraudAlert> loadAllWithConnection(Connection conn, UnitOfWork uow)
             throws SQLException {
 
-        // 3) loadAllWithConnection
         String sql = """
         SELECT id,
                transfer_id,
@@ -308,7 +293,6 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
                created_at
           FROM fraud_alerts
         """;
-
 
         List<FraudAlert> result = new ArrayList<>();
 
@@ -337,6 +321,10 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
     // Helpers
     // -------------------------------------------------------------------------
 
+    /**
+     * Maps a single {@link ResultSet} row to a {@link FraudAlert} including
+     * metadata (risk score, assignee, tags, notes).
+     */
     private FraudAlert mapRowToAlert(ResultSet rs) throws SQLException {
         int id = rs.getInt("id");
         int transferId = rs.getInt("transfer_id");
@@ -364,7 +352,7 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
             FraudAlertState st = FraudAlertState.valueOf(stateStr);
             alert.hydrateForLoad(st, reason, createdAt, riskScore, assignee, tags, notes);
         } catch (Exception ignored) {
-
+            // If persisted state is invalid, keep the default NEW state from constructor.
         }
 
         return alert;

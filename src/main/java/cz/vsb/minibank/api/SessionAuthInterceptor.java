@@ -13,6 +13,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 
+/**
+ * Handler interceptor that resolves the user from X-Session-Id and populates the security context.
+ */
 @Component
 public class SessionAuthInterceptor implements HandlerInterceptor {
 
@@ -45,7 +48,6 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
             writeUnauthorized(response, "Missing session id");
             return false;
         }
-
 
         User user = sessions.findUser(sessionId)
                 .orElse(null);

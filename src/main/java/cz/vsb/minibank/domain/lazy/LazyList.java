@@ -8,7 +8,7 @@ import java.util.function.Supplier;
 
 /**
  * Lazy-loaded list of entities.
- * Underlying list is created on first access.
+ * The underlying list is loaded and cached on first access.
  */
 public final class LazyList<T> implements Iterable<T> {
 
@@ -20,6 +20,9 @@ public final class LazyList<T> implements Iterable<T> {
         this.loader = Objects.requireNonNull(loader, "loader");
     }
 
+    /**
+     * Returns all items, loading them from the supplier on first call.
+     */
     public List<T> getAll() {
         if (!loaded) {
             List<T> list = loader.get();
@@ -33,6 +36,9 @@ public final class LazyList<T> implements Iterable<T> {
         return value;
     }
 
+    /**
+     * Returns true if the list has already been loaded.
+     */
     public boolean isLoaded() {
         return loaded;
     }

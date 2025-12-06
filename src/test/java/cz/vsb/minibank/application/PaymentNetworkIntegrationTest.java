@@ -28,23 +28,23 @@ class PaymentNetworkIntegrationTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        // Temporary JSON store, same as in other tests
+        // Temporary JSON store, similar to other tests
         tempDir = Files.createTempDirectory("minibank-payment-");
         dataPath = tempDir.resolve("data.json").toString();
         infra = new Bootstrap(dataPath);
 
-        // --- Build TransferApplicationService with test dependencies ---
+        // Build TransferApplicationService with test dependencies
 
-        // Special Case: zero fee (can be replaced with SimpleFeePolicy if ZeroFeePolicy does not exist yet)
+        // Zero fee policy for deterministic balances
         FeePolicy feePolicy = new ZeroFeePolicy();
 
-        // RiskService is not used here (we only test UC 05), so we can keep the real implementation
+        // Real risk service is acceptable here
         RiskService riskService = new RuleBasedRiskService();
 
-        // Stub: OTP is always valid -> no need to guess the "correct" code
+        // OTP always valid for this integration test
         OtpValidator otpValidator = (id, otp) -> true;
 
-        // Stub: our test gateway to the payment network
+        // In-memory gateway to simulate payment network
         gateway = new FakePaymentNetworkGateway();
 
         transferService = new TransferApplicationService(
@@ -59,7 +59,7 @@ class PaymentNetworkIntegrationTest {
                 infra.uowFactory
         );
 
-        // --- Initial domain data (outside UoW, same as in other tests) ---
+        // Initial domain data (outside any UnitOfWork)
 
         customerId = infra.customers.nextId();
         Customer c = new Customer(
@@ -81,7 +81,7 @@ class PaymentNetworkIntegrationTest {
         c.addAccountId(accountId);
         infra.customers.save(c);
 
-        // --- Prepare initial state for UC 05: WAITING_AUTH ---
+        // Prepare initial state for UC 05: transfer in WAITING_AUTH
 
         transferId = infra.transfers.nextId();
         Transfer t = new Transfer(
@@ -92,7 +92,7 @@ class PaymentNetworkIntegrationTest {
                 Money.czk(1_000),
                 "CZK"
         );
-        // Simulate that the payment has already been created and sent for authorization
+        // Simulate payment already created and pending authorization
         t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
         infra.transfers.add(t);
 
@@ -104,7 +104,7 @@ class PaymentNetworkIntegrationTest {
     void tearDown() throws IOException {
         if (tempDir != null) {
             Files.walk(tempDir)
-                    .sorted((p1, p2) -> p2.compareTo(p1)) // files first, then directory
+                    .sorted((p1, p2) -> p2.compareTo(p1)) // delete files first, then directory
                     .forEach(p -> {
                         try {
                             Files.deleteIfExists(p);

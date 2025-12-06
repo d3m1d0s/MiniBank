@@ -1,5 +1,15 @@
 package cz.vsb.minibank.infrastructure.uow;
 
+/**
+ * Factory for creating new UnitOfWork instances.
+ */
 public interface UnitOfWorkFactory {
-    UnitOfWork begin(); // opens a new Unit of Work (in SQL this maps to a transaction/Connection)
+
+    /**
+     * Opens a new UnitOfWork.
+     * In SQL-based implementations this typically maps to a new transaction or connection scope.
+     *
+     * @return newly created UnitOfWork
+     */
+    UnitOfWork begin();
 }

@@ -59,7 +59,7 @@ class FraudControllerAuthTest {
         FraudApplicationService fraudService = mock(FraudApplicationService.class);
         FeePolicy feePolicy = new ZeroFeePolicy();
 
-        // реальный alert
+        // Real fraud alert entity
         FraudAlert alert = new FraudAlert(
                 1,
                 10,             // transferId
@@ -79,7 +79,7 @@ class FraudControllerAuthTest {
                 "notes"
         );
 
-        // реальный Transfer, чтобы не отфильтровался
+        // Real transfer so it is not filtered out
         Transfer transfer = new Transfer(
                 10,                               // id
                 100,                              // sourceAccountId
@@ -103,10 +103,10 @@ class FraudControllerAuthTest {
         // act
         var resp = ctrl.listAlerts(null, null, null, null, null, null);
 
-        // assert: вызов прошёл, алерт не отфильтровался
+        // assert: call succeeds and the alert is included in the result
         assertNotNull(resp);
         assertEquals(1, resp.items().size());
-        assertEquals(1, resp.counters().newCount()); // можно доп. проверку
+        assertEquals(1, resp.counters().newCount()); // extra check on counters
     }
 
     @Test

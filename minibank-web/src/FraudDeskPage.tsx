@@ -58,7 +58,7 @@ export default function FraudDeskPage({ onNavigate }: Props) {
             setAlerts(resp.items);
             setCounters(resp.counters);
 
-            // если выбранный алерт исчез из списка — сбрасываем детали
+            // If the currently selected alert disappeared from the list, reset selection and details
             if (selectedId && !resp.items.some((a) => a.id === selectedId)) {
                 setSelectedId(null);
                 setDetail(null);
@@ -145,7 +145,7 @@ export default function FraudDeskPage({ onNavigate }: Props) {
                 </header>
 
                 <div className="card-body layout">
-                    {/* Навигация слева */}
+                    {/* Left: main navigation for the fraud analyst workspace */}
                     <nav className="nav">
                         <div className="nav-title">Navigation</div>
                         <ul>
@@ -170,9 +170,9 @@ export default function FraudDeskPage({ onNavigate }: Props) {
                         </ul>
                     </nav>
 
-                    {/* Правая часть: очередь, детали, решение */}
+                    {/* Right: queue, alert details and decision controls */}
                     <main className="form-panel">
-                        {/* Очередь алертов */}
+                        {/* Alerts queue */}
                         <section className="section">
                             <h2 className="section-title">Alerts queue</h2>
 
@@ -195,7 +195,7 @@ export default function FraudDeskPage({ onNavigate }: Props) {
                                 </div>
                             )}
 
-                            {/* Фильтры */}
+                            {/* Filters for the queue */}
                             <div className="section-block">
                                 <div className="field-row">
                                     <label className="field-label">
@@ -351,7 +351,7 @@ export default function FraudDeskPage({ onNavigate }: Props) {
                             )}
                         </section>
 
-                        {/* Детали выбранного алерта */}
+                        {/* Details of the selected alert */}
                         <section className="section">
                             <h2 className="section-title">Alert details</h2>
 
@@ -530,7 +530,7 @@ export default function FraudDeskPage({ onNavigate }: Props) {
                             )}
                         </section>
 
-                        {/* Решение по алерту */}
+                        {/* Decision controls for the selected alert */}
                         <section className="section">
                             <h2 className="section-title">Decision</h2>
 

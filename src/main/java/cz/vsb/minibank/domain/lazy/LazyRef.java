@@ -5,7 +5,7 @@ import java.util.function.Supplier;
 
 /**
  * Lazy reference to a single entity.
- * Value is loaded on first access via the supplied loader.
+ * The value is loaded and cached on first access.
  */
 public final class LazyRef<T> {
 
@@ -17,6 +17,9 @@ public final class LazyRef<T> {
         this.loader = Objects.requireNonNull(loader, "loader");
     }
 
+    /**
+     * Returns the referenced value, loading it from the supplier once.
+     */
     public T get() {
         if (!loaded) {
             value = loader.get();
@@ -25,6 +28,9 @@ public final class LazyRef<T> {
         return value;
     }
 
+    /**
+     * Returns true if the value has already been loaded.
+     */
     public boolean isLoaded() {
         return loaded;
     }

@@ -10,42 +10,17 @@ import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
 /**
- * PostgreSQL implementation of CustomerRepository.
+ * PostgreSQL implementation of {@link CustomerRepository}.
+ * <p>
+ * Encapsulates loading and saving customers together with their account ids
+ * and beneficiaries, using the same JDBC connection as the active UnitOfWork
+ * when available.
  *
- * Expected tables (simplified):
- *
- *   CREATE TABLE customers (
- *       id      INTEGER PRIMARY KEY,
- *       name    VARCHAR(255) NOT NULL,
- *       email   VARCHAR(255) NOT NULL,
- *       street  VARCHAR(255) NOT NULL,
- *       city    VARCHAR(255) NOT NULL
- *   );
- *
- *   CREATE TABLE accounts (
- *       id               INTEGER PRIMARY KEY,
- *       iban             VARCHAR(34) NOT NULL UNIQUE,
- *       balance_czk      NUMERIC(14,2) NOT NULL,
- *       daily_limit_czk  NUMERIC(14,2) NOT NULL,
- *       customer_id      INTEGER REFERENCES customers(id)
- *   );
- *
- *   CREATE TABLE beneficiaries (
- *       id          INTEGER PRIMARY KEY,
- *       customer_id INTEGER NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
- *       name        VARCHAR(255) NOT NULL,
- *       iban        VARCHAR(34) NOT NULL,
- *       trusted     BOOLEAN NOT NULL
- *   );
- *
- *   CREATE SEQUENCE customers_id_seq;
- *   CREATE SEQUENCE beneficiaries_id_seq;
+ * See class-level Javadoc for expected DB schema.
  */
 public final class SqlCustomerRepository implements CustomerRepository {
 
@@ -76,7 +51,7 @@ public final class SqlCustomerRepository implements CustomerRepository {
             }
         }
 
-        // Fallback when no UoW is active (should be rare / tests only)
+        // Fallback when no UoW is active (primarily for tests and tools).
         try (Connection conn = DriverManager.getConnection(url, user, password);
              Statement st = conn.createStatement();
              ResultSet rs = st.executeQuery("SELECT nextval('customers_id_seq')")) {
@@ -151,7 +126,7 @@ public final class SqlCustomerRepository implements CustomerRepository {
                     }
                 }
 
-                // Load beneficiaries
+                // Load beneficiaries for this customer
                 String benSql = """
                         SELECT id, name, iban, trusted
                           FROM beneficiaries
@@ -224,7 +199,7 @@ public final class SqlCustomerRepository implements CustomerRepository {
             ps.executeUpdate();
         }
 
-        // Optionally, keep accounts.customer_id in sync
+        // Keep accounts.customer_id in sync with the owning customer.
         String accSql = "UPDATE accounts SET customer_id = ? WHERE id = ?";
         try (PreparedStatement psAcc = conn.prepareStatement(accSql)) {
             for (Integer accId : c.accountIds()) {
@@ -317,10 +292,9 @@ public final class SqlCustomerRepository implements CustomerRepository {
             throw new IllegalStateException("Beneficiary mutations must be executed inside a SQL UnitOfWork");
         }
 
-        // Update aggregate in Identity Map, if present
+        // Update aggregate in Identity Map, if present.
         Customer cached = uow.get(Customer.class, customerId);
         if (cached != null) {
-            // Customer already has a helper method for this (see domain class)
             cached.saveBeneficiary(b);
         }
 

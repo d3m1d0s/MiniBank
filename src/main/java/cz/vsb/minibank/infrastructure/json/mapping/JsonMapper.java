@@ -10,32 +10,71 @@ import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
-
 import java.time.Instant;
 
+/**
+ * Utility class for mapping between domain objects and their JSON DTO representations.
+ */
 public class JsonMapper {
+
     // Address
-    public static JsonAddress toDto(Address a) { JsonAddress j = new JsonAddress(); j.street = a.street(); j.city = a.city(); return j; }
-    public static Address toDomain(JsonAddress j) { return new Address(j.street, j.city); }
 
-    // Beneficiary
-    public static JsonBeneficiary toDto(Beneficiary b) { JsonBeneficiary j = new JsonBeneficiary(); j.id=b.id(); j.name=b.name(); j.iban=b.iban().value(); j.trusted=b.trusted(); return j; }
-    public static Beneficiary toDomain(JsonBeneficiary j) { return new Beneficiary(j.id, j.name, new IBAN(j.iban), j.trusted); }
-
-    // Customer
-    public static JsonCustomer toDto(Customer c) {
-        JsonCustomer j = new JsonCustomer(); j.id=c.id(); j.name=c.name(); j.email=c.email(); j.address = toDto(c.address());
-        j.accountIds.addAll(c.accountIds());
-        for (Beneficiary b : c.beneficiaries()) j.beneficiaries.add(toDto(b));
+    public static JsonAddress toDto(Address a) {
+        JsonAddress j = new JsonAddress();
+        j.street = a.street();
+        j.city = a.city();
         return j;
     }
+
+    public static Address toDomain(JsonAddress j) {
+        return new Address(j.street, j.city);
+    }
+
+    // Beneficiary
+
+    public static JsonBeneficiary toDto(Beneficiary b) {
+        JsonBeneficiary j = new JsonBeneficiary();
+        j.id = b.id();
+        j.name = b.name();
+        j.iban = b.iban().value();
+        j.trusted = b.trusted();
+        return j;
+    }
+
+    public static Beneficiary toDomain(JsonBeneficiary j) {
+        return new Beneficiary(j.id, j.name, new IBAN(j.iban), j.trusted);
+    }
+
+    // Customer
+
+    public static JsonCustomer toDto(Customer c) {
+        JsonCustomer j = new JsonCustomer();
+        j.id = c.id();
+        j.name = c.name();
+        j.email = c.email();
+        j.address = toDto(c.address());
+        j.accountIds.addAll(c.accountIds());
+        for (Beneficiary b : c.beneficiaries()) {
+            j.beneficiaries.add(toDto(b));
+        }
+        return j;
+    }
+
     public static Customer toDomain(JsonCustomer j) {
         Customer c = new Customer(j.id, j.name, j.email, toDomain(j.address));
-        for (Integer id : j.accountIds) c.addAccountId(id);
-        for (JsonBeneficiary jb : j.beneficiaries) c.addBeneficiary(toDomain(jb));
+        for (Integer id : j.accountIds) {
+            c.addAccountId(id);
+        }
+        for (JsonBeneficiary jb : j.beneficiaries) {
+            c.addBeneficiary(toDomain(jb));
+        }
         return c;
     }
 
+    /**
+     * Converts a JSON customer to a domain customer and attaches lazy account loading
+     * backed by the provided JsonDataStore and current UnitOfWork.
+     */
     public static Customer toDomain(JsonCustomer j, JsonDataStore store) {
         // basic mapping
         Customer c = toDomain(j);
@@ -49,10 +88,14 @@ public class JsonMapper {
                         .map(dto -> {
                             if (uow != null) {
                                 Account cached = uow.get(Account.class, dto.id);
-                                if (cached != null) return cached;
+                                if (cached != null) {
+                                    return cached;
+                                }
                             }
-                            Account acc = JsonMapper.toDomain(dto); // existing mapping
-                            if (uow != null) uow.put(Account.class, acc.id(), acc);
+                            Account acc = JsonMapper.toDomain(dto);
+                            if (uow != null) {
+                                uow.put(Account.class, acc.id(), acc);
+                            }
                             return acc;
                         })
                         .toList();
@@ -62,21 +105,28 @@ public class JsonMapper {
         return c;
     }
 
-
     // Account
+
     public static JsonAccount toDto(Account a) {
-        JsonAccount j = new JsonAccount(); j.id=a.id(); j.iban=a.iban().value();
-        j.balance=a.balance().amount().doubleValue(); j.dailyLimit=a.dailyLimit().amount().doubleValue();
+        JsonAccount j = new JsonAccount();
+        j.id = a.id();
+        j.iban = a.iban().value();
+        j.balance = a.balance().amount().doubleValue();
+        j.dailyLimit = a.dailyLimit().amount().doubleValue();
         j.transferIds.addAll(a.transferIds());
         return j;
     }
+
     public static Account toDomain(JsonAccount j) {
         Account a = new Account(j.id, new IBAN(j.iban), Money.czk(j.balance), Money.czk(j.dailyLimit));
-        for (Integer t : j.transferIds) a.registerTransfer(t);
+        for (Integer t : j.transferIds) {
+            a.registerTransfer(t);
+        }
         return a;
     }
 
     // Transfer
+
     public static JsonTransfer toDto(Transfer t) {
         JsonTransfer j = new JsonTransfer();
         j.id = t.id();
@@ -89,7 +139,9 @@ public class JsonMapper {
         j.createdAt = t.createdAt().toString(); // write ISO-8601 string directly via Instant#toString
         if (t.authMethod() != null) {
             j.authMethod = t.authMethod().method();
-            if (t.authMethod() instanceof CardPayment cp) j.cardNumberMasked = cp.cardNumberMasked();
+            if (t.authMethod() instanceof CardPayment cp) {
+                j.cardNumberMasked = cp.cardNumberMasked();
+            }
         }
         j.declineReason = t.declineReason();
         j.authAttempts = t.authAttempts();
@@ -99,6 +151,7 @@ public class JsonMapper {
 
         return j;
     }
+
     public static Transfer toDomain(JsonTransfer j) {
         Transfer t = new Transfer(
                 j.id, j.sourceAccountId, j.beneficiaryId, j.targetIbanSnapshot,
@@ -112,32 +165,44 @@ public class JsonMapper {
                 payment = new CardPayment(Money.czk(j.amount), j.cardNumberMasked);
             } else {
                 // generic fallback object for other auth methods
-                payment = new Payment(j.authMethod, Money.czk(j.amount)) { };
+                payment = new Payment(j.authMethod, Money.czk(j.amount)) {
+                };
             }
         }
 
         // parse createdAt if present
         Instant ts = null;
         try {
-            if (j.createdAt != null) ts = Instant.parse(j.createdAt);
-        } catch (Exception ignored) {}
+            if (j.createdAt != null) {
+                ts = Instant.parse(j.createdAt);
+            }
+        } catch (Exception ignored) {
+        }
 
         // parse OTP metadata
         Integer attempts = j.authAttempts;
         Instant validUntil = null;
         try {
-            if (j.authValidUntil != null) validUntil = Instant.parse(j.authValidUntil);
-        } catch (Exception ignored) {}
+            if (j.authValidUntil != null) {
+                validUntil = Instant.parse(j.authValidUntil);
+            }
+        } catch (Exception ignored) {
+        }
 
         // restore status without side effects
         try {
             var status = TransferStatus.valueOf(j.status);
             t.hydrateForLoad(status, payment, j.declineReason, ts, attempts, validUntil);
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        }
 
         return t;
     }
 
+    /**
+     * Converts a JSON transfer to a domain transfer and wires lazy navigation
+     * for source account and beneficiary using the JsonDataStore and UnitOfWork.
+     */
     public static Transfer toDomain(JsonTransfer j, JsonDataStore store) {
         // basic mapping (status, authMethod, createdAt)
         Transfer t = toDomain(j);
@@ -148,7 +213,9 @@ public class JsonMapper {
                 UnitOfWork uow = UowContext.current();
                 if (uow != null) {
                     Account cached = uow.get(Account.class, j.sourceAccountId);
-                    if (cached != null) return cached;
+                    if (cached != null) {
+                        return cached;
+                    }
                 }
 
                 JsonAccount accDto = store.data().accounts.stream()
@@ -171,13 +238,15 @@ public class JsonMapper {
                     UnitOfWork uow = UowContext.current();
                     if (uow != null) {
                         Beneficiary cached = uow.get(Beneficiary.class, j.beneficiaryId);
-                        if (cached != null) return cached;
+                        if (cached != null) {
+                            return cached;
+                        }
                     }
 
                     // Beneficiary is stored inside customers
                     JsonCustomer custDto = store.data().customers.stream()
-                            .filter(c -> c.beneficiaries != null &&
-                                    c.beneficiaries.stream().anyMatch(b -> b.id == j.beneficiaryId))
+                            .filter(c -> c.beneficiaries != null
+                                    && c.beneficiaries.stream().anyMatch(b -> b.id == j.beneficiaryId))
                             .findFirst()
                             .orElseThrow(() -> new IllegalStateException(
                                     "Customer for beneficiary " + j.beneficiaryId + " not found"));
@@ -202,8 +271,8 @@ public class JsonMapper {
         return t;
     }
 
-
     // FraudAlert
+
     public static JsonFraudAlert toDto(FraudAlert a) {
         JsonFraudAlert j = new JsonFraudAlert();
         j.id = a.id();
@@ -229,8 +298,11 @@ public class JsonMapper {
 
         java.time.Instant ts = null;
         try {
-            if (j.createdAt != null) ts = java.time.Instant.parse(j.createdAt);
-        } catch (Exception ignored) { }
+            if (j.createdAt != null) {
+                ts = java.time.Instant.parse(j.createdAt);
+            }
+        } catch (Exception ignored) {
+        }
 
         java.util.List<String> tags =
                 (j.tags != null) ? j.tags : java.util.Collections.emptyList();
@@ -246,7 +318,8 @@ public class JsonMapper {
                     tags,
                     j.notes
             );
-        } catch (Exception ignored) { }
+        } catch (Exception ignored) {
+        }
 
         return a;
     }

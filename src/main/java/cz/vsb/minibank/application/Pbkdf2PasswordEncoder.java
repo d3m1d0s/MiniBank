@@ -6,6 +6,9 @@ import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.security.spec.InvalidKeySpecException;
 
+/**
+ * PasswordEncoder implementation based on PBKDF2 with HMAC SHA256.
+ */
 public class Pbkdf2PasswordEncoder implements PasswordEncoder {
 
     private static final String ALGORITHM = "PBKDF2WithHmacSHA256";

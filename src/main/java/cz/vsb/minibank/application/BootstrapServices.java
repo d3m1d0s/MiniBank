@@ -5,6 +5,9 @@ import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.domain.FraudAlertEvents;
 
+/**
+ * Aggregates core application services, policies and gateways used by the MiniBank application.
+ */
 public class BootstrapServices {
 
     public final TransferApplicationService transferService;
@@ -21,7 +24,9 @@ public class BootstrapServices {
     }
 
     /**
-     * @param demoMode when true, uses ZeroFeePolicy (no fees) as a Special Case.
+     * Creates services with a configurable demo mode.
+     *
+     * @param demoMode when true, uses ZeroFeePolicy (no fees) as a special case
      */
     public BootstrapServices(CustomerRepository customers,
                              AccountRepository accounts,

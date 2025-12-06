@@ -12,6 +12,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 
+/**
+ * Global REST exception handler that maps domain and technical errors to HTTP responses.
+ */
 @ControllerAdvice
 public class RestExceptionHandler {
 
@@ -59,13 +62,11 @@ public class RestExceptionHandler {
 
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ApiError> handleRuntime(RuntimeException ex) {
-        ex.printStackTrace(); // или AppLogger.error("REST runtime error", ex);
+        ex.printStackTrace(); // alternatively use AppLogger.error("REST runtime error", ex);
         return error(HttpStatus.INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
                 "Unexpected error occurred.");
     }
-
-
 
     private ResponseEntity<ApiError> error(HttpStatus status, String code, String message) {
         return ResponseEntity.status(status).body(new ApiError(code, message));

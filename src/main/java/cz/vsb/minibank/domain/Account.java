@@ -8,7 +8,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * Bank account aggregate with balance, daily limit and outgoing transfers.
+ */
 public class Account {
+
     private int id;
     private IBAN iban;
     private Money balance;
@@ -16,23 +20,39 @@ public class Account {
     private final List<Integer> transferIds = new ArrayList<>();
 
     public Account(int id, IBAN iban, Money balance, Money dailyLimit) {
-        this.id = id; this.iban = Objects.requireNonNull(iban);
+        this.id = id;
+        this.iban = Objects.requireNonNull(iban);
         this.balance = Objects.requireNonNull(balance);
         this.dailyLimit = Objects.requireNonNull(dailyLimit);
     }
 
+    /**
+     * Returns true when the account has enough balance to cover amount and fee.
+     */
     public boolean canDebit(Money amount, Money fee) {
         Money total = amount.plus(fee);
         return balance.gte(total);
     }
 
+    /**
+     * Debits the account by amount plus fee or throws when funds are insufficient.
+     *
+     * @throws InsufficientFundsException when the account cannot be debited
+     */
     public void debit(Money amount, Money fee) {
         Money total = amount.plus(fee);
-        if (!canDebit(amount, fee)) throw new InsufficientFundsException("Insufficient funds");
+        if (!canDebit(amount, fee)) {
+            throw new InsufficientFundsException("Insufficient funds");
+        }
         this.balance = this.balance.minus(total);
     }
 
-    public void registerTransfer(int transferId) { transferIds.add(transferId); }
+    /**
+     * Registers an outgoing transfer identifier with this account.
+     */
+    public void registerTransfer(int transferId) {
+        transferIds.add(transferId);
+    }
 
     public int id() { return id; }
     public IBAN iban() { return iban; }

@@ -8,7 +8,7 @@ import cz.vsb.minibank.domain.Transfer;
 public interface PaymentNetworkGateway {
 
     /**
-     * Send the transfer to the external payment network.
+     * Sends the transfer to the external payment network.
      * Implementations should be idempotent for the same transfer ID where possible.
      */
     void send(Transfer transfer);

@@ -1,5 +1,8 @@
 package cz.vsb.minibank.api.dto;
 
+/**
+ * Single item in the payment history list.
+ */
 public record HistoryItemDto(
         int id,
         String createdAt,
@@ -8,4 +11,5 @@ public record HistoryItemDto(
         String status,
         String toIban,
         String declineReason
-) {}
+) {
+}

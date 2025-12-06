@@ -1,5 +1,8 @@
 package cz.vsb.minibank.api.dto;
 
+/**
+ * Single item in the fraud analyst work queue.
+ */
 public record AlertQueueItemDto(
         int id,
         String alertCode,
@@ -11,4 +14,5 @@ public record AlertQueueItemDto(
         String createdAt,
         Integer riskScore,
         String assignee
-) {}
+) {
+}

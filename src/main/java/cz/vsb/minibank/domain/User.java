@@ -2,14 +2,18 @@ package cz.vsb.minibank.domain;
 
 import java.util.Objects;
 
+/**
+ * Authenticated user with credentials, role and optional linked customer.
+ */
 public class User {
     private final int id;
     private final String username;
     private final byte[] passwordHash;
     private final byte[] passwordSalt;
     private final UserRole role;
+
     /**
-     * Associated customer (for CUSTOMER); may be null for an analyst.
+     * Associated customer for CUSTOMER role; may be null for an analyst or non-customer user.
      */
     private final Integer customerId;
 
@@ -34,10 +38,16 @@ public class User {
     public UserRole role() { return role; }
     public Integer customerId() { return customerId; }
 
+    /**
+     * Returns true if this user is a customer and has a customer identifier.
+     */
     public boolean isCustomer() {
         return role == UserRole.CUSTOMER && customerId != null;
     }
 
+    /**
+     * Returns true if the user has the given role.
+     */
     public boolean hasRole(UserRole role) {
         return this.role == role;
     }

@@ -7,6 +7,9 @@ import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
 import java.util.Arrays;
 import java.util.Objects;
 
+/**
+ * Handles user authentication and integration with the security context.
+ */
 public class AuthService {
 
     private final UserRepository users;
@@ -17,6 +20,11 @@ public class AuthService {
         this.encoder = Objects.requireNonNull(encoder, "encoder");
     }
 
+    /**
+     * Authenticates a user and stores the authenticated user in the security context.
+     *
+     * @throws AuthorizationFailedException when username or password is invalid
+     */
     public User login(String username, char[] password) {
         Objects.requireNonNull(username, "username");
         Objects.requireNonNull(password, "password");
@@ -37,6 +45,9 @@ public class AuthService {
         }
     }
 
+    /**
+     * Clears the current authentication information from the security context.
+     */
     public void logout() {
         SecurityContext.clear();
     }
