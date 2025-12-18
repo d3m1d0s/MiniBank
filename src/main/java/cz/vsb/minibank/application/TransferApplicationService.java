@@ -129,6 +129,10 @@ public class TransferApplicationService {
 
         } else {
             t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
+            transfers.add(t);
+            account.registerTransfer(t.id());
+            accounts.save(account);
+
             if (decision.createFraudAlert()) {
                 int aid = alerts.nextId();
                 int riskScore = decision.riskScore();
@@ -144,10 +148,6 @@ public class TransferApplicationService {
                 );
                 alerts.add(a);
             }
-
-            transfers.add(t);
-            account.registerTransfer(t.id());
-            accounts.save(account);
         }
     }
 

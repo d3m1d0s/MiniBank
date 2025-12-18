@@ -124,3 +124,5 @@ java.lang.RuntimeException: Boom
 2025-12-18T22:25:54.027137Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 108: CREATED -> WAITING_AUTH, amount=10000.00 CZK, sourceAccountId=10
 2025-12-18T22:25:59.199031300Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 109: CREATED -> WAITING_AUTH, amount=10001.00 CZK, sourceAccountId=10
 2025-12-18T22:35:57.678678900Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5277: CREATED -> WAITING_AUTH, amount=12000.00 CZK, sourceAccountId=101
+2025-12-18T22:54:22.472254900Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 110: CREATED -> WAITING_AUTH, amount=11000.00 CZK, sourceAccountId=10
+2025-12-18T23:01:46.820812900Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 111: CREATED -> WAITING_AUTH, amount=11000.00 CZK, sourceAccountId=10
