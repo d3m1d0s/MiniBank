@@ -12,6 +12,35 @@ VIS_project_minibank/
 ├─ db/
 │  ├─ demo_seed.sql
 │  └─ schema.sql
+│
+├─ minibank-fraud-web/
+│  ├─ node_modules/...
+│  ├─ public/
+│  │  └─ vite.svg
+│  ├─ src/
+│  │  ├─ assets/
+│  │  │  └─ react.svg
+│  │  │  
+│  │  ├─ api.ts 
+│  │  ├─ App.css
+│  │  ├─ App.tsx
+│  │  ├─ fraud.css
+│  │  ├─ FraudDesk.tsx
+│  │  ├─ index.css
+│  │  ├─ Login.tsx
+│  │  └─ main.tsx
+│  │
+│  ├─ .gitignore
+│  ├─ eslint.config.js
+│  ├─ index.html
+│  ├─ package.json
+│  ├─ package-lock.json
+│  ├─ README.md
+│  ├─ tsconfig.app.json
+│  ├─ tsconfig.json
+│  ├─ tsconfig.node.json
+│  └─ vite.config.ts
+│
 ├─ minibank-web/
 │  ├─ node_modules/...
 │  ├─ public/

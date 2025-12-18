@@ -24,7 +24,7 @@ import cz.vsb.minibank.domain.UserRole;
 /**
  * REST controller for fraud alert queue, details and analyst decisions.
  */
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174"})
 @RestController
 @RequestMapping("/api/fraud")
 public class FraudController {

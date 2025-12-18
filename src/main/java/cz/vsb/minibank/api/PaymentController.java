@@ -21,7 +21,7 @@ import static cz.vsb.minibank.api.AuthHelpers.requireCustomerId;
 /**
  * REST controller for customer accounts and payment operations.
  */
-@CrossOrigin(origins = "http://localhost:5173")
+@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174"})
 @RestController
 @RequestMapping("/api")
 public class PaymentController {

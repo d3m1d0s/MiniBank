@@ -116,3 +116,11 @@ java.lang.RuntimeException: Boom
 2025-12-18T20:40:47.835690200Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 101: CREATED -> SENT, amount=5000.00 CZK, sourceAccountId=10
 2025-12-18T20:41:32.864187Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 102: CREATED -> WAITING_AUTH, amount=10000.00 CZK, sourceAccountId=10
 2025-12-18T20:42:59.190579900Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 102: WAITING_AUTH -> DECLINED, amount=10000.00 CZK, sourceAccountId=10
+2025-12-18T22:24:43.432719900Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 103: CREATED -> WAITING_AUTH, amount=12000.00 CZK, sourceAccountId=10
+2025-12-18T22:24:56.251500600Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 104: CREATED -> WAITING_AUTH, amount=12000.00 CZK, sourceAccountId=10
+2025-12-18T22:25:02.260075300Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 105: CREATED -> SENT, amount=500.00 CZK, sourceAccountId=10
+2025-12-18T22:25:27.781581100Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 106: CREATED -> WAITING_AUTH, amount=9000.00 CZK, sourceAccountId=10
+2025-12-18T22:25:47.569536500Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 107: CREATED -> WAITING_AUTH, amount=11000.00 CZK, sourceAccountId=10
+2025-12-18T22:25:54.027137Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 108: CREATED -> WAITING_AUTH, amount=10000.00 CZK, sourceAccountId=10
+2025-12-18T22:25:59.199031300Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 109: CREATED -> WAITING_AUTH, amount=10001.00 CZK, sourceAccountId=10
+2025-12-18T22:35:57.678678900Z AUDIT [audit.transfer] user=alice(CUSTOMER) | Transfer 5277: CREATED -> WAITING_AUTH, amount=12000.00 CZK, sourceAccountId=101
