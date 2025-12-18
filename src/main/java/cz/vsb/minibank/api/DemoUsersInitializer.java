@@ -25,24 +25,34 @@ public class DemoUsersInitializer {
 
     @PostConstruct
     void initDemoUsers() {
-        UserRepository users = infra.users;
+        var uow = infra.uowFactory.begin();
+        try (var __ = new cz.vsb.minibank.infrastructure.uow.UowScope(uow)) {
 
-        // Demo customer user: alice / alice123
-        if (users.findByUsername("alice").isEmpty()) {
-            int uid = users.nextId();
-            byte[] salt = encoder.generateSalt();
-            byte[] hash = encoder.hash("alice123".toCharArray(), salt);
-            User alice = new User(uid, "alice", hash, salt, UserRole.CUSTOMER, 2);
-            users.save(alice);
-        }
+            UserRepository users = infra.users;
 
-        // Demo fraud analyst user: fraud / fraud123
-        if (users.findByUsername("fraud").isEmpty()) {
-            int uid = users.nextId();
-            byte[] salt = encoder.generateSalt();
-            byte[] hash = encoder.hash("fraud123".toCharArray(), salt);
-            User fraud = new User(uid, "fraud", hash, salt, UserRole.FRAUD_ANALYST, null);
-            users.save(fraud);
+            // Demo customer user: alice / alice123
+            if (users.findByUsername("alice").isEmpty()) {
+                int uid = users.nextId();
+                byte[] salt = encoder.generateSalt();
+                byte[] hash = encoder.hash("alice123".toCharArray(), salt);
+                User alice = new User(uid, "alice", hash, salt, UserRole.CUSTOMER, 2);
+                users.save(alice);
+            }
+
+            // Demo fraud analyst user: fraud / fraud123
+            if (users.findByUsername("fraud").isEmpty()) {
+                int uid = users.nextId();
+                byte[] salt = encoder.generateSalt();
+                byte[] hash = encoder.hash("fraud123".toCharArray(), salt);
+                User fraud = new User(uid, "fraud", hash, salt, UserRole.FRAUD_ANALYST, null);
+                users.save(fraud);
+            }
+
+            uow.commit();
+        } catch (RuntimeException e) {
+            uow.rollback();
+            throw e;
         }
     }
+
 }

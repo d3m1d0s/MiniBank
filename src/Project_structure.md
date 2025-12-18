@@ -10,6 +10,7 @@ VIS_project_minibank/
 │  ├─ data.json
 │  └─ demo.json
 ├─ db/
+│  ├─ demo_seed.sql
 │  └─ schema.sql
 ├─ minibank-web/
 │  ├─ node_modules/...
@@ -183,7 +184,7 @@ VIS_project_minibank/
    │        │  │
    │        │  ├─ uow/
    │        │  │  ├─ UnitOfWork.java                (interface)
-   │        │  │  ├─ JsonUnitOfWorkFactory.java     (interface)
+   │        │  │  ├─ UnitOfWorkFactory.java         (interface)
    │        │  │  ├─ UowContext.java                (class)
    │        │  │  └─ UowScope.java                  (class)
    │        │  │

@@ -4,6 +4,7 @@ import cz.vsb.minibank.application.*;
 import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.domain.FeePolicy;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -14,8 +15,20 @@ import org.springframework.context.annotation.Configuration;
 public class MinibankApiConfig {
 
     @Bean
-    public Bootstrap bootstrap() {
-        return new Bootstrap("data/data.json");
+    public Bootstrap bootstrap(
+            @Value("${minibank.storage:json}") String storage,
+            @Value("${minibank.json.path:data/data.json}") String jsonPath,
+            @Value("${minibank.sql.url:jdbc:postgresql://localhost:5432/minibank}") String jdbcUrl,
+            @Value("${minibank.sql.user:minibank}") String dbUser,
+            @Value("${minibank.sql.password:minibank}") String dbPassword
+    ) {
+        if ("sql".equalsIgnoreCase(storage) || "postgres".equalsIgnoreCase(storage) || "postgresql".equalsIgnoreCase(storage)) {
+            return new Bootstrap(jdbcUrl, dbUser, dbPassword);
+        }
+        if ("json".equalsIgnoreCase(storage)) {
+            return new Bootstrap(jsonPath);
+        }
+        throw new IllegalArgumentException("Unsupported minibank.storage value: " + storage);
     }
 
     @Bean

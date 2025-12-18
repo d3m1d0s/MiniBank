@@ -53,17 +53,22 @@ public class SqlUserRepository implements UserRepository {
         UnitOfWork uow = UowContext.current();
         if (uow != null) {
             User cached = uow.get(User.class, id);
-            if (cached != null) {
-                return Optional.of(cached);
-            }
+            if (cached != null) return Optional.of(cached);
         }
 
-        try (Connection conn = DriverManager.getConnection(url, user, password)) {
-            return loadById(conn, id, uow);
+        try {
+            if (uow instanceof SqlUnitOfWork sqlUow) {
+                return loadById(sqlUow.connection(), id, uow);
+            } else {
+                try (Connection conn = DriverManager.getConnection(url, user, password)) {
+                    return loadById(conn, id, uow);
+                }
+            }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to load user id=" + id, e);
         }
     }
+
 
     private Optional<User> loadById(Connection conn, int id, UnitOfWork uow) throws SQLException {
         String sql = """
@@ -90,29 +95,38 @@ public class SqlUserRepository implements UserRepository {
     public Optional<User> findByUsername(String username) {
         UnitOfWork uow = UowContext.current();
 
-        try (Connection conn = DriverManager.getConnection(url, user, password)) {
-            String sql = """
-                SELECT id, username, role, customer_id, password_hash, password_salt
-                  FROM users
-                 WHERE username = ?
-                """;
-            try (PreparedStatement ps = conn.prepareStatement(sql)) {
-                ps.setString(1, username);
-                try (ResultSet rs = ps.executeQuery()) {
-                    if (!rs.next()) {
-                        return Optional.empty();
-                    }
-                    User u = mapRow(rs);
-                    if (uow != null) {
-                        uow.put(User.class, u.id(), u);
-                    }
-                    return Optional.of(u);
+        try {
+            if (uow instanceof SqlUnitOfWork sqlUow) {
+                return loadByUsername(sqlUow.connection(), username, uow);
+            } else {
+                try (Connection conn = DriverManager.getConnection(url, user, password)) {
+                    return loadByUsername(conn, username, uow);
                 }
             }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to load user '" + username + "'", e);
         }
     }
+
+    private Optional<User> loadByUsername(Connection conn, String username, UnitOfWork uow) throws SQLException {
+        String sql = """
+        SELECT id, username, role, customer_id, password_hash, password_salt
+          FROM users
+         WHERE username = ?
+        """;
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, username);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return Optional.empty();
+                User u = mapRow(rs);
+                if (uow != null) {
+                    uow.put(User.class, u.id(), u);
+                }
+                return Optional.of(u);
+            }
+        }
+    }
+
 
     @Override
     public void save(User entity) {

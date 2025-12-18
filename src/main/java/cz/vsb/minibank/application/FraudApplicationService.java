@@ -86,4 +86,80 @@ public class FraudApplicationService {
             throw e;
         }
     }
+
+    public void decideAndUpdateAlert(
+            int alertId,
+            String decisionRaw,
+            String reason,
+            String assignee,
+            java.util.List<String> tags,
+            String notes
+    ) {
+        var uow = uowFactory.begin();
+        try (UowScope __ = new UowScope(uow)) {
+
+            FraudAlert alert = alerts.byId(alertId)
+                    .orElseThrow(() -> new RuntimeException("Fraud alert not found: " + alertId));
+
+            int transferId = alert.transferId();
+
+            String decision = java.util.Optional.ofNullable(decisionRaw)
+                    .orElseThrow(() -> new RuntimeException("decision must be provided"))
+                    .trim()
+                    .toUpperCase(java.util.Locale.ROOT);
+
+            switch (decision) {
+                case "APPROVE" -> {
+                    alert.approve();
+                    alerts.save(alert);
+
+                    var t = transfers.byId(transferId).orElseThrow(() -> new RuntimeException("Transfer not found"));
+                    if (t.status() == TransferStatus.CREATED) {
+                        var acc = accounts.byId(t.sourceAccountId()).orElseThrow(() -> new RuntimeException("Account not found"));
+                        t.send(acc, feePolicy);
+                        transfers.save(t);
+                        accounts.save(acc);
+                    }
+                }
+                case "DECLINE" -> {
+                    String r = (reason != null && !reason.isBlank()) ? reason : "Declined by fraud analyst";
+                    alert.markSuspicious(r);
+                    alerts.save(alert);
+
+                    var t = transfers.byId(transferId).orElseThrow(() -> new RuntimeException("Transfer not found"));
+                    t.decline(r);
+                    transfers.save(t);
+                }
+                case "REQUEST_CONFIRMATION" -> {
+                    alert.markSuspicious("Waiting for customer confirmation");
+                    alerts.save(alert);
+                }
+                default -> throw new RuntimeException("Unsupported decision: " + decisionRaw);
+            }
+
+            // Metadata update (still inside same UoW)
+            if (assignee != null && !assignee.isBlank()) {
+                alert.assignTo(assignee.trim());
+            }
+            if (tags != null) {
+                java.util.List<String> cleaned = tags.stream()
+                        .filter(java.util.Objects::nonNull)
+                        .map(String::trim)
+                        .filter(s -> !s.isEmpty())
+                        .toList();
+                alert.replaceTags(cleaned);
+            }
+            if (notes != null) {
+                alert.updateNotes(notes);
+            }
+
+            alerts.save(alert);
+
+            uow.commit();
+        } catch (RuntimeException e) {
+            uow.rollback();
+            throw e;
+        }
+    }
+
 }

@@ -171,51 +171,22 @@ public class FraudController {
      * Applies a decision to a fraud alert (approve, decline or request customer confirmation).
      */
     @PostMapping("/alerts/{id}/decision")
-    public AlertDetailDto decide(
-            @PathVariable("id") int id,
-            @RequestBody FraudDecisionRequest req
-    ) {
+    public AlertDetailDto decide(@PathVariable("id") int id,
+                                 @RequestBody FraudDecisionRequest req) {
         requireRole(UserRole.FRAUD_ANALYST);
-        FraudAlert alert = alerts.byId(id)
-                .orElseThrow(() -> new DomainException("Fraud alert not found: " + id));
 
-        int transferId = alert.transferId();
-
-        String raw = Optional.ofNullable(req.decision())
-                .orElseThrow(() -> new DomainException("decision must be provided"));
-        String decision = raw.trim().toUpperCase(Locale.ROOT);
-
-        switch (decision) {
-            case "APPROVE" -> fraudService.approve(transferId);
-            case "DECLINE" -> {
-                String reason = Optional.ofNullable(req.reason())
-                        .filter(s -> !s.isBlank())
-                        .orElse("Declined by fraud analyst");
-                fraudService.decline(transferId, reason);
-            }
-            case "REQUEST_CONFIRMATION" -> fraudService.requestCustomerConfirmation(transferId);
-            default -> throw new DomainException("Unsupported decision: " + raw);
-        }
-
-        alerts.byId(id).ifPresent(updated -> {
-            if (req.assignee() != null && !req.assignee().isBlank()) {
-                updated.assignTo(req.assignee().trim());
-            }
-            if (req.tags() != null) {
-                updated.replaceTags(req.tags().stream()
-                        .filter(Objects::nonNull)
-                        .map(String::trim)
-                        .filter(s -> !s.isEmpty())
-                        .collect(Collectors.toList()));
-            }
-            if (req.notes() != null) {
-                updated.updateNotes(req.notes());
-            }
-            alerts.save(updated);
-        });
+        fraudService.decideAndUpdateAlert(
+                id,
+                req.decision(),
+                req.reason(),
+                req.assignee(),
+                req.tags(),
+                req.notes()
+        );
 
         return getAlert(id);
     }
+
 
     // -------------------------------------------------------------------------
     // Mapping and utilities
