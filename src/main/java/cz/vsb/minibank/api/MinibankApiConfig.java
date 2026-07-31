@@ -8,12 +8,20 @@ import cz.vsb.minibank.domain.FeePolicy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 
 /**
  * Spring configuration for MiniBank REST API wiring repositories, services and authentication.
  */
 @Configuration
 public class MinibankApiConfig {
+
+    /**
+     * Guards everything that exists only to make the project demonstrable:
+     * the sample dataset and the demo logins. Active by default, see
+     * application.properties.
+     */
+    public static final String DEMO_PROFILE = "demo";
 
     @Bean
     public Bootstrap bootstrap(
@@ -45,6 +53,7 @@ public class MinibankApiConfig {
     }
 
     @Bean
+    @Profile(DEMO_PROFILE)
     public DemoScenario demoScenario(Bootstrap infra, BootstrapServices services) {
         return new DemoScenario(
                 infra.customers,

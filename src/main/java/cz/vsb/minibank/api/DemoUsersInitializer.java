@@ -1,5 +1,6 @@
 package cz.vsb.minibank.api;
 
+import cz.vsb.minibank.application.AppLogger;
 import cz.vsb.minibank.application.PasswordEncoder;
 import cz.vsb.minibank.demo.DemoScenario;
 import cz.vsb.minibank.domain.User;
@@ -9,17 +10,28 @@ import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
 import jakarta.annotation.PostConstruct;
+import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
 /**
  * Prepares the demo dataset for the REST API: seeds the business data through
  * {@link DemoScenario} and binds the demo logins to the customer it produced.
  * <p>
+ * The credentials it creates are throwaway values that exist so the project can
+ * be tried without setup. They are not secrets and must not be reused. Guarded
+ * by the {@code demo} profile, which is active by default.
+ * <p>
  * The scenario is injected rather than looked up so that Spring is forced to
  * build it before this bean's {@code @PostConstruct} runs.
  */
 @Component
+@Profile(MinibankApiConfig.DEMO_PROFILE)
 public class DemoUsersInitializer {
+
+    private static final String DEMO_CUSTOMER_LOGIN = "alice";
+    private static final String DEMO_CUSTOMER_PASSWORD = "alice123";
+    private static final String DEMO_ANALYST_LOGIN = "fraud";
+    private static final String DEMO_ANALYST_PASSWORD = "fraud123";
 
     private final Bootstrap infra;
     private final PasswordEncoder encoder;
@@ -35,6 +47,11 @@ public class DemoUsersInitializer {
     void initDemoData() {
         int customerId = scenario.seed();
         ensureDemoUsers(customerId);
+        AppLogger.warn("api", "Demo profile is active: logins "
+                + DEMO_CUSTOMER_LOGIN + "/" + DEMO_CUSTOMER_PASSWORD + " and "
+                + DEMO_ANALYST_LOGIN + "/" + DEMO_ANALYST_PASSWORD
+                + " are available and the one time password is a fixed constant. "
+                + "Start with a different profile to disable this.");
     }
 
     /**
@@ -46,18 +63,18 @@ public class DemoUsersInitializer {
 
         UnitOfWork uow = infra.uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
-            if (users.findByUsername("alice").isEmpty()) {
+            if (users.findByUsername(DEMO_CUSTOMER_LOGIN).isEmpty()) {
                 int uid = users.nextId();
                 byte[] salt = encoder.generateSalt();
-                byte[] hash = encoder.hash("alice123".toCharArray(), salt);
-                users.save(new User(uid, "alice", hash, salt, UserRole.CUSTOMER, customerId));
+                byte[] hash = encoder.hash(DEMO_CUSTOMER_PASSWORD.toCharArray(), salt);
+                users.save(new User(uid, DEMO_CUSTOMER_LOGIN, hash, salt, UserRole.CUSTOMER, customerId));
             }
 
-            if (users.findByUsername("fraud").isEmpty()) {
+            if (users.findByUsername(DEMO_ANALYST_LOGIN).isEmpty()) {
                 int uid = users.nextId();
                 byte[] salt = encoder.generateSalt();
-                byte[] hash = encoder.hash("fraud123".toCharArray(), salt);
-                users.save(new User(uid, "fraud", hash, salt, UserRole.FRAUD_ANALYST, null));
+                byte[] hash = encoder.hash(DEMO_ANALYST_PASSWORD.toCharArray(), salt);
+                users.save(new User(uid, DEMO_ANALYST_LOGIN, hash, salt, UserRole.FRAUD_ANALYST, null));
             }
 
             uow.commit();
