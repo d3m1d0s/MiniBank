@@ -72,6 +72,21 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <version>${spring.boot.version}</version>
+                <configuration>
+                    <mainClass>cz.vsb.minibank.ApiApplication</mainClass>
+                </configuration>
+                <executions>
+                    <!--
+                        Without spring-boot-starter-parent the repackage goal has no
+                        default binding, so mvn package would otherwise produce a plain
+                        jar with no dependencies and no Main-Class.
+                    -->
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
