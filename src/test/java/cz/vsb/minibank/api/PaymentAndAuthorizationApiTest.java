@@ -11,9 +11,12 @@ import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 
@@ -25,6 +28,9 @@ public class PaymentAndAuthorizationApiTest {
     private static final int TEST_ACCOUNT_ID = 101;
     private static final double WAITING_TRANSFER_AMOUNT = 6000.0;
 
+    @TempDir
+    Path tempDir;
+
     private PaymentController paymentController;
     private AuthorizationController authorizationController;
     private AccountRepository accounts;
@@ -32,7 +38,7 @@ public class PaymentAndAuthorizationApiTest {
 
     @BeforeEach
     void setup() {
-        Bootstrap infra = new Bootstrap("data/data.json");
+        Bootstrap infra = new Bootstrap(tempDir.resolve("data.json").toString());
 
         // Ensure that customer=2 and account=101 exist for tests
         CustomerRepository customers = infra.customers;
@@ -105,6 +111,12 @@ public class PaymentAndAuthorizationApiTest {
                 transfers,
                 services.feePolicy
         );
+    }
+
+    @AfterEach
+    void tearDown() {
+        // SecurityContext is a static ThreadLocal shared by the whole suite
+        SecurityContext.clear();
     }
 
     private int createWaitingTransferForCustomer2() {

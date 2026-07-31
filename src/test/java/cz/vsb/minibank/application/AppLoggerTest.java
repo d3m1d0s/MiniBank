@@ -2,25 +2,43 @@ package cz.vsb.minibank.application;
 
 import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.UserRole;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 class AppLoggerTest {
 
-    private static final Path LOG_PATH = Paths.get("minibank.log");
+    @TempDir
+    Path tempDir;
+
+    private Path logPath;
+    private String previousLogFile;
 
     @BeforeEach
     void setUp() throws IOException {
-        // Clear the log file and SecurityContext before each test
-        Files.deleteIfExists(LOG_PATH);
+        logPath = tempDir.resolve("minibank.log");
+        // Surefire points the whole suite at target/; restore that afterwards
+        previousLogFile = System.getProperty(AppLogger.LOG_FILE_PROPERTY);
+        System.setProperty(AppLogger.LOG_FILE_PROPERTY, logPath.toString());
+        Files.deleteIfExists(logPath);
+        SecurityContext.clear();
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (previousLogFile == null) {
+            System.clearProperty(AppLogger.LOG_FILE_PROPERTY);
+        } else {
+            System.setProperty(AppLogger.LOG_FILE_PROPERTY, previousLogFile);
+        }
         SecurityContext.clear();
     }
 
@@ -30,9 +48,9 @@ class AppLoggerTest {
         AppLogger.info("test.category", "Hello world");
 
         // then
-        assertTrue(Files.exists(LOG_PATH), "minibank.log should be created");
+        assertTrue(Files.exists(logPath), "minibank.log should be created");
 
-        List<String> lines = Files.readAllLines(LOG_PATH);
+        List<String> lines = Files.readAllLines(logPath);
         assertFalse(lines.isEmpty(), "Log should contain at least one line");
 
         String line = lines.get(0);
@@ -60,7 +78,7 @@ class AppLoggerTest {
         AppLogger.warn("test.category", "Something happened");
 
         // then
-        String log = Files.readString(LOG_PATH);
+        String log = Files.readString(logPath);
         assertTrue(log.contains("WARN"), "Log should contain WARN level");
         assertTrue(log.contains("[test.category]"), "Log should contain category");
         assertTrue(log.contains("user=alice(CUSTOMER)"),
@@ -76,7 +94,7 @@ class AppLoggerTest {
         AppLogger.error("test.category", "Failure", ex);
 
         // then
-        String log = Files.readString(LOG_PATH);
+        String log = Files.readString(logPath);
         assertTrue(log.contains("ERROR"), "Log should contain ERROR level");
         assertTrue(log.contains("Failure"), "Log should contain error message");
         assertTrue(log.contains("java.lang.RuntimeException"),
