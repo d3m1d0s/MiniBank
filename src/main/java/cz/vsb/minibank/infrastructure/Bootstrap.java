@@ -31,7 +31,16 @@ public class Bootstrap {
      */
     public Bootstrap(String path) {
         this.store = new JsonDataStore(path);
-        try { this.store.load(); } catch (Exception ignored) {}
+        try {
+            // A missing or empty file is a legitimate first run and yields an empty store.
+            // Anything else means the file exists but cannot be read, and silently starting
+            // empty would overwrite it on the next save.
+            this.store.load();
+        } catch (Exception e) {
+            throw new IllegalStateException(
+                    "Cannot read the JSON data store at '" + path + "'. "
+                            + "Fix the file or move it aside; an absent or empty file starts a new store.", e);
+        }
         this.accounts = new JsonAccountRepository(store);
         this.customers = new JsonCustomerRepository(store);
         this.transfers = new JsonTransferRepository(store);
