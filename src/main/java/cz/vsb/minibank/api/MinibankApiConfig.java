@@ -1,6 +1,7 @@
 package cz.vsb.minibank.api;
 
 import cz.vsb.minibank.application.*;
+import cz.vsb.minibank.demo.DemoScenario;
 import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.domain.FeePolicy;
@@ -40,6 +41,18 @@ public class MinibankApiConfig {
                 infra.alerts,
                 infra.uowFactory,
                 false
+        );
+    }
+
+    @Bean
+    public DemoScenario demoScenario(Bootstrap infra, BootstrapServices services) {
+        return new DemoScenario(
+                infra.customers,
+                infra.accounts,
+                infra.transfers,
+                infra.alerts,
+                infra.uowFactory,
+                services.feePolicy
         );
     }
 
