@@ -14,9 +14,8 @@ import {
     type AlertCounters,
 } from './api';
 
-interface Props {
-    onNavigate: (view: 'new-payment' | 'waiting-auth' | 'fraud-desk') => void;
-}
+// The fraud desk takes no navigation callback: only a FRAUD_ANALYST reaches it,
+// and App restricts that role to this view.
 
 function formatDate(value?: string | null): string {
     if (!value) return '';
@@ -25,7 +24,7 @@ function formatDate(value?: string | null): string {
     return d.toLocaleString();
 }
 
-export default function FraudDeskPage({ onNavigate }: Props) {
+export default function FraudDeskPage() {
     const [alerts, setAlerts] = useState<AlertQueueItem[]>([]);
     const [counters, setCounters] = useState<AlertCounters | null>(null);
     const [selectedId, setSelectedId] = useState<number | null>(null);

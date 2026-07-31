@@ -50,7 +50,7 @@ function App() {
                 <WaitingAuthorizationsPage onNavigate={handleNavigate} />
             )}
             {view === 'fraud-desk' && (
-                <FraudDeskPage onNavigate={handleNavigate} />
+                <FraudDeskPage />
             )}
         </>
     );
