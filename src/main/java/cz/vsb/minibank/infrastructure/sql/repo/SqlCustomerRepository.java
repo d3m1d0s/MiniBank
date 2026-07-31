@@ -87,6 +87,36 @@ public final class SqlCustomerRepository implements CustomerRepository {
         }
     }
 
+    @Override
+    public Optional<Customer> byAccountId(int accountId) {
+        UnitOfWork uow = UowContext.current();
+        try {
+            Integer ownerId;
+            if (uow instanceof SqlUnitOfWork sqlUow) {
+                ownerId = ownerIdWithConnection(sqlUow.connection(), accountId);
+            } else {
+                try (Connection conn = DriverManager.getConnection(url, user, password)) {
+                    ownerId = ownerIdWithConnection(conn, accountId);
+                }
+            }
+            return ownerId == null ? Optional.empty() : byId(ownerId);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to load owner of account id=" + accountId, e);
+        }
+    }
+
+    private Integer ownerIdWithConnection(Connection conn, int accountId) throws SQLException {
+        String sql = "SELECT customer_id FROM accounts WHERE id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, accountId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return null;
+                int ownerId = rs.getInt("customer_id");
+                return rs.wasNull() ? null : ownerId;
+            }
+        }
+    }
+
     private Optional<Customer> loadByIdWithConnection(Connection conn, int id, UnitOfWork uow)
             throws SQLException {
 

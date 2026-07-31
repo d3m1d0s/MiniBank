@@ -51,6 +51,14 @@ public class JsonCustomerRepository implements CustomerRepository {
     }
 
     @Override
+    public Optional<Customer> byAccountId(int accountId) {
+        return store.data().customers.stream()
+                .filter(c -> c.accountIds != null && c.accountIds.contains(accountId))
+                .findFirst()
+                .flatMap(c -> byId(c.id));
+    }
+
+    @Override
     public void save(Customer c) {
         UnitOfWork uow = UowContext.current();
         Runnable mutate = () -> {

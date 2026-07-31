@@ -21,6 +21,12 @@ public interface CustomerRepository {
     Optional<Customer> byId(int id);
 
     /**
+     * Finds the customer owning the given account.
+     * Inverse of {@link AccountRepository#byCustomerId(int)}.
+     */
+    Optional<Customer> byAccountId(int accountId);
+
+    /**
      * Inserts or updates the given customer aggregate.
      */
     void save(Customer c);
