@@ -1,16 +1,9 @@
 package cz.vsb.minibank.demo;
 
 import cz.vsb.minibank.application.BootstrapServices;
-import cz.vsb.minibank.application.FixedOtpValidator;
-import cz.vsb.minibank.application.OtpValidator;
-import cz.vsb.minibank.application.TransferApplicationService;
-import cz.vsb.minibank.application.FraudApplicationService;
 import cz.vsb.minibank.domain.*;
-import cz.vsb.minibank.domain.repository.*;
-import cz.vsb.minibank.domain.value.*;
+import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
-
-import java.math.BigDecimal;
 
 /**
  * Demo runner that executes an automated end-to-end scenario over the domain and
@@ -22,12 +15,23 @@ import java.math.BigDecimal;
  *   <li>UC 04 -> UC 11 -> UC 05: fraud alert, approval and authorization</li>
  *   <li>UC 19: cancel payment</li>
  * </ul>
- * Demo data are stored in data/demo.json so they do not affect manual tests
- * that use data/data.json.
+ * The starting dataset comes from {@link DemoScenario}, and the store is kept
+ * separate from the one the console app uses so the two do not interfere.
  */
 public class DemoRunner {
+
+    /** Above the 5 000 CZK authorization threshold. */
+    private static final double AUTH_AMOUNT = 6_000;
+    /** Above the 10 000 CZK fraud-alert threshold. */
+    private static final double FRAUD_AMOUNT = 12_000;
+    /** Above the authorization threshold as well, but cancelled instead of sent. */
+    private static final double CANCEL_AMOUNT = 5_200;
+
+    /** Kept apart from the console store so the two do not interfere; storage/ is gitignored. */
+    static final String DEFAULT_DEMO_PATH = "storage/demo.json";
+
     public static void main(String[] args) {
-        String dataPath = "data/demo.json"; // separate file used only for the demo scenario
+        String dataPath = System.getProperty("minibank.json.path", DEFAULT_DEMO_PATH);
         Bootstrap infra = new Bootstrap(dataPath);
         BootstrapServices services = new BootstrapServices(
                 infra.customers,
@@ -37,21 +41,31 @@ public class DemoRunner {
                 infra.uowFactory
         );
 
-        int customerId = ensureDemoData(infra);
-        int accountId = infra.accounts.byCustomerId(customerId).get(0).id();
+        int customerId = new DemoScenario(
+                infra.customers,
+                infra.accounts,
+                infra.transfers,
+                infra.alerts,
+                infra.uowFactory,
+                services.feePolicy
+        ).seed();
 
-        Money start = infra.accounts.byId(accountId).get().balance();
+        Account account = infra.accounts.byIban(DemoScenario.PRIMARY_IBAN).orElseThrow();
+        int accountId = account.id();
+        Money start = account.balance();
         System.out.println("[Start] Account=" + accountId + ", balance=" + start);
 
         try {
+            requireSufficientFunds(start, services.feePolicy);
+
             // 1) UC 04 -> 05 (AUTH REQUIRED)
-            // Submit a payment to an IBAN above dailyLimit (6000 CZK) -> WAITING_AUTH,
+            // Submit a payment above the authorization threshold -> WAITING_AUTH,
             // then authorize -> SENT.
             int t1 = services.transferService.submitPaymentToIban(
                     customerId,
                     accountId,
                     "CZ0201000000000098765432",
-                    6000,
+                    AUTH_AMOUNT,
                     "demo AUTH"
             );
             var tr1 = infra.transfers.byId(t1).orElseThrow();
@@ -64,27 +78,22 @@ public class DemoRunner {
 
             var acc = infra.accounts.byId(accountId).orElseThrow();
             Money afterT1 = acc.balance();
-            Money expectedFee1 = new SimpleFeePolicy().compute(Money.czk(6000)); // 30 CZK
-            Money expectedBal1 = start.minus(Money.czk(6000).plus(expectedFee1));
-            assertState(eq(afterT1, expectedBal1),
+            Money expectedFee1 = services.feePolicy.compute(Money.czk(AUTH_AMOUNT));
+            Money expectedBal1 = start.minus(Money.czk(AUTH_AMOUNT).plus(expectedFee1));
+            assertState(afterT1.equals(expectedBal1),
                     "Balance after T1 must be reduced by amount and fee");
             System.out.println("[OK] UC04->UC05: T1 SENT, balance=" + afterT1
                     + " (fee=" + expectedFee1 + ") \n");
 
             // 2) UC 04 -> 11 -> 05 (FRAUD ALERT + APPROVE + AUTH)
-            // New untrusted beneficiary and amount 12,000 CZK -> FraudAlert{NEW} + WAITING_AUTH.
+            // Untrusted beneficiary above the alert threshold -> FraudAlert{NEW} + WAITING_AUTH.
             // Approve the alert -> still WAITING_AUTH -> authorize via OTP -> SENT.
-            int benId = ensureUntrustedBeneficiary(
-                    infra,
-                    customerId,
-                    "Charlie Receiver",
-                    "CZ6508000000192000141111"
-            );
+            int benId = untrustedBeneficiaryOf(infra, customerId);
             int t2 = services.transferService.submitPaymentByBeneficiary(
                     customerId,
                     accountId,
                     benId,
-                    12000,
+                    FRAUD_AMOUNT,
                     "demo FRAUD"
             );
             var tr2 = infra.transfers.byId(t2).orElseThrow();
@@ -109,11 +118,9 @@ public class DemoRunner {
 
             acc = infra.accounts.byId(accountId).orElseThrow();
             Money afterT2 = acc.balance();
-            Money expectedFee2 = new SimpleFeePolicy().compute(Money.czk(12000)); // 60 CZK
-            Money expectedBal2 = start
-                    .minus(Money.czk(6000).plus(expectedFee1))
-                    .minus(Money.czk(12000).plus(expectedFee2));
-            assertState(eq(afterT2, expectedBal2),
+            Money expectedFee2 = services.feePolicy.compute(Money.czk(FRAUD_AMOUNT));
+            Money expectedBal2 = expectedBal1.minus(Money.czk(FRAUD_AMOUNT).plus(expectedFee2));
+            assertState(afterT2.equals(expectedBal2),
                     "Balance after T2 must reflect the second outgoing payment");
             System.out.println("[OK] UC04->UC11->UC05: T2 SENT, balance=" + afterT2
                     + " (fee=" + expectedFee2 + ") \n");
@@ -124,7 +131,7 @@ public class DemoRunner {
                     customerId,
                     accountId,
                     "CZ6508000000192000142222",
-                    5200,
+                    CANCEL_AMOUNT,
                     "demo CANCEL"
             );
             var tr3 = infra.transfers.byId(t3).orElseThrow();
@@ -137,7 +144,7 @@ public class DemoRunner {
 
             acc = infra.accounts.byId(accountId).orElseThrow();
             Money afterT3 = acc.balance();
-            assertState(eq(afterT3, expectedBal2),
+            assertState(afterT3.equals(expectedBal2),
                     "Balance must remain unchanged after canceling T3");
             System.out.println("[OK] UC19: T3 DECLINED, balance=" + afterT3 + " (unchanged)\n");
 
@@ -156,52 +163,39 @@ public class DemoRunner {
 
     // Helpers
 
-    private static int ensureDemoData(Bootstrap infra) {
-        var customers = infra.customers;
-        var accounts = infra.accounts;
-        int cid = 1;
-        var exists = customers.byId(cid);
-        if (exists.isPresent()) return cid;
+    /**
+     * The script sends two payments and needs a third one to be creatable, so it
+     * cannot start from an arbitrary balance. Checking up front turns a confusing
+     * failure in the middle of the run into one statement of what was needed.
+     */
+    private static void requireSufficientFunds(Money balance, FeePolicy feePolicy) {
+        Money required = totalWithFee(Money.czk(AUTH_AMOUNT), feePolicy)
+                .plus(totalWithFee(Money.czk(FRAUD_AMOUNT), feePolicy))
+                .plus(totalWithFee(Money.czk(CANCEL_AMOUNT), feePolicy));
 
-        cid = customers.nextId();
-        Customer c = new Customer(
-                cid,
-                "Demo User",
-                "demo@example.com",
-                new Address("Hlavni 9", "Ostrava")
-        );
-        customers.save(c);
-        int accId = accounts.nextId();
-        Account a = new Account(
-                accId,
-                new IBAN("CZ6508000000192000145399"),
-                Money.czk(20000),
-                Money.czk(5000)
-        );
-        accounts.save(a);
-        c.addAccountId(accId);
-        customers.save(c);
-        return cid;
+        assertState(balance.gte(required),
+                "The demo needs at least " + required + " but the account holds " + balance
+                        + ". Delete the demo store and run again to start from a fresh dataset.");
     }
 
-    private static int ensureUntrustedBeneficiary(
-            Bootstrap infra,
-            int customerId,
-            String name,
-            String iban
-    ) {
-        int bid = infra.customers.nextBeneficiaryId();
-        Beneficiary b = new Beneficiary(bid, name, new IBAN(iban), false);
-        infra.customers.saveBeneficiary(customerId, b);
-        return bid;
+    private static Money totalWithFee(Money amount, FeePolicy feePolicy) {
+        return amount.plus(feePolicy.compute(amount));
+    }
+
+    /**
+     * Reuses the untrusted beneficiary created by the scenario instead of adding
+     * another one on every run.
+     */
+    private static int untrustedBeneficiaryOf(Bootstrap infra, int customerId) {
+        Customer customer = infra.customers.byId(customerId).orElseThrow();
+        return customer.beneficiaries().stream()
+                .filter(b -> !b.trusted())
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("The demo dataset has no untrusted beneficiary"))
+                .id();
     }
 
     private static void assertState(boolean cond, String msg) {
         if (!cond) throw new AssertionError(msg);
-    }
-
-    private static boolean eq(Money a, Money b) {
-        return a.amount().setScale(2).equals(b.amount().setScale(2))
-                && a.currency().equals(b.currency());
     }
 }

@@ -18,7 +18,7 @@ public class MinibankApiConfig {
     @Bean
     public Bootstrap bootstrap(
             @Value("${minibank.storage:json}") String storage,
-            @Value("${minibank.json.path:data/data.json}") String jsonPath,
+            @Value("${minibank.json.path:storage/data.json}") String jsonPath,
             @Value("${minibank.sql.url:jdbc:postgresql://localhost:5432/minibank}") String jdbcUrl,
             @Value("${minibank.sql.user:minibank}") String dbUser,
             @Value("${minibank.sql.password:minibank}") String dbPassword

@@ -10,8 +10,11 @@ import cz.vsb.minibank.ui.console.ConsoleMenu;
  */
 public class App {
 
+    /** Overridable so the store can be pointed anywhere; storage/ is gitignored. */
+    static final String DEFAULT_DATA_PATH = "storage/data.json";
+
     public static void main(String[] args) {
-        String dataPath = "data/data.json";
+        String dataPath = System.getProperty("minibank.json.path", DEFAULT_DATA_PATH);
         Bootstrap infra = new Bootstrap(dataPath);
         BootstrapServices app = new BootstrapServices(
                 infra.customers,
