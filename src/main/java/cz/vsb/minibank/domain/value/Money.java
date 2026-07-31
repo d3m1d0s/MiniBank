@@ -1,5 +1,7 @@
 package cz.vsb.minibank.domain.value;
 
+import cz.vsb.minibank.domain.exceptions.InvalidAmountException;
+
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.Objects;
@@ -28,8 +30,13 @@ public final class Money implements Comparable<Money> {
 
     /**
      * Creates a Money instance with the given currency and double amount.
+     *
+     * @throws InvalidAmountException when the amount is NaN or infinite
      */
     public static Money of(String currency, double amount) {
+        if (!Double.isFinite(amount)) {
+            throw new InvalidAmountException("Amount must be a finite number: " + amount);
+        }
         return new Money(currency, BigDecimal.valueOf(amount));
     }
 
@@ -49,7 +56,7 @@ public final class Money implements Comparable<Money> {
 
     private Money(String currency, BigDecimal amount) {
         this.currency = Objects.requireNonNull(currency);
-        this.amount = amount.setScale(2, RoundingMode.HALF_UP);
+        this.amount = Objects.requireNonNull(amount, "amount").setScale(2, RoundingMode.HALF_UP);
     }
 
     /**
@@ -119,6 +126,20 @@ public final class Money implements Comparable<Money> {
     }
 
     /**
+     * Returns true when the amount is strictly greater than zero.
+     */
+    public boolean isPositive() {
+        return amount.signum() > 0;
+    }
+
+    /**
+     * Returns true when the amount is exactly zero.
+     */
+    public boolean isZero() {
+        return amount.signum() == 0;
+    }
+
+    /**
      * Ensures that both Money values use the same currency.
      *
      * @throws IllegalArgumentException when currencies differ
@@ -133,6 +154,23 @@ public final class Money implements Comparable<Money> {
     public int compareTo(Money o) {
         ensureSameCurrency(o);
         return amount.compareTo(o.amount);
+    }
+
+    /**
+     * Two Money values are equal when both currency and amount match.
+     * The constructor normalizes every amount to scale 2, so comparing with
+     * BigDecimal.equals is consistent with compareTo.
+     */
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (!(o instanceof Money other)) return false;
+        return currency.equals(other.currency) && amount.equals(other.amount);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(currency, amount);
     }
 
     @Override
