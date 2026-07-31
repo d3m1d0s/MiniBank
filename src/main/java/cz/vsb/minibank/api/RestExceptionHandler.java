@@ -1,6 +1,7 @@
 // src/main/java/cz/vsb/minibank/api/RestExceptionHandler.java
 package cz.vsb.minibank.api;
 
+import cz.vsb.minibank.application.AppLogger;
 import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
 import cz.vsb.minibank.domain.exceptions.DailyLimitExceededException;
 import cz.vsb.minibank.domain.exceptions.DomainException;
@@ -62,7 +63,7 @@ public class RestExceptionHandler {
 
     @ExceptionHandler(RuntimeException.class)
     public ResponseEntity<ApiError> handleRuntime(RuntimeException ex) {
-        ex.printStackTrace(); // alternatively use AppLogger.error("REST runtime error", ex);
+        AppLogger.error("api", "Unhandled error while serving a request", ex);
         return error(HttpStatus.INTERNAL_SERVER_ERROR,
                 "INTERNAL_ERROR",
                 "Unexpected error occurred.");
