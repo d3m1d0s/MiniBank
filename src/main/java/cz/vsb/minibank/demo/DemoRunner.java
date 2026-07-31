@@ -5,6 +5,11 @@ import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
 /**
  * Demo runner that executes an automated end-to-end scenario over the domain and
  * application layer and prints verifiable post-conditions.
@@ -30,8 +35,14 @@ public class DemoRunner {
     /** Kept apart from the console store so the two do not interfere; storage/ is gitignored. */
     static final String DEFAULT_DEMO_PATH = "storage/demo.json";
 
+    /** Opt-in: discard the demo store before running, so the script starts from a known state. */
+    static final String RESET_PROPERTY = "minibank.demo.reset";
+
     public static void main(String[] args) {
         String dataPath = System.getProperty("minibank.json.path", DEFAULT_DEMO_PATH);
+        if (Boolean.getBoolean(RESET_PROPERTY)) {
+            resetStore(dataPath);
+        }
         Bootstrap infra = new Bootstrap(dataPath);
         BootstrapServices services = new BootstrapServices(
                 infra.customers,
@@ -164,6 +175,24 @@ public class DemoRunner {
     // Helpers
 
     /**
+     * Discards the demo store so the run starts from the dataset the scenario
+     * builds. Only ever called when explicitly requested, because silently
+     * wiping a store on every run would be worse than failing loudly.
+     */
+    private static void resetStore(String dataPath) {
+        Path store = Paths.get(dataPath);
+        try {
+            if (Files.deleteIfExists(store)) {
+                System.out.println("[Reset] Discarded " + store.toAbsolutePath());
+            } else {
+                System.out.println("[Reset] Nothing to discard at " + store.toAbsolutePath());
+            }
+        } catch (IOException e) {
+            throw new IllegalStateException("Cannot discard the demo store at " + store.toAbsolutePath(), e);
+        }
+    }
+
+    /**
      * The script sends two payments and needs a third one to be creatable, so it
      * cannot start from an arbitrary balance. Checking up front turns a confusing
      * failure in the middle of the run into one statement of what was needed.
@@ -175,7 +204,7 @@ public class DemoRunner {
 
         assertState(balance.gte(required),
                 "The demo needs at least " + required + " but the account holds " + balance
-                        + ". Delete the demo store and run again to start from a fresh dataset.");
+                        + ". Re-run with -D" + RESET_PROPERTY + "=true to start from a fresh dataset.");
     }
 
     private static Money totalWithFee(Money amount, FeePolicy feePolicy) {
