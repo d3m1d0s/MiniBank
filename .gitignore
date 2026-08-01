@@ -16,6 +16,11 @@ node_modules/
 storage/
 data/
 
+### Local environment ###
+# Machine specific: docker compose reads MINIBANK_DB_PORT from .env
+.env
+.env.*
+
 ### IntelliJ IDEA ###
 .idea/
 *.iws
