@@ -26,8 +26,8 @@ class AppLoggerTest {
     void setUp() throws IOException {
         logPath = tempDir.resolve("minibank.log");
         // Surefire points the whole suite at target/; restore that afterwards
-        previousLogFile = System.getProperty(AppLogger.LOG_FILE_PROPERTY);
-        System.setProperty(AppLogger.LOG_FILE_PROPERTY, logPath.toString());
+        previousLogFile = System.getProperty(MinibankProperties.LOG_FILE);
+        System.setProperty(MinibankProperties.LOG_FILE, logPath.toString());
         Files.deleteIfExists(logPath);
         SecurityContext.clear();
     }
@@ -35,9 +35,9 @@ class AppLoggerTest {
     @AfterEach
     void tearDown() {
         if (previousLogFile == null) {
-            System.clearProperty(AppLogger.LOG_FILE_PROPERTY);
+            System.clearProperty(MinibankProperties.LOG_FILE);
         } else {
-            System.setProperty(AppLogger.LOG_FILE_PROPERTY, previousLogFile);
+            System.setProperty(MinibankProperties.LOG_FILE, previousLogFile);
         }
         SecurityContext.clear();
     }

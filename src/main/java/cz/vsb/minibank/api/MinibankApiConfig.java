@@ -23,13 +23,17 @@ public class MinibankApiConfig {
      */
     public static final String DEMO_PROFILE = "demo";
 
+    /**
+     * The placeholders are assembled from {@link MinibankProperties} so that the API and the
+     * console entry points cannot drift onto different key names or different defaults.
+     */
     @Bean
     public Bootstrap bootstrap(
-            @Value("${minibank.storage:json}") String storage,
-            @Value("${minibank.json.path:storage/data.json}") String jsonPath,
-            @Value("${minibank.sql.url:jdbc:postgresql://localhost:5432/minibank}") String jdbcUrl,
-            @Value("${minibank.sql.user:minibank}") String dbUser,
-            @Value("${minibank.sql.password:minibank}") String dbPassword
+            @Value("${" + MinibankProperties.STORAGE + ":" + MinibankProperties.STORAGE_DEFAULT + "}") String storage,
+            @Value("${" + MinibankProperties.JSON_PATH + ":" + MinibankProperties.JSON_PATH_DEFAULT + "}") String jsonPath,
+            @Value("${" + MinibankProperties.SQL_URL + ":" + MinibankProperties.SQL_URL_DEFAULT + "}") String jdbcUrl,
+            @Value("${" + MinibankProperties.SQL_USER + ":" + MinibankProperties.SQL_USER_DEFAULT + "}") String dbUser,
+            @Value("${" + MinibankProperties.SQL_PASSWORD + ":" + MinibankProperties.SQL_PASSWORD_DEFAULT + "}") String dbPassword
     ) {
         if ("sql".equalsIgnoreCase(storage) || "postgres".equalsIgnoreCase(storage) || "postgresql".equalsIgnoreCase(storage)) {
             return new Bootstrap(jdbcUrl, dbUser, dbPassword);
@@ -37,7 +41,7 @@ public class MinibankApiConfig {
         if ("json".equalsIgnoreCase(storage)) {
             return new Bootstrap(jsonPath);
         }
-        throw new IllegalArgumentException("Unsupported minibank.storage value: " + storage);
+        throw new IllegalArgumentException("Unsupported " + MinibankProperties.STORAGE + " value: " + storage);
     }
 
     @Bean

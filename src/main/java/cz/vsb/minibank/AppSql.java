@@ -3,6 +3,7 @@ package cz.vsb.minibank;
 import cz.vsb.minibank.application.AppLogger;
 import cz.vsb.minibank.application.AuthService;
 import cz.vsb.minibank.application.BootstrapServices;
+import cz.vsb.minibank.application.MinibankProperties;
 import cz.vsb.minibank.application.PasswordEncoder;
 import cz.vsb.minibank.application.Pbkdf2PasswordEncoder;
 import cz.vsb.minibank.demo.DemoScenario;
@@ -22,11 +23,10 @@ public class AppSql {
     public static void main(String[] args) {
         AppLogger.info("app", "Starting MiniBank in SQL mode");
 
-        String jdbcUrl = System.getProperty("minibank.jdbcUrl", "jdbc:postgresql://localhost:5432/minibank");
-        String dbUser = System.getProperty("minibank.dbUser", "minibank");
-        String dbPass = System.getProperty("minibank.dbPass", "minibank");
-
-        Bootstrap infra = new Bootstrap(jdbcUrl, dbUser, dbPass);
+        Bootstrap infra = new Bootstrap(
+                MinibankProperties.sqlUrl(),
+                MinibankProperties.sqlUser(),
+                MinibankProperties.sqlPassword());
         BootstrapServices app = new BootstrapServices(
                 infra.customers,
                 infra.accounts,

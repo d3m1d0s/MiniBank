@@ -1,6 +1,7 @@
 package cz.vsb.minibank.demo;
 
 import cz.vsb.minibank.application.BootstrapServices;
+import cz.vsb.minibank.application.MinibankProperties;
 import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
@@ -32,15 +33,11 @@ public class DemoRunner {
     /** Above the authorization threshold as well, but cancelled instead of sent. */
     private static final double CANCEL_AMOUNT = 5_200;
 
-    /** Kept apart from the console store so the two do not interfere; storage/ is gitignored. */
-    static final String DEFAULT_DEMO_PATH = "storage/demo.json";
-
-    /** Opt-in: discard the demo store before running, so the script starts from a known state. */
-    static final String RESET_PROPERTY = "minibank.demo.reset";
-
     public static void main(String[] args) {
-        String dataPath = System.getProperty("minibank.json.path", DEFAULT_DEMO_PATH);
-        if (Boolean.getBoolean(RESET_PROPERTY)) {
+        // Its own key rather than minibank.json.path, so pointing the demo somewhere else
+        // cannot silently repoint the console app and the API at the demo store as well.
+        String dataPath = MinibankProperties.demoPath();
+        if (MinibankProperties.demoReset()) {
             resetStore(dataPath);
         }
         Bootstrap infra = new Bootstrap(dataPath);
@@ -204,7 +201,8 @@ public class DemoRunner {
 
         assertState(balance.gte(required),
                 "The demo needs at least " + required + " but the account holds " + balance
-                        + ". Re-run with -D" + RESET_PROPERTY + "=true to start from a fresh dataset.");
+                        + ". Re-run with -D" + MinibankProperties.DEMO_RESET
+                        + "=true to start from a fresh dataset.");
     }
 
     private static Money totalWithFee(Money amount, FeePolicy feePolicy) {

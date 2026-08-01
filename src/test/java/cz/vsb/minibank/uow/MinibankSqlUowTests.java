@@ -1,5 +1,6 @@
 package cz.vsb.minibank.uow;
 
+import cz.vsb.minibank.application.MinibankProperties;
 import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
@@ -44,10 +45,9 @@ public class MinibankSqlUowTests {
 
     @BeforeEach
     void setUp() throws Exception {
-        // Allow overriding via system properties, fallback to Docker defaults
-        jdbcUrl = System.getProperty("minibank.jdbcUrl", "jdbc:postgresql://localhost:5432/minibank");
-        dbUser  = System.getProperty("minibank.dbUser",  "minibank");
-        dbPass  = System.getProperty("minibank.dbPass",  "minibank");
+        jdbcUrl = MinibankProperties.sqlUrl();
+        dbUser  = MinibankProperties.sqlUser();
+        dbPass  = MinibankProperties.sqlPassword();
 
         // Clean database state before each test (but keep schema & sequences)
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);

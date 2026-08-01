@@ -17,13 +17,6 @@ import java.time.Instant;
  */
 public final class AppLogger {
 
-    /**
-     * System property overriding the log file location.
-     */
-    public static final String LOG_FILE_PROPERTY = "minibank.log.file";
-
-    private static final String DEFAULT_LOG_FILE = "minibank.log";
-
     private AppLogger() {
     }
 
@@ -32,7 +25,8 @@ public final class AppLogger {
      * at runtime, which also keeps tests off the working directory.
      */
     private static Path logFile() {
-        return Paths.get(System.getProperty(LOG_FILE_PROPERTY, DEFAULT_LOG_FILE));
+        return Paths.get(System.getProperty(
+                MinibankProperties.LOG_FILE, MinibankProperties.LOG_FILE_DEFAULT));
     }
 
     public static void log(LogLevel level, String category, String message, Throwable t) {
