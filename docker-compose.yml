@@ -1,18 +1,29 @@
-version: "3.8"
+name: minibank
 
 services:
   db:
     image: postgres:14
-    container_name: minibank-db
     environment:
       POSTGRES_DB: minibank
       POSTGRES_USER: minibank
       POSTGRES_PASSWORD: minibank
     ports:
-      - "5432:5432"
+      # Overridable because 5432 is usually already taken by a local PostgreSQL:
+      #   MINIBANK_DB_PORT=55432 docker compose up -d
+      - "${MINIBANK_DB_PORT:-5432}:5432"
     volumes:
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      # The directory, not a single file: on Windows, Docker Desktop creates a directory
+      # in place of a missing bind mount source, and the container is then broken for good.
+      - ./db:/docker-entrypoint-initdb.d:ro
       - minibank_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      # Over TCP on purpose. initdb runs a temporary server that listens on the unix socket
+      # only, so a socket check reports ready while initialisation is still running.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -p 5432 -U minibank -d minibank"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
 
 volumes:
   minibank_pgdata:

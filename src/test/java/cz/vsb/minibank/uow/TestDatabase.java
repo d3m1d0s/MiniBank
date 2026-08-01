@@ -13,13 +13,10 @@ import java.sql.DriverManager;
  * would mean a single override pointed both the application and the truncation at the same
  * database, which is how a plain {@code mvn test} came to wipe the demo logins.
  * <p>
- * Create the database once, then apply {@code db/schema.sql} to it:
- * <pre>
- *   docker compose up -d
- *   docker exec -i minibank-db psql -U minibank -d postgres -c "CREATE DATABASE minibank_test OWNER minibank;"
- *   docker exec -i minibank-db psql -U minibank -d minibank_test &lt; db/schema.sql
- * </pre>
- * Without it the whole class reports as skipped rather than failing.
+ * {@code docker compose up -d} creates this database alongside the application one and
+ * applies the schema to both, so no manual step is needed. Against a PostgreSQL of your
+ * own, create it and apply {@code db/schema.sql} by hand. Without it the whole class
+ * reports as skipped rather than failing.
  */
 final class TestDatabase {
 
