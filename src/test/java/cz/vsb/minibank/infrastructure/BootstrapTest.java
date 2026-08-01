@@ -24,8 +24,12 @@ class BootstrapTest {
 
         Bootstrap infra = new Bootstrap(missing.toString());
 
-        assertTrue(infra.store.data().customers.isEmpty());
-        assertTrue(infra.store.data().accounts.isEmpty());
+        // data() now requires the store lock; read(...) is the supported way in.
+        boolean noCustomers = infra.store.read(data -> data.customers.isEmpty());
+        boolean noAccounts = infra.store.read(data -> data.accounts.isEmpty());
+
+        assertTrue(noCustomers);
+        assertTrue(noAccounts);
         assertTrue(infra.customers.byId(1).isEmpty());
     }
 
@@ -36,7 +40,8 @@ class BootstrapTest {
 
         Bootstrap infra = new Bootstrap(empty.toString());
 
-        assertTrue(infra.store.data().customers.isEmpty());
+        boolean noCustomers = infra.store.read(data -> data.customers.isEmpty());
+        assertTrue(noCustomers);
     }
 
     @Test

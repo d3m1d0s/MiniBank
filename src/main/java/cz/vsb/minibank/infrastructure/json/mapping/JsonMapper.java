@@ -83,7 +83,11 @@ public class JsonMapper {
             c.attachAccounts(new LazyList<>(() -> {
                 UnitOfWork uow = UowContext.current();
 
-                return store.data().accounts.stream()
+                // Deferred: runs on whatever thread first calls Customer.accounts(), which
+                // may be after the unit of work that loaded the customer has closed. It
+                // therefore takes the store lock itself; inside an open unit of work the
+                // acquisition is reentrant and free.
+                return store.read(bundle -> bundle.accounts.stream()
                         .filter(a -> j.accountIds.contains(a.id))
                         .map(dto -> {
                             if (uow != null) {
@@ -98,7 +102,7 @@ public class JsonMapper {
                             }
                             return acc;
                         })
-                        .toList();
+                        .toList());
             }));
         }
 
@@ -209,7 +213,11 @@ public class JsonMapper {
 
         if (store != null) {
             // Lazy source account
-            t.attachSourceAccount(new LazyRef<>(() -> {
+            // Deferred, same as the LazyList above: locks for itself because there may be
+            // no unit of work bound when Transfer.sourceAccount() is dereferenced. The
+            // identity-map probe is inside the hold too, because reading j.sourceAccountId
+            // is a read of a Bundle-resident DTO.
+            t.attachSourceAccount(new LazyRef<>(() -> store.read(bundle -> {
                 UnitOfWork uow = UowContext.current();
                 if (uow != null) {
                     Account cached = uow.get(Account.class, j.sourceAccountId);
@@ -218,7 +226,7 @@ public class JsonMapper {
                     }
                 }
 
-                JsonAccount accDto = store.data().accounts.stream()
+                JsonAccount accDto = bundle.accounts.stream()
                         .filter(a -> a.id == j.sourceAccountId)
                         .findFirst()
                         .orElseThrow(() -> new IllegalStateException("Account not found: " + j.sourceAccountId));
@@ -230,11 +238,11 @@ public class JsonMapper {
                 }
 
                 return acc;
-            }));
+            })));
 
             // Lazy beneficiary (if present)
             if (j.beneficiaryId != null) {
-                t.attachBeneficiary(new LazyRef<>(() -> {
+                t.attachBeneficiary(new LazyRef<>(() -> store.read(bundle -> {
                     UnitOfWork uow = UowContext.current();
                     if (uow != null) {
                         Beneficiary cached = uow.get(Beneficiary.class, j.beneficiaryId);
@@ -243,8 +251,10 @@ public class JsonMapper {
                         }
                     }
 
-                    // Beneficiary is stored inside customers
-                    JsonCustomer custDto = store.data().customers.stream()
+                    // Beneficiary is stored inside customers. Both passes over the nested
+                    // beneficiaries list are one hold, so saveBeneficiary cannot insert
+                    // between finding the customer and finding the beneficiary.
+                    JsonCustomer custDto = bundle.customers.stream()
                             .filter(c -> c.beneficiaries != null
                                     && c.beneficiaries.stream().anyMatch(b -> b.id == j.beneficiaryId))
                             .findFirst()
@@ -264,7 +274,7 @@ public class JsonMapper {
                     }
 
                     return b;
-                }));
+                })));
             }
         }
 

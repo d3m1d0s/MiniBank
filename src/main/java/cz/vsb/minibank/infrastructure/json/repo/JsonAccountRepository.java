@@ -40,29 +40,37 @@ public class JsonAccountRepository implements AccountRepository {
                 return Optional.of(cached);
             }
         }
-        var f = store.data().accounts.stream().filter(a -> a.id == id).findFirst();
-        if (f.isEmpty()) {
-            return Optional.empty();
-        }
-        Account d = JsonMapper.toDomain(f.get());
-        if (uow != null) {
-            uow.put(Account.class, d.id(), d);
-        }
-        return Optional.of(d);
+        // Mapping happens inside the read: toDomain copies the DTO's nested transferIds
+        // list, so that copy must not race a concurrent commit either.
+        return store.read(bundle -> {
+            var f = bundle.accounts.stream().filter(a -> a.id == id).findFirst();
+            if (f.isEmpty()) {
+                return Optional.<Account>empty();
+            }
+            Account d = JsonMapper.toDomain(f.get());
+            if (uow != null) {
+                uow.put(Account.class, d.id(), d);
+            }
+            return Optional.of(d);
+        });
     }
 
     @Override
     public Optional<Account> byIban(IBAN iban) {
         UnitOfWork uow = UowContext.current();
-        var f = store.data().accounts.stream().filter(a -> a.iban.equalsIgnoreCase(iban.value())).findFirst();
-        if (f.isEmpty()) {
-            return Optional.empty();
-        }
-        Account d = JsonMapper.toDomain(f.get());
-        if (uow != null) {
-            uow.put(Account.class, d.id(), d);
-        }
-        return Optional.of(d);
+        return store.read(bundle -> {
+            var f = bundle.accounts.stream()
+                    .filter(a -> a.iban.equalsIgnoreCase(iban.value()))
+                    .findFirst();
+            if (f.isEmpty()) {
+                return Optional.<Account>empty();
+            }
+            Account d = JsonMapper.toDomain(f.get());
+            if (uow != null) {
+                uow.put(Account.class, d.id(), d);
+            }
+            return Optional.of(d);
+        });
     }
 
     @Override
@@ -88,12 +96,9 @@ public class JsonAccountRepository implements AccountRepository {
             uow.registerMutation(mutate);
             uow.put(Account.class, account.id(), account);
         } else {
-            mutate.run();
-            try {
-                store.save();
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            // No unit of work: the mutation and the persist are one lock hold, so no
+            // other thread can save a half-applied list.
+            store.mutateAndSave(mutate);
         }
     }
 
@@ -101,28 +106,33 @@ public class JsonAccountRepository implements AccountRepository {
     public List<Account> byCustomerId(int customerId) {
         UnitOfWork uow = UowContext.current();
 
-        var cust = store.data().customers.stream().filter(c -> c.id == customerId).findFirst();
-        if (cust.isEmpty()) {
-            return List.of();
-        }
-        var ids = cust.get().accountIds;
+        // One hold for all three reads: the customer lookup, its nested accountIds and
+        // the accounts scan must see the same state. accountIds is read once per element
+        // of the outer stream, so it must not escape the lock.
+        return store.read(bundle -> {
+            var cust = bundle.customers.stream().filter(c -> c.id == customerId).findFirst();
+            if (cust.isEmpty()) {
+                return List.<Account>of();
+            }
+            var ids = cust.get().accountIds;
 
-        return store.data().accounts.stream()
-                .filter(a -> ids.contains(a.id))
-                .map(dto -> {
-                    if (uow != null) {
-                        Account cached = uow.get(Account.class, dto.id);
-                        if (cached != null) {
-                            return cached;
+            return bundle.accounts.stream()
+                    .filter(a -> ids.contains(a.id))
+                    .map(dto -> {
+                        if (uow != null) {
+                            Account cached = uow.get(Account.class, dto.id);
+                            if (cached != null) {
+                                return cached;
+                            }
                         }
-                    }
-                    Account d = JsonMapper.toDomain(dto);
-                    if (uow != null) {
-                        uow.put(Account.class, d.id(), d);
-                    }
-                    return d;
-                })
-                .collect(Collectors.toList());
+                        Account d = JsonMapper.toDomain(dto);
+                        if (uow != null) {
+                            uow.put(Account.class, d.id(), d);
+                        }
+                        return d;
+                    })
+                    .collect(Collectors.toList());
+        });
     }
 
 }

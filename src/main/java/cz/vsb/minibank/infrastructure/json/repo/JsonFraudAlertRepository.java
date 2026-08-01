@@ -33,17 +33,14 @@ public class JsonFraudAlertRepository implements FraudAlertRepository {
     @Override
     public void add(FraudAlert a) {
         UnitOfWork uow = UowContext.current();
+        // The other bare ArrayList.add. Paired with the transfer add, this is the
+        // orphan-alert mechanism.
         Runnable mutate = () -> store.data().fraudAlerts.add(JsonMapper.toDto(a));
         if (uow != null) {
             uow.registerMutation(mutate);
             uow.put(FraudAlert.class, a.id(), a);
         } else {
-            mutate.run();
-            try {
-                store.save();
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            store.mutateAndSave(mutate);
         }
     }
 
@@ -70,12 +67,7 @@ public class JsonFraudAlertRepository implements FraudAlertRepository {
             uow.registerMutation(mutate);
             uow.put(FraudAlert.class, a.id(), a);
         } else {
-            mutate.run();
-            try {
-                store.save();
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            store.mutateAndSave(mutate);
         }
     }
 
@@ -86,27 +78,33 @@ public class JsonFraudAlertRepository implements FraudAlertRepository {
             FraudAlert cached = uow.get(FraudAlert.class, id);
             if (cached != null) return Optional.of(cached);
         }
-        var f = store.data().fraudAlerts.stream().filter(x -> x.id == id).findFirst();
-        if (f.isEmpty()) return Optional.empty();
-        FraudAlert d = JsonMapper.toDomain(f.get());
-        if (uow != null) uow.put(FraudAlert.class, d.id(), d);
-        return Optional.of(d);
+        return store.read(bundle -> {
+            var f = bundle.fraudAlerts.stream().filter(x -> x.id == id).findFirst();
+            if (f.isEmpty()) return Optional.<FraudAlert>empty();
+            FraudAlert d = JsonMapper.toDomain(f.get());
+            if (uow != null) uow.put(FraudAlert.class, d.id(), d);
+            return Optional.of(d);
+        });
     }
 
     @Override
     public Optional<FraudAlert> byTransferId(int transferId) {
         var uow = UowContext.current();
-        var f = store.data().fraudAlerts.stream().filter(x -> x.transferId == transferId).findFirst();
-        if (f.isEmpty()) return Optional.empty();
-        FraudAlert d = JsonMapper.toDomain(f.get());
-        if (uow != null) uow.put(FraudAlert.class, d.id(), d);
-        return Optional.of(d);
+        // Entry point for all three fraud use cases; iterates the list an interleaved
+        // add mutates.
+        return store.read(bundle -> {
+            var f = bundle.fraudAlerts.stream().filter(x -> x.transferId == transferId).findFirst();
+            if (f.isEmpty()) return Optional.<FraudAlert>empty();
+            FraudAlert d = JsonMapper.toDomain(f.get());
+            if (uow != null) uow.put(FraudAlert.class, d.id(), d);
+            return Optional.of(d);
+        });
     }
 
     @Override
     public List<FraudAlert> all() {
         UnitOfWork uow = UowContext.current();
-        return store.data().fraudAlerts.stream()
+        return store.read(bundle -> bundle.fraudAlerts.stream()
                 .map(dto -> {
                     if (uow != null) {
                         FraudAlert cached = uow.get(FraudAlert.class, dto.id);
@@ -116,6 +114,6 @@ public class JsonFraudAlertRepository implements FraudAlertRepository {
                     if (uow != null) uow.put(FraudAlert.class, d.id(), d);
                     return d;
                 })
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 }

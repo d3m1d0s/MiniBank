@@ -18,6 +18,11 @@ public final class JsonUnitOfWorkFactory implements UnitOfWorkFactory {
 
     /**
      * Starts a new UnitOfWork operating on the same JsonDataStore instance.
+     *
+     * The returned unit of work already holds the store lock, so JSON transactions run
+     * one at a time and this call blocks while another transaction is open. The lock is
+     * released by commit() or rollback(), whichever the caller reaches first. Bind the
+     * result to a UowScope immediately, so an escaping exception cannot leave it open.
      */
     @Override
     public UnitOfWork begin() {

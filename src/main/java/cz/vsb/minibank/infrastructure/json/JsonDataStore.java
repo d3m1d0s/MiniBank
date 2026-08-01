@@ -11,6 +11,8 @@ import java.io.File;
 import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
+import java.util.function.Function;
 import java.util.function.ToIntFunction;
 
 /**
@@ -47,6 +49,100 @@ public class JsonDataStore {
     private Bundle cache = new Bundle();
 
     /**
+     * The one lock for the whole store. It guards the cache field, the four lists inside
+     * the Bundle, every DTO reachable from them (including the nested accountIds,
+     * transferIds, beneficiaries and tags lists), the sequences, and the backing file.
+     *
+     * One store-wide lock is deliberate. This is a single JSON file and every commit
+     * rewrites all of it, so there is nothing finer-grained worth locking, and a coarse
+     * lock that is actually correct beats a fine one that is not. The cost is that JSON
+     * transactions run one at a time.
+     *
+     * It is a ReentrantLock rather than a synchronized block because a JsonUnitOfWork
+     * holds it from begin() until commit() or rollback(), which crosses method
+     * boundaries, and because calls made inside that window re-acquire it reentrantly.
+     *
+     * Because the lock spans a whole transaction, anything a transaction does runs
+     * inside it - including AppLogger's audit writes to stderr and minibank.log, and
+     * PaymentNetworkGateway.send. Nothing invoked between begin() and commit() may
+     * block indefinitely, or it blocks every other thread that touches the store.
+     */
+    private final ReentrantLock lock = new ReentrantLock();
+
+    /**
+     * Acquires the store lock. Must be paired with unlock() in a finally block.
+     */
+    public void lock() {
+        lock.lock();
+    }
+
+    public void unlock() {
+        lock.unlock();
+    }
+
+    /**
+     * Runs a read against the Bundle under the store lock. Whatever the body returns
+     * must not alias anything inside the Bundle - map or copy before returning.
+     */
+    public <T> T read(Function<Bundle, T> body) {
+        lock.lock();
+        try {
+            return body.apply(cache);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Applies a mutation to the Bundle and persists it as a single lock hold. This is the
+     * path for callers with no unit of work bound, where the mutation and the save would
+     * otherwise be two independently locked steps that another thread can write between.
+     *
+     * The mutation's own exceptions propagate unchanged; only the checked exception from
+     * save() is wrapped. Callers rely on that: a DomainException raised inside a mutation
+     * has to reach RestExceptionHandler as itself, not as a generic RuntimeException.
+     */
+    public void mutateAndSave(Runnable mutation) {
+        lock.lock();
+        try {
+            mutation.run();
+            try {
+                save();
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * Throws away in-memory changes by re-reading the file.
+     *
+     * Called when a commit fails after its buffered mutations have already been applied
+     * to the shared Bundle. Leaving them there would hand a failed transaction's changes
+     * to the next transaction, which - now that transactions are serialised - starts
+     * immediately afterwards and would persist them. Ids are not reused, because every
+     * nextXxxId() persisted its bumped sequence before the transaction reached commit.
+     *
+     * @param cause the commit failure, rethrown by the caller
+     */
+    void discardChanges(Exception cause) {
+        lock.lock();
+        try {
+            loadUnderLock();
+        } catch (Exception reloadFailure) {
+            cause.addSuppressed(reloadFailure);
+            throw new IllegalStateException(
+                    "A commit failed and the store at '" + file
+                            + "' could not be restored, so it may still hold uncommitted changes.",
+                    cause);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
      * Creates a JSON data store backed by the given file path.
      *
      * @param path path to the JSON file
@@ -61,23 +157,51 @@ public class JsonDataStore {
     }
 
     /**
-     * Returns the in-memory snapshot of all persisted data.
+     * Returns the live shared data. The caller must already hold the store lock.
+     *
+     * This method used to be synchronized, which protected the field read and nothing
+     * else: the monitor was released before the caller iterated or mutated the lists it
+     * had just been handed. Rather than leave a keyword here that looks like protection,
+     * the precondition is now checked, so a missing lock fails at the call site instead
+     * of corrupting a list. Prefer read(...) where the whole access fits in one block.
      */
-    public synchronized Bundle data() {
+    public Bundle data() {
+        if (!lock.isHeldByCurrentThread()) {
+            throw new IllegalStateException(
+                    "JsonDataStore.data() requires the store lock - use read(...) or lock()/unlock()");
+        }
         return cache;
     }
 
     /**
      * Writes the current in-memory data to disk.
+     * Takes the store lock so Jackson cannot iterate a list that another thread is
+     * structurally modifying. Inside a unit of work the lock is already held by this
+     * thread and the acquisition is a reentrant no-op.
      *
      * @throws Exception when saving fails
      */
-    public synchronized void save() throws Exception {
-        om.writeValue(file, cache);
+    public void save() throws Exception {
+        lock.lock();
+        try {
+            om.writeValue(file, cache);
+        } finally {
+            lock.unlock();
+        }
     }
 
     // Initialize sequences with auto-detected max+1 values for backward compatibility
-    public synchronized void load() throws Exception {
+    public void load() throws Exception {
+        lock.lock();
+        try {
+            loadUnderLock();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    // Replaces the cache field wholesale, so it needs the same lock as every reader.
+    private void loadUnderLock() throws Exception {
         if (!file.exists() || Files.size(file.toPath()) == 0) {
             cache = new Bundle();
             return;
@@ -127,8 +251,8 @@ public class JsonDataStore {
         return max + 1;
     }
 
-    // Safe save (wrap checked exceptions)
-    private synchronized void saveQuiet() {
+    // Safe save (wrap checked exceptions). save() takes the lock itself.
+    private void saveQuiet() {
         try {
             save();
         } catch (Exception e) {
@@ -136,10 +260,26 @@ public class JsonDataStore {
         }
     }
 
+    /**
+     * Bumps one sequence and persists it as a single step.
+     * The chain nextXxxId -> saveQuiet -> save acquires the store lock three times on
+     * one thread; it only works because the lock is reentrant.
+     */
+    private int nextSequenceValue(ToIntFunction<Sequences> bump) {
+        lock.lock();
+        try {
+            int id = bump.applyAsInt(cache.sequences);
+            saveQuiet();
+            return id;
+        } finally {
+            lock.unlock();
+        }
+    }
+
     // Centralized ID generators
-    public synchronized int nextCustomerId()   { int id = cache.sequences.customer++;    saveQuiet(); return id; }
-    public synchronized int nextAccountId()    { int id = cache.sequences.account++;     saveQuiet(); return id; }
-    public synchronized int nextBeneficiaryId(){ int id = cache.sequences.beneficiary++; saveQuiet(); return id; }
-    public synchronized int nextTransferId()   { int id = cache.sequences.transfer++;    saveQuiet(); return id; }
-    public synchronized int nextFraudAlertId() { int id = cache.sequences.fraudAlert++;  saveQuiet(); return id; }
+    public int nextCustomerId()    { return nextSequenceValue(s -> s.customer++); }
+    public int nextAccountId()     { return nextSequenceValue(s -> s.account++); }
+    public int nextBeneficiaryId() { return nextSequenceValue(s -> s.beneficiary++); }
+    public int nextTransferId()    { return nextSequenceValue(s -> s.transfer++); }
+    public int nextFraudAlertId()  { return nextSequenceValue(s -> s.fraudAlert++); }
 }

@@ -288,18 +288,25 @@ public class ConsoleMenu {
         int cid = resolveCustomerId();
         CustomerRepository customers = infra.customers;
 
+        // Reject an unknown customer before prompting, so the operator is not asked for
+        // three answers that are then thrown away.
+        customers.byId(cid).orElseThrow();
+
+        // Read the console input before opening the unit of work. A JSON unit of work
+        // holds the store lock for its whole life, and blocking on stdin while holding it
+        // would freeze every other thread that touches the store.
+        System.out.print("Beneficiary name: ");
+        String name = in.nextLine().trim();
+
+        System.out.print("IBAN (e.g., CZ0201000000000012345678): ");
+        String iban = in.nextLine().trim();
+
+        System.out.print("Trusted? (y/N): ");
+        boolean trusted = in.nextLine().trim().equalsIgnoreCase("y");
+
         UnitOfWork uow = infra.uowFactory.begin();
         try (UowScope ignored = new UowScope(uow)) {
             var cust = customers.byId(cid).orElseThrow();
-
-            System.out.print("Beneficiary name: ");
-            String name = in.nextLine().trim();
-
-            System.out.print("IBAN (e.g., CZ0201000000000012345678): ");
-            String iban = in.nextLine().trim();
-
-            System.out.print("Trusted? (y/N): ");
-            boolean trusted = in.nextLine().trim().equalsIgnoreCase("y");
 
             int bid = customers.nextBeneficiaryId();
             Beneficiary b = new Beneficiary(bid, name, new IBAN(iban), trusted);

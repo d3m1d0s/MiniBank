@@ -33,16 +33,16 @@ public class JsonTransferRepository implements TransferRepository {
     @Override
     public void add(Transfer t) {
         UnitOfWork uow = UowContext.current();
+        // A bare ArrayList.add was the dropped-element site: two concurrent adds can write
+        // the same backing slot and increment size once, which is how a fraud alert ended
+        // up pointing at a transfer id that is not on disk.
+        Runnable mutate = () -> store.data().transfers.add(JsonMapper.toDto(t));
         if (uow != null) {
-            uow.registerMutation(() -> store.data().transfers.add(JsonMapper.toDto(t)));
+            // Runs during commit(), with the store lock already held by this thread.
+            uow.registerMutation(mutate);
             uow.put(Transfer.class, t.id(), t);
         } else {
-            store.data().transfers.add(JsonMapper.toDto(t));
-            try {
-                store.save();
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            store.mutateAndSave(mutate);
         }
     }
 
@@ -69,12 +69,9 @@ public class JsonTransferRepository implements TransferRepository {
             uow.registerMutation(mutate);
             uow.put(Transfer.class, t.id(), t);
         } else {
-            mutate.run();
-            try {
-                store.save();
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            // The index scan inside mutate calls size() and get(i) separately; a concurrent
+            // add leaving a null hole makes get(i).id throw.
+            store.mutateAndSave(mutate);
         }
     }
 
@@ -87,21 +84,25 @@ public class JsonTransferRepository implements TransferRepository {
                 return Optional.of(cached);
             }
         }
-        var found = store.data().transfers.stream().filter(x -> x.id == id).findFirst();
-        if (found.isEmpty()) {
-            return Optional.empty();
-        }
-        Transfer d = JsonMapper.toDomain(found.get(), store);
-        if (uow != null) {
-            uow.put(Transfer.class, d.id(), d);
-        }
-        return Optional.of(d);
+        // This is the read that returned empty for a just-committed row and surfaced as
+        // HTTP 500 "Transfer not found".
+        return store.read(bundle -> {
+            var found = bundle.transfers.stream().filter(x -> x.id == id).findFirst();
+            if (found.isEmpty()) {
+                return Optional.<Transfer>empty();
+            }
+            Transfer d = JsonMapper.toDomain(found.get(), store);
+            if (uow != null) {
+                uow.put(Transfer.class, d.id(), d);
+            }
+            return Optional.of(d);
+        });
     }
 
     @Override
     public List<Transfer> bySourceAccount(int accountId) {
         UnitOfWork uow = UowContext.current();
-        return store.data().transfers.stream()
+        return store.read(bundle -> bundle.transfers.stream()
                 .filter(t -> t.sourceAccountId == accountId)
                 .map(dto -> {
                     if (uow != null) {
@@ -116,6 +117,6 @@ public class JsonTransferRepository implements TransferRepository {
                     }
                     return d;
                 })
-                .collect(Collectors.toList());
+                .collect(Collectors.toList()));
     }
 }

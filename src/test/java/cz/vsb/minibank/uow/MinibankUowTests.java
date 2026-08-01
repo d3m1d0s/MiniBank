@@ -101,6 +101,45 @@ public class MinibankUowTests {
         }
     }
 
+    /**
+     * A commit applies its buffered mutations to the shared in-memory data before it
+     * persists them. If it then fails, those changes must not survive: the store lock is
+     * released the moment the commit ends, so the very next transaction would read them
+     * and write them to disk - a payment the caller was told had failed.
+     */
+    @Test
+    void aFailedCommitLeavesNothingBehindForTheNextTransaction() {
+        int accountId = infra.accounts.byCustomerId(infra.customers.byId(1).orElseThrow().id())
+                .get(0).id();
+
+        int doomedTransferId;
+        UnitOfWork doomed = infra.uowFactory.begin();
+        try (UowScope __ = new UowScope(doomed)) {
+            doomedTransferId = infra.transfers.nextId();
+            infra.transfers.add(new Transfer(
+                    doomedTransferId, accountId, null,
+                    "CZ0201000000000000000000", Money.czk(1_000), "CZK"));
+
+            // Fails after the transfer has already been applied to the shared data.
+            doomed.registerMutation(() -> { throw new IllegalStateException("commit fails here"); });
+
+            assertThrows(RuntimeException.class, doomed::commit);
+        }
+
+        UnitOfWork next = infra.uowFactory.begin();
+        try (UowScope __ = new UowScope(next)) {
+            assertTrue(infra.transfers.byId(doomedTransferId).isEmpty(),
+                    "The failed transaction's transfer must not be visible to the next one");
+            assertTrue(infra.transfers.bySourceAccount(accountId).isEmpty(),
+                    "The failed transaction must have left the store as it found it");
+            next.commit();
+        }
+
+        Bootstrap reopened = new Bootstrap(dataPath);
+        assertTrue(reopened.transfers.byId(doomedTransferId).isEmpty(),
+                "And it must not have reached disk either");
+    }
+
     @Test
     void byCustomerId_usesIdentityMap() {
         int customerId = infra.customers.byId(1).orElseThrow().id();

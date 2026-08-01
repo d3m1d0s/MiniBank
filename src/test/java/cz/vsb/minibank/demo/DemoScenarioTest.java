@@ -97,10 +97,16 @@ class DemoScenarioTest {
 
         Account afterSecond = infra.accounts.byIban(DemoScenario.PRIMARY_IBAN).orElseThrow();
         assertEquals(afterFirst.balance(), afterSecond.balance(), "Balances must not move");
-        assertEquals(1, infra.store.data().customers.size());
-        assertEquals(2, infra.store.data().accounts.size());
-        assertEquals(2, infra.store.data().transfers.size());
-        assertEquals(1, infra.store.data().fraudAlerts.size());
+        // data() now requires the store lock; read(...) is the supported way in.
+        int customers = infra.store.read(data -> data.customers.size());
+        int accounts = infra.store.read(data -> data.accounts.size());
+        int transfers = infra.store.read(data -> data.transfers.size());
+        int alerts = infra.store.read(data -> data.fraudAlerts.size());
+
+        assertEquals(1, customers);
+        assertEquals(2, accounts);
+        assertEquals(2, transfers);
+        assertEquals(1, alerts);
     }
 
     @Test
@@ -113,7 +119,9 @@ class DemoScenarioTest {
                 reopened.uowFactory, feePolicy);
 
         assertEquals(first, again.seed());
-        assertEquals(1, reopened.store.data().customers.size());
+
+        int customers = reopened.store.read(data -> data.customers.size());
+        assertEquals(1, customers);
     }
 
     @Test
