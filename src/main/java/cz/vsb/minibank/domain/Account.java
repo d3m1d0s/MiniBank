@@ -1,6 +1,7 @@
 package cz.vsb.minibank.domain;
 
 import cz.vsb.minibank.domain.exceptions.InsufficientFundsException;
+import cz.vsb.minibank.domain.exceptions.InvalidAmountException;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 
@@ -27,19 +28,30 @@ public class Account {
     }
 
     /**
-     * Returns true when the account has enough balance to cover amount and fee.
+     * Returns true when amount and fee are debitable values and the balance covers them.
      */
     public boolean canDebit(Money amount, Money fee) {
+        // A non-positive amount or a negative fee makes the comparison below trivially
+        // true, which is what let a debit add to the balance instead of reducing it.
+        if (!amount.isPositive() || fee.isNegative()) {
+            return false;
+        }
         Money total = amount.plus(fee);
         return balance.gte(total);
     }
 
     /**
-     * Debits the account by amount plus fee or throws when funds are insufficient.
+     * Debits the account by amount plus fee.
      *
-     * @throws InsufficientFundsException when the account cannot be debited
+     * @throws InvalidAmountException when the amount is not positive or the fee is negative
+     * @throws InsufficientFundsException when the balance does not cover amount and fee
      */
     public void debit(Money amount, Money fee) {
+        // Checked before canDebit so that a bad amount is not reported as missing funds.
+        if (!amount.isPositive() || fee.isNegative()) {
+            throw new InvalidAmountException("Cannot debit " + amount + " with fee " + fee);
+        }
+
         Money total = amount.plus(fee);
         if (!canDebit(amount, fee)) {
             throw new InsufficientFundsException("Insufficient funds");

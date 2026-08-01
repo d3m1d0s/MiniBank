@@ -99,6 +99,49 @@ class MoneyTest {
     }
 
     // -------------------------------------------------------------------------
+    // Payment amounts
+    // -------------------------------------------------------------------------
+
+    @Test
+    void czkPaymentAcceptsWholeHellerAmounts() {
+        assertEquals(Money.czk(0.01), Money.czkPayment(0.01));
+        assertEquals(Money.czk(1000), Money.czkPayment(1000));
+        assertEquals(Money.czk(1234.56), Money.czkPayment(1234.56));
+    }
+
+    @Test
+    void czkPaymentRejectsNonPositiveAmounts() {
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(0));
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(-0.01));
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(-1000));
+    }
+
+    @Test
+    void czkPaymentRejectsAmountsFinerThanOneHeller() {
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(0.001));
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(0.005));
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(1.234));
+    }
+
+    @Test
+    void czkPaymentRejectsNonFiniteAmounts() {
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(Double.NaN));
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(Double.POSITIVE_INFINITY));
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(Double.NEGATIVE_INFINITY));
+    }
+
+    /**
+     * Only the payment factory is strict. The plain factory stays permissive because the
+     * persistence load path and {@link Money#minus} both need to build non-positive values.
+     */
+    @Test
+    void thePlainFactoryStaysPermissive() {
+        assertEquals(Money.czk(0.01), Money.czk(0.005));
+        assertTrue(Money.czk(-1).isNegative());
+        assertTrue(Money.czk(0).isZero());
+    }
+
+    // -------------------------------------------------------------------------
     // Non-finite amounts
     // -------------------------------------------------------------------------
 

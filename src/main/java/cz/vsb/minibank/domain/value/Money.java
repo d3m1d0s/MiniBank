@@ -54,6 +54,34 @@ public final class Money implements Comparable<Money> {
         return of("CZK", amount);
     }
 
+    /**
+     * Creates a CZK amount that a caller asked to move.
+     * Stricter than {@link #czk(double)}: the value must be finite, strictly positive and
+     * already expressible in whole hellers. Rounding a requested amount would move money
+     * the caller did not ask for, so 0.005 is rejected rather than charged as 0.01.
+     *
+     * @throws InvalidAmountException when the value cannot be used as a payment amount
+     */
+    public static Money czkPayment(double amount) {
+        if (!Double.isFinite(amount)) {
+            throw new InvalidAmountException("Amount must be a finite number: " + amount);
+        }
+
+        // BigDecimal.valueOf gives the shortest decimal form of the double, so the scale
+        // after stripping zeros is the precision the caller actually typed.
+        BigDecimal requested = BigDecimal.valueOf(amount);
+        if (requested.stripTrailingZeros().scale() > 2) {
+            throw new InvalidAmountException(
+                    "Amount must not be more precise than 0.01: " + requested.toPlainString());
+        }
+
+        Money money = czk(requested);
+        if (!money.isPositive()) {
+            throw new InvalidAmountException("Amount must be greater than zero: " + money);
+        }
+        return money;
+    }
+
     private Money(String currency, BigDecimal amount) {
         this.currency = Objects.requireNonNull(currency);
         this.amount = Objects.requireNonNull(amount, "amount").setScale(2, RoundingMode.HALF_UP);

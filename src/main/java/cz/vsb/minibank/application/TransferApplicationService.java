@@ -57,6 +57,10 @@ public class TransferApplicationService {
      * @return identifier of the created transfer
      */
     public int submitPaymentByBeneficiary(int customerId, int sourceAccountId, int beneficiaryId, double amountCzk, String message) {
+        // Validated before the unit of work opens: a rejected amount is caller input, not a
+        // reason to start a transaction and roll it back.
+        Money amount = Money.czkPayment(amountCzk);
+
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
 
@@ -64,7 +68,6 @@ public class TransferApplicationService {
             var account = accounts.byId(sourceAccountId).orElseThrow(() -> new RuntimeException("Account not found"));
             var beneficiary = customers.beneficiaryById(beneficiaryId).orElseThrow(() -> new RuntimeException("Beneficiary not found"));
 
-            Money amount = Money.czk(amountCzk);
             boolean trusted = beneficiary.trusted();
             RiskDecision decision = riskService.evaluate(trusted, amount, account.dailyLimit());
 
@@ -87,13 +90,16 @@ public class TransferApplicationService {
      * @return identifier of the created transfer
      */
     public int submitPaymentToIban(int customerId, int sourceAccountId, String targetIban, double amountCzk, String message) {
+        // Validated before the unit of work opens: a rejected amount is caller input, not a
+        // reason to start a transaction and roll it back.
+        Money amount = Money.czkPayment(amountCzk);
+
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
             IBAN iban = new IBAN(targetIban);
             var customer = customers.byId(customerId).orElseThrow(() -> new RuntimeException("Customer not found"));
             var account = accounts.byId(sourceAccountId).orElseThrow(() -> new RuntimeException("Account not found"));
 
-            Money amount = Money.czk(amountCzk);
             boolean trusted = false;
             RiskDecision decision = riskService.evaluate(trusted, amount, account.dailyLimit());
 

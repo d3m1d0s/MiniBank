@@ -1,5 +1,6 @@
 package cz.vsb.minibank.domain;
 
+import cz.vsb.minibank.domain.exceptions.InvalidAmountException;
 import cz.vsb.minibank.domain.exceptions.InvalidStateTransitionException;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.domain.lazy.LazyRef;
@@ -36,6 +37,13 @@ public class Transfer {
 
     public Transfer(int id, int sourceAccountId, Integer beneficiaryId, String targetIbanSnapshot,
                     Money amount, String currency) {
+        // Class invariant: a transfer always moves a strictly positive amount. This also runs
+        // when a stored row is rehydrated, so a row that breaks it is refused as corrupt
+        // instead of being loaded back into the domain.
+        if (amount == null || !amount.isPositive()) {
+            throw new InvalidAmountException("Transfer amount must be greater than zero: " + amount);
+        }
+
         this.id = id; this.sourceAccountId = sourceAccountId; this.beneficiaryId = beneficiaryId;
         this.targetIbanSnapshot = targetIbanSnapshot; this.amount = amount; this.currency = currency;
         this.status = TransferStatus.CREATED; this.createdAt = Instant.now();
