@@ -12,9 +12,10 @@ services:
       #   MINIBANK_DB_PORT=55432 docker compose up -d
       - "${MINIBANK_DB_PORT:-5432}:5432"
     volumes:
-      # The directory, not a single file: on Windows, Docker Desktop creates a directory
-      # in place of a missing bind mount source, and the container is then broken for good.
-      - ./db:/docker-entrypoint-initdb.d:ro
+      # A directory, not a single file: on Windows, Docker Desktop creates a directory in
+      # place of a missing bind mount source, and the container is then broken for good.
+      # db/init holds exactly what may run unattended; db/reset.sql stays out of it.
+      - ./db/init:/docker-entrypoint-initdb.d:ro
       - minibank_pgdata:/var/lib/postgresql/data
     healthcheck:
       # Over TCP on purpose. initdb runs a temporary server that listens on the unix socket

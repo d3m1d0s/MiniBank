@@ -10,8 +10,10 @@ VIS_project_minibank/
 │  ├─ data.json
 │  └─ demo.json
 ├─ db/
-│  ├─ demo_seed.sql
-│  └─ schema.sql
+│  ├─ init/
+│  │  ├─ schema.sql
+│  │  └─ test-database.sql
+│  └─ reset.sql
 │
 ├─ minibank-fraud-web/
 │  ├─ node_modules/...

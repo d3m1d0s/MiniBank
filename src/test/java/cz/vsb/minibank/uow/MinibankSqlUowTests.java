@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * SQL-backed integration tests for UnitOfWork + repositories (PostgreSQL).
  * <p>
- * These need a live PostgreSQL with {@code db/schema.sql} applied. Without one the whole
+ * These need a live PostgreSQL with {@code db/init/schema.sql} applied. Without one the whole
  * class is reported as skipped, so a plain {@code mvn test} on a fresh clone stays green.
  * See {@link TestDatabase} for the connection keys and how to create the database.
  */

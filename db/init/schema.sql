@@ -1,17 +1,6 @@
--- Drop existing tables (for local dev / tests; optional)
-DROP TABLE IF EXISTS fraud_alerts CASCADE;
-DROP TABLE IF EXISTS transfers CASCADE;
-DROP TABLE IF EXISTS beneficiaries CASCADE;
-DROP TABLE IF EXISTS accounts CASCADE;
-DROP TABLE IF EXISTS customers CASCADE;
-DROP TABLE IF EXISTS users CASCADE;
-
-DROP SEQUENCE IF EXISTS fraud_alerts_id_seq;
-DROP SEQUENCE IF EXISTS transfers_id_seq;
-DROP SEQUENCE IF EXISTS beneficiaries_id_seq;
-DROP SEQUENCE IF EXISTS accounts_id_seq;
-DROP SEQUENCE IF EXISTS customers_id_seq;
-DROP SEQUENCE IF EXISTS users_id_seq;
+-- Creates the MiniBank schema in an empty database. It drops nothing, so running it
+-- against a database that already has these tables fails instead of destroying them.
+-- To start over on purpose, run ../reset.sql.
 
 ------------------------------------------------------------
 -- CUSTOMERS

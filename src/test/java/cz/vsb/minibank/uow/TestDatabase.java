@@ -15,7 +15,7 @@ import java.sql.DriverManager;
  * <p>
  * {@code docker compose up -d} creates this database alongside the application one and
  * applies the schema to both, so no manual step is needed. Against a PostgreSQL of your
- * own, create it and apply {@code db/schema.sql} by hand. Without it the whole class
+ * own, create it and apply {@code db/init/schema.sql} by hand. Without it the whole class
  * reports as skipped rather than failing.
  */
 final class TestDatabase {
@@ -68,7 +68,7 @@ final class TestDatabase {
     }
 
     static String unreachableMessage() {
-        return "No PostgreSQL test database at " + url() + ". Create it and apply db/schema.sql,"
+        return "No PostgreSQL test database at " + url() + ". Create it and apply db/init/schema.sql,"
                 + " or point the tests elsewhere with -D" + URL + "=...";
     }
 
