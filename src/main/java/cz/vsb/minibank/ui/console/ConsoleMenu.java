@@ -3,7 +3,10 @@ package cz.vsb.minibank.ui.console;
 import cz.vsb.minibank.application.AuthService;
 import cz.vsb.minibank.application.BootstrapServices;
 import cz.vsb.minibank.domain.*;
-import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
+import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
+import cz.vsb.minibank.domain.exceptions.AuthenticationFailedException;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
+import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
@@ -182,7 +185,7 @@ public class ConsoleMenu {
                 System.out.println("Welcome, " + currentUser.username()
                         + " (" + currentUser.role() + ")");
                 break;
-            } catch (AuthorizationFailedException e) {
+            } catch (AuthenticationFailedException e) {
                 System.out.println("Invalid username or password, please try again.");
             }
         }
@@ -197,12 +200,12 @@ public class ConsoleMenu {
         if (currentUser != null) {
             Integer cid = currentUser.customerId();
             if (cid == null) {
-                throw new AuthorizationFailedException("Current user is not a customer");
+                throw AccessDeniedException.forRole("Current user is not a customer");
             }
             return cid;
         }
         if (customerId <= 0) {
-            throw new AuthorizationFailedException("No customer id available");
+            throw AccessDeniedException.forRole("No customer id available");
         }
         return customerId;
     }
@@ -241,6 +244,17 @@ public class ConsoleMenu {
 
             try {
                 cmd.execute();
+            } catch (DataIntegrityException e) {
+                // Ahead of the DomainException clause on purpose. Inconsistent stored data is
+                // our fault, not the operator's: it must keep the ERROR severity and the
+                // generic wording it had while these sites threw bare RuntimeExceptions,
+                // rather than printing internal ids at WARN like an expected domain refusal.
+                AppLogger.error(
+                        "ui.console",
+                        "Inconsistent stored data in command " + cmd.code(),
+                        e
+                );
+                System.out.println("[Error] Operation could not be completed. Please try again.");
             } catch (DomainException e) {
                 AppLogger.warn(
                         "ui.console",
@@ -363,7 +377,15 @@ public class ConsoleMenu {
         System.out.print("OTP (0000/123456): ");
         String otp = in.nextLine().trim();
 
-        services.transferService.authorizePayment(tid, otp);
+        // A wrong code is now a refusal rather than a quiet return. Caught here so that all
+        // three attempts read the same way: without this the first two would print only an
+        // error and the third - which declines the transfer and returns normally - would
+        // still print the status and balance below.
+        try {
+            services.transferService.authorizePayment(tid, otp);
+        } catch (InvalidOtpException e) {
+            System.out.println("[Error] Wrong one-time password.");
+        }
 
         TransferRepository transfers = infra.transfers;
         AccountRepository accounts = infra.accounts;

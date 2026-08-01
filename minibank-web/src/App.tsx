@@ -1,6 +1,7 @@
 // src/App.tsx
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import './App.css';
+import { setSessionExpiredHandler } from './api';
 import NewPaymentPage from './NewPaymentPage';
 import { WaitingAuthorizationsPage } from './WaitingAuthorizationsPage';
 import FraudDeskPage from './FraudDeskPage';
@@ -18,12 +19,30 @@ interface AuthState {
 function App() {
     const [view, setView] = useState<View>('new-payment');
     const [auth, setAuth] = useState<AuthState | null>(null);
+    const [signedOutReason, setSignedOutReason] = useState<string | null>(null);
+
+    // A 401 AUTH_REQUIRED means the server no longer accepts the session this app is
+    // holding - routine after a backend restart, since sessions are in memory with no
+    // expiry. Until now there was no path back to the sign-in screen at all: setAuth was
+    // called exactly once and this app has no logout control, so recovery was an
+    // undiscoverable F5. The reason is carried across so the user is not simply ejected
+    // mid-payment with no explanation. The hook sits above the early return below because
+    // the rules of hooks require it.
+    useEffect(() => {
+        setSessionExpiredHandler(() => {
+            setAuth(null);
+            setSignedOutReason('Your session has expired. Please sign in again.');
+        });
+        return () => setSessionExpiredHandler(null);
+    }, []);
 
     // While the user is not logged in, show only the login dialog
     if (!auth) {
         return (
             <LoginDialog
+                notice={signedOutReason}
                 onLoggedIn={(info) => {
+                    setSignedOutReason(null);
                     setAuth(info);
                     // Initial view depends on the logged-in role
                     setView(info.role === 'FRAUD_ANALYST' ? 'fraud-desk' : 'new-payment');

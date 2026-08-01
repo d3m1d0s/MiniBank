@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Login from './Login';
 import FraudDesk from './FraudDesk';
-import { logoutSession } from './api';
+import { logoutSession, setSessionExpiredHandler } from './api';
 
 type Role = 'CUSTOMER' | 'FRAUD_ANALYST' | 'OPERATIONS' | 'MANAGEMENT';
 
@@ -13,9 +13,29 @@ interface AuthState {
 
 export default function App() {
     const [auth, setAuth] = useState<AuthState | null>(null);
+    const [signedOutReason, setSignedOutReason] = useState<string | null>(null);
+
+    // This app already had the "return to sign-in" mechanism, on the Logout buttons below.
+    // Nothing in any error path ever invoked it, so a session the server had forgotten
+    // left the analyst on a queue where every request failed.
+    useEffect(() => {
+        setSessionExpiredHandler(() => {
+            setAuth(null);
+            setSignedOutReason('Your session has expired. Please sign in again.');
+        });
+        return () => setSessionExpiredHandler(null);
+    }, []);
 
     if (!auth) {
-        return <Login onLoggedIn={setAuth} />;
+        return (
+            <Login
+                notice={signedOutReason}
+                onLoggedIn={(info) => {
+                    setSignedOutReason(null);
+                    setAuth(info);
+                }}
+            />
+        );
     }
 
     if (auth.role !== 'FRAUD_ANALYST') {

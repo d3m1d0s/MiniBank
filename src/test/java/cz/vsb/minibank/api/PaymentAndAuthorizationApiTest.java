@@ -5,6 +5,10 @@ import cz.vsb.minibank.application.BootstrapServices;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.application.TransferApplicationService;
 import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.exceptions.ConflictException;
+import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
+import cz.vsb.minibank.domain.exceptions.NotFoundException;
+import cz.vsb.minibank.domain.exceptions.ValidationException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
@@ -187,7 +191,7 @@ public class PaymentAndAuthorizationApiTest {
     }
 
     @Test
-    void authorizePayment_withInvalidOtp_keepsTransferWaitingAuth() {
+    void authorizePayment_withInvalidOtp_isRefusedAndSpendsOneAttempt() {
         int transferId = createWaitingTransferForCustomer2();
 
         Transfer before = transfers.byId(transferId)
@@ -200,13 +204,92 @@ public class PaymentAndAuthorizationApiTest {
 
         AuthorizePaymentRequest req = new AuthorizePaymentRequest("WRONG_OTP");
 
-        AuthorizePaymentResult result = authorizationController.authorize(transferId, req);
+        assertThrows(InvalidOtpException.class,
+                () -> authorizationController.authorize(transferId, req));
 
         Transfer after = transfers.byId(transferId)
                 .orElseThrow(() -> new AssertionError("Transfer not found after auth"));
 
-        assertEquals(TransferStatus.WAITING_AUTH.name(), result.status());
+        // The refusal is raised after the commit, so the spent attempt must have survived it.
+        // If a refactor ever moves the throw above uow.commit(), this is what notices: the
+        // three-attempt limit would silently become unlimited.
         assertEquals(TransferStatus.WAITING_AUTH, after.status());
+        assertEquals(1, after.authAttempts());
+    }
+
+    /**
+     * The third wrong code is not an error: the transfer is declined and that outcome is
+     * reported in a 200 body, which is what both frontends already render.
+     */
+    @Test
+    void authorizePayment_withTheLastInvalidOtp_declinesInsteadOfThrowing() {
+        int transferId = createWaitingTransferForCustomer2();
+        AuthorizePaymentRequest req = new AuthorizePaymentRequest("WRONG_OTP");
+
+        assertThrows(InvalidOtpException.class, () -> authorizationController.authorize(transferId, req));
+        assertThrows(InvalidOtpException.class, () -> authorizationController.authorize(transferId, req));
+
+        AuthorizePaymentResult result = authorizationController.authorize(transferId, req);
+
+        assertEquals(TransferStatus.DECLINED.name(), result.status());
+        assertEquals("Too many invalid OTP attempts", result.declineReason());
+        assertEquals(3, transfers.byId(transferId).orElseThrow().authAttempts());
+    }
+
+    @Test
+    void authorizePayment_withoutAnOtp_isRejectedWithoutSpendingAnAttempt() {
+        int transferId = createWaitingTransferForCustomer2();
+
+        assertThrows(ValidationException.class,
+                () -> authorizationController.authorize(transferId, new AuthorizePaymentRequest(null)));
+        assertThrows(ValidationException.class,
+                () -> authorizationController.authorize(transferId, new AuthorizePaymentRequest("  ")));
+
+        Transfer after = transfers.byId(transferId).orElseThrow();
+        assertEquals(0, after.authAttempts(), "An omitted field must not cost an attempt");
+        assertEquals(TransferStatus.WAITING_AUTH, after.status());
+    }
+
+    @Test
+    void authorizePayment_withAnUnknownId_isNotFound() {
+        assertThrows(NotFoundException.class,
+                () -> authorizationController.authorize(999_999, new AuthorizePaymentRequest("0000")));
+    }
+
+    /**
+     * Authorizing the same transfer twice is a state conflict, not a server fault. It used
+     * to be a bare RuntimeException, so it answered 500.
+     */
+    @Test
+    void authorizePayment_onATransferThatIsNotWaiting_isAConflict() {
+        int transferId = createWaitingTransferForCustomer2();
+        authorizationController.cancel(transferId);
+
+        assertThrows(ConflictException.class,
+                () -> authorizationController.authorize(transferId, new AuthorizePaymentRequest("0000")));
+    }
+
+    @Test
+    void cancelPayment_withAnUnknownId_isNotFound() {
+        assertThrows(NotFoundException.class, () -> authorizationController.cancel(999_999));
+    }
+
+    @Test
+    void transferDetails_withAnUnknownId_isNotFound() {
+        assertThrows(NotFoundException.class, () -> authorizationController.transferDetails(999_999));
+    }
+
+    /**
+     * A source account id the caller made up is the caller's mistake, not ours. This is
+     * also the exact line A4 extends with the "exists but is another customer's" branch,
+     * which must throw the same type so the two stay indistinguishable.
+     */
+    @Test
+    void createPayment_withAnUnknownSourceAccount_isNotFound() {
+        NewPaymentRequest req = new NewPaymentRequest(
+                TEST_CUSTOMER_ID, 999_999, "CZ0201000000000012345678", 1000.0, "no such account");
+
+        assertThrows(NotFoundException.class, () -> paymentController.createPayment(req));
     }
 
     @Test

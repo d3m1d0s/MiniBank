@@ -3,7 +3,7 @@ package cz.vsb.minibank.api;
 import cz.vsb.minibank.application.FraudApplicationService;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.domain.*;
-import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
+import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
@@ -130,7 +130,7 @@ class FraudControllerAuthTest {
 
         // act + assert
         assertThrows(
-                AuthorizationFailedException.class,
+                AccessDeniedException.class,
                 () -> ctrl.listAlerts(null, null, null, null, null, null)
         );
     }

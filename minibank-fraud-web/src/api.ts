@@ -1,9 +1,16 @@
-export type ApiError = Error & { code?: string };
+export type ApiError = Error & { code?: string; status?: number };
 
 let currentSessionId: string | null = null;
 
 export function setSessionId(id: string | null) {
     currentSessionId = id;
+}
+
+let onSessionExpired: (() => void) | null = null;
+
+/** Registered by the app shell so a rejected session returns to the sign-in screen. */
+export function setSessionExpiredHandler(fn: (() => void) | null) {
+    onSessionExpired = fn;
 }
 
 async function apiFetch(input: RequestInfo, init: RequestInit = {}): Promise<Response> {
@@ -16,17 +23,32 @@ async function handle<T>(res: Response): Promise<T> {
     const text = await res.text();
 
     if (!res.ok) {
+        let code: string | undefined;
+        let message = '';
+
+        // The parse must not wrap the throw. It used to: the assignment of `code` was
+        // annihilated by the catch below, which replaced the whole error with the raw
+        // response body. This app never successfully attached a code at all.
         if (text) {
             try {
                 const parsed = JSON.parse(text) as { code?: string; message?: string };
-                const error = new Error(parsed.message || parsed.code || res.statusText);
-                if (parsed.code) (error as any).code = parsed.code;
-                throw error;
+                code = parsed.code;
+                message = parsed.message ?? '';
             } catch {
-                throw new Error(text || res.statusText);
+                message = text;
             }
         }
-        throw new Error(res.statusText);
+
+        const error = new Error(message || res.statusText || 'Request failed') as ApiError;
+        error.code = code;
+        error.status = res.status;
+
+        if (res.status === 401 && code === 'AUTH_REQUIRED') {
+            setSessionId(null);
+            onSessionExpired?.();
+        }
+
+        throw error;
     }
 
     if (!text) return {} as T;

@@ -1,27 +1,16 @@
 // src/api.ts
 
-export type ApiError = Error & { code?: string };
+export type ApiError = Error & { code?: string; status?: number };
 
+/** True only for a failure that carries a server response, not for a network error. */
 export function isApiError(e: unknown): e is ApiError {
-    return e instanceof Error;
+    return e instanceof Error && typeof (e as ApiError).status === 'number';
 }
 
 export function mapPaymentError(error: ApiError): string[] {
-    let code = error.code;
-    let message = error.message || '';
-
-    // If there is no explicit error code but the message looks like JSON, try to parse it
-    if (!code && message && message.trim().startsWith('{')) {
-        try {
-            const parsed = JSON.parse(message) as { code?: string; message?: string };
-            if (parsed.code) code = parsed.code;
-            if (parsed.message) message = parsed.message;
-        } catch {
-            // Not JSON, keep original message
-        }
-    }
-
-    switch (code) {
+    // No JSON re-parse of the message any more: that only existed to dig the code back out
+    // of a string that handle() had mangled, and handle() no longer mangles it.
+    switch (error.code) {
         case 'INVALID_IBAN':
             return [
                 'The IBAN is not valid.',
@@ -32,14 +21,17 @@ export function mapPaymentError(error: ApiError): string[] {
                 'There are not enough funds on the selected account.',
                 'Try lowering the amount or use a different account.',
             ];
-        case 'DAILY_LIMIT_EXCEEDED':
+        case 'VALIDATION_ERROR':
             return [
-                'Daily limit for this account has been exceeded.',
-                'You can try a lower amount or wait until tomorrow.',
+                'Some of the payment details are not valid.',
+                'Check the amount and the beneficiary IBAN.',
             ];
+        case 'NOT_FOUND':
+            return ['The selected account is not available. Reload the page and try again.'];
+        case 'FORBIDDEN':
+            return ['You are not allowed to send a payment from this account.'];
         default:
-            // Fallback – use cleaned message, or a generic one if message is empty
-            return [message || 'Unexpected error while creating payment.'];
+            return [error.message || 'Unexpected error while creating payment.'];
     }
 }
 
@@ -138,31 +130,54 @@ export function logoutSession() {
     setSessionId(null);
 }
 
+let onSessionExpired: (() => void) | null = null;
+
+/**
+ * Registered by the app shell. Without it a rejected session leaves a signed-in UI whose
+ * every request fails, and the only way back to the sign-in screen is a page reload.
+ */
+export function setSessionExpiredHandler(fn: (() => void) | null) {
+    onSessionExpired = fn;
+}
+
 /**
  * Common response handler:
- * - throws an Error for non-2xx responses, preferring JSON { code, message }
+ * - throws an ApiError carrying { code, status } for non-2xx responses
  * - parses JSON on success, or returns plain text as a fallback
  */
 async function handle<T>(res: Response): Promise<T> {
     const text = await res.text();
 
     if (!res.ok) {
+        let code: string | undefined;
+        let message = '';
+
+        // The parse must not wrap the throw. It used to: `throw error` sat inside this try,
+        // so the catch below swallowed the error that carried the code and replaced it with
+        // `new Error(rawBody)`. That is why every error box in this app rendered a literal
+        // JSON blob and why error.code was always undefined.
         if (text) {
-            // Try to parse AppError payload { code, message }
             try {
                 const parsed = JSON.parse(text) as { code?: string; message?: string };
-                const error = new Error(parsed.message || parsed.code || res.statusText);
-                if (parsed.code) {
-                    (error as any).code = parsed.code;
-                }
-                throw error;
+                code = parsed.code;
+                message = parsed.message ?? '';
             } catch {
-                // Response is not JSON, throw raw text
-                throw new Error(text || res.statusText);
+                message = text;
             }
         }
 
-        throw new Error(res.statusText);
+        const error = new Error(message || res.statusText || 'Request failed') as ApiError;
+        error.code = code;
+        error.status = res.status;
+
+        // AUTH_REQUIRED means the session is gone; AUTH_FAILED is a rejected sign-in on the
+        // login screen itself and must not trigger this.
+        if (res.status === 401 && code === 'AUTH_REQUIRED') {
+            setSessionId(null);
+            onSessionExpired?.();
+        }
+
+        throw error;
     }
 
     // Successful response

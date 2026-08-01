@@ -5,6 +5,7 @@ import cz.vsb.minibank.domain.Address;
 import cz.vsb.minibank.domain.Beneficiary;
 import cz.vsb.minibank.domain.Customer;
 import cz.vsb.minibank.domain.Transfer;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.InvalidAmountException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
@@ -151,11 +152,17 @@ class TransferAmountValidationTest {
         assertEquals(1, gateway.sentTransfers().size());
     }
 
+    /**
+     * The constructor guard is unreachable from a request: Money.czkPayment rejects every
+     * non-positive amount before a Transfer is built. So it is a corrupt-data guard, and
+     * DataIntegrityException is what keeps it a 500 rather than telling the client its own
+     * request was bad. The guard itself is unchanged.
+     */
     @Test
-    void aTransferCannotBeConstructedWithANonPositiveAmount() {
-        assertThrows(InvalidAmountException.class,
+    void aNonPositiveAmountIsRefusedByTheConstructorAsCorruptData() {
+        assertThrows(DataIntegrityException.class,
                 () -> new Transfer(1, ACCOUNT_ID, null, TARGET_IBAN, Money.czk(-1), "CZK"));
-        assertThrows(InvalidAmountException.class,
+        assertThrows(DataIntegrityException.class,
                 () -> new Transfer(1, ACCOUNT_ID, null, TARGET_IBAN, Money.czk(0), "CZK"));
     }
 
@@ -187,6 +194,6 @@ class TransferAmountValidationTest {
         row.currency = "CZK";
         row.status = "SENT";
 
-        assertThrows(InvalidAmountException.class, () -> JsonMapper.toDomain(row));
+        assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(row));
     }
 }

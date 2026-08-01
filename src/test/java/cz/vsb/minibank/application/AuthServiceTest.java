@@ -2,7 +2,7 @@ package cz.vsb.minibank.application;
 
 import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.UserRole;
-import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
+import cz.vsb.minibank.domain.exceptions.AuthenticationFailedException;
 import cz.vsb.minibank.domain.repository.UserRepository;
 import org.junit.jupiter.api.Test;
 
@@ -68,7 +68,7 @@ class AuthServiceTest {
     }
 
     @Test
-    void loginWithWrongPasswordThrowsAuthorizationFailed() {
+    void loginWithWrongPasswordThrowsAuthenticationFailed() {
         PasswordEncoder encoder = new Pbkdf2PasswordEncoder();
         InMemoryUserRepository users = new InMemoryUserRepository();
 
@@ -81,18 +81,85 @@ class AuthServiceTest {
 
         AuthService auth = new AuthService(users, encoder);
 
-        assertThrows(AuthorizationFailedException.class, () ->
+        assertThrows(AuthenticationFailedException.class, () ->
                 auth.login("alice", "wrongPassword".toCharArray()));
     }
 
     @Test
-    void loginWithUnknownUsernameThrowsAuthorizationFailed() {
+    void loginWithUnknownUsernameThrowsAuthenticationFailed() {
         PasswordEncoder encoder = new Pbkdf2PasswordEncoder();
         InMemoryUserRepository users = new InMemoryUserRepository();
 
         AuthService auth = new AuthService(users, encoder);
 
-        assertThrows(AuthorizationFailedException.class, () ->
+        assertThrows(AuthenticationFailedException.class, () ->
                 auth.login("no_such_user", "anything".toCharArray()));
+    }
+
+    /**
+     * Both login failures return the same status, the same code and the same message, so
+     * the only channel left that could answer "does this username exist?" is how long the
+     * request takes. PBKDF2 at 120 000 iterations is tens of milliseconds, which is enough
+     * to read off a single request, so the unknown-username branch must hash too.
+     *
+     * Asserted by counting calls rather than by timing them: a stopwatch assertion on a
+     * shared CI machine is a flake generator, and the call count is the property that
+     * actually has to hold.
+     */
+    @Test
+    void loginWithUnknownUsernameStillPaysThePasswordHashingCost() {
+        CountingEncoder encoder = new CountingEncoder();
+        InMemoryUserRepository users = new InMemoryUserRepository();
+
+        byte[] salt = encoder.generateSalt();
+        User u = new User(users.nextId(), "alice", encoder.hash("secret123".toCharArray(), salt),
+                salt, UserRole.CUSTOMER, 42);
+        users.save(u);
+
+        AuthService auth = new AuthService(users, encoder);
+
+        encoder.matchCalls = 0;
+        assertThrows(AuthenticationFailedException.class, () ->
+                auth.login("alice", "wrongPassword".toCharArray()));
+        int knownUsernameCost = encoder.matchCalls;
+
+        encoder.matchCalls = 0;
+        assertThrows(AuthenticationFailedException.class, () ->
+                auth.login("no_such_user", "anything".toCharArray()));
+        int unknownUsernameCost = encoder.matchCalls;
+
+        assertEquals(knownUsernameCost, unknownUsernameCost,
+                "An unknown username must cost the same number of password hashes as a wrong password");
+        assertEquals(1, unknownUsernameCost);
+    }
+
+    /**
+     * Counts matches() calls, and refuses a zero-length salt the way PBEKeySpec does, so
+     * the stand-in salt AuthService uses stays a valid one.
+     */
+    private static class CountingEncoder implements PasswordEncoder {
+
+        int matchCalls;
+
+        @Override
+        public byte[] hash(char[] password, byte[] salt) {
+            if (salt == null || salt.length == 0) {
+                throw new IllegalArgumentException("Salt must not be empty");
+            }
+            byte[] out = new byte[32];
+            out[0] = (byte) new String(password).hashCode();
+            return out;
+        }
+
+        @Override
+        public boolean matches(char[] rawPassword, byte[] salt, byte[] expectedHash) {
+            matchCalls++;
+            return java.util.Arrays.equals(hash(rawPassword, salt), expectedHash);
+        }
+
+        @Override
+        public byte[] generateSalt() {
+            return new byte[16];
+        }
     }
 }

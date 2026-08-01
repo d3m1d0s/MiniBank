@@ -1,6 +1,6 @@
 package cz.vsb.minibank.api;
 
-import cz.vsb.minibank.api.ApiError;
+import cz.vsb.minibank.application.AppLogger;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.application.SessionStore;
 import cz.vsb.minibank.domain.User;
@@ -45,7 +45,11 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
 
         String sessionId = request.getHeader("X-Session-Id");
         if (sessionId == null || sessionId.isBlank()) {
-            writeUnauthorized(response, "Missing session id");
+            // Not logged, on purpose. A request with no session header at all is what an
+            // unauthenticated browser does routinely; it carries no security signal, and
+            // logging it would let an anonymous caller drive an unbounded, unrotated log
+            // file at request rate.
+            writeUnauthorized(response);
             return false;
         }
 
@@ -53,7 +57,8 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
                 .orElse(null);
 
         if (user == null) {
-            writeUnauthorized(response, "Invalid session id");
+            AppLogger.warn("api", "Rejected a request with an unknown session id: " + forLog(path));
+            writeUnauthorized(response);
             return false;
         }
 
@@ -71,11 +76,28 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
         SecurityContext.clear();
     }
 
-    private void writeUnauthorized(HttpServletResponse response, String message) throws IOException {
+    /**
+     * preHandle returns false instead of throwing, so this response never reaches the
+     * handler advice. The payload comes from the shared catalogue for that reason.
+     *
+     * A missing header and an unknown session id produce the identical body: telling the
+     * two apart would answer "is this session id one you have ever issued?".
+     */
+    private void writeUnauthorized(HttpServletResponse response) throws IOException {
         response.setStatus(HttpStatus.UNAUTHORIZED.value());
         response.setContentType("application/json");
+        objectMapper.writeValue(response.getOutputStream(), ApiErrors.AUTH_REQUIRED);
+    }
 
-        ApiError body = new ApiError("AUTH_REQUIRED", message);
-        objectMapper.writeValue(response.getOutputStream(), body);
+    /**
+     * The request URI is attacker-controlled and bounded only by the container's request
+     * line limit, so it is truncated and stripped before it reaches the log file.
+     */
+    private static String forLog(String path) {
+        String p = (path == null) ? "" : path;
+        if (p.length() > 120) {
+            p = p.substring(0, 120) + "...";
+        }
+        return p.replaceAll("[^A-Za-z0-9/_.\\-]", "?");
     }
 }

@@ -3,7 +3,7 @@ package cz.vsb.minibank.api;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.application.TransferApplicationService;
 import cz.vsb.minibank.domain.*;
-import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
+import cz.vsb.minibank.domain.exceptions.NotAuthenticatedException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -63,7 +63,7 @@ class PaymentControllerAuthTest {
     }
 
     @Test
-    void listMyAccountsWithoutUserThrowsAuthorizationFailed() {
+    void listMyAccountsWithoutUserThrowsNotAuthenticated() {
         // arrange
         SecurityContext.clear();
 
@@ -77,6 +77,6 @@ class PaymentControllerAuthTest {
         );
 
         // act + assert
-        assertThrows(AuthorizationFailedException.class, ctrl::listMyAccounts);
+        assertThrows(NotAuthenticatedException.class, ctrl::listMyAccounts);
     }
 }

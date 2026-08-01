@@ -4,7 +4,7 @@ import cz.vsb.minibank.application.AuthService;
 import cz.vsb.minibank.application.SessionStore;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.domain.User;
-import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
+import cz.vsb.minibank.domain.exceptions.ValidationException;
 import org.springframework.web.bind.annotation.*;
 
 /**
@@ -38,8 +38,10 @@ public class AuthController {
      */
     @PostMapping("/login")
     public LoginResponse login(@RequestBody LoginRequest req) {
+        // A missing field is a malformed request, not a failed credential check: sharing a
+        // type with AuthService would make the 401 body reachable by omitting a field.
         if (req.username() == null || req.password() == null) {
-            throw new AuthorizationFailedException("Username and password are required");
+            throw new ValidationException("Username and password are required");
         }
 
         User u = authService.login(req.username(), req.password().toCharArray());

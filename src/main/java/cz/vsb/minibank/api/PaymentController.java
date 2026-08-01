@@ -12,6 +12,7 @@ import cz.vsb.minibank.domain.repository.TransferRepository;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import cz.vsb.minibank.domain.FeePolicy;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.value.Money;
 
 import java.util.List;
@@ -43,6 +44,12 @@ public class PaymentController {
 
     /**
      * Lists all accounts for the given customer identifier.
+     *
+     * No role check and no ownership check: any authenticated caller can read any
+     * customer's account ids, IBANs and balances here. The guarded twin is
+     * {@link #listMyAccounts()}, which is guarded only because it needs a customer id,
+     * not as an access rule. Closing this is backlog item A3, and the type to throw is
+     * NotFoundException.
      */
     @GetMapping("/customers/{customerId}/accounts")
     public List<AccountSummaryDto> listAccounts(@PathVariable("customerId") int customerId) {
@@ -76,10 +83,14 @@ public class PaymentController {
                 req.message()
         );
 
+        // transferId is the service's own return value for a row it just committed, so
+        // neither of these can be the caller naming something that does not exist.
         Transfer t = transfers.byId(transferId)
-                .orElseThrow(() -> new RuntimeException("Transfer not found"));
+                .orElseThrow(() -> new DataIntegrityException(
+                        "Transfer " + transferId + " disappeared after creation"));
         Account acc = accounts.byId(t.sourceAccountId())
-                .orElseThrow(() -> new RuntimeException("Account not found"));
+                .orElseThrow(() -> new DataIntegrityException(
+                        "Transfer " + transferId + " points at missing account " + t.sourceAccountId()));
 
         boolean authorizationRequired = (t.status() == TransferStatus.WAITING_AUTH);
 

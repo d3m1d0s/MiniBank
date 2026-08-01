@@ -1,6 +1,9 @@
 package cz.vsb.minibank.application;
 
 import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
+import cz.vsb.minibank.domain.exceptions.NotFoundException;
+import cz.vsb.minibank.domain.exceptions.ValidationException;
 import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
@@ -31,13 +34,14 @@ public class FraudApplicationService {
     public void approve(int transferId) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
-            var alert = alerts.byTransferId(transferId).orElseThrow(() -> new RuntimeException("Alert not found"));
+            var alert = alerts.byTransferId(transferId).orElseThrow(() -> new NotFoundException("Alert not found for transfer " + transferId));
             alert.approve();
             alerts.save(alert);
 
-            var t = transfers.byId(transferId).orElseThrow(() -> new RuntimeException("Transfer not found"));
+            var t = transfers.byId(transferId).orElseThrow(() -> new NotFoundException("Transfer not found: " + transferId));
             if (t.status() == TransferStatus.CREATED) {
-                var acc = accounts.byId(t.sourceAccountId()).orElseThrow(() -> new RuntimeException("Account not found"));
+                var acc = accounts.byId(t.sourceAccountId()).orElseThrow(() -> new DataIntegrityException(
+                        "Transfer " + transferId + " points at missing account " + t.sourceAccountId()));
                 t.send(acc, feePolicy);
                 transfers.save(t);
                 accounts.save(acc);
@@ -56,11 +60,11 @@ public class FraudApplicationService {
     public void decline(int transferId, String reason) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
-            var alert = alerts.byTransferId(transferId).orElseThrow(() -> new RuntimeException("Alert not found"));
+            var alert = alerts.byTransferId(transferId).orElseThrow(() -> new NotFoundException("Alert not found for transfer " + transferId));
             alert.markSuspicious(reason);
             alerts.save(alert);
 
-            var t = transfers.byId(transferId).orElseThrow(() -> new RuntimeException("Transfer not found"));
+            var t = transfers.byId(transferId).orElseThrow(() -> new NotFoundException("Transfer not found: " + transferId));
             t.decline(reason);
             transfers.save(t);
             uow.commit();
@@ -77,7 +81,7 @@ public class FraudApplicationService {
     public void requestCustomerConfirmation(int transferId) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
-            var alert = alerts.byTransferId(transferId).orElseThrow(() -> new RuntimeException("Alert not found"));
+            var alert = alerts.byTransferId(transferId).orElseThrow(() -> new NotFoundException("Alert not found for transfer " + transferId));
             alert.markSuspicious("Waiting for customer confirmation");
             alerts.save(alert);
             uow.commit();
@@ -99,12 +103,12 @@ public class FraudApplicationService {
         try (UowScope __ = new UowScope(uow)) {
 
             FraudAlert alert = alerts.byId(alertId)
-                    .orElseThrow(() -> new RuntimeException("Fraud alert not found: " + alertId));
+                    .orElseThrow(() -> new NotFoundException("Fraud alert not found: " + alertId));
 
             int transferId = alert.transferId();
 
             String decision = java.util.Optional.ofNullable(decisionRaw)
-                    .orElseThrow(() -> new RuntimeException("decision must be provided"))
+                    .orElseThrow(() -> new ValidationException("Decision must be provided"))
                     .trim()
                     .toUpperCase(java.util.Locale.ROOT);
 
@@ -113,9 +117,12 @@ public class FraudApplicationService {
                     alert.approve();
                     alerts.save(alert);
 
-                    var t = transfers.byId(transferId).orElseThrow(() -> new RuntimeException("Transfer not found"));
+                    // transferId came from the alert row, not from the request.
+                    var t = transfers.byId(transferId).orElseThrow(() -> new DataIntegrityException(
+                            "Fraud alert " + alertId + " points at missing transfer " + transferId));
                     if (t.status() == TransferStatus.CREATED) {
-                        var acc = accounts.byId(t.sourceAccountId()).orElseThrow(() -> new RuntimeException("Account not found"));
+                        var acc = accounts.byId(t.sourceAccountId()).orElseThrow(() -> new DataIntegrityException(
+                                "Transfer " + transferId + " points at missing account " + t.sourceAccountId()));
                         t.send(acc, feePolicy);
                         transfers.save(t);
                         accounts.save(acc);
@@ -126,7 +133,8 @@ public class FraudApplicationService {
                     alert.markSuspicious(r);
                     alerts.save(alert);
 
-                    var t = transfers.byId(transferId).orElseThrow(() -> new RuntimeException("Transfer not found"));
+                    var t = transfers.byId(transferId).orElseThrow(() -> new DataIntegrityException(
+                            "Fraud alert " + alertId + " points at missing transfer " + transferId));
                     t.decline(r);
                     transfers.save(t);
                 }
@@ -134,7 +142,7 @@ public class FraudApplicationService {
                     alert.markSuspicious("Waiting for customer confirmation");
                     alerts.save(alert);
                 }
-                default -> throw new RuntimeException("Unsupported decision: " + decisionRaw);
+                default -> throw new ValidationException("Unsupported decision: " + decisionRaw);
             }
 
             // Metadata update (still inside same UoW)

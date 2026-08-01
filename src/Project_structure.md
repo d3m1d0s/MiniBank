@@ -96,6 +96,7 @@ VIS_project_minibank/
    │        │  │  └─ WaitingTransferItemDto.java     (record)   
    │        │  │   
    │        │  ├─ ApiError.java                   (record) 
+   │        │  ├─ ApiErrors.java                  (class) 
    │        │  ├─ AuthController.java             (class) 
    │        │  │  ├─ AuthController               (class)
    │        │  │  ├─ LoginRequest                 (record)
@@ -135,12 +136,19 @@ VIS_project_minibank/
    │        │
    │        ├─ domain/
    │        │  ├─ exceptions/
-   │        │  │  ├─ AuthorizationFailedException.java      (exception)
-   │        │  │  ├─ DailyLimitExceededException.java       (exception)
+   │        │  │  ├─ AccessDeniedException.java             (exception)
+   │        │  │  ├─ AuthenticationFailedException.java     (exception)
+   │        │  │  ├─ ConflictException.java                 (exception)
+   │        │  │  ├─ DataIntegrityException.java            (exception)
    │        │  │  ├─ DomainException.java                   (exception)
    │        │  │  ├─ InsufficientFundsException.java        (exception)
+   │        │  │  ├─ InvalidAmountException.java            (exception)
    │        │  │  ├─ InvalidIbanException.java              (exception)
-   │        │  │  └─ InvalidStateTransitionException.java   (exception)
+   │        │  │  ├─ InvalidOtpException.java               (exception)
+   │        │  │  ├─ InvalidStateTransitionException.java   (exception)
+   │        │  │  ├─ NotAuthenticatedException.java         (exception)
+   │        │  │  ├─ NotFoundException.java                 (exception)
+   │        │  │  └─ ValidationException.java               (exception)
    │        │  │   
    │        │  ├─ lazy/
    │        │  │  ├─ LazyList.java      (class)

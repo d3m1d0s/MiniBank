@@ -44,6 +44,18 @@
             <version>5.7.0</version>
             <scope>test</scope>
         </dependency>
+        <!--
+            MockMvc, for the one thing unit tests cannot check: the status code and the
+            body bytes an endpoint actually puts on the wire. Just spring-test, not
+            spring-boot-starter-test, so nothing here overrides the JUnit and Mockito
+            versions pinned above. The version tracks spring-web from the Boot BOM.
+        -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-test</artifactId>
+            <version>6.1.13</version>
+            <scope>test</scope>
+        </dependency>
 
     </dependencies>
     <build>

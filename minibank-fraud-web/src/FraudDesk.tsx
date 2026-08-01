@@ -7,6 +7,7 @@ import {
     type AlertDetail,
     type AlertFilters,
     type AlertQueueItem,
+    type ApiError,
     type FraudDecision,
 } from './api';
 
@@ -26,6 +27,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
 
     const [listErr, setListErr] = useState<string | null>(null);
     const [detailErr, setDetailErr] = useState<string | null>(null);
+    const [decisionErr, setDecisionErr] = useState<string | null>(null);
     const [busyList, setBusyList] = useState(false);
     const [busyDetail, setBusyDetail] = useState(false);
     const [busyDecision, setBusyDecision] = useState(false);
@@ -76,16 +78,48 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
         if (!selectedId) return;
         try {
             setBusyDecision(true);
+            setDecisionErr(null);
             const updated = await postFraudDecision(selectedId, {
                 decision: kind,
                 reason: decisionReason.trim() || undefined,
                 notes: notes.trim() || undefined,
-                // assignee/tags берём из detail, если есть
+                // Assignee and tags are carried over from the alert being decided.
                 assignee: detail?.alert.assignee || undefined,
                 tags: detail?.alert.tags || undefined,
             });
             setDetail(updated);
             await reloadList();
+        } catch (e) {
+            // There was no catch here at all. A rejected decision became an unhandled
+            // promise rejection: the buttons un-greyed, the stale pre-decision alert stayed
+            // on screen, and nothing said the decision had not been applied. Since APPROVE
+            // releases a held transfer, an analyst could believe they had approved something
+            // that was not approved.
+            const err = e as ApiError;
+
+            // Re-read before reporting. This desk has no refresh control - reloadList runs
+            // on mount and on a filter change and nowhere else - so telling the analyst to
+            // reload would name something the UI does not offer.
+            await reloadList();
+            try {
+                setDetail(await fetchAlertDetail(selectedId));
+            } catch {
+                // The alert may no longer be readable; the message does not depend on it.
+            }
+
+            setDecisionErr(
+                // The only 409 this endpoint can produce comes from Transfer.decline
+                // refusing an already-sent transfer. FraudAlert.approve and markSuspicious
+                // have no state guard at all, so "this alert was already decided" is not a
+                // fact the server can report - do not claim it here.
+                err.code === 'CONFLICT'
+                    ? 'This transfer has already been sent, so the decision can no longer be applied.'
+                    : err.code === 'NOT_FOUND'
+                        ? 'This alert no longer exists.'
+                        : err.code === 'VALIDATION_ERROR'
+                            ? 'That decision was not accepted. Please try again.'
+                            : err.message || 'Failed to apply the decision.',
+            );
         } finally {
             setBusyDecision(false);
         }
@@ -229,6 +263,8 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                                 <label>Notes</label>
                                                 <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="internal notes" />
                                             </div>
+
+                                            {decisionErr && <div className="error">{decisionErr}</div>}
 
                                             <div className="actions">
                                                 <button className="btn btn--primary" disabled={busyDecision} onClick={() => decide('APPROVE')}>Approve</button>

@@ -12,6 +12,7 @@ import {
     type FraudDecision,
     type FraudDecisionRequest,
     type AlertCounters,
+    type ApiError,
 } from './api';
 
 // The fraud desk takes no navigation callback: only a FRAUD_ANALYST reaches it,
@@ -118,8 +119,26 @@ export default function FraudDeskPage() {
 
             await loadAlerts();
         } catch (e) {
+            const err = e as ApiError;
+
+            // Re-read before reporting, so the panel matches the server, and word the 409
+            // after the fact that actually produces it: Transfer.decline refusing an
+            // already-sent transfer. The alert itself has no state guard, so "already
+            // decided" is not something the server can tell us. Kept identical to the
+            // wording in minibank-fraud-web, so the two desks do not disagree.
+            await loadAlerts();
+            try {
+                setDetail(await fetchAlertDetail(selectedId));
+            } catch {
+                // The alert may no longer be readable; the message does not depend on it.
+            }
+
             setDecisionError(
-                (e as Error).message || 'Failed to apply decision.',
+                err.code === 'CONFLICT'
+                    ? 'This transfer has already been sent, so the decision can no longer be applied.'
+                    : err.code === 'NOT_FOUND'
+                        ? 'This alert no longer exists.'
+                        : err.message || 'Failed to apply decision.',
             );
         } finally {
             setLoadingDecision(false);

@@ -11,6 +11,9 @@ import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.FeePolicy;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
+import cz.vsb.minibank.domain.exceptions.NotFoundException;
+import cz.vsb.minibank.domain.exceptions.ValidationException;
 
 import org.springframework.web.bind.annotation.*;
 
@@ -44,6 +47,11 @@ public class AuthorizationController {
 
     /**
      * Lists all transfers in WAITING_AUTH state for the specified customer.
+     *
+     * No role check and no ownership check: any authenticated caller can read any
+     * customer's waiting transfers here. The guarded twin is {@link #listMyWaiting()},
+     * which is guarded only because it needs a customer id, not as an access rule.
+     * Closing this is backlog item A3, and the type to throw is NotFoundException.
      */
     @GetMapping("/customers/{customerId}/waiting-transfers")
     public List<WaitingTransferItemDto> listWaiting(@PathVariable("customerId") int customerId) {
@@ -78,13 +86,20 @@ public class AuthorizationController {
 
     /**
      * Returns detailed information for a transfer including fee, status and authorization metadata.
+     *
+     * No ownership check: any authenticated caller can read any transfer, including the
+     * source account's IBAN and balance. Closing this is backlog item A3, and a transfer
+     * belonging to somebody else must throw NotFoundException so it is indistinguishable
+     * from an id that does not exist.
      */
     @GetMapping("/transfers/{id}")
     public TransferDetailsDto transferDetails(@PathVariable("id") int id) {
         Transfer t = transfers.byId(id)
-                .orElseThrow(() -> new RuntimeException("Transfer not found"));
+                .orElseThrow(() -> new NotFoundException("Transfer not found: " + id));
+        // The id came from the store, not from the caller, so a missing account is our fault.
         Account acc = accounts.byId(t.sourceAccountId())
-                .orElseThrow(() -> new RuntimeException("Account not found"));
+                .orElseThrow(() -> new DataIntegrityException(
+                        "Transfer " + id + " points at missing account " + t.sourceAccountId()));
 
         var fee = t.feeAmount(feePolicy);
 
@@ -119,12 +134,22 @@ public class AuthorizationController {
     @PostMapping("/transfers/{id}/authorize")
     public AuthorizePaymentResult authorize(@PathVariable("id") int id,
                                             @RequestBody AuthorizePaymentRequest req) {
+        // Checked here so an omitted field is not silently treated as a wrong code and
+        // charged against the three attempts.
+        if (req.otp() == null || req.otp().isBlank()) {
+            throw new ValidationException("Missing one-time password in the authorize request");
+        }
+
         transferService.authorizePayment(id, req.otp());
 
+        // The service resolved this id inside a committed unit of work, so a failure here
+        // means the store lost a row, not that the caller named a transfer that never existed.
         Transfer t = transfers.byId(id)
-                .orElseThrow(() -> new RuntimeException("Transfer not found"));
+                .orElseThrow(() -> new DataIntegrityException(
+                        "Transfer " + id + " disappeared after authorization"));
         Account acc = accounts.byId(t.sourceAccountId())
-                .orElseThrow(() -> new RuntimeException("Account not found"));
+                .orElseThrow(() -> new DataIntegrityException(
+                        "Transfer " + id + " points at missing account " + t.sourceAccountId()));
 
         String chargedAmount = null;
         if (t.status() == TransferStatus.SENT) {
@@ -150,9 +175,12 @@ public class AuthorizationController {
         transferService.cancelPayment(id);
 
         Transfer t = transfers.byId(id)
-                .orElseThrow(() -> new RuntimeException("Transfer not found"));
+                .orElseThrow(() -> new DataIntegrityException(
+                        "Transfer " + id + " disappeared after cancellation"));
+        // cancelPayment never loads the account, so this is the first thing to touch it.
         Account acc = accounts.byId(t.sourceAccountId())
-                .orElseThrow(() -> new RuntimeException("Account not found"));
+                .orElseThrow(() -> new DataIntegrityException(
+                        "Transfer " + id + " points at missing account " + t.sourceAccountId()));
 
         return new AuthorizePaymentResult(
                 t.id(),

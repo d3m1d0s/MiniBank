@@ -7,7 +7,9 @@ import cz.vsb.minibank.domain.FraudAlertState;
 import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.FeePolicy;
-import cz.vsb.minibank.domain.exceptions.DomainException;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
+import cz.vsb.minibank.domain.exceptions.NotFoundException;
+import cz.vsb.minibank.domain.exceptions.ValidationException;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.repository.AccountRepository;
@@ -66,13 +68,10 @@ public class FraudController {
         requireRole(UserRole.FRAUD_ANALYST);
         List<FraudAlert> all = alerts.all();
 
-        FraudAlertState stateFilter = null;
-        if (state != null && !state.isBlank()) {
-            stateFilter = FraudAlertState.valueOf(state.toUpperCase(Locale.ROOT));
-        }
+        FraudAlertState stateFilter = parseState(state);
 
-        Instant fromTs = parseInstantOrNull(createdFrom);
-        Instant toTs = parseInstantOrNull(createdTo);
+        Instant fromTs = parseInstant(createdFrom);
+        Instant toTs = parseInstant(createdTo);
 
         String assigneeFilter = (assignee != null && !assignee.isBlank())
                 ? assignee.trim().toLowerCase(Locale.ROOT)
@@ -148,13 +147,16 @@ public class FraudController {
     public AlertDetailDto getAlert(@PathVariable("id") int id) {
         requireRole(UserRole.FRAUD_ANALYST);
         FraudAlert alert = alerts.byId(id)
-                .orElseThrow(() -> new DomainException("Fraud alert not found: " + id));
+                .orElseThrow(() -> new NotFoundException("Fraud alert not found: " + id));
 
+        // Both references below came from stored rows, not from the request.
         Transfer transfer = transfers.byId(alert.transferId())
-                .orElseThrow(() -> new DomainException("Transfer not found: " + alert.transferId()));
+                .orElseThrow(() -> new DataIntegrityException(
+                        "Fraud alert " + id + " points at missing transfer " + alert.transferId()));
 
         Account source = accounts.byId(transfer.sourceAccountId())
-                .orElseThrow(() -> new DomainException("Account not found: " + transfer.sourceAccountId()));
+                .orElseThrow(() -> new DataIntegrityException(
+                        "Transfer " + transfer.id() + " points at missing account " + transfer.sourceAccountId()));
 
         AlertInfoDto alertDto = mapAlertInfo(alert);
         TransferInfoDto transferDto = mapTransferInfo(transfer, source);
@@ -259,14 +261,28 @@ public class FraudController {
     }
 
     /**
-     * Parses an ISO instant string or returns null when parsing fails.
+     * Parses the state filter. An unknown value is caller input: FraudAlertState.valueOf
+     * would raise IllegalArgumentException, which has no handler and answers 500.
      */
-    private static Instant parseInstantOrNull(String value) {
+    private static FraudAlertState parseState(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return FraudAlertState.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new ValidationException("Unknown alert state filter: " + value);
+        }
+    }
+
+    /**
+     * Parses an ISO instant filter. An unparseable value used to be dropped, which answered
+     * 200 with a queue that did not match what the analyst asked for.
+     */
+    private static Instant parseInstant(String value) {
         if (value == null || value.isBlank()) return null;
         try {
             return Instant.parse(value.trim());
         } catch (Exception e) {
-            return null;
+            throw new ValidationException("Unparseable timestamp filter: " + value);
         }
     }
 }
