@@ -1,6 +1,5 @@
 package cz.vsb.minibank.uow;
 
-import cz.vsb.minibank.application.MinibankProperties;
 import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
@@ -21,19 +20,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * SQL-backed integration tests for UnitOfWork + repositories (PostgreSQL).
- *
- * Requires running PostgreSQL instance with schema.sql applied.
- *
- * Example Docker command:
- *
- *   docker run --name minibank-pg ^
- *     -e POSTGRES_USER=minibank ^
- *     -e POSTGRES_PASSWORD=minibank ^
- *     -e POSTGRES_DB=minibank ^
- *     -p 5432:5432 ^
- *     -d postgres:16
- *
- * And then apply schema.sql to database "minibank".
+ * <p>
+ * These need a live PostgreSQL with {@code db/schema.sql} applied. Without one the whole
+ * class is reported as skipped, so a plain {@code mvn test} on a fresh clone stays green.
+ * See {@link TestDatabase} for the connection keys and how to create the database.
  */
 public class MinibankSqlUowTests {
 
@@ -43,11 +33,24 @@ public class MinibankSqlUowTests {
 
     private Bootstrap infra;
 
+    /** Probed once for the class; the assumption itself is per test so the skips are reported. */
+    private static boolean databaseReachable;
+
+    @BeforeAll
+    static void probeTestDatabase() {
+        TestDatabase.requireSeparateFromApplicationDatabase();
+        databaseReachable = TestDatabase.isReachable();
+    }
+
     @BeforeEach
     void setUp() throws Exception {
-        jdbcUrl = MinibankProperties.sqlUrl();
-        dbUser  = MinibankProperties.sqlUser();
-        dbPass  = MinibankProperties.sqlPassword();
+        // Aborting here rather than in @BeforeAll: a class-level assumption cancels the whole
+        // container, and surefire then reports zero tests, which reads as "there are none".
+        Assumptions.assumeTrue(databaseReachable, TestDatabase::unreachableMessage);
+
+        jdbcUrl = TestDatabase.url();
+        dbUser  = TestDatabase.user();
+        dbPass  = TestDatabase.password();
 
         // Clean database state before each test (but keep schema & sequences)
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
