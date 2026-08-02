@@ -96,8 +96,10 @@ class PaymentNetworkIntegrationTest {
         t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
         infra.transfers.add(t);
 
-        a.registerTransfer(transferId);
-        infra.accounts.save(a);
+        // Account.registerTransfer and the second save that persisted its list are gone with
+        // Account.transferIds. Nothing here asserted anything about that list; the account was
+        // already saved above, and the transfer's own source_account_id is what every real
+        // "transfers of this account" query reads.
     }
 
     @AfterEach

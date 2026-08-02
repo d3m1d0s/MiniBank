@@ -42,8 +42,8 @@ public class JsonAccountRepository implements AccountRepository {
                 return Optional.of(cached);
             }
         }
-        // Mapping happens inside the read: toDomain copies the DTO's nested transferIds
-        // list, so that copy must not race a concurrent commit either.
+        // Mapping happens inside the read: toDomain reads several fields off the DTO, and a
+        // concurrent commit replacing that DTO between two of them would build a torn Account.
         return store.read(bundle -> {
             var f = bundle.accounts.stream().filter(a -> a.id == id).findFirst();
             if (f.isEmpty()) {

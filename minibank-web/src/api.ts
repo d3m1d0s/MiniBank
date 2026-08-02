@@ -30,6 +30,14 @@ export function mapPaymentError(error: ApiError): string[] {
             return ['The selected account is not available. Reload the page and try again.'];
         case 'FORBIDDEN':
             return ['You are not allowed to send a payment from this account.'];
+        // A6. Another transaction changed one of the accounts this payment touches between the
+        // server reading a balance and writing the new one, so the write was refused. Resending
+        // is the right action, which is what makes this different from CONFLICT.
+        case 'CONCURRENT_MODIFICATION':
+            return [
+                'Another change was applied to this payment first.',
+                'Nothing was charged. Please send the payment again.',
+            ];
         default:
             return [error.message || 'Unexpected error while creating payment.'];
     }
@@ -82,10 +90,23 @@ export interface TransferDetails {
     fromIban: string;
     fromBalance: string;
     toIban: string;
+    /**
+     * What the transfer was charged once it has settled, and a quote from the current fee
+     * policy until then. Before A14 this was recomputed on every read, so it could restate what
+     * a customer was charged last month the day the fee policy changed.
+     */
     amount: string;
     feeAmount: string;
     status: string;
     createdAt: string;
+    /** When the money moved. Null on a transfer that has not settled. */
+    settledAt?: string | null;
+    /**
+     * The customer's own reference. Optional because a payment created before this was stored,
+     * or created without one, has none. NewPaymentPage has sent this in the request body all
+     * along; this is the first time it can be read back.
+     */
+    message?: string | null;
     authMethod?: string;
     triesLeft?: number;
     authValidUntil?: string;
@@ -304,6 +325,13 @@ export interface AlertQueueResponse {
 export interface AlertInfo {
     id: number;
     state: string;
+    // The analyst's verdict, who recorded it and when. `| null` rather than optional, because
+    // the server always sends the keys and null is the meaningful value: an alert nobody has
+    // decided is a different thing from a field that is missing. decidedBy is null for a
+    // decision taken from the console, which has no login.
+    decision: string | null;
+    decidedBy: string | null;
+    resolvedAt: string | null;
     reason: string;
     riskScore: number | null;
     createdAt: string | null;

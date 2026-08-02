@@ -14,6 +14,7 @@ import cz.vsb.minibank.domain.exceptions.InvalidIbanException;
 import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.exceptions.NotAuthenticatedException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
+import cz.vsb.minibank.domain.exceptions.OptimisticLockException;
 import cz.vsb.minibank.domain.exceptions.SelfTransferNotAllowedException;
 import cz.vsb.minibank.domain.exceptions.TooManyLoginAttemptsException;
 import cz.vsb.minibank.domain.exceptions.TooManySessionsException;
@@ -111,6 +112,24 @@ public class RestExceptionHandler {
     @ExceptionHandler(TransferUnderReviewException.class)
     public ResponseEntity<ApiError> handleTransferUnderReview(TransferUnderReviewException ex) {
         return error(HttpStatus.CONFLICT, ApiErrors.TRANSFER_UNDER_REVIEW);
+    }
+
+    /**
+     * A6. Also a subtype of ConflictException, and picked over the generic handler by the same
+     * ExceptionDepthComparator rule as the one above.
+     *
+     * Still a 409: the write really was refused because the row had moved on. What it must not
+     * be is a 500 - nothing is broken, nothing was charged, and resubmitting works - which is
+     * exactly what a plain RuntimeException out of the repository would have produced.
+     *
+     * The exception message carries the account id and the stale version and reaches the log
+     * only. Logged at warn rather than not at all, because a burst of these is the signal that
+     * one account is a contention point.
+     */
+    @ExceptionHandler(OptimisticLockException.class)
+    public ResponseEntity<ApiError> handleOptimisticLock(OptimisticLockException ex) {
+        AppLogger.warn("api", "Refused a stale account write: " + ex.getMessage());
+        return error(HttpStatus.CONFLICT, ApiErrors.CONCURRENT_MODIFICATION);
     }
 
     @ExceptionHandler(InvalidOtpException.class)

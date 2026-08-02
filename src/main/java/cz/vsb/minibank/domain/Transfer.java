@@ -24,8 +24,19 @@ public class Transfer {
 
     private Money amount;
     private String currency; // for example CZK
+
+    /** What this transfer was actually charged, written once by {@link #send}. Null until then. */
+    private Money fee;
+
+    /** The customer's own reference for this payment, at most 140 characters. Nullable. */
+    private String message;
+
     private TransferStatus status;
     private Instant createdAt;
+
+    /** When the money moved. Null on a transfer that has not settled. */
+    private Instant settledAt;
+
     private Payment authMethod; // nullable
     private String declineReason;
 
@@ -179,8 +190,24 @@ public class Transfer {
      * HELD_FOR_REVIEW is not in the guard, and that is the backstop under the service-level
      * gate: even if a caller reached this method with a transfer whose alert is still open,
      * the money would not move. A held transfer is settled by first being released.
+     *
+     * The fee is computed once here and kept. Recomputing it on every display made a settled
+     * transfer's charge a function of whichever FeePolicy bean happens to be wired now, so
+     * swapping the policy silently restated what customers were charged last month and left
+     * every historical balance unexplainable by the numbers shown next to it. {@link #fee()} is
+     * what was charged; {@link #feeAmount(FeePolicy)} is still a quote and is what the
+     * pre-settlement checks use.
+     *
+     * @param settledAt when the money moves. Mandatory for the reason {@code destination} is:
+     *                  it is the only record of when a payment settled, the daily total is
+     *                  keyed on it, and a call site that could omit it would file a payment
+     *                  under no day at all. It must be the same instant the caller bounded its
+     *                  daily-total window with, or a payment authorized at 23:59:59.999 is
+     *                  checked against one day and stamped into the next.
      */
-    public void send(Account source, Account destination, FeePolicy policy) {
+    public void send(Account source, Account destination, FeePolicy policy, Instant settledAt) {
+        java.util.Objects.requireNonNull(settledAt, "settledAt");
+
         if (status != TransferStatus.CREATED && status != TransferStatus.WAITING_AUTH)
             throw new InvalidStateTransitionException("Cannot send from status: " + status);
 
@@ -199,10 +226,19 @@ public class Transfer {
 
         // Debit first: it is the only step that can fail, and it fails before it mutates.
         // Nothing between the two assignments can throw, so no path leaves one leg written.
-        source.debit(this.amount, feeAmount(policy));
+        //
+        // The charged fee is computed once and both debited and stored, so the number kept on
+        // the transfer cannot disagree with the number taken out of the account.
+        Money charged = feeAmount(policy);
+        source.debit(this.amount, charged);
         if (destination != null) {
             destination.credit(this.amount);
         }
+
+        // Written after the only step that can throw and before the status change, so a
+        // transfer is never SENT without both, and never carries either without being SENT.
+        this.fee = charged;
+        this.settledAt = settledAt;
 
         TransferStatus old = this.status;
         this.status = TransferStatus.SENT;
@@ -274,6 +310,55 @@ public class Transfer {
         if (authAttempts != null) this.authAttempts = authAttempts;
         this.authValidUntil = authValidUntil;
     }
+
+    /**
+     * Restores what a stored row carries that no constructor takes.
+     *
+     * Separate from hydrateForLoad rather than a seventh and eighth parameter on it, so its two
+     * existing overloads and their call sites - including several in tests - are left alone.
+     *
+     * Both arguments may be null, and must be: every row written before these columns existed
+     * has neither. This performs no validation, exactly like hydrateForLoad, because a loader
+     * that refused a legacy row would make the whole store unreadable.
+     */
+    public void hydrateSettlement(Money fee, Instant settledAt) {
+        this.fee = fee;
+        this.settledAt = settledAt;
+    }
+
+    /**
+     * Attaches the customer's own reference for this payment.
+     *
+     * Called by the creating service right after construction and by both mappers on load, not
+     * taken by a constructor: Transfer has two constructors with many call sites between them,
+     * and a seventh parameter on both would touch every one of them to pass null. Nothing
+     * overwrites a message once it is set; the length rule lives at the one validation point in
+     * TransferApplicationService, where the console and the demo runner also pass through.
+     */
+    public void attachMessage(String message) {
+        this.message = message;
+    }
+
+    /** The fee this transfer was charged, or null while it has not settled. */
+    public Money fee() { return fee; }
+
+    /**
+     * The fee to show for this transfer: what it was charged if it has settled, and otherwise
+     * what the current policy would charge it.
+     *
+     * Every display site calls this rather than {@link #feeAmount(FeePolicy)}. The fallback is
+     * not a second source of truth - a transfer that has not settled has been charged nothing,
+     * so a quote is the only honest answer, and it is also what rows written before A14 have.
+     */
+    public Money feeFor(FeePolicy policy) {
+        return fee != null ? fee : feeAmount(policy);
+    }
+
+    /** When the money moved, or null on a transfer that has not settled. */
+    public Instant settledAt() { return settledAt; }
+
+    /** The customer's own reference, or null when none was given. */
+    public String message() { return message; }
 
     public int id() { return id; }
     public int sourceAccountId() { return sourceAccountId; }

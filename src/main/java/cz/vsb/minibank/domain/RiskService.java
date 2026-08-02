@@ -17,10 +17,15 @@ public interface RiskService {
      * @param sentSoFar          what has already left the source account on the day this
      *                           transfer belongs to, fees excluded
      * @param dailyLimit         the source account's hard ceiling on one day's outflow
+     * @param softDailyThreshold the source account's own soft authorization tier, or null to
+     *                           apply the bank-wide default. A per-account value is what makes
+     *                           the two tiers two tiers on an account whose ceiling is below the
+     *                           bank-wide number, where the soft tier could otherwise never fire
      * @return decision describing required actions and risk level
      * @throws DailyLimitExceededException when sentSoFar plus amount passes dailyLimit
      */
-    RiskDecision evaluate(boolean beneficiaryTrusted, Money amount, Money sentSoFar, Money dailyLimit);
+    RiskDecision evaluate(boolean beneficiaryTrusted, Money amount, Money sentSoFar,
+                          Money dailyLimit, Money softDailyThreshold);
 
     /**
      * Refuses a transfer that would take the day's outflow past the account's ceiling.

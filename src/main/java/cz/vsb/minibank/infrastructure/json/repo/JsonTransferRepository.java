@@ -139,13 +139,27 @@ public class JsonTransferRepository implements TransferRepository {
                 if (dto.sourceAccountId != accountId) continue;
                 if (!TransferStatus.SENT.name().equals(dto.status)) continue;
                 if (!"CZK".equals(dto.currency)) continue;
-                Instant createdAt = parseInstantOrNull(dto.createdAt);
-                if (createdAt == null) continue;
-                if (createdAt.isBefore(fromInclusive) || !createdAt.isBefore(toExclusive)) continue;
+                Instant countedOn = dayKeyOf(dto);
+                if (countedOn == null) continue;
+                if (countedOn.isBefore(fromInclusive) || !countedOn.isBefore(toExclusive)) continue;
                 total = total.plus(Money.czk(dto.amount));
             }
             return total;
         });
+    }
+
+    /**
+     * The instant this row counts against: when it settled, falling back to when it was created.
+     *
+     * The same rule SqlTransferRepository writes as COALESCE(settled_at, created_at), stated
+     * once per backend so the daily limit cannot mean different things depending on where the
+     * data lives. The fallback is what makes the migration change no historical total: a row
+     * written before settledAt existed keeps counting under its creation day, exactly as it did.
+     * A row with neither parseable counts toward no day at all.
+     */
+    private static Instant dayKeyOf(JsonTransfer dto) {
+        Instant settledAt = parseInstantOrNull(dto.settledAt);
+        return settledAt != null ? settledAt : parseInstantOrNull(dto.createdAt);
     }
 
     /**

@@ -10,9 +10,12 @@ VIS_project_minibank/
 │  ├─ data.json
 │  └─ demo.json
 ├─ db/
-│  ├─ init/
+│  ├─ init/                          <- mounted by docker compose, runs only on an empty volume
 │  │  ├─ schema.sql
 │  │  └─ test-database.sql
+│  ├─ migrate/                       <- run by hand, against BOTH minibank and minibank_test
+│  │  ├─ a8-hold-alerted-transfers.sql
+│  │  └─ a14-a6-schema-pass.sql
 │  └─ reset.sql
 │
 ├─ minibank-fraud-web/

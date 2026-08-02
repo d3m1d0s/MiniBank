@@ -127,8 +127,19 @@ class JsonStoreConcurrencyTest {
         assertEquals(Money.czk(4_000.00), account.balance(),
                 "Ten 100.00 payments with no fee move 5000.00 to 4000.00");
 
-        assertEquals(distinct(transferIds), new HashSet<>(account.transferIds()),
-                "Account.transferIds must hold every transfer, with nothing shredded");
+        // What stood here asserted the same fact against Account.transferIds, which is gone.
+        // The fact itself is still asserted twice, at lines 111 and 113 above -
+        // persisted.size() and idsOf(persisted) - against Bundle.transfers, the top-level list
+        // every payment commit appends to, which is where the dropped-element race actually
+        // lived.
+        //
+        // What is genuinely lost, written down rather than quietly absorbed: transferIds was
+        // the only list nested inside a Bundle DTO that any concurrent path wrote, so no test
+        // now exercises a nested collection under concurrent commits. The store lock does not
+        // distinguish the two - one lock guards the whole Bundle and everything reachable from
+        // it, so a nested list was never protected differently from a top-level one - but if a
+        // concurrent path ever starts appending to accountIds, beneficiaries or tags, a canary
+        // of this shape belongs back here.
     }
 
     /**

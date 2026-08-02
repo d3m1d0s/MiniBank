@@ -49,12 +49,22 @@ public final class DemoScenario {
     private static final Money PRIMARY_DAILY_LIMIT = Money.czk(40_000);
     private static final Money SECONDARY_OPENING_BALANCE = Money.czk(5_000);
 
-    /**
-     * Left below the soft threshold on purpose: this account opens with 5 000, so neither tier
-     * can bind on it whatever this number is, and raising it would only pretend otherwise. An
-     * account whose ceiling sits under the soft threshold has one tier, not two.
-     */
     private static final Money SECONDARY_DAILY_LIMIT = Money.czk(8_000);
+
+    /**
+     * Strictly inside the secondary account's own 8 000 ceiling, so this account really does
+     * have two tiers: a day total up to 3 000 settles on the spot, above it asks the customer to
+     * authorize, and above 8 000 is refused. Against the bank-wide 15 000 it had one tier,
+     * because every total that could have reached 15 000 had already been refused at 8 000 - and
+     * with an opening balance of 5 000 nothing on this account could ever have got near it
+     * anyway. That was the standing demonstration that the soft tier was a bank-wide constant
+     * pretending to be a per-account rule.
+     *
+     * The primary account deliberately gets no override and rides the bank-wide 15 000, which is
+     * the threshold DemoRunner's script is written against. One account on the default and one
+     * with an override is what makes the dataset show both cases.
+     */
+    public static final Money SECONDARY_SOFT_THRESHOLD = Money.czk(3_000);
 
     /** Below the authorization threshold, so it settles immediately and forms the history. */
     private static final Money SETTLED_AMOUNT = Money.czk(1_500);
@@ -118,8 +128,11 @@ public final class DemoScenario {
                 new Address("Hlavni 1", "Ostrava"));
         customers.save(customer);
 
+        // No soft-tier override: the primary rides the bank-wide 15 000, which is what
+        // DemoRunner's first two payments - 6 000 then 12 000 - are written to cross.
         Account primary = openAccount(customer, PRIMARY_IBAN, PRIMARY_OPENING_BALANCE, PRIMARY_DAILY_LIMIT);
-        openAccount(customer, SECONDARY_IBAN, SECONDARY_OPENING_BALANCE, SECONDARY_DAILY_LIMIT);
+        openAccount(customer, SECONDARY_IBAN, SECONDARY_OPENING_BALANCE, SECONDARY_DAILY_LIMIT,
+                SECONDARY_SOFT_THRESHOLD);
         // Not a redundant repeat of the save above. In SQL mode this is what writes
         // accounts.customer_id: SqlAccountRepository leaves the column NULL and only
         // SqlCustomerRepository.upsertCustomer assigns it, from Customer.accountIds(), which
@@ -136,8 +149,14 @@ public final class DemoScenario {
         return customerId;
     }
 
+    /** An account on the bank-wide soft tier. */
     private Account openAccount(Customer owner, IBAN iban, Money balance, Money dailyLimit) {
-        Account account = new Account(accounts.nextId(), iban, balance, dailyLimit);
+        return openAccount(owner, iban, balance, dailyLimit, null);
+    }
+
+    private Account openAccount(Customer owner, IBAN iban, Money balance, Money dailyLimit,
+                                Money softDailyThreshold) {
+        Account account = new Account(accounts.nextId(), iban, balance, dailyLimit, softDailyThreshold);
         accounts.save(account);
         owner.addAccountId(account.id());
         return account;
@@ -162,9 +181,11 @@ public final class DemoScenario {
         // nothing: both beneficiary IBANs are beneficiaries and never accounts, so every
         // seeded transfer stays external and no demo balance moves.
         Account destination = accounts.inBankByIban(target.iban().value()).orElse(null);
-        transfer.send(source, destination, feePolicy);
+        // Its own creation instant is the settlement instant: the seed orders and pays in one
+        // step, so there is exactly one moment here and no second reading to disagree with.
+        // This keeps the seed off the system clock a second time, like newTransfer does.
+        transfer.send(source, destination, feePolicy, transfer.createdAt());
         transfers.add(transfer);
-        source.registerTransfer(transfer.id());
         accounts.saveBothInIdOrder(source, destination);
     }
 
@@ -180,7 +201,6 @@ public final class DemoScenario {
         Transfer transfer = newTransfer(source, target, FLAGGED_AMOUNT);
         transfer.holdForReview(new CardPayment(transfer.amount(), "****0000"));
         transfers.add(transfer);
-        source.registerTransfer(transfer.id());
         accounts.save(source);
 
         alerts.add(new FraudAlert(

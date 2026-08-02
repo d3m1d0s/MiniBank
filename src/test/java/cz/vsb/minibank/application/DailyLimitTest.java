@@ -280,14 +280,18 @@ class DailyLimitTest {
     }
 
     /**
-     * The bypass that a "today" window would leave wide open, closed.
+     * The drift settled_at closes, and the bypass that closing it must not open.
      *
-     * A settled transfer is filed under its createdAt - the only timestamp it carries - so a
-     * window taken from "now" at authorization time asks about a day the transfer will never
-     * join. Three payments created at 23:57 and authorized after midnight would each read a
-     * total of zero for the new day, each pass, and put 45 000 through a 40 000 ceiling. The
-     * window comes from the transfer's own creation day instead, so they accumulate against
-     * each other and the third is refused.
+     * Three untrusted 15 000 payments created at 23:57, held for fraud review, released by an
+     * analyst, and authorized after midnight. Before settled_at a settled transfer carried only
+     * its createdAt, so all three counted against day one however long the review took - the
+     * per-day sum was right, but a single calendar day could see two days' budgets leave, and A8
+     * removed the five-minute window that had bounded that gap. Now each counts against the day
+     * it actually settled.
+     *
+     * The third is still refused, and for a better reason: two payments have settled on day two
+     * for 30 000, and a third 15 000 would take day two to 45 000 against a 40 000 ceiling. So
+     * the ceiling still binds across a midnight, which is the thing that must not regress.
      *
      * These three are untrusted 15 000 payments, so each one is over the fraud-alert threshold
      * and is held for review before it ever reaches the customer's confirmation step. Written
@@ -296,7 +300,7 @@ class DailyLimitTest {
      * a path a real payment takes.
      */
     @Test
-    void aPaymentAuthorizedAfterMidnightIsCheckedAgainstTheDayItWasCreatedOn() {
+    void aPaymentAuthorizedAfterMidnightIsCountedAgainstTheDayItSettlesOn() {
         var lateOnDayOne = servicesAt(DAY_ONE_LAST_MINUTE);
 
         int first = payExternal(lateOnDayOne.transferService, 15_000);
@@ -323,13 +327,17 @@ class DailyLimitTest {
 
         assertThrows(DailyLimitExceededException.class,
                 () -> afterMidnight.authorizePayment(CUSTOMER_ID, third, FixedOtpValidator.DEMO_OTP),
-                "parking payments before midnight must not buy a second day's budget");
+                "day two has already taken 30 000 of its 40 000, so a third 15 000 is refused");
 
         assertEquals(OPENING.minus(Money.czk(30_000)), balance());
-        assertEquals(Money.czk(30_000), sentOnDayOf(DAY_ONE_NOON),
-                "both settled payments are counted against the day they were created on");
-        assertEquals(Money.czk(0), sentOnDayOf(DAY_TWO_NOON),
-                "and against no other day, which is the limitation this design accepts");
+        assertEquals(Money.czk(0), sentOnDayOf(DAY_ONE_NOON),
+                "nothing settled on day one: all three payments were still held at midnight");
+        assertEquals(Money.czk(30_000), sentOnDayOf(DAY_TWO_NOON),
+                "they count against the day the money actually left, which is what settled_at records");
+
+        Transfer settled = infra.transfers.byId(first).orElseThrow();
+        assertEquals(DAY_TWO_JUST_AFTER, settled.settledAt(),
+                "the stamp is the same instant the day window was taken from");
     }
 
     // ------------------------------------------------------------------ the day boundary

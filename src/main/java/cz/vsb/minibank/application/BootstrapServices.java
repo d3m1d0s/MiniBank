@@ -117,10 +117,13 @@ public class BootstrapServices {
                 clock
         );
 
+        // The same clock instance the transfer service got, so an alert's resolved_at and its
+        // transfer's settled_at are readings of one clock rather than of two.
         this.fraudService = new FraudApplicationService(
                 transfers,
                 alerts,
-                uowFactory
+                uowFactory,
+                clock
         );
     }
 }

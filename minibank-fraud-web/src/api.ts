@@ -121,6 +121,13 @@ export interface AlertQueueResponse { items: AlertQueueItem[]; counters: AlertCo
 export interface AlertInfo {
     id: number;
     state: string;
+    // The analyst's verdict, who recorded it and when. `| null` rather than optional, because
+    // the server always sends the keys and null is the meaningful value: an alert nobody has
+    // decided is a different thing from a field that is missing. decidedBy is null for a
+    // decision taken from the console, which has no login.
+    decision: string | null;
+    decidedBy: string | null;
+    resolvedAt: string | null;
     reason: string;
     riskScore: number | null;
     createdAt: string | null;

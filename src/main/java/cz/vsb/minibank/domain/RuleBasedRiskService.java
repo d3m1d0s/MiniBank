@@ -13,32 +13,34 @@ public class RuleBasedRiskService implements RiskService {
     private static final Money ALERT_THRESHOLD_FOR_UNTRUSTED = Money.czk(10_000.00);
 
     /**
-     * Soft threshold on the day's total outflow: crossing it does not refuse the payment, it
-     * makes the customer authorize it, exactly as the untrusted-and-high rule does.
+     * The bank-wide soft threshold on the day's total outflow: crossing it does not refuse the
+     * payment, it makes the customer authorize it, exactly as the untrusted-and-high rule does.
      *
-     * The same number for every account, applied to each account separately - a customer with
-     * several accounts gets this budget on each of them, exactly as they get a ceiling on each
-     * of them. It is not a column on Account: the per-account value is the hard ceiling and it
-     * already has one, and a second column would mean editing db/init/schema.sql, which A14 and
-     * A6 change together.
+     * A default now, not a constant. It applies to any account with no soft_daily_threshold_czk
+     * of its own. The paragraph that used to sit here arguing that a per-account value would
+     * mean editing db/init/schema.sql is gone: that is this change.
      *
-     * The two tiers are only two tiers on an account whose {@code dailyLimit} is above this
-     * number. On an account whose ceiling is lower, any total that would reach this threshold
-     * has already been refused, so the soft tier can never fire there and the rule degenerates
-     * to the ceiling alone. That is a fixture question, not a code one - see
-     * DemoScenario.SECONDARY_DAILY_LIMIT.
-     *
-     * Strictly above: a day total of exactly 15 000.00 still settles, and the soft tier starts
-     * at 15 000.01. Same convention as AUTH_THRESHOLD_FOR_UNTRUSTED, whose strictness
-     * CreditLegTest.SETTLES_NOW already depends on.
+     * Strictly above, whatever the source: a day total of exactly the threshold still settles.
+     * Same convention as AUTH_THRESHOLD_FOR_UNTRUSTED, whose strictness CreditLegTest.SETTLES_NOW
+     * already depends on.
      */
-    private static final Money AUTH_THRESHOLD_FOR_DAY_TOTAL = Money.czk(15_000.00);
+    static final Money DEFAULT_SOFT_DAILY_THRESHOLD = Money.czk(15_000.00);
 
+    /**
+     * @param softDailyThreshold the account's own soft tier, or null to use
+     *        {@link #DEFAULT_SOFT_DAILY_THRESHOLD}. An account whose ceiling is below the tier
+     *        that applies to it has one tier and not two: every total that would reach the soft
+     *        threshold has already been refused by requireWithinDailyLimit. That is now a
+     *        fixture question with a fixture answer - see DemoScenario.SECONDARY_SOFT_THRESHOLD -
+     *        rather than something no dataset could avoid.
+     */
     @Override
-    public RiskDecision evaluate(boolean beneficiaryTrusted, Money amount, Money sentSoFar, Money dailyLimit) {
+    public RiskDecision evaluate(boolean beneficiaryTrusted, Money amount, Money sentSoFar,
+                                 Money dailyLimit, Money softDailyThreshold) {
         requireWithinDailyLimit(amount, sentSoFar, dailyLimit);
 
-        boolean overDayAuthThreshold = sentSoFar.plus(amount).gt(AUTH_THRESHOLD_FOR_DAY_TOTAL);
+        Money softTier = (softDailyThreshold != null) ? softDailyThreshold : DEFAULT_SOFT_DAILY_THRESHOLD;
+        boolean overDayAuthThreshold = sentSoFar.plus(amount).gt(softTier);
         boolean untrustedAndHigh = !beneficiaryTrusted && amount.gt(AUTH_THRESHOLD_FOR_UNTRUSTED);
 
         boolean requireAuth = overDayAuthThreshold || untrustedAndHigh;

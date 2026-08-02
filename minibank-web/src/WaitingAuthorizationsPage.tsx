@@ -78,6 +78,12 @@ function describeAuthorizationError(err: ApiError, triesLeft?: number): string {
         // advice as the nearest thing on screen, and refreshing shows nothing new.
         case 'TRANSFER_UNDER_REVIEW':
             return UNDER_REVIEW_TEXT;
+        // A6, and it must sit above CONFLICT rather than fall through to `default`. The
+        // catalogue sentence would render either way, but CONFLICT's "refresh the list" advice
+        // is the nearest thing on screen and refreshing shows the transfer still waiting -
+        // whereas the right action here is simply to confirm again.
+        case 'CONCURRENT_MODIFICATION':
+            return 'Another change was applied to this account first. Nothing was charged - please confirm again.';
         case 'CONFLICT':
             return 'This transfer can no longer be confirmed. Refresh the list to see its current state.';
         case 'NOT_FOUND':

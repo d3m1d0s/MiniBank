@@ -352,7 +352,7 @@ class CreditLegTest {
         Account source = accounts.byId(PAYER_ACCOUNT_ID).orElseThrow();
         Transfer t = new Transfer(900, PAYER_ACCOUNT_ID, null, PAYER_IBAN, Money.czk(100), "CZK");
 
-        assertThrows(DataIntegrityException.class, () -> t.send(source, source, feePolicy));
+        assertThrows(DataIntegrityException.class, () -> t.send(source, source, feePolicy, t.createdAt()));
         assertEquals(PAYER_OPENING, source.balance(), "the refusal must come before the debit");
     }
 
@@ -362,7 +362,7 @@ class CreditLegTest {
         Account wrong = accounts.byId(PAYEE_ACCOUNT_ID).orElseThrow();
         Transfer t = new Transfer(901, PAYER_ACCOUNT_ID, null, OUTSIDE_IBAN, Money.czk(100), "CZK");
 
-        assertThrows(DataIntegrityException.class, () -> t.send(source, wrong, feePolicy));
+        assertThrows(DataIntegrityException.class, () -> t.send(source, wrong, feePolicy, t.createdAt()));
         assertEquals(PAYER_OPENING, source.balance());
         assertEquals(PAYEE_OPENING, wrong.balance());
     }
@@ -372,7 +372,7 @@ class CreditLegTest {
         Account notTheSource = accounts.byId(PAYEE_ACCOUNT_ID).orElseThrow();
         Transfer t = new Transfer(902, PAYER_ACCOUNT_ID, null, OUTSIDE_IBAN, Money.czk(100), "CZK");
 
-        assertThrows(DataIntegrityException.class, () -> t.send(notTheSource, null, feePolicy));
+        assertThrows(DataIntegrityException.class, () -> t.send(notTheSource, null, feePolicy, t.createdAt()));
         assertEquals(PAYEE_OPENING, notTheSource.balance());
     }
 
@@ -389,7 +389,7 @@ class CreditLegTest {
         Transfer t = new Transfer(903, PAYER_ACCOUNT_ID, null,
                 "cz43 0800 0000 1920 0014 5407", Money.czk(100), "CZK");
 
-        assertDoesNotThrow(() -> t.send(source, destination, feePolicy));
+        assertDoesNotThrow(() -> t.send(source, destination, feePolicy, t.createdAt()));
         assertEquals(PAYEE_OPENING.plus(Money.czk(100)), destination.balance());
     }
 }

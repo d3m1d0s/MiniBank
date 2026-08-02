@@ -117,16 +117,23 @@ public class JsonMapper {
         j.iban = a.iban().value();
         j.balance = a.balance().amount().doubleValue();
         j.dailyLimit = a.dailyLimit().amount().doubleValue();
-        j.transferIds.addAll(a.transferIds());
+        // Left absent rather than written as 0.0 when the account has no override: a stored
+        // zero would mean "authorize every payment", which is a real and different rule.
+        if (a.softDailyThreshold() != null) {
+            j.softDailyThreshold = a.softDailyThreshold().amount().doubleValue();
+        }
         return j;
     }
 
     public static Account toDomain(JsonAccount j) {
-        Account a = new Account(j.id, new IBAN(j.iban), Money.czk(j.balance), Money.czk(j.dailyLimit));
-        for (Integer t : j.transferIds) {
-            a.registerTransfer(t);
-        }
-        return a;
+        // Guarded rather than handed straight to Money.czk. That method has a double overload,
+        // so Money.czk(j.softDailyThreshold) would compile by autounboxing and throw a
+        // NullPointerException on every account in every store written before this field
+        // existed - which is all of them.
+        Money soft = (j.softDailyThreshold != null) ? Money.czk(j.softDailyThreshold.doubleValue()) : null;
+        // Account.version is deliberately not restored: the JSON backend has no version column
+        // and nothing on this side reads one. See JsonAccount.
+        return new Account(j.id, new IBAN(j.iban), Money.czk(j.balance), Money.czk(j.dailyLimit), soft);
     }
 
     // Transfer
@@ -139,8 +146,17 @@ public class JsonMapper {
         j.targetIbanSnapshot = t.targetIbanSnapshot();
         j.amount = t.amount().amount().doubleValue();
         j.currency = t.currency();
+        // Absent rather than 0.0 on a transfer that has not settled, so "charged nothing" and
+        // "not charged yet" survive the round trip as different values.
+        if (t.fee() != null) {
+            j.fee = t.fee().amount().doubleValue();
+        }
+        j.message = t.message();
         j.status = t.status().name();
         j.createdAt = t.createdAt().toString(); // write ISO-8601 string directly via Instant#toString
+        if (t.settledAt() != null) {
+            j.settledAt = t.settledAt().toString();
+        }
         if (t.authMethod() != null) {
             j.authMethod = t.authMethod().method();
             if (t.authMethod() instanceof CardPayment cp) {
@@ -199,6 +215,25 @@ public class JsonMapper {
             t.hydrateForLoad(status, payment, j.declineReason, ts, attempts, validUntil);
         } catch (Exception ignored) {
         }
+
+        // After the block above, never inside it. That catch exists to tolerate one thing - a
+        // stored status string that does not parse - and putting these calls inside it would
+        // let an unparseable status also silently discard the fee and the settlement instant,
+        // and let a bug in these lines silently reset every transfer in the file to CREATED.
+        // JsonTransferRepository.parseInstantOrNull makes the same argument about createdAt.
+        //
+        // Both values are guarded: Money.czk has a double overload that would autounbox a null
+        // fee into a NullPointerException, and Instant.parse(null) throws.
+        Money fee = (j.fee != null) ? Money.czk(j.fee.doubleValue()) : null;
+        Instant settledAt = null;
+        try {
+            if (j.settledAt != null) {
+                settledAt = Instant.parse(j.settledAt);
+            }
+        } catch (Exception ignored) {
+        }
+        t.hydrateSettlement(fee, settledAt);
+        t.attachMessage(j.message);
 
         return t;
     }
@@ -295,9 +330,14 @@ public class JsonMapper {
         j.id = a.id();
         j.transferId = a.transferId();
         j.state = a.state().name();
+        j.decision = a.decision();
+        j.decidedBy = a.decidedBy();
         j.reason = a.reason();
         if (a.createdAt() != null) {
             j.createdAt = a.createdAt().toString();
+        }
+        if (a.resolvedAt() != null) {
+            j.resolvedAt = a.resolvedAt().toString();
         }
 
         j.riskScore = a.riskScore();
@@ -337,6 +377,18 @@ public class JsonMapper {
             );
         } catch (Exception ignored) {
         }
+
+        // Outside the catch above, for the reason the transfer mapper gives: that block is
+        // there to tolerate an unparseable state string and nothing else. hydrateDecision takes
+        // all three as null, which is what every alert written before these fields existed has.
+        java.time.Instant resolvedAt = null;
+        try {
+            if (j.resolvedAt != null) {
+                resolvedAt = java.time.Instant.parse(j.resolvedAt);
+            }
+        } catch (Exception ignored) {
+        }
+        a.hydrateDecision(j.decision, j.decidedBy, resolvedAt);
 
         return a;
     }

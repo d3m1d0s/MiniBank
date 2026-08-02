@@ -94,7 +94,12 @@ public final class SqlTransferRepository implements TransferRepository {
     }
 
     /**
-     * Inserts or updates a transfer row including authorization metadata.
+     * Inserts or updates a transfer row including the charged fee, the customer's reference,
+     * the settlement instant and the authorization metadata.
+     *
+     * fee, message and settled_at are in the DO UPDATE SET list and not only in the INSERT, and
+     * that is load-bearing: a transfer is inserted at CREATED and settled by a later save, so
+     * an insert-only fee would never be written at all and A14 would be inert on this backend.
      */
     private void upsertTransfer(Connection conn, Transfer t) throws SQLException {
         String sql = """
@@ -105,23 +110,29 @@ public final class SqlTransferRepository implements TransferRepository {
                     target_iban_snapshot,
                     amount,
                     currency,
+                    fee,
+                    message,
                     status,
                     created_at,
+                    settled_at,
                     auth_method,
                     card_number_masked,
                     decline_reason,
                     auth_attempts,
                     auth_valid_until
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO UPDATE SET
                     source_account_id    = EXCLUDED.source_account_id,
                     beneficiary_id       = EXCLUDED.beneficiary_id,
                     target_iban_snapshot = EXCLUDED.target_iban_snapshot,
                     amount               = EXCLUDED.amount,
                     currency             = EXCLUDED.currency,
+                    fee                  = EXCLUDED.fee,
+                    message              = EXCLUDED.message,
                     status               = EXCLUDED.status,
                     created_at           = EXCLUDED.created_at,
+                    settled_at           = EXCLUDED.settled_at,
                     auth_method          = EXCLUDED.auth_method,
                     card_number_masked   = EXCLUDED.card_number_masked,
                     decline_reason       = EXCLUDED.decline_reason,
@@ -150,40 +161,61 @@ public final class SqlTransferRepository implements TransferRepository {
             ps.setString(4, t.targetIbanSnapshot());
             ps.setBigDecimal(5, t.amount().amount());
             ps.setString(6, t.currency());
-            ps.setString(7, t.status().name());
-            if (t.createdAt() != null) {
-                ps.setTimestamp(8, Timestamp.from(t.createdAt()));
+
+            // NULL rather than zero on a transfer that has not settled. A stored 0.00 would be
+            // a claim that this payment was charged nothing, which is a different fact from
+            // "it has not been charged yet"; Transfer.feeFor reads the difference.
+            if (t.fee() != null) {
+                ps.setBigDecimal(7, t.fee().amount());
             } else {
-                ps.setNull(8, Types.TIMESTAMP_WITH_TIMEZONE);
+                ps.setNull(7, Types.NUMERIC);
+            }
+
+            if (t.message() != null) {
+                ps.setString(8, t.message());
+            } else {
+                ps.setNull(8, Types.VARCHAR);
+            }
+
+            ps.setString(9, t.status().name());
+            if (t.createdAt() != null) {
+                ps.setTimestamp(10, Timestamp.from(t.createdAt()));
+            } else {
+                ps.setNull(10, Types.TIMESTAMP_WITH_TIMEZONE);
+            }
+            if (t.settledAt() != null) {
+                ps.setTimestamp(11, Timestamp.from(t.settledAt()));
+            } else {
+                ps.setNull(11, Types.TIMESTAMP_WITH_TIMEZONE);
             }
             if (authMethod != null) {
-                ps.setString(9, authMethod);
+                ps.setString(12, authMethod);
             } else {
-                ps.setNull(9, Types.VARCHAR);
+                ps.setNull(12, Types.VARCHAR);
             }
             if (cardMask != null) {
-                ps.setString(10, cardMask);
+                ps.setString(13, cardMask);
             } else {
-                ps.setNull(10, Types.VARCHAR);
+                ps.setNull(13, Types.VARCHAR);
             }
             if (t.declineReason() != null) {
-                ps.setString(11, t.declineReason());
+                ps.setString(14, t.declineReason());
             } else {
-                ps.setNull(11, Types.VARCHAR);
+                ps.setNull(14, Types.VARCHAR);
             }
 
             // auth_attempts
             if (t.authAttempts() > 0) {
-                ps.setInt(12, t.authAttempts());
+                ps.setInt(15, t.authAttempts());
             } else {
-                ps.setNull(12, Types.INTEGER);
+                ps.setNull(15, Types.INTEGER);
             }
 
             // auth_valid_until
             if (t.authValidUntil() != null) {
-                ps.setTimestamp(13, Timestamp.from(t.authValidUntil()));
+                ps.setTimestamp(16, Timestamp.from(t.authValidUntil()));
             } else {
-                ps.setNull(13, Types.TIMESTAMP_WITH_TIMEZONE);
+                ps.setNull(16, Types.TIMESTAMP_WITH_TIMEZONE);
             }
 
             ps.executeUpdate();
@@ -225,8 +257,11 @@ public final class SqlTransferRepository implements TransferRepository {
                    target_iban_snapshot,
                    amount,
                    currency,
+                   fee,
+                   message,
                    status,
                    created_at,
+                   settled_at,
                    auth_method,
                    card_number_masked,
                    decline_reason,
@@ -276,8 +311,11 @@ public final class SqlTransferRepository implements TransferRepository {
                target_iban_snapshot,
                amount,
                currency,
+               fee,
+               message,
                status,
                created_at,
+               settled_at,
                auth_method,
                card_number_masked,
                decline_reason,
@@ -333,14 +371,17 @@ public final class SqlTransferRepository implements TransferRepository {
      * One aggregate row instead of every transfer the account has ever made, and no identity
      * map: the total must be what the store holds, not what this transaction has in memory.
      *
-     * created_at is nullable and a NULL fails both range comparisons, so a row with no usable
-     * creation time counts toward no day - the same rule the JSON backend applies to a
-     * timestamp it cannot parse. The currency predicate is there so a row in another currency
-     * cannot be summed into a CZK ceiling; today no writer produces one.
+     * The day a payment counts against is the day it settled, which is the day the money
+     * actually left. COALESCE is the no-backfill path for rows written before settled_at
+     * existed: they keep counting under their creation day, exactly as they did, so applying
+     * the migration changes no historical total. A row with neither timestamp counts toward no
+     * day at all, because NULL fails both range comparisons - the same rule the JSON backend
+     * applies to a timestamp it cannot parse. The currency predicate is there so a row in
+     * another currency cannot be summed into a CZK ceiling; today no writer produces one.
      *
      * idx_transfers_source_account serves the equality predicate and the rest is a sequential
-     * filter over that account's own rows. No composite index was added, because that would
-     * mean editing db/init/schema.sql, which A14 and A6 own.
+     * filter over that account's own rows, exactly as before - the COALESCE costs nothing in
+     * plan terms because the time predicate was never index-served here anyway.
      */
     private Money sumSentWithConnection(Connection conn, int accountId,
                                         Instant fromInclusive, Instant toExclusive) throws SQLException {
@@ -351,8 +392,8 @@ public final class SqlTransferRepository implements TransferRepository {
          WHERE source_account_id = ?
            AND status = ?
            AND currency = ?
-           AND created_at >= ?
-           AND created_at <  ?
+           AND COALESCE(settled_at, created_at) >= ?
+           AND COALESCE(settled_at, created_at) <  ?
         """;
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -426,6 +467,17 @@ public final class SqlTransferRepository implements TransferRepository {
         } catch (Exception ignored) {
             // If status is invalid, keep default constructor state.
         }
+
+        // Outside the catch above on purpose. That block exists to tolerate one thing - a
+        // stored status string that does not parse - and widening it into a catch-all would
+        // make a mapper bug on these three columns invisible, which is the shape of defect this
+        // pass is correcting rather than one to create.
+        BigDecimal feeBd = rs.getBigDecimal("fee");
+        Timestamp settledTs = rs.getTimestamp("settled_at");
+        t.hydrateSettlement(
+                feeBd != null ? Money.czk(feeBd) : null,
+                settledTs != null ? settledTs.toInstant() : null);
+        t.attachMessage(rs.getString("message"));
 
         return t;
     }

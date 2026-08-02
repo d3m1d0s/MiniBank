@@ -106,7 +106,10 @@ public class AuthorizationController {
                 .orElseThrow(() -> new DataIntegrityException(
                         "Transfer " + id + " points at missing account " + t.sourceAccountId()));
 
-        var fee = t.feeAmount(feePolicy);
+        // What it was charged if it has settled, and only otherwise a quote from the current
+        // policy. A14: recomputing this on every read made a settled payment's fee a function
+        // of whichever FeePolicy bean is wired today.
+        var fee = t.feeFor(feePolicy);
 
         int maxAttempts = TransferApplicationService.MAX_OTP_ATTEMPTS;
         int triesLeft = Math.max(0, maxAttempts - t.authAttempts());
@@ -125,6 +128,8 @@ public class AuthorizationController {
                 fee.toString(),
                 t.status().name(),
                 t.createdAt().toString(),
+                t.settledAt() != null ? t.settledAt().toString() : null,
+                t.message(),
                 t.authMethod() != null
                         ? t.authMethod().toString()
                         : "",
@@ -163,7 +168,10 @@ public class AuthorizationController {
 
         String chargedAmount = null;
         if (t.status() == TransferStatus.SENT) {
-            var fee = t.feeAmount(feePolicy);
+            // The stored fee, which on this branch always exists: a SENT transfer went through
+            // Transfer.send, which writes it. A14 - what the customer is told they were charged
+            // must be what they were charged, not what today's policy would charge.
+            var fee = t.feeFor(feePolicy);
             var total = t.amount().plus(fee);
             chargedAmount = total.toString();
         }

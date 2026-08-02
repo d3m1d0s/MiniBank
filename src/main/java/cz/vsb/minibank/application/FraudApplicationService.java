@@ -8,6 +8,9 @@ import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
 
+import java.time.Clock;
+import java.time.Instant;
+
 /**
  * Application service for fraud related use cases such as approving, declining and confirming suspicious transfers.
  *
@@ -33,6 +36,16 @@ public class FraudApplicationService {
     private final UnitOfWorkFactory uowFactory;
 
     /**
+     * Stamps fraud_alerts.resolved_at.
+     *
+     * Injected for the reason TransferApplicationService's is: an instant this project records
+     * comes from a clock somebody can fix, not from Instant.now() buried in a service. It is
+     * the same clock instance BootstrapServices hands the transfer service, so an alert's
+     * resolved_at and its transfer's settled_at are readings of one clock.
+     */
+    private final Clock clock;
+
+    /**
      * No AccountRepository, no FeePolicy, and no gateway. This service decides alerts; it does
      * not move money, and the only method that ever did - the one that settled a transfer an
      * analyst had approved - is gone with the branch that called it. That is what makes the
@@ -42,9 +55,17 @@ public class FraudApplicationService {
     public FraudApplicationService(TransferRepository transfers,
                                    FraudAlertRepository alerts,
                                    UnitOfWorkFactory uowFactory) {
+        this(transfers, alerts, uowFactory, Clock.system(TransferApplicationService.BANK_ZONE));
+    }
+
+    public FraudApplicationService(TransferRepository transfers,
+                                   FraudAlertRepository alerts,
+                                   UnitOfWorkFactory uowFactory,
+                                   Clock clock) {
         this.transfers = transfers;
         this.alerts = alerts;
         this.uowFactory = uowFactory;
+        this.clock = java.util.Objects.requireNonNull(clock, "clock");
     }
 
     /**
@@ -58,14 +79,21 @@ public class FraudApplicationService {
      * transfer ever was - RuleBasedRiskService made createAlert strictly imply requireAuth - so
      * "approve the suspicious transaction" was a use case with no reachable body. Alerted
      * transfers are now HELD_FOR_REVIEW by construction and this branch runs on all of them.
+     *
+     * No analyst is recorded. This method has no HTTP route; its callers are the console fraud
+     * menu, which in legacy JSON mode has no login, and the demo runner. Passing null rather
+     * than a placeholder is the same decision the javadoc on this class already makes about the
+     * missing role check: inventing an analyst for a mode with no users is worse than the gap.
      */
     public void approve(int transferId) {
+        Instant decidedAt = clock.instant();
+
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
             var alert = alerts.byTransferId(transferId).orElseThrow(() -> new NotFoundException("Alert not found for transfer " + transferId));
             var t = transfers.byId(transferId).orElseThrow(() -> new NotFoundException("Transfer not found: " + transferId));
 
-            alert.approve();
+            alert.approve(null, decidedAt);
             alerts.save(alert);
 
             // Conditional because the customer may have cancelled the payment while it was
@@ -86,14 +114,18 @@ public class FraudApplicationService {
      * UC 11 - Review Suspicious Transaction: DECLINE.
      * Marks the alert as suspicious with the provided reason and declines the transfer, unless
      * the money has already gone - in which case the verdict is recorded on the alert alone.
+     *
+     * No analyst is recorded, for the same reason {@link #approve(int)} records none.
      */
     public void decline(int transferId, String reason) {
+        Instant decidedAt = clock.instant();
+
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
             var alert = alerts.byTransferId(transferId).orElseThrow(() -> new NotFoundException("Alert not found for transfer " + transferId));
             var t = transfers.byId(transferId).orElseThrow(() -> new NotFoundException("Transfer not found: " + transferId));
 
-            alert.markSuspicious(reason);
+            alert.markSuspicious(reason, null, decidedAt);
             alerts.save(alert);
 
             // A verdict on money that has already left is a record, not a reversal. Calling
@@ -138,13 +170,20 @@ public class FraudApplicationService {
                 () -> new NotFoundException("Alert not found for transfer " + transferId));
     }
 
+    /**
+     * @param decidedBy the analyst's username, taken from the session by FraudController. The
+     *        only route to this method is over HTTP behind requireRole(FRAUD_ANALYST), so it is
+     *        always present here; the console's decisions come through approve/decline, which
+     *        record no analyst because the legacy console has no login.
+     */
     public void decideAndUpdateAlert(
             int alertId,
             String decisionRaw,
             String reason,
             String assignee,
             java.util.List<String> tags,
-            String notes
+            String notes,
+            String decidedBy
     ) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
@@ -159,13 +198,19 @@ public class FraudApplicationService {
                     .trim()
                     .toUpperCase(java.util.Locale.ROOT);
 
+            // Validated before the switch, so a comma in a tag cannot cost the analyst their
+            // verdict: raised inside the switch it would roll back an approve or decline that
+            // had already been applied to the aggregate.
+            java.util.List<String> cleanedTags = cleanTags(tags);
+            Instant decidedAt = clock.instant();
+
             switch (decision) {
                 case "APPROVE" -> {
                     // transferId came from the alert row, not from the request.
                     var t = transfers.byId(transferId).orElseThrow(() -> new DataIntegrityException(
                             "Fraud alert " + alertId + " points at missing transfer " + transferId));
 
-                    alert.approve();
+                    alert.approve(decidedBy, decidedAt);
                     alerts.save(alert);
 
                     // Clears the transfer for the customer's confirmation step; it does not
@@ -182,7 +227,7 @@ public class FraudApplicationService {
                     var t = transfers.byId(transferId).orElseThrow(() -> new DataIntegrityException(
                             "Fraud alert " + alertId + " points at missing transfer " + transferId));
 
-                    alert.markSuspicious(r);
+                    alert.markSuspicious(r, decidedBy, decidedAt);
                     alerts.save(alert);
 
                     // Recorded, not reversed, once the money has left. Refusing it here used to
@@ -212,13 +257,8 @@ public class FraudApplicationService {
             if (assignee != null && !assignee.isBlank()) {
                 alert.assignTo(assignee.trim());
             }
-            if (tags != null) {
-                java.util.List<String> cleaned = tags.stream()
-                        .filter(java.util.Objects::nonNull)
-                        .map(String::trim)
-                        .filter(s -> !s.isEmpty())
-                        .toList();
-                alert.replaceTags(cleaned);
+            if (cleanedTags != null) {
+                alert.replaceTags(cleanedTags);
             }
             if (notes != null) {
                 alert.updateNotes(notes);
@@ -231,5 +271,39 @@ public class FraudApplicationService {
             uow.rollback();
             throw e;
         }
+    }
+
+    /**
+     * The one place a tag is validated, and the only reason a tag can be refused.
+     *
+     * A comma is rejected because the two backends store tags differently and neither can
+     * represent one: SqlFraudAlertRepository joins them with commas and splits on commas coming
+     * back, so "high,risk" is written as one tag and read as two, while the JSON store keeps a
+     * real list and reads back the one tag that was typed. The same alert would then answer the
+     * same question differently depending on which store it came from. Refusing the character
+     * is the smaller fix than escaping it or moving the column to a PostgreSQL array, and it
+     * costs a tag vocabulary nothing - a comma inside a label is punctuation, not information.
+     *
+     * ValidationException maps to 400 VALIDATION_ERROR. The offending tag is in the exception
+     * message, which reaches the log only; no handler echoes it.
+     *
+     * @return null when the caller sent no tags at all, which means "leave them alone" and is a
+     *         different instruction from an empty list, which means "clear them"
+     */
+    private static java.util.List<String> cleanTags(java.util.List<String> tags) {
+        if (tags == null) {
+            return null;
+        }
+        java.util.List<String> cleaned = tags.stream()
+                .filter(java.util.Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .toList();
+        for (String tag : cleaned) {
+            if (tag.indexOf(',') >= 0) {
+                throw new ValidationException("A fraud tag must not contain a comma: " + tag);
+            }
+        }
+        return cleaned;
     }
 }

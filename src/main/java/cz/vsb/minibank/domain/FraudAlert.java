@@ -12,12 +12,27 @@ import java.util.List;
  */
 public class FraudAlert {
 
+    /** The two verdicts an analyst can record. Stored in fraud_alerts.decision. */
+    public static final String DECISION_APPROVE = "APPROVE";
+    public static final String DECISION_DECLINE = "DECLINE";
+
     private final int id;
     private final int transferId;
 
     private FraudAlertState state;
     private String reason;
     private Instant createdAt;
+
+    /**
+     * The verdict, who recorded it and when.
+     *
+     * All three are null while the alert is open, and decidedBy stays null for a decision taken
+     * from a surface with no login - the console fraud menu and the demo runner. They are
+     * written together, inside the state guard, so a refused transition records nothing.
+     */
+    private String decision;
+    private String decidedBy;
+    private Instant resolvedAt;
 
     private Integer riskScore;
     private String assignee;
@@ -83,6 +98,24 @@ public class FraudAlert {
     }
 
     /**
+     * Restores the analyst's verdict from a stored row.
+     *
+     * Separate from hydrateForLoad rather than an eighth, ninth and tenth parameter on its
+     * already seven-parameter signature, so its existing call sites - including several in
+     * tests - are left alone.
+     *
+     * All three arguments may be null and none is validated. Every alert that exists today has
+     * them absent, so a null check here would make every stored alert fail to load; on the JSON
+     * side that failure is swallowed by the mapper and would silently reset a decided queue back
+     * to NEW, which on this project's fraud gate makes held transfers unreleasable.
+     */
+    public void hydrateDecision(String decision, String decidedBy, Instant resolvedAt) {
+        this.decision = decision;
+        this.decidedBy = decidedBy;
+        this.resolvedAt = resolvedAt;
+    }
+
+    /**
      * Clears the alert, and with it the transfer it is attached to.
      *
      * Only from NEW. A decided alert cannot be decided again: without this, an APPROVE from a
@@ -96,8 +129,15 @@ public class FraudAlert {
      * (SqlFraudAlertRepository.mapRowToAlert, JsonMapper's alert mapping), so a stored state
      * that does not parse arrives here as the constructor's NEW and is accepted. Making an
      * unknown stored enum fail loudly is its own item and covers the transfer side too.
+     *
+     * @param decidedBy the analyst's username, or null when the decision came from a surface
+     *        with no login - the console fraud menu in legacy JSON mode, and the demo runner.
+     *        Null rather than a placeholder: inventing an analyst for a mode with no users
+     *        would put a name in an audit record that names nobody.
+     * @param decidedAt supplied rather than read off the system clock, like every other instant
+     *        this project records
      */
-    public void approve() {
+    public void approve(String decidedBy, Instant decidedAt) {
         if (state != FraudAlertState.NEW) {
             throw new InvalidStateTransitionException(
                     "Only an open alert can be approved, this one is " + state);
@@ -105,6 +145,13 @@ public class FraudAlert {
 
         FraudAlertState old = this.state;
         this.state = FraudAlertState.OK;
+
+        // Written below the guard, so a refused transition records no verdict, no analyst and
+        // no timestamp on an alert somebody else had already decided.
+        this.decision = DECISION_APPROVE;
+        this.decidedBy = decidedBy;
+        this.resolvedAt = java.util.Objects.requireNonNull(decidedAt, "decidedAt");
+
         FraudAlertEvents.notifyStateChanged(this, old, this.state);
     }
 
@@ -122,8 +169,11 @@ public class FraudAlert {
      * amount" with "Declined by fraud analyst" left a confirmed-fraud case file that no longer
      * said what had been suspicious about the payment. At most one append can ever happen,
      * because SUSPICIOUS is terminal.
+     *
+     * @param decidedBy the analyst's username, or null for a decision recorded from the console
+     * @param decidedAt when the verdict was recorded
      */
-    public void markSuspicious(String reason) {
+    public void markSuspicious(String reason, String decidedBy, Instant decidedAt) {
         if (state == FraudAlertState.SUSPICIOUS) {
             throw new InvalidStateTransitionException("This alert is already marked suspicious");
         }
@@ -136,6 +186,13 @@ public class FraudAlert {
                     ? reason
                     : this.reason + " | " + reason;
         }
+
+        // Overwrites an earlier APPROVE, which is right: OK -> SUSPICIOUS is the fraud-confirmed
+        // -after-the-fact path, and the decision of record is the last one taken. SUSPICIOUS is
+        // terminal, so this can happen at most once.
+        this.decision = DECISION_DECLINE;
+        this.decidedBy = decidedBy;
+        this.resolvedAt = java.util.Objects.requireNonNull(decidedAt, "decidedAt");
 
         FraudAlertEvents.notifyStateChanged(this, old, this.state);
     }
@@ -164,6 +221,15 @@ public class FraudAlert {
     public FraudAlertState state() { return state; }
     public String reason() { return reason; }
     public Instant createdAt() { return createdAt; }
+
+    /** APPROVE or DECLINE, or null while nobody has decided this alert. */
+    public String decision() { return decision; }
+
+    /** The analyst who decided it, or null for a decision taken from a surface with no login. */
+    public String decidedBy() { return decidedBy; }
+
+    /** When the verdict was recorded, or null while the alert is open. */
+    public Instant resolvedAt() { return resolvedAt; }
 
     public Integer riskScore() { return riskScore; }
     public String assignee() { return assignee; }

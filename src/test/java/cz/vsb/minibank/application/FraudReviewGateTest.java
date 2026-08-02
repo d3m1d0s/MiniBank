@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Path;
+import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -434,7 +435,7 @@ class FraudReviewGateTest {
         // HELD_FOR_REVIEW -> SENT has no path: send() admits CREATED and WAITING_AUTH only.
         Transfer held = heldTransfer();
         assertThrows(InvalidStateTransitionException.class,
-                () -> held.send(sourceAccount(), null, new ZeroFeePolicy()),
+                () -> held.send(sourceAccount(), null, new ZeroFeePolicy(), held.createdAt()),
                 "a held transfer must not be settleable by any caller");
 
         // HELD_FOR_REVIEW -> HELD_FOR_REVIEW: a transfer is held once, at creation.
@@ -463,7 +464,7 @@ class FraudReviewGateTest {
         // Nothing leaves SENT.
         Transfer sent = heldTransfer();
         sent.releaseForAuthorization();
-        sent.send(sourceAccount(), null, new ZeroFeePolicy());
+        sent.send(sourceAccount(), null, new ZeroFeePolicy(), sent.createdAt());
         assertEquals(TransferStatus.SENT, sent.status());
         assertThrows(InvalidStateTransitionException.class, () -> sent.decline("too late"));
         assertThrows(InvalidStateTransitionException.class, sent::releaseForAuthorization);
@@ -482,27 +483,48 @@ class FraudReviewGateTest {
      */
     @Test
     void theAlertRefusesEveryTransitionThatIsNotOnTheMachine() {
+        // A fixed instant rather than now(): the assertions below are about which verdict is on
+        // record, and a real clock would make "when" a moving target for no gain. The analyst is
+        // named here because these are the domain methods, which take one either way; the
+        // console's own calls pass null.
+        Instant decidedAt = Instant.parse("2026-03-04T10:15:30Z");
+
         FraudAlert a = new FraudAlert(1, 1, "New beneficiary + high amount");
         assertEquals(FraudAlertState.NEW, a.state());
+        assertNull(a.decision(), "an open alert carries no verdict");
+        assertNull(a.resolvedAt());
 
-        a.approve();
+        a.approve("analyst.one", decidedAt);
         assertEquals(FraudAlertState.OK, a.state());
-        assertThrows(InvalidStateTransitionException.class, a::approve, "OK -> OK is refused");
+        assertEquals(FraudAlert.DECISION_APPROVE, a.decision());
+        assertEquals("analyst.one", a.decidedBy());
+        assertEquals(decidedAt, a.resolvedAt());
+        assertThrows(InvalidStateTransitionException.class,
+                () -> a.approve("analyst.two", decidedAt), "OK -> OK is refused");
+        assertEquals("analyst.one", a.decidedBy(),
+                "a refused transition must not rewrite who decided it");
 
         // OK -> SUSPICIOUS is allowed on purpose: it is how fraud confirmed after the money
         // left gets on the record.
-        a.markSuspicious("confirmed afterwards");
+        a.markSuspicious("confirmed afterwards", "analyst.two", decidedAt);
         assertEquals(FraudAlertState.SUSPICIOUS, a.state());
+        assertEquals(FraudAlert.DECISION_DECLINE, a.decision(),
+                "the decision of record is the last one taken");
+        assertEquals("analyst.two", a.decidedBy());
 
-        assertThrows(InvalidStateTransitionException.class, a::approve,
+        assertThrows(InvalidStateTransitionException.class,
+                () -> a.approve("analyst.three", decidedAt),
                 "SUSPICIOUS -> OK would whitewash a confirmed-fraud alert");
         assertThrows(InvalidStateTransitionException.class,
-                () -> a.markSuspicious("again"),
+                () -> a.markSuspicious("again", "analyst.three", decidedAt),
                 "SUSPICIOUS is terminal");
+        assertEquals("analyst.two", a.decidedBy(),
+                "and neither refusal may overwrite the verdict that stands");
 
         FraudAlert b = new FraudAlert(2, 2, "New beneficiary + high amount");
-        b.markSuspicious("declined outright");
-        assertThrows(InvalidStateTransitionException.class, b::approve);
+        b.markSuspicious("declined outright", null, decidedAt);
+        assertNull(b.decidedBy(), "a decision from a surface with no login names nobody");
+        assertThrows(InvalidStateTransitionException.class, () -> b.approve(null, decidedAt));
     }
 
     /**

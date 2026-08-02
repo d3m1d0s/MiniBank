@@ -179,13 +179,21 @@ public class FraudController {
                                  @RequestBody FraudDecisionRequest req) {
         requireRole(UserRole.FRAUD_ANALYST);
 
+        // From the session, never from the body. FraudDecisionRequest deliberately has no
+        // analyst field, for the reason NewPaymentRequest has no customerId: a field the caller
+        // can set is one line away from being trusted, and this one becomes an audit record.
+        // Not req.assignee() either - an assignee is who should look at an alert, decided_by is
+        // who did. requireRole above has already proved there is a signed-in user.
+        String analyst = AuthHelpers.requireUser().username();
+
         fraudService.decideAndUpdateAlert(
                 id,
                 req.decision(),
                 req.reason(),
                 req.assignee(),
                 req.tags(),
-                req.notes()
+                req.notes(),
+                analyst
         );
 
         return getAlert(id);
@@ -200,9 +208,14 @@ public class FraudController {
         String createdAtStr = alert.createdAt() != null ? alert.createdAt().toString() : null;
         List<String> tags = alert.tags() != null ? alert.tags() : List.of();
 
+        String resolvedAtStr = alert.resolvedAt() != null ? alert.resolvedAt().toString() : null;
+
         return new AlertInfoDto(
                 alert.id(),
                 alert.state().name(),
+                alert.decision(),
+                alert.decidedBy(),
+                resolvedAtStr,
                 alert.reason(),
                 alert.riskScore(),
                 createdAtStr,
@@ -218,7 +231,10 @@ public class FraudController {
 
         String amountStr = t.amount().amount().toPlainString();
         String currency = t.currency();
-        String feeStr = feePolicy.compute(t.amount()).amount().toPlainString();
+        // A14: what it was charged if it has settled, and only otherwise a quote from the
+        // current policy. Recomputing this made the fraud desk restate what a customer was
+        // charged last month whenever the FeePolicy bean was swapped.
+        String feeStr = t.feeFor(feePolicy).amount().toPlainString();
 
         String createdAtStr = t.createdAt() != null ? t.createdAt().toString() : null;
         String authMethod = (t.authMethod() != null ? t.authMethod().method() : null);

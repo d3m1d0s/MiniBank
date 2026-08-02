@@ -89,7 +89,10 @@ public class PaymentController {
         boolean authorizationRequired = (t.status() == TransferStatus.WAITING_AUTH
                 || t.status() == TransferStatus.HELD_FOR_REVIEW);
 
-        Money fee = t.feeAmount(feePolicy);
+        // A14: the stored fee once the payment has settled, a quote from the current policy
+        // while it has not. This screen shows the fee next to the new balance, and recomputing
+        // it is what let the two disagree the moment the FeePolicy bean changed.
+        Money fee = t.feeFor(feePolicy);
         Money charged = t.amount().plus(fee);
 
         NewPaymentResultDto dto = new NewPaymentResultDto(

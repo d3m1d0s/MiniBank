@@ -30,6 +30,12 @@ public class TransferApplicationService {
     public static final int MAX_OTP_ATTEMPTS = 3;
 
     /**
+     * The longest payment reference the store can hold, matching transfers.message VARCHAR(140).
+     * 140 is the SEPA remittance-information length, which is why the column is that wide.
+     */
+    public static final int MAX_MESSAGE_LENGTH = 140;
+
+    /**
      * The zone whose midnight ends a banking day. Daily totals are bounded by start-of-day in
      * this zone converted to an instant, not by a truncated UTC instant: Prague is UTC+1 in
      * winter and UTC+2 in summer, so a UTC boundary would file every late-evening payment
@@ -113,9 +119,10 @@ public class TransferApplicationService {
      *         source account's daily ceiling
      */
     public int submitPaymentByBeneficiary(int callerCustomerId, int sourceAccountId, int beneficiaryId, double amountCzk, String message) {
-        // Validated before the unit of work opens: a rejected amount is caller input, not a
+        // Validated before the unit of work opens: rejected input is caller input, not a
         // reason to start a transaction and roll it back.
         Money amount = Money.czkPayment(amountCzk);
+        String reference = requireStorableMessage(message);
 
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
@@ -131,6 +138,7 @@ public class TransferApplicationService {
             int id = transfers.nextId();
             Transfer t = new Transfer(id, account.id(), beneficiary.id(), beneficiary.iban().value(),
                     amount, "CZK", clock.instant());
+            t.attachMessage(reference);
 
             routeTransferCreation(account, t, beneficiary.trusted());
             uow.commit();
@@ -152,9 +160,10 @@ public class TransferApplicationService {
      *         source account's daily ceiling
      */
     public int submitPaymentToIban(int callerCustomerId, int sourceAccountId, String targetIban, double amountCzk, String message) {
-        // Validated before the unit of work opens: a rejected amount is caller input, not a
+        // Validated before the unit of work opens: rejected input is caller input, not a
         // reason to start a transaction and roll it back.
         Money amount = Money.czkPayment(amountCzk);
+        String reference = requireStorableMessage(message);
 
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
@@ -168,6 +177,7 @@ public class TransferApplicationService {
 
             int id = transfers.nextId();
             Transfer t = new Transfer(id, account.id(), null, iban.value(), amount, "CZK", clock.instant());
+            t.attachMessage(reference);
 
             // An arbitrary IBAN is not a saved beneficiary, so it is never a trusted one.
             routeTransferCreation(account, t, false);
@@ -209,14 +219,18 @@ public class TransferApplicationService {
                 beneficiaryTrusted,
                 t.amount(),
                 sentOnTheDayOf(account.id(), t.createdAt()),
-                account.dailyLimit());
+                account.dailyLimit(),
+                account.softDailyThreshold());
 
         if (!decision.requireAuthorization() && !decision.createFraudAlert()) {
             transfers.add(t);
-            account.registerTransfer(t.id());
             // Both backends read the aggregates at commit, not at registration, so moving the
-            // money after these two lines writes exactly what moving it before them would.
-            settle(t, account);
+            // money after this line writes exactly what moving it before it would.
+            //
+            // createdAt is the settlement instant on this path, and it is the same reading of
+            // the clock the day window above was taken from - which is the rule settle()
+            // documents. A payment that settles at creation was ordered and paid in one step.
+            settle(t, account, t.createdAt());
 
         } else if (decision.createFraudAlert()) {
             // Held, not waiting: the alert created below is what an analyst must clear before
@@ -227,7 +241,6 @@ public class TransferApplicationService {
             // transfer is now HELD_FOR_REVIEW at the instant its alert does.
             t.holdForReview(new CardPayment(t.amount(), "****0000"));
             transfers.add(t);
-            account.registerTransfer(t.id());
             accounts.save(account);
 
             FraudAlert a = new FraudAlert(
@@ -244,38 +257,68 @@ public class TransferApplicationService {
         } else {
             t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
             transfers.add(t);
-            account.registerTransfer(t.id());
             accounts.save(account);
         }
     }
 
     /**
-     * What has already left this account on the banking day that contains {@code when}, fees
-     * excluded.
+     * Trims the customer's own reference and refuses one the store cannot hold.
      *
-     * The window is derived from the transfer's own creation instant, never from "now", and
-     * that is the whole of the fix. A transfer is filed under its createdAt when it settles -
-     * that is the only timestamp it carries, because nothing records when one settled:
-     * Transfer.send writes no timestamp, and authValidUntil is an expiry deadline that survives
-     * non-null on a SENT transfer. So a window taken from "now" at authorization time would
-     * check a transfer against a day it will never join. Payments parked just before midnight
-     * and authorized just after it would each see a total of zero and each pass, and the
-     * ceiling would not bind at all inside that window. Asking about the transfer's own day
-     * makes the invariant one the store can prove: for every day D, the SENT transfers created
-     * on D sum to at most the account's limit.
+     * transfers.message is VARCHAR(140), the SEPA remittance-information length. Refused here
+     * rather than truncated: silently shortening a payment reference changes what a beneficiary
+     * is told the money is for, and a variable symbol cut in half is worse than a rejected form.
      *
-     * What that costs, stated plainly: a payment created at 23:57 and authorized at 00:01
-     * debits the account on day D+1 but is counted against day D, so a calendar day can see up
-     * to two days' budgets leave. That used to be bounded to the five minutes after midnight by
-     * authValidUntil. It no longer is: a transfer held for fraud review has no authorization
-     * window at all, and neither does one an analyst has released, so the gap between the day a
-     * payment is counted against and the day it actually debits is now bounded only by how long
-     * the review takes and how long the customer waits before confirming. The per-day invariant
-     * is unchanged - for every day D, the SENT transfers created on D still sum to at most the
-     * account's limit - it is only the drift that grew. Removing it needs a settlement
-     * timestamp, which needs a column in db/init/schema.sql, and that file belongs to A14 and
-     * A6; re-stamping createdAt on release is the cheaper alternative and is an owner decision,
-     * not one to take inside this change.
+     * In this class and not in a controller for the reason every other guard here is: the
+     * console and the demo runner call these methods directly, and a rule enforced only at the
+     * HTTP edge is a rule two of the three callers do not have.
+     *
+     * Blank becomes null, so an empty input box and an omitted field store the same thing -
+     * nothing - rather than an empty string that renders as a reference the customer never gave.
+     *
+     * @throws cz.vsb.minibank.domain.exceptions.ValidationException when the message is longer
+     *         than 140 characters after trimming
+     */
+    private static String requireStorableMessage(String message) {
+        if (message == null) {
+            return null;
+        }
+        String trimmed = message.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        if (trimmed.length() > MAX_MESSAGE_LENGTH) {
+            throw new cz.vsb.minibank.domain.exceptions.ValidationException(
+                    "Payment message must not exceed " + MAX_MESSAGE_LENGTH
+                            + " characters, this one is " + trimmed.length());
+        }
+        return trimmed;
+    }
+
+    /**
+     * What has already settled out of this account on the banking day that contains
+     * {@code when}, fees excluded.
+     *
+     * Keyed on settled_at, which is the day the money actually left. Before that column existed
+     * a transfer carried only its createdAt, so a settled payment was filed under the day it was
+     * ordered - and the window had to be taken from the transfer's own creation instant or it
+     * would have asked about a day the transfer would never join. That bought a per-day
+     * invariant at the price of drift: a payment created at 23:57 and authorized at 00:01
+     * debited the account on day D+1 while counting against day D, so one calendar day could see
+     * two days' budgets leave. A8 made that drift unbounded by removing the authorization window
+     * from held transfers - a review can take as long as it takes, and so can the customer
+     * afterwards.
+     *
+     * With settled_at the drift is gone and the invariant is the stronger one: for every day D,
+     * the transfers that settled on D sum to at most the account's limit. Both check sites pass
+     * the instant that will be, or already is, the settlement instant - creation passes
+     * t.createdAt(), which is the same clock reading it settles with on the immediate path, and
+     * authorization passes the now it is about to stamp. One instant decides the window and the
+     * stamp, for the reason A9 gave about createdAt: two readings would let a payment be checked
+     * against one day and filed under the next.
+     *
+     * A row with no settled_at - anything written before this column - falls back to its
+     * created_at in both backends, so no historical total moves. See
+     * SqlTransferRepository.sumSentWithConnection and JsonTransferRepository.sentTotalBetween.
      *
      * atStartOfDay on a LocalDate in the zone is DST-correct in both directions; truncating an
      * instant to UTC days is not.
@@ -302,10 +345,13 @@ public class TransferApplicationService {
      * Both accounts are saved here rather than by the callers. The destination is the save
      * nobody would remember to write, and the pair has to be registered in one deterministic
      * order across every settle site - see AccountRepository.saveBothInIdOrder.
+     *
+     * @param settledAt the instant the money moves, which must be the one that bounded the
+     *                  caller's daily-total window - see {@link #sentOnTheDayOf}
      */
-    private void settle(Transfer t, Account source) {
+    private void settle(Transfer t, Account source, Instant settledAt) {
         Account destination = accounts.inBankByIban(t.targetIbanSnapshot()).orElse(null);
-        t.send(source, destination, feePolicy);
+        t.send(source, destination, feePolicy, settledAt);
         accounts.saveBothInIdOrder(source, destination);
         if (destination == null) {
             paymentNetworkGateway.send(t);
@@ -358,14 +404,24 @@ public class TransferApplicationService {
      *         has to decide before any code is worth anything, however valid
      * @throws ConflictException when the transfer is not waiting for authorization
      * @throws InsufficientFundsException when the balance no longer covers amount and fee
-     * @throws DailyLimitExceededException when other payments have settled since this one was
-     *         created and settling it now would pass the account's daily ceiling for the day it
-     *         was created on. The transfer is left WAITING_AUTH with its attempts intact: the
-     *         customer can cancel it, or let the authorization window expire it, or authorize
-     *         it once enough of that day's other payments have been declined
+     * @throws DailyLimitExceededException when settling this payment now would pass the
+     *         account's daily ceiling for today - the day it is about to settle on, not the day
+     *         it was created on. The transfer is left WAITING_AUTH with its attempts intact: the
+     *         customer can cancel it, or let the authorization window expire it, or come back
+     *         tomorrow, which is a way out the old rule did not have
      * @throws InvalidOtpException when the code is wrong and attempts remain
+     * @throws cz.vsb.minibank.domain.exceptions.OptimisticLockException when another transaction
+     *         changed the source or destination account between this one reading its balance and
+     *         writing the new one. Nothing is charged; the JDBC transaction is rolled back with
+     *         the debit still inside it
      */
     public void authorizePayment(int callerCustomerId, int transferId, String otp) {
+        // Read once. This instant bounds the day this payment is checked against and is the
+        // instant it is stamped as settling at, and they have to be the same reading: two calls
+        // either side of midnight would check a payment against one day and file it under the
+        // next, which is the hole settled_at exists to close.
+        Instant now = clock.instant();
+
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
             var caller = guard.requireCaller(callerCustomerId);
@@ -423,8 +479,10 @@ public class TransferApplicationService {
             // authorized. Only the ceiling is re-checked - the authorization the soft threshold
             // asks for is the act being performed, so re-applying it would be circular.
             //
-            // Against the day the transfer was CREATED, which is the day it will be counted in
-            // once it is SENT; see sentOnTheDayOf.
+            // Against the day this payment is about to settle on, which is now - not the day it
+            // was ordered on, which may be weeks ago if an analyst held it. That is the change
+            // settled_at makes: the two instants used to be forced to be the same one because a
+            // transfer carried no record of when it settled. See sentOnTheDayOf.
             //
             // Raised before the OTP is looked at, so no attempt is spent on a refusal that is
             // not about the code, and before settle, so nothing has moved. The throw is inside
@@ -433,7 +491,7 @@ public class TransferApplicationService {
             // declines it, and the expiry branch above declines it on the next call once the
             // five minute window has run out.
             riskService.requireWithinDailyLimit(
-                    t.amount(), sentOnTheDayOf(acc.id(), t.createdAt()), acc.dailyLimit());
+                    t.amount(), sentOnTheDayOf(acc.id(), now), acc.dailyLimit());
 
             boolean valid = otpValidator.isValid(transferId, otp);
             if (!valid) {
@@ -458,7 +516,7 @@ public class TransferApplicationService {
             // untouched, so WAITING_AUTH, an expired window and an exhausted OTP still credit
             // nobody: settle is not reached, and neither is the lookup inside it.
             transfers.save(t);
-            settle(t, acc);
+            settle(t, acc, now);
 
             uow.commit();
         } catch (RuntimeException e) {
@@ -479,6 +537,17 @@ public class TransferApplicationService {
      * is still evidence, and nothing here should decide unilaterally that it is not - but it
      * does mean an analyst's NEW queue accumulates alerts with nothing left to decide. The
      * queue now carries the transfer's status so they are at least visible as such.
+     *
+     * Not covered by A6's version column, and worth naming because A6 is in this same change.
+     * This method writes only the transfers row; it never touches accounts, so accounts.version
+     * cannot see it. Two tabs, one WAITING_AUTH transfer: cancel committing just before an
+     * authorization means the authorization's account guard still passes and the customer is
+     * charged for a payment they cancelled and got a 200 for; cancel committing just after means
+     * DECLINED is written over SENT, and because the daily total counts only SENT rows the day's
+     * spent figure silently drops by the amount while the debit stands. The same shape reaches
+     * FraudApplicationService.decline. Closing it needs the same compare-and-set on
+     * transfers.status that accounts got on its version, which is a second mechanism and its own
+     * item; the measured leak was on the balance and that is where the column went.
      *
      * @throws NotFoundException when this caller has no transfer with this id, whether
      *         because none exists or because it debits somebody else's account

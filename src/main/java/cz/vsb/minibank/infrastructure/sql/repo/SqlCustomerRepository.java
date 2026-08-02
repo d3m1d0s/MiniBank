@@ -230,9 +230,18 @@ public final class SqlCustomerRepository implements CustomerRepository {
         }
 
         // Keep accounts.customer_id in sync with the owning customer.
+        //
+        // This is the second writer of accounts rows, next to SqlAccountRepository's upsert,
+        // and it takes the same row locks. It writes the one column that upsert deliberately
+        // never SETs, so neither can clobber the other and neither touches version - but the
+        // lock ORDER matters, and that is why the ids are sorted here. saveBothInIdOrder takes
+        // its two account locks strictly ascending; a customer whose accountIds happened to be
+        // stored descending would take them the other way round and the two writers could
+        // deadlock. Today every accountIds list is built ascending, so the sort changes nothing
+        // and exists so that staying safe does not depend on that continuing to be true.
         String accSql = "UPDATE accounts SET customer_id = ? WHERE id = ?";
         try (PreparedStatement psAcc = conn.prepareStatement(accSql)) {
-            for (Integer accId : c.accountIds()) {
+            for (Integer accId : c.accountIds().stream().sorted().toList()) {
                 psAcc.setInt(1, c.id());
                 psAcc.setInt(2, accId);
                 psAcc.addBatch();

@@ -67,6 +67,27 @@ final class ApiErrors {
             "CONFLICT",
             "This action is no longer possible because the item has already changed state.");
 
+    // A6. Another transaction changed an account this request touches between the moment this
+    // request read its balance and the moment it tried to write the new one, so the write was
+    // refused instead of being applied on top of a figure that is no longer true.
+    //
+    // Its own code rather than CONFLICT above, because the two ask for opposite things.
+    // CONFLICT says the item has already changed state, which tells the customer to stop; here
+    // the request was simply not first and sending it again is exactly right.
+    //
+    // It names no account, and that is deliberate. The guard is taken on both legs of a
+    // settlement, so a customer paying an in-bank shop can be refused because a stranger paid
+    // the same shop a millisecond earlier. "Another change to this account" would send them
+    // looking through their own history for a change they did not make.
+    //
+    // It says outright that nothing was charged. A 409 on a payment otherwise reads as "it may
+    // or may not have gone through", which is the single worst thing to leave a customer
+    // believing about money. It is also true: the debit lived only in the JDBC transaction that
+    // was rolled back before this answer was written.
+    static final ApiError CONCURRENT_MODIFICATION = new ApiError(
+            "CONCURRENT_MODIFICATION",
+            "This payment could not be completed because another change was applied first. Nothing was charged. Please send it again.");
+
     // Says that the bank is checking the payment and nothing else. No amount, no threshold, no
     // beneficiary, no risk score: the customer learns that it is under review and that it is
     // not lost, which is everything they can act on, and it names the one action they still

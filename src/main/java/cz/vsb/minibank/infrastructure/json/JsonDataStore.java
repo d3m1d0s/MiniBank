@@ -51,7 +51,7 @@ public class JsonDataStore {
     /**
      * The one lock for the whole store. It guards the cache field, the four lists inside
      * the Bundle, every DTO reachable from them (including the nested accountIds,
-     * transferIds, beneficiaries and tags lists), the sequences, and the backing file.
+     * beneficiaries and tags lists), the sequences, and the backing file.
      *
      * One store-wide lock is deliberate. This is a single JSON file and every commit
      * rewrites all of it, so there is nothing finer-grained worth locking, and a coarse

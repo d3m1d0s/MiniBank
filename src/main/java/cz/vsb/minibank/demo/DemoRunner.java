@@ -34,6 +34,17 @@ public class DemoRunner {
     /** Above the authorization threshold as well, but cancelled instead of sent. */
     private static final double CANCEL_AMOUNT = 5_200;
 
+    /**
+     * Above the secondary account's own 3 000 soft tier and below every other threshold.
+     *
+     * Under the bank-wide 15 000 this payment settled on the spot - it is untrusted but under
+     * the 5 000 untrusted threshold and nowhere near the 10 000 alert threshold - so it is the
+     * only thing in this script that would behave differently if the per-account soft tier were
+     * reverted. Comfortably inside the account's 5 000 opening balance and 8 000 ceiling, so
+     * nothing else can be what refuses it.
+     */
+    private static final double SOFT_TIER_AMOUNT = 3_500;
+
     public static void main(String[] args) {
         // Its own key rather than minibank.json.path, so pointing the demo somewhere else
         // cannot silently repoint the console app and the API at the demo store as well.
@@ -179,6 +190,12 @@ public class DemoRunner {
                     "Balance must remain unchanged after canceling T3");
             System.out.println("[OK] UC19: T3 DECLINED, balance=" + afterT3 + " (unchanged)\n");
 
+            // 4) The per-account soft authorization tier, on the one account that has one.
+            // Everything above runs on the primary account, which has no override and rides the
+            // bank-wide 15 000; without this step nothing in the script would notice if the
+            // per-account tier were reverted.
+            runSoftTierStep(infra, services, customerId);
+
             System.out.println("=== SUMMARY ===");
             System.out.println("Transfers: T1=" + t1 + " (SENT), T2=" + t2
                     + " (SENT), T3=" + t3 + " (DECLINED)");
@@ -193,6 +210,60 @@ public class DemoRunner {
     }
 
     // Helpers
+
+    /**
+     * Sends one payment from the secondary account, whose soft tier is its own 3 000 rather
+     * than the bank-wide 15 000, and shows that the tier fires.
+     *
+     * Skipped with a printed note rather than failed when the account carries no override. The
+     * scenario's seed is a no-op on a store that already has the demo dataset, so a store
+     * seeded before this change has the column empty and this account is back on the bank-wide
+     * tier - which would settle the payment and fail an assertion about a fixture, not about
+     * the code. Re-run with -Dminibank.demo.reset=true to see it.
+     */
+    private static void runSoftTierStep(Bootstrap infra, BootstrapServices services, int customerId) {
+        Account secondary = infra.accounts.byIban(DemoScenario.SECONDARY_IBAN).orElseThrow();
+        Money threshold = secondary.softDailyThreshold();
+
+        if (threshold == null) {
+            System.out.println("[Skip] The secondary account carries no soft-tier override, so this"
+                    + " store predates the per-account threshold. Re-run with -D"
+                    + MinibankProperties.DEMO_RESET + "=true to seed one.\n");
+            return;
+        }
+
+        Money before = secondary.balance();
+        int t4 = services.transferService.submitPaymentToIban(
+                customerId,
+                secondary.id(),
+                "CZ1301000000000098765432",
+                SOFT_TIER_AMOUNT,
+                "demo SOFT TIER"
+        );
+        var tr4 = infra.transfers.byId(t4).orElseThrow();
+        assertState(tr4.status() == TransferStatus.WAITING_AUTH,
+                "T4 of " + Money.czk(SOFT_TIER_AMOUNT) + " must be held by this account's own "
+                        + threshold + " tier; under the bank-wide 15 000 it would have settled");
+        assertState(infra.accounts.byId(secondary.id()).orElseThrow().balance().equals(before),
+                "A payment held for authorization must not have debited anything");
+
+        services.transferService.authorizePayment(customerId, t4, "0000");
+        tr4 = infra.transfers.byId(t4).orElseThrow();
+        assertState(tr4.status() == TransferStatus.SENT, "T4 must be SENT after authorization");
+
+        Money fee4 = services.feePolicy.compute(Money.czk(SOFT_TIER_AMOUNT));
+        Money after = infra.accounts.byId(secondary.id()).orElseThrow().balance();
+        assertState(after.equals(before.minus(Money.czk(SOFT_TIER_AMOUNT).plus(fee4))),
+                "Balance after T4 must be reduced by amount and fee");
+        assertState(tr4.fee() != null && tr4.fee().equals(fee4),
+                "A14: the settled transfer must carry the fee it was charged, not recompute it");
+        assertState(tr4.settledAt() != null,
+                "The settled transfer must record when the money moved");
+
+        System.out.println("[OK] Per-account soft tier: T4=" + t4 + " was held by the secondary"
+                + " account's own " + threshold + " threshold and then SENT, balance=" + after
+                + " (fee=" + fee4 + ", stored not recomputed)\n");
+    }
 
     /**
      * Discards the demo store so the run starts from the dataset the scenario
