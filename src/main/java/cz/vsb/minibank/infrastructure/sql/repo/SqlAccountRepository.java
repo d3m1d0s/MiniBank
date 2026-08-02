@@ -5,6 +5,7 @@ import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWork;
+import cz.vsb.minibank.infrastructure.uow.IdentityMapAccounts;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
@@ -119,6 +120,14 @@ public final class SqlAccountRepository implements AccountRepository {
     @Override
     public Optional<Account> byIban(IBAN iban) {
         UnitOfWork uow = UowContext.current();
+
+        // What this transaction already holds comes first, including accounts it has created
+        // whose INSERTs are still buffered and therefore invisible to the SELECT below.
+        Optional<Account> inFlight = IdentityMapAccounts.byIban(uow, iban);
+        if (inFlight.isPresent()) {
+            return inFlight;
+        }
+
         try {
             if (uow instanceof SqlUnitOfWork sqlUow) {
                 return loadByIbanWithConnection(sqlUow.connection(), iban, uow);
@@ -142,6 +151,15 @@ public final class SqlAccountRepository implements AccountRepository {
                 }
 
                 int dbId = rs.getInt("id");
+                // Same rule as loadByIdWithConnection: one instance per row per unit of work.
+                // The probe sits after the query because the row is what supplies the id.
+                // accounts.iban is UNIQUE, so there is no second row to disambiguate here.
+                if (uow != null) {
+                    Account cached = uow.get(Account.class, dbId);
+                    if (cached != null) {
+                        return Optional.of(cached);
+                    }
+                }
                 String ibanStr = rs.getString("iban");
                 BigDecimal balance = rs.getBigDecimal("balance_czk");
                 BigDecimal limit = rs.getBigDecimal("daily_limit_czk");

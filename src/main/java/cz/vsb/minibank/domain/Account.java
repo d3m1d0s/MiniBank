@@ -60,6 +60,22 @@ public class Account {
     }
 
     /**
+     * Credits the account with an incoming amount.
+     *
+     * No fee argument: the fee is charged to the sender in {@link #debit} and is not taken a
+     * second time here. The daily limit is not consulted either, because it caps what leaves
+     * an account, not what arrives.
+     *
+     * @throws InvalidAmountException when the amount is not positive
+     */
+    public void credit(Money amount) {
+        if (!amount.isPositive()) {
+            throw new InvalidAmountException("Cannot credit " + amount);
+        }
+        this.balance = this.balance.plus(amount);
+    }
+
+    /**
      * Registers an outgoing transfer identifier with this account.
      */
     public void registerTransfer(int transferId) {

@@ -68,6 +68,15 @@ public final class JsonUnitOfWork implements UnitOfWork {
         identities.computeIfAbsent(type, k -> new HashMap<>()).put(id, obj);
     }
 
+    @SuppressWarnings("unchecked")
+    @Override public <T> Collection<T> all(Class<T> type) {
+        requireOwner();
+        var byType = identities.get(type);
+        // Copied rather than returned live: a caller iterating it may load another aggregate,
+        // and that lookup ends in a put on the very map being walked.
+        return byType == null ? List.of() : List.copyOf((Collection<T>) byType.values());
+    }
+
     @Override public void registerMutation(Runnable r) {
         requireOwner();
         if (!active) throw new IllegalStateException("UoW is not active");

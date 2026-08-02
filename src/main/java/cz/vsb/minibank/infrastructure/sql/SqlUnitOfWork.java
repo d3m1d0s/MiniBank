@@ -62,6 +62,20 @@ public final class SqlUnitOfWork implements UnitOfWork {
         identityMap.put(new Key(type, id), obj);
     }
 
+    @SuppressWarnings("unchecked")
+    @Override
+    public <T> Collection<T> all(Class<T> type) {
+        // Copied rather than returned live: a caller iterating it may load another aggregate,
+        // and that lookup ends in a put on the very map being walked.
+        List<T> result = new ArrayList<>();
+        for (Map.Entry<Key, Object> entry : identityMap.entrySet()) {
+            if (entry.getKey().type.equals(type)) {
+                result.add((T) entry.getValue());
+            }
+        }
+        return result;
+    }
+
     @Override
     public void registerMutation(Runnable r) {
         if (completed) {

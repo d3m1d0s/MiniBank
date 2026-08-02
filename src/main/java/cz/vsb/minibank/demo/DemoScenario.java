@@ -142,10 +142,17 @@ public final class DemoScenario {
      */
     private void settleTransfer(Account source, Beneficiary target) {
         Transfer transfer = newTransfer(source, target, SETTLED_AMOUNT);
-        transfer.send(source, feePolicy);
+        // The seed asks the same question the services ask instead of hard-coding null, so it
+        // stays correct if the dataset ever opens an account at a beneficiary IBAN. The two
+        // accounts above are created in this very unit of work and have no rows yet, which is
+        // why inBankByIban consults the identity map before the store. Today the answer is
+        // nothing: both beneficiary IBANs are beneficiaries and never accounts, so every
+        // seeded transfer stays external and no demo balance moves.
+        Account destination = accounts.inBankByIban(target.iban().value()).orElse(null);
+        transfer.send(source, destination, feePolicy);
         transfers.add(transfer);
         source.registerTransfer(transfer.id());
-        accounts.save(source);
+        accounts.saveBothInIdOrder(source, destination);
     }
 
     /**

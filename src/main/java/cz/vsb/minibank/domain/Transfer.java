@@ -1,7 +1,9 @@
 package cz.vsb.minibank.domain;
 
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
+import cz.vsb.minibank.domain.exceptions.InvalidIbanException;
 import cz.vsb.minibank.domain.exceptions.InvalidStateTransitionException;
+import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.domain.lazy.LazyRef;
 import java.time.Duration;
@@ -81,18 +83,69 @@ public class Transfer {
     }
 
     /**
-     * Sends the transfer and debits the source account, applying the fee policy.
+     * Settles the transfer: debits the source with the fee applied, and credits the
+     * destination when the target IBAN belongs to this bank.
+     *
+     * The destination is null for a payment that leaves the bank. Resolving it is the
+     * caller's job, because looking an IBAN up belongs to a repository; the parameter is
+     * mandatory rather than a second overload so that no call site can exist without
+     * answering who receives the money. Both legs are here because a transfer that reaches
+     * SENT has moved money, and leaving the credit to the callers is what let every call site
+     * debit and credit nobody.
+     *
+     * The three checks below are about stored rows contradicting themselves, not about caller
+     * input, which is why they are DataIntegrityException and not a caller-facing refusal: a
+     * payment to the source's own IBAN is already refused at creation with a 400, and the
+     * other two say the accounts handed over are not the ones this transfer names.
      */
-    public void send(Account source, FeePolicy policy) {
+    public void send(Account source, Account destination, FeePolicy policy) {
         if (status != TransferStatus.CREATED && status != TransferStatus.WAITING_AUTH)
             throw new InvalidStateTransitionException("Cannot send from status: " + status);
 
+        if (source.id() != this.sourceAccountId)
+            throw new DataIntegrityException("Transfer " + id + " debits account "
+                    + sourceAccountId + " but was handed account " + source.id());
+
+        if (destination != null) {
+            if (destination.id() == source.id())
+                throw new DataIntegrityException(
+                        "Transfer " + id + " would credit its own source account " + source.id());
+            if (!destination.iban().equals(targetIban()))
+                throw new DataIntegrityException("Transfer " + id + " targets " + targetIbanSnapshot
+                        + " but was handed account " + destination.id());
+        }
+
+        // Debit first: it is the only step that can fail, and it fails before it mutates.
+        // Nothing between the two assignments can throw, so no path leaves one leg written.
         source.debit(this.amount, feeAmount(policy));
+        if (destination != null) {
+            destination.credit(this.amount);
+        }
 
         TransferStatus old = this.status;
         this.status = TransferStatus.SENT;
 
         TransferEvents.notifyStatusChanged(this, old, this.status);
+    }
+
+    /**
+     * The target IBAN as a value object.
+     *
+     * The snapshot is the raw String this transfer was constructed with and is never put back
+     * through {@link IBAN} when a stored row is rehydrated, while {@code Account.iban().value()}
+     * is always normalized. Comparing the two as text would therefore refuse a destination
+     * that was resolved correctly - a snapshot written before IBAN validation existed, or one
+     * carrying the spacing a customer typed, matches the account row but not the string. A15
+     * gave IBAN equals/hashCode for exactly this comparison and requireDifferentAccount
+     * already uses it.
+     */
+    private IBAN targetIban() {
+        try {
+            return new IBAN(targetIbanSnapshot);
+        } catch (InvalidIbanException e) {
+            throw new DataIntegrityException(
+                    "Transfer " + id + " carries an unusable target IBAN: " + targetIbanSnapshot);
+        }
     }
 
     /**

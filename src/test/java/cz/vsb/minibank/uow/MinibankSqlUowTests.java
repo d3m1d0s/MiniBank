@@ -723,4 +723,91 @@ public class MinibankSqlUowTests {
         assertEquals(TransferStatus.SENT, infra.transfers.byId(transferId).orElseThrow().status());
     }
 
+// -------------------------------------------------------------------------
+// 9) A12: the credit leg against a real database
+// -------------------------------------------------------------------------
+
+    /**
+     * Both legs of an in-bank payment are written by one JDBC transaction.
+     *
+     * The JSON tests cannot show this: there the two upserts are closures over a shared
+     * Bundle, while here they are two INSERT ... ON CONFLICT statements followed by one
+     * connection.commit(). It is also the only place the SQL byIban probe is exercised on the
+     * money path, since the destination is resolved by IBAN after the source has been loaded
+     * by id - the order that used to put two instances of one row into the identity map.
+     */
+    @Test
+    void anInBankTransferCreditsTheDestinationInOneSqlTransaction() {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+
+        final IBAN payerIban = new IBAN("CZ6508000000192000145399");
+        final IBAN payeeIban = new IBAN("CZ4308000000192000145407");
+        final Money opening = Money.czk(20_000);
+
+        int payerId;
+        int payerAccount;
+        int payeeAccount;
+
+        UnitOfWork uow = infra.uowFactory.begin();
+        try (UowScope __ = new UowScope(uow)) {
+            payerId = infra.customers.nextId();
+            Customer payer = new Customer(payerId, "Payer", "payer@example.com",
+                    new Address("Street 1", "City"));
+            infra.customers.save(payer);
+            payerAccount = infra.accounts.nextId();
+            infra.accounts.save(new Account(payerAccount, payerIban, opening, Money.czk(20_000)));
+            payer.addAccountId(payerAccount);
+            // The second save is what writes accounts.customer_id; see DemoScenario.create.
+            infra.customers.save(payer);
+
+            int payeeId = infra.customers.nextId();
+            Customer payee = new Customer(payeeId, "Payee", "payee@example.com",
+                    new Address("Street 2", "City"));
+            infra.customers.save(payee);
+            payeeAccount = infra.accounts.nextId();
+            infra.accounts.save(new Account(payeeAccount, payeeIban, opening, Money.czk(20_000)));
+            payee.addAccountId(payeeAccount);
+            infra.customers.save(payee);
+
+            uow.commit();
+        } catch (RuntimeException e) {
+            uow.rollback();
+            throw e;
+        }
+
+        Money before = totalAccountMoney();
+        assertEquals(0, opening.plus(opening).amount().compareTo(before.amount()));
+
+        double amount = 5_000;
+        Money charged = services.feePolicy.compute(Money.czk(amount));
+        assertTrue(charged.isPositive(), "this case is only interesting with a fee to lose");
+
+        int transferId = services.transferService.submitPaymentToIban(
+                payerId, payerAccount, payeeIban.value(), amount, "in bank");
+
+        assertEquals(TransferStatus.SENT, infra.transfers.byId(transferId).orElseThrow().status());
+        assertEquals(0, opening.minus(Money.czk(amount)).minus(charged).amount().compareTo(
+                        infra.accounts.byId(payerAccount).orElseThrow().balance().amount()),
+                "the sender pays amount plus fee");
+        assertEquals(0, opening.plus(Money.czk(amount)).amount().compareTo(
+                        infra.accounts.byId(payeeAccount).orElseThrow().balance().amount()),
+                "and the destination row really was updated, not just the sender's");
+        assertEquals(0, before.minus(charged).amount().compareTo(totalAccountMoney().amount()),
+                "the fee is the only money that may leave the system");
+    }
+
+    /** Sums balance_czk over every account row, so nothing can hide outside the fixture. */
+    private Money totalAccountMoney() {
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
+             Statement st = conn.createStatement();
+             java.sql.ResultSet rs = st.executeQuery(
+                     "SELECT COALESCE(SUM(balance_czk), 0) AS total FROM accounts")) {
+            rs.next();
+            return Money.czk(rs.getBigDecimal("total"));
+        } catch (java.sql.SQLException e) {
+            throw new RuntimeException("Failed to total account balances", e);
+        }
+    }
+
 }

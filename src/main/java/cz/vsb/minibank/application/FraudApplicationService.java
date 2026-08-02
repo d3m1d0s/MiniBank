@@ -53,11 +53,7 @@ public class FraudApplicationService {
             // no alerted transfer is ever CREATED. Raising AUTH_THRESHOLD_FOR_UNTRUSTED above
             // ALERT_THRESHOLD_FOR_UNTRUSTED would silently give the analyst an unguarded debit.
             if (t.status() == TransferStatus.CREATED) {
-                var acc = accounts.byId(t.sourceAccountId()).orElseThrow(() -> new DataIntegrityException(
-                        "Transfer " + transferId + " points at missing account " + t.sourceAccountId()));
-                t.send(acc, feePolicy);
-                transfers.save(t);
-                accounts.save(acc);
+                sendApproved(t);
             }
             uow.commit();
         } catch (RuntimeException e) {
@@ -134,11 +130,7 @@ public class FraudApplicationService {
                     var t = transfers.byId(transferId).orElseThrow(() -> new DataIntegrityException(
                             "Fraud alert " + alertId + " points at missing transfer " + transferId));
                     if (t.status() == TransferStatus.CREATED) {
-                        var acc = accounts.byId(t.sourceAccountId()).orElseThrow(() -> new DataIntegrityException(
-                                "Transfer " + transferId + " points at missing account " + t.sourceAccountId()));
-                        t.send(acc, feePolicy);
-                        transfers.save(t);
-                        accounts.save(acc);
+                        sendApproved(t);
                     }
                 }
                 case "DECLINE" -> {
@@ -181,6 +173,29 @@ public class FraudApplicationService {
             uow.rollback();
             throw e;
         }
+    }
+
+    /**
+     * Sends a transfer an analyst approved while it was still CREATED.
+     *
+     * Both approve branches held the same six lines. Folding them into one method means a
+     * threshold change re-opens one code path rather than two that can disagree about who
+     * receives the money.
+     *
+     * No gateway call, unlike the customer paths: this service has never had a gateway, so an
+     * approved payment to an IBAN outside this bank still reaches nobody. That gap is older
+     * than the credit leg and is left alone here; what changes is that an approved payment to
+     * an account of this bank now arrives.
+     */
+    private void sendApproved(Transfer t) {
+        var acc = accounts.byId(t.sourceAccountId()).orElseThrow(() -> new DataIntegrityException(
+                "Transfer " + t.id() + " points at missing account " + t.sourceAccountId()));
+        Account destination = accounts.inBankByIban(t.targetIbanSnapshot()).orElse(null);
+        t.send(acc, destination, feePolicy);
+        transfers.save(t);
+        // Ascending id order, the same rule the customer paths follow, so a settlement started
+        // by an analyst cannot deadlock against one started by a customer.
+        accounts.saveBothInIdOrder(acc, destination);
     }
 
 }

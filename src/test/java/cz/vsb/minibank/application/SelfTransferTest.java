@@ -20,9 +20,11 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * A payment to the source account's own IBAN debits the account and credits nobody, because
- * there is no credit leg. Until there is one, such a payment destroys money rather than
- * moving it, so it is refused outright.
+ * A payment to the source account's own IBAN is refused.
+ *
+ * The reason has changed with A12 but the rule has not: the account would be debited amount
+ * plus fee and credited amount, so the fee would be charged for moving nothing. Refusing it at
+ * creation keeps it a 400 the caller can act on.
  */
 class SelfTransferTest {
 
@@ -108,6 +110,10 @@ class SelfTransferTest {
     /**
      * Guards against over-reaching: only the source account itself is refused. Paying the
      * customer's other account is an ordinary transfer as far as this rule is concerned.
+     *
+     * It is also the in-bank case, so the balances are asserted here rather than only the
+     * existence of the transfer. The fee is zero at 500 CZK under SimpleFeePolicy, so the two
+     * legs are equal and opposite and the customer's total is unchanged.
      */
     @Test
     void payingTheCustomersOtherAccountIsStillAllowed() {
@@ -115,6 +121,13 @@ class SelfTransferTest {
 
         assertEquals(1, transfers.bySourceAccount(ACCOUNT_ID).size());
         assertEquals(id, transfers.bySourceAccount(ACCOUNT_ID).get(0).id());
+
+        assertEquals(OPENING.minus(Money.czk(500)),
+                accounts.byId(ACCOUNT_ID).orElseThrow().balance(),
+                "the source lost the amount");
+        assertEquals(Money.czk(5_000).plus(Money.czk(500)),
+                accounts.byId(SECOND_ACCOUNT_ID).orElseThrow().balance(),
+                "and the destination gained it, rather than the money being destroyed");
     }
 
     @Test

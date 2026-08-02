@@ -139,12 +139,11 @@ public class TransferApplicationService {
         }
 
         if (!decision.requireAuthorization() && !decision.createFraudAlert()) {
-            t.send(account, feePolicy);
             transfers.add(t);
             account.registerTransfer(t.id());
-            accounts.save(account);
-
-            paymentNetworkGateway.send(t);
+            // Both backends read the aggregates at commit, not at registration, so moving the
+            // money after these two lines writes exactly what moving it before them would.
+            settle(t, account);
 
         } else {
             t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
@@ -171,6 +170,29 @@ public class TransferApplicationService {
     }
 
     /**
+     * Settles a transfer: moves the money, and hands the transfer to the network only when it
+     * leaves this bank.
+     *
+     * One lookup decides both halves, which is why they are one statement apart. An IBAN this
+     * bank holds is credited here and is not also offered to the network, because under a real
+     * gateway that would be the same money leaving twice - the credit leg would fix the
+     * destroyed-money bug and put a double spend in its place. Everything else is unchanged:
+     * resolved to nothing, credited to nobody, dispatched exactly as before.
+     *
+     * Both accounts are saved here rather than by the callers. The destination is the save
+     * nobody would remember to write, and the pair has to be registered in one deterministic
+     * order across every settle site - see AccountRepository.saveBothInIdOrder.
+     */
+    private void settle(Transfer t, Account source) {
+        Account destination = accounts.inBankByIban(t.targetIbanSnapshot()).orElse(null);
+        t.send(source, destination, feePolicy);
+        accounts.saveBothInIdOrder(source, destination);
+        if (destination == null) {
+            paymentNetworkGateway.send(t);
+        }
+    }
+
+    /**
      * Resolves a transfer the caller named and owns, or refuses the request.
      *
      * Every caller-supplied transfer id goes through here. The ownership check is part of the
@@ -192,11 +214,12 @@ public class TransferApplicationService {
     /**
      * Refuses a payment that names the source account's own IBAN.
      *
-     * There is no credit leg yet, so such a transfer debits the source and credits nobody:
-     * the money is destroyed rather than moved back. The comparison is against the account
-     * already loaded for this transaction, never against a fresh accounts.byIban lookup,
-     * because within one unit of work that call puts a second instance of the same row into
-     * the identity map and a later save would write back the stale balance from it.
+     * Still refused now that a credit leg exists: the account would be debited amount plus fee
+     * and credited amount, so the fee would be charged for moving nothing. Refusing it here
+     * keeps it a 400 the caller can act on. Reaching {@link Transfer#send} with the source as
+     * its own destination means a stored row contradicts this rule, and that is answered as
+     * the server fault it is. The comparison is against the account already loaded for this
+     * transaction, which is the source the rule is about.
      */
     private void requireDifferentAccount(Account source, IBAN target) {
         if (source.iban().equals(target)) {
@@ -254,11 +277,11 @@ public class TransferApplicationService {
                 return;
             }
 
-            t.send(acc, feePolicy);
-
-            accounts.save(acc);
+            // The only other point at which a customer's money moves. Everything above is
+            // untouched, so WAITING_AUTH, an expired window and an exhausted OTP still credit
+            // nobody: settle is not reached, and neither is the lookup inside it.
             transfers.save(t);
-            paymentNetworkGateway.send(t);
+            settle(t, acc);
 
             uow.commit();
         } catch (RuntimeException e) {
