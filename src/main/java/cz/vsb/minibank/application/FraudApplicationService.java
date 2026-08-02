@@ -52,6 +52,11 @@ public class FraudApplicationService {
             // (untrusted, over 10 000) strictly imply requireAuth (untrusted, over 5 000), so
             // no alerted transfer is ever CREATED. Raising AUTH_THRESHOLD_FOR_UNTRUSTED above
             // ALERT_THRESHOLD_FOR_UNTRUSTED would silently give the analyst an unguarded debit.
+            // A9's day-total term is OR-ed into requireAuth and can only widen it, so the
+            // implication still holds. The other half of the invariant is that no stored row
+            // arrives here in CREATED with an alert attached: since A9 this is the one debit
+            // site with no daily-limit check, because this service has neither a RiskService
+            // nor a Clock. Attaching an alert to a CREATED transfer means giving it both.
             if (t.status() == TransferStatus.CREATED) {
                 sendApproved(t);
             }

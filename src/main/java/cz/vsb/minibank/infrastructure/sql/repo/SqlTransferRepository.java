@@ -312,6 +312,62 @@ public final class SqlTransferRepository implements TransferRepository {
         return result;
     }
 
+    @Override
+    public Money sentTotalBetween(int accountId, Instant fromInclusive, Instant toExclusive) {
+        UnitOfWork uow = UowContext.current();
+
+        try {
+            if (uow instanceof SqlUnitOfWork sqlUow) {
+                return sumSentWithConnection(sqlUow.connection(), accountId, fromInclusive, toExclusive);
+            } else {
+                try (Connection conn = DriverManager.getConnection(url, user, password)) {
+                    return sumSentWithConnection(conn, accountId, fromInclusive, toExclusive);
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to total sent transfers for accountId=" + accountId, e);
+        }
+    }
+
+    /**
+     * One aggregate row instead of every transfer the account has ever made, and no identity
+     * map: the total must be what the store holds, not what this transaction has in memory.
+     *
+     * created_at is nullable and a NULL fails both range comparisons, so a row with no usable
+     * creation time counts toward no day - the same rule the JSON backend applies to a
+     * timestamp it cannot parse. The currency predicate is there so a row in another currency
+     * cannot be summed into a CZK ceiling; today no writer produces one.
+     *
+     * idx_transfers_source_account serves the equality predicate and the rest is a sequential
+     * filter over that account's own rows. No composite index was added, because that would
+     * mean editing db/init/schema.sql, which A14 and A6 own.
+     */
+    private Money sumSentWithConnection(Connection conn, int accountId,
+                                        Instant fromInclusive, Instant toExclusive) throws SQLException {
+
+        String sql = """
+        SELECT COALESCE(SUM(amount), 0)
+          FROM transfers
+         WHERE source_account_id = ?
+           AND status = ?
+           AND currency = ?
+           AND created_at >= ?
+           AND created_at <  ?
+        """;
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, accountId);
+            ps.setString(2, TransferStatus.SENT.name());
+            ps.setString(3, "CZK");
+            ps.setTimestamp(4, Timestamp.from(fromInclusive));
+            ps.setTimestamp(5, Timestamp.from(toExclusive));
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return Money.czk(rs.getBigDecimal(1));
+            }
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------

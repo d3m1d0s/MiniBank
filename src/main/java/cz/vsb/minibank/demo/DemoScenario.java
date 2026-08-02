@@ -39,8 +39,21 @@ public final class DemoScenario {
     private static final String CUSTOMER_EMAIL = "alice@example.com";
 
     private static final Money PRIMARY_OPENING_BALANCE = Money.czk(25_000);
-    private static final Money PRIMARY_DAILY_LIMIT = Money.czk(15_000);
+
+    /**
+     * The hard ceiling on one day's outflow, above RuleBasedRiskService's 15 000 soft threshold
+     * so the demo can cross that one - which only asks for an authorization the script then
+     * supplies - without being refused outright. The peak cumulative attempt across DemoRunner
+     * is 24 700, so this clears it.
+     */
+    private static final Money PRIMARY_DAILY_LIMIT = Money.czk(40_000);
     private static final Money SECONDARY_OPENING_BALANCE = Money.czk(5_000);
+
+    /**
+     * Left below the soft threshold on purpose: this account opens with 5 000, so neither tier
+     * can bind on it whatever this number is, and raising it would only pretend otherwise. An
+     * account whose ceiling sits under the soft threshold has one tier, not two.
+     */
     private static final Money SECONDARY_DAILY_LIMIT = Money.czk(8_000);
 
     /** Below the authorization threshold, so it settles immediately and forms the history. */

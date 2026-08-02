@@ -77,7 +77,10 @@ public class PaymentAndAuthorizationApiTest {
                     TEST_ACCOUNT_ID,
                     new IBAN("CZ6508000000192000145399"),
                     Money.czk(20_000),
-                    Money.czk(5_000)
+                    // The hard daily ceiling, matching the demo. WAITING_TRANSFER_AMOUNT is
+                    // 6 000 and createWaitingTransferForCustomer2 feeds nine tests; at the old
+                    // 5 000 every one of them is refused outright instead of waiting.
+                    Money.czk(40_000)
             );
             infra.accounts.save(acc);
             customer.addAccountId(TEST_ACCOUNT_ID);
@@ -117,7 +120,7 @@ public class PaymentAndAuthorizationApiTest {
         victim.addAccountId(VICTIM_ACCOUNT_ID);
         infra.customers.save(victim);
         infra.accounts.save(new Account(VICTIM_ACCOUNT_ID, new IBAN("CZ4308000000192000145407"),
-                Money.czk(20_000), Money.czk(5_000)));
+                Money.czk(20_000), Money.czk(40_000)));
         infra.customers.saveBeneficiary(VICTIM_CUSTOMER_ID, new Beneficiary(
                 VICTIM_BENEFICIARY_ID, "Victim's payee",
                 new IBAN("CZ9608000000192000145423"), true));

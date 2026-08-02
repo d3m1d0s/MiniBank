@@ -46,6 +46,13 @@ final class ApiErrors {
             "SELF_TRANSFER",
             "The destination is the account the payment is sent from. Choose a different account.");
 
+    // Names the amounts, not the debits: the daily limit caps what a customer asks to move
+    // and the fees are charged on top of it, so a day that ends exactly on the limit has
+    // taken slightly more than the limit out of the account.
+    static final ApiError DAILY_LIMIT_EXCEEDED = new ApiError(
+            "DAILY_LIMIT_EXCEEDED",
+            "This payment would take the day's payments on the selected account above its daily limit.");
+
     static final ApiError INVALID_OTP = new ApiError(
             "INVALID_OTP",
             "The confirmation code is not valid.");

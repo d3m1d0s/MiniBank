@@ -1,5 +1,6 @@
 package cz.vsb.minibank.domain;
 
+import cz.vsb.minibank.domain.exceptions.DailyLimitExceededException;
 import cz.vsb.minibank.domain.value.Money;
 
 /**
@@ -11,9 +12,29 @@ public interface RiskService {
      * Evaluates risk for a potential transfer.
      *
      * @param beneficiaryTrusted whether the beneficiary is trusted
-     * @param amount             transfer amount
-     * @param dailyLimit         daily limit of the source account
+     * @param amount             amount of the transfer being attempted. It is not part of
+     *                           sentSoFar and is added by this service
+     * @param sentSoFar          what has already left the source account on the day this
+     *                           transfer belongs to, fees excluded
+     * @param dailyLimit         the source account's hard ceiling on one day's outflow
      * @return decision describing required actions and risk level
+     * @throws DailyLimitExceededException when sentSoFar plus amount passes dailyLimit
      */
-    RiskDecision evaluate(boolean beneficiaryTrusted, Money amount, Money dailyLimit);
+    RiskDecision evaluate(boolean beneficiaryTrusted, Money amount, Money sentSoFar, Money dailyLimit);
+
+    /**
+     * Refuses a transfer that would take the day's outflow past the account's ceiling.
+     *
+     * Split out of {@link #evaluate} because authorization has to ask this one question again -
+     * two transfers can each pass at creation and breach the ceiling together once both are
+     * authorized - while none of the other rules apply a second time: the authorization the
+     * soft threshold asks for is the very act being performed.
+     *
+     * It throws rather than returning a flag on {@link RiskDecision} because a flag is exactly
+     * what a caller can forget to read, which is how the old comparison came to have no
+     * consequence at all.
+     *
+     * @throws DailyLimitExceededException when sentSoFar plus amount passes dailyLimit
+     */
+    void requireWithinDailyLimit(Money amount, Money sentSoFar, Money dailyLimit);
 }

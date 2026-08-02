@@ -9,12 +9,16 @@ import cz.vsb.minibank.infrastructure.uow.UowScope;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.domain.exceptions.ConflictException;
+import cz.vsb.minibank.domain.exceptions.DailyLimitExceededException;
 import cz.vsb.minibank.domain.exceptions.InsufficientFundsException;
 import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
 import cz.vsb.minibank.domain.exceptions.SelfTransferNotAllowedException;
-import cz.vsb.minibank.domain.value.Money;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.Objects;
 
 /**
@@ -23,6 +27,18 @@ import java.util.Objects;
 public class TransferApplicationService {
 
     public static final int MAX_OTP_ATTEMPTS = 3;
+
+    /**
+     * The zone whose midnight ends a banking day. Daily totals are bounded by start-of-day in
+     * this zone converted to an instant, not by a truncated UTC instant: Prague is UTC+1 in
+     * winter and UTC+2 in summer, so a UTC boundary would file every late-evening payment
+     * under the following day.
+     *
+     * The constructor forces the injected clock into this zone, so it is the boundary
+     * unconditionally and handing the service a Clock.systemUTC() cannot quietly move it.
+     */
+    public static final ZoneId BANK_ZONE = ZoneId.of("Europe/Prague");
+
     private final AccountRepository accounts;
     private final OwnershipGuard guard;
     private final TransferRepository transfers;
@@ -33,6 +49,19 @@ public class TransferApplicationService {
     private final PaymentNetworkGateway paymentNetworkGateway;
     private final UnitOfWorkFactory uowFactory;
 
+    /**
+     * Stamps every transfer this service creates and bounds every daily total it computes.
+     *
+     * One clock has to do both. A clock that only bounded the query would make the feature
+     * inert under a fixed clock - rows stamped with the real now, windows asked for some other
+     * day, every total zero - so a test written against it would pass while proving nothing.
+     * That is why {@link Transfer} gained a constructor that takes createdAt.
+     *
+     * Always in {@link #BANK_ZONE}: the constructor calls withZone, so the injected clock
+     * supplies "now" and nothing else.
+     */
+    private final Clock clock;
+
     public TransferApplicationService(AccountRepository accounts,
                                       TransferRepository transfers,
                                       FraudAlertRepository alerts,
@@ -42,6 +71,26 @@ public class TransferApplicationService {
                                       PaymentNetworkGateway paymentNetworkGateway,
                                       UnitOfWorkFactory uowFactory,
                                       OwnershipGuard guard) {
+        this(accounts, transfers, alerts, feePolicy, riskService, otpValidator,
+                paymentNetworkGateway, uowFactory, guard, Clock.system(BANK_ZONE));
+    }
+
+    /**
+     * @param clock supplies "now". Its own zone is discarded in favour of {@link #BANK_ZONE}.
+     *              The only reason to pass anything but the system clock is a test that has to
+     *              place payments on two different days without waiting for one to pass.
+     */
+    public TransferApplicationService(AccountRepository accounts,
+                                      TransferRepository transfers,
+                                      FraudAlertRepository alerts,
+                                      FeePolicy feePolicy,
+                                      RiskService riskService,
+                                      OtpValidator otpValidator,
+                                      PaymentNetworkGateway paymentNetworkGateway,
+                                      UnitOfWorkFactory uowFactory,
+                                      OwnershipGuard guard,
+                                      Clock clock) {
+        this.clock = Objects.requireNonNull(clock, "clock").withZone(BANK_ZONE);
         this.accounts = accounts;
         this.transfers = transfers;
         this.alerts = alerts;
@@ -59,6 +108,8 @@ public class TransferApplicationService {
      * @return identifier of the created transfer
      * @throws NotFoundException when this caller has no such account or no such beneficiary,
      *         whether because none exists or because it is somebody else's
+     * @throws DailyLimitExceededException when this amount would take today's outflow past the
+     *         source account's daily ceiling
      */
     public int submitPaymentByBeneficiary(int callerCustomerId, int sourceAccountId, int beneficiaryId, double amountCzk, String message) {
         // Validated before the unit of work opens: a rejected amount is caller input, not a
@@ -76,13 +127,11 @@ public class TransferApplicationService {
 
             requireDifferentAccount(account, beneficiary.iban());
 
-            boolean trusted = beneficiary.trusted();
-            RiskDecision decision = riskService.evaluate(trusted, amount, account.dailyLimit());
-
             int id = transfers.nextId();
-            Transfer t = new Transfer(id, account.id(), beneficiary.id(), beneficiary.iban().value(), amount, "CZK");
+            Transfer t = new Transfer(id, account.id(), beneficiary.id(), beneficiary.iban().value(),
+                    amount, "CZK", clock.instant());
 
-            routeTransferCreation(account, t, decision);
+            routeTransferCreation(account, t, beneficiary.trusted());
             uow.commit();
             return id;
         } catch (RuntimeException e) {
@@ -98,6 +147,8 @@ public class TransferApplicationService {
      * @return identifier of the created transfer
      * @throws NotFoundException when this caller has no such account, whether because none
      *         exists or because it is somebody else's
+     * @throws DailyLimitExceededException when this amount would take today's outflow past the
+     *         source account's daily ceiling
      */
     public int submitPaymentToIban(int callerCustomerId, int sourceAccountId, String targetIban, double amountCzk, String message) {
         // Validated before the unit of work opens: a rejected amount is caller input, not a
@@ -108,18 +159,17 @@ public class TransferApplicationService {
         try (UowScope __ = new UowScope(uow)) {
             IBAN iban = new IBAN(targetIban);
             var caller = guard.requireCaller(callerCustomerId);
-            // The daily limit that decides whether this needs authorization is now read off an
-            // account the caller owns, so a victim's limits cannot settle an attacker's payment.
+            // The daily limits and the day's running total that decide this payment are read
+            // off an account the caller owns, so a victim's limits cannot settle an attacker's
+            // payment and a victim's history cannot pay for it either.
             var account = guard.requireOwnedAccount(caller, sourceAccountId);
             requireDifferentAccount(account, iban);
 
-            boolean trusted = false;
-            RiskDecision decision = riskService.evaluate(trusted, amount, account.dailyLimit());
-
             int id = transfers.nextId();
-            Transfer t = new Transfer(id, account.id(), null, iban.value(), amount, "CZK");
+            Transfer t = new Transfer(id, account.id(), null, iban.value(), amount, "CZK", clock.instant());
 
-            routeTransferCreation(account, t, decision);
+            // An arbitrary IBAN is not a saved beneficiary, so it is never a trusted one.
+            routeTransferCreation(account, t, false);
             uow.commit();
             return id;
         } catch (RuntimeException e) {
@@ -130,13 +180,30 @@ public class TransferApplicationService {
 
     /**
      * Routes transfer creation based on risk decision by either sending immediately or requiring authorization and an optional fraud alert.
+     *
+     * @throws DailyLimitExceededException when the day's outflow plus this amount would pass
+     *         the account's ceiling
      */
-    private void routeTransferCreation(Account account, Transfer t, RiskDecision decision) {
+    private void routeTransferCreation(Account account, Transfer t, boolean beneficiaryTrusted) {
 
         Money fee = t.feeAmount(feePolicy);
         if (!account.canDebit(t.amount(), fee)) {
             throw new InsufficientFundsException("Insufficient funds");
         }
+
+        // Evaluated here rather than by the callers, below the funds check, so that a payment
+        // the account cannot afford is still answered "not enough funds" when it is also over
+        // the ceiling - both are true and that is the one the customer can act on. Moving this
+        // above canDebit changes the pinned body of
+        // HttpErrorContractTest.anAmountAboveTheBalanceIs400InsufficientFunds.
+        //
+        // The transfer being created has no stored row yet - both backends defer writes to
+        // commit - so it is not in the day's total; the risk service adds its amount.
+        RiskDecision decision = riskService.evaluate(
+                beneficiaryTrusted,
+                t.amount(),
+                sentOnTheDayOf(account.id(), t.createdAt()),
+                account.dailyLimit());
 
         if (!decision.requireAuthorization() && !decision.createFraudAlert()) {
             transfers.add(t);
@@ -167,6 +234,39 @@ public class TransferApplicationService {
                 alerts.add(a);
             }
         }
+    }
+
+    /**
+     * What has already left this account on the banking day that contains {@code when}, fees
+     * excluded.
+     *
+     * The window is derived from the transfer's own creation instant, never from "now", and
+     * that is the whole of the fix. A transfer is filed under its createdAt when it settles -
+     * that is the only timestamp it carries, because nothing records when one settled:
+     * Transfer.send writes no timestamp, and authValidUntil is an expiry deadline that survives
+     * non-null on a SENT transfer. So a window taken from "now" at authorization time would
+     * check a transfer against a day it will never join. Payments parked just before midnight
+     * and authorized just after it would each see a total of zero and each pass, and the
+     * ceiling would not bind at all inside that window. Asking about the transfer's own day
+     * makes the invariant one the store can prove: for every day D, the SENT transfers created
+     * on D sum to at most the account's limit.
+     *
+     * What that costs, stated plainly: a payment created at 23:57 and authorized at 00:01
+     * debits the account on day D+1 but is counted against day D, so a calendar day can see up
+     * to two days' budgets leave. authValidUntil bounds that to the five minutes after
+     * midnight. Removing it needs a settlement timestamp, which needs a column in
+     * db/init/schema.sql, and that file belongs to A14 and A6.
+     *
+     * atStartOfDay on a LocalDate in the zone is DST-correct in both directions; truncating an
+     * instant to UTC days is not.
+     */
+    private Money sentOnTheDayOf(int accountId, Instant when) {
+        ZoneId zone = clock.getZone();
+        LocalDate day = LocalDate.ofInstant(when, zone);
+        return transfers.sentTotalBetween(
+                accountId,
+                day.atStartOfDay(zone).toInstant(),
+                day.plusDays(1).atStartOfDay(zone).toInstant());
     }
 
     /**
@@ -234,6 +334,12 @@ public class TransferApplicationService {
      * @throws NotFoundException when this caller has no transfer with this id, whether
      *         because none exists or because it debits somebody else's account
      * @throws ConflictException when the transfer is not waiting for authorization
+     * @throws InsufficientFundsException when the balance no longer covers amount and fee
+     * @throws DailyLimitExceededException when other payments have settled since this one was
+     *         created and settling it now would pass the account's daily ceiling for the day it
+     *         was created on. The transfer is left WAITING_AUTH with its attempts intact: the
+     *         customer can cancel it, or let the authorization window expire it, or authorize
+     *         it once enough of that day's other payments have been declined
      * @throws InvalidOtpException when the code is wrong and attempts remain
      */
     public void authorizePayment(int callerCustomerId, int transferId, String otp) {
@@ -257,6 +363,32 @@ public class TransferApplicationService {
                 uow.commit();
                 return;
             }
+
+            // The funds check first, so the two check sites answer a payment that is both
+            // unaffordable and over the ceiling the same way creation does. Without it the
+            // ceiling would win here and lose there, for no reason a customer could see.
+            // Account.debit raises the identical exception from inside settle, so this only
+            // moves where it is raised, not what the caller is told.
+            if (!acc.canDebit(t.amount(), t.feeAmount(feePolicy))) {
+                throw new InsufficientFundsException("Insufficient funds");
+            }
+
+            // Asked again here because creation cannot see it: two payments can each be inside
+            // the ceiling when they are created and breach it together once both are
+            // authorized. Only the ceiling is re-checked - the authorization the soft threshold
+            // asks for is the act being performed, so re-applying it would be circular.
+            //
+            // Against the day the transfer was CREATED, which is the day it will be counted in
+            // once it is SENT; see sentOnTheDayOf.
+            //
+            // Raised before the OTP is looked at, so no attempt is spent on a refusal that is
+            // not about the code, and before settle, so nothing has moved. The throw is inside
+            // the try, so UowScope.close and the catch both reach uow.rollback() and the
+            // transfer is left exactly as it was found: still WAITING_AUTH, so cancelPayment
+            // declines it, and the expiry branch above declines it on the next call once the
+            // five minute window has run out.
+            riskService.requireWithinDailyLimit(
+                    t.amount(), sentOnTheDayOf(acc.id(), t.createdAt()), acc.dailyLimit());
 
             boolean valid = otpValidator.isValid(transferId, otp);
             if (!valid) {

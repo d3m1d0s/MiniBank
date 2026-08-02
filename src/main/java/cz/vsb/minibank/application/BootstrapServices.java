@@ -5,6 +5,8 @@ import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.domain.FraudAlertEvents;
 
+import java.time.Clock;
+
 /**
  * Aggregates core application services, policies and gateways used by the MiniBank application.
  */
@@ -40,6 +42,22 @@ public class BootstrapServices {
                              FraudAlertRepository alerts,
                              UnitOfWorkFactory uowFactory,
                              boolean demoMode) {
+        this(customers, accounts, transfers, alerts, uowFactory, demoMode,
+                Clock.system(TransferApplicationService.BANK_ZONE));
+    }
+
+    /**
+     * @param clock supplies "now" for transfer creation and for the banking-day totals. The
+     *              only reason to pass anything but the system clock is a test that has to
+     *              place payments on two different days without waiting for one to pass.
+     */
+    public BootstrapServices(CustomerRepository customers,
+                             AccountRepository accounts,
+                             TransferRepository transfers,
+                             FraudAlertRepository alerts,
+                             UnitOfWorkFactory uowFactory,
+                             boolean demoMode,
+                             Clock clock) {
 
         this(
                 customers,
@@ -50,7 +68,8 @@ public class BootstrapServices {
                 new RuleBasedRiskService(),
                 new FixedOtpValidator(),
                 new FakePaymentNetworkGateway(),  // Service Stub
-                uowFactory
+                uowFactory,
+                clock
         );
     }
 
@@ -63,6 +82,20 @@ public class BootstrapServices {
                              OtpValidator otp,
                              PaymentNetworkGateway paymentGateway,
                              UnitOfWorkFactory uowFactory) {
+        this(customers, accounts, transfers, alerts, feePolicy, riskService, otp,
+                paymentGateway, uowFactory, Clock.system(TransferApplicationService.BANK_ZONE));
+    }
+
+    public BootstrapServices(CustomerRepository customers,
+                             AccountRepository accounts,
+                             TransferRepository transfers,
+                             FraudAlertRepository alerts,
+                             FeePolicy feePolicy,
+                             RiskService riskService,
+                             OtpValidator otp,
+                             PaymentNetworkGateway paymentGateway,
+                             UnitOfWorkFactory uowFactory,
+                             Clock clock) {
 
         TransferEvents.register(new TransferAuditLogObserver());
         FraudAlertEvents.register(new FraudAlertAuditLogObserver());
@@ -80,7 +113,8 @@ public class BootstrapServices {
                 otp,
                 paymentGateway,
                 uowFactory,
-                ownershipGuard
+                ownershipGuard,
+                clock
         );
 
         this.fraudService = new FraudApplicationService(

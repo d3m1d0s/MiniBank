@@ -57,7 +57,12 @@ class MoneyPathOwnershipTest {
 
     private static final String TARGET_IBAN = "CZ2001000000000012345678";
     private static final Money OPENING_BALANCE = Money.czk(30_000);
-    private static final Money DAILY_LIMIT = Money.czk(5_000);
+    /**
+     * The hard ceiling on one day's outflow, matching the demo. theOwnerCanStillUseAllFourMoneyPaths
+     * attempts 12 100 in one day and none of it is meant to be refused for the limit, and the
+     * 6 000 in setUp would be refused outright at the old 5 000.
+     */
+    private static final Money DAILY_LIMIT = Money.czk(40_000);
 
     /** Above the 5 000 authorization threshold, below the 10 000 alert threshold. */
     private static final double WAITING_AMOUNT = 6_000.0;

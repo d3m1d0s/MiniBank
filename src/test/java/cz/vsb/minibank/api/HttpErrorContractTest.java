@@ -59,6 +59,16 @@ class HttpErrorContractTest {
     private static final int CUSTOMER_ID = 2;
     private static final int ACCOUNT_ID = 101;
 
+    /**
+     * A second account of the same customer, opened with a balance well above its daily
+     * ceiling. That is the only shape in which DAILY_LIMIT_EXCEEDED is reachable over HTTP: on
+     * ACCOUNT_ID the funds check runs first, so any single amount over its 40 000 ceiling is
+     * also over its 20 000 balance and answers INSUFFICIENT_FUNDS instead.
+     */
+    private static final int LIMITED_ACCOUNT_ID = 103;
+    private static final String LIMITED_IBAN = "CZ2108000000192000145415";
+    private static final double OVER_THE_LIMITED_CEILING = 12_000.0;
+
     /** A second customer, so the "exists but is not yours" half of 404 can be asserted. */
     private static final String VICTIM_IBAN = "CZ4308000000192000145407";
     private static final int VICTIM_CUSTOMER_ID = 3;
@@ -82,6 +92,8 @@ class HttpErrorContractTest {
             "{\"code\":\"INSUFFICIENT_FUNDS\",\"message\":\"There are not enough funds on the selected account to cover amount and fee.\"}";
     private static final String BODY_SELF_TRANSFER =
             "{\"code\":\"SELF_TRANSFER\",\"message\":\"The destination is the account the payment is sent from. Choose a different account.\"}";
+    private static final String BODY_DAILY_LIMIT_EXCEEDED =
+            "{\"code\":\"DAILY_LIMIT_EXCEEDED\",\"message\":\"This payment would take the day's payments on the selected account above its daily limit.\"}";
     private static final String BODY_VALIDATION_ERROR =
             "{\"code\":\"VALIDATION_ERROR\",\"message\":\"The request contains invalid or missing values.\"}";
     private static final String BODY_METHOD_NOT_ALLOWED =
@@ -137,16 +149,25 @@ class HttpErrorContractTest {
         Customer customer = new Customer(CUSTOMER_ID, "Contract Test", "contract@example.com",
                 new Address("Test Street 1", "Ostrava"));
         customer.addAccountId(ACCOUNT_ID);
+        customer.addAccountId(LIMITED_ACCOUNT_ID);
         infra.customers.save(customer);
+        // 40 000 is the hard ceiling, matching the demo. The 6 000 payments below are meant to
+        // be held for authorization, not refused, and the 500 000 in
+        // anAmountAboveTheBalanceIs400InsufficientFunds is over both the balance and the
+        // ceiling - it stays INSUFFICIENT_FUNDS because the funds check runs first.
         accounts.save(new Account(ACCOUNT_ID, new IBAN(CUSTOMER_IBAN),
-                Money.czk(20_000), Money.czk(5_000)));
+                Money.czk(20_000), Money.czk(40_000)));
+        // Balance far above the ceiling, so a payment can clear the funds check and still be
+        // refused by the limit. See aPaymentOverTheDailyLimitIs400DailyLimitExceeded.
+        accounts.save(new Account(LIMITED_ACCOUNT_ID, new IBAN(LIMITED_IBAN),
+                Money.czk(60_000), Money.czk(10_000)));
 
         Customer victim = new Customer(VICTIM_CUSTOMER_ID, "Contract Victim", "victim@example.com",
                 new Address("Test Street 2", "Ostrava"));
         victim.addAccountId(VICTIM_ACCOUNT_ID);
         infra.customers.save(victim);
         accounts.save(new Account(VICTIM_ACCOUNT_ID, new IBAN(VICTIM_IBAN),
-                Money.czk(20_000), Money.czk(5_000)));
+                Money.czk(20_000), Money.czk(40_000)));
 
         BootstrapServices services = new BootstrapServices(
                 infra.customers, accounts, transfers, infra.alerts, infra.uowFactory);
@@ -437,6 +458,36 @@ class HttpErrorContractTest {
         assertResponse(api, post("/api/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"sourceAccountId\":" + ACCOUNT_ID + ",\"targetIban\":\"" + TARGET_IBAN
+                                + "\",\"amountCzk\":500000.0,\"message\":\"x\"}"), 400, BODY_INSUFFICIENT_FUNDS);
+    }
+
+    /**
+     * A9, on the wire. Its own code rather than the generic one, for the reason A5 established:
+     * told only that the request was invalid, a customer has no way to see that it was the
+     * day's running total that stopped them.
+     */
+    @Test
+    void aPaymentOverTheDailyLimitIs400DailyLimitExceeded() throws Exception {
+        assertResponse(api, post("/api/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceAccountId\":" + LIMITED_ACCOUNT_ID + ",\"targetIban\":\"" + TARGET_IBAN
+                                + "\",\"amountCzk\":" + OVER_THE_LIMITED_CEILING
+                                + ",\"message\":\"x\"}"), 400, BODY_DAILY_LIMIT_EXCEEDED);
+
+        assertEquals(Money.czk(60_000), accounts.byId(LIMITED_ACCOUNT_ID).orElseThrow().balance(),
+                "A refused payment must not have debited anything");
+    }
+
+    /**
+     * The ordering the two checks resolve in, pinned where a client can see it: 500 000 is over
+     * the balance and over the ceiling at once, and the answer is the one the customer can act
+     * on. Moving the limit check above canDebit in routeTransferCreation turns this red.
+     */
+    @Test
+    void anAmountOverBothTheBalanceAndTheLimitIsAnsweredAsInsufficientFunds() throws Exception {
+        assertResponse(api, post("/api/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceAccountId\":" + LIMITED_ACCOUNT_ID + ",\"targetIban\":\"" + TARGET_IBAN
                                 + "\",\"amountCzk\":500000.0,\"message\":\"x\"}"), 400, BODY_INSUFFICIENT_FUNDS);
     }
 

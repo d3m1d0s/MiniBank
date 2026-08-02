@@ -39,6 +39,22 @@ public class Transfer {
 
     public Transfer(int id, int sourceAccountId, Integer beneficiaryId, String targetIbanSnapshot,
                     Money amount, String currency) {
+        this(id, sourceAccountId, beneficiaryId, targetIbanSnapshot, amount, currency, Instant.now());
+    }
+
+    /**
+     * The same transfer with its creation instant supplied rather than read off the system
+     * clock.
+     *
+     * A9 needs this. The daily total is keyed on createdAt, so a service holding a fixed clock
+     * that still stamped rows with Instant.now() would query one day and write another: every
+     * total would come back zero and the limit would silently never fire. One clock has to
+     * decide both, and this is the seam that lets the application service pass it.
+     *
+     * @param createdAt when this transfer was created; must not be null
+     */
+    public Transfer(int id, int sourceAccountId, Integer beneficiaryId, String targetIbanSnapshot,
+                    Money amount, String currency, Instant createdAt) {
         // Class invariant: a transfer always moves a strictly positive amount. This also runs
         // when a stored row is rehydrated, so a row that breaks it is refused as corrupt
         // instead of being loaded back into the domain.
@@ -53,7 +69,8 @@ public class Transfer {
 
         this.id = id; this.sourceAccountId = sourceAccountId; this.beneficiaryId = beneficiaryId;
         this.targetIbanSnapshot = targetIbanSnapshot; this.amount = amount; this.currency = currency;
-        this.status = TransferStatus.CREATED; this.createdAt = Instant.now();
+        this.status = TransferStatus.CREATED;
+        this.createdAt = java.util.Objects.requireNonNull(createdAt, "createdAt");
 
         this.authAttempts = 0;
         this.authValidUntil = null;

@@ -5,6 +5,7 @@ import cz.vsb.minibank.application.AppLogger;
 import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
 import cz.vsb.minibank.domain.exceptions.AuthenticationFailedException;
 import cz.vsb.minibank.domain.exceptions.ConflictException;
+import cz.vsb.minibank.domain.exceptions.DailyLimitExceededException;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.DomainException;
 import cz.vsb.minibank.domain.exceptions.InsufficientFundsException;
@@ -85,6 +86,19 @@ public class RestExceptionHandler {
     @ExceptionHandler(SelfTransferNotAllowedException.class)
     public ResponseEntity<ApiError> handleSelfTransfer(SelfTransferNotAllowedException ex) {
         return error(HttpStatus.BAD_REQUEST, ApiErrors.SELF_TRANSFER);
+    }
+
+    /**
+     * The same arrangement, for the same reason: told only that the request was invalid, a
+     * customer has no way to see that it was the day's running total that stopped them.
+     *
+     * The exception message carries the limit, the running total and the requested amount.
+     * It reaches the server log only - every answer is built from the catalogue and no
+     * handler echoes ex.getMessage().
+     */
+    @ExceptionHandler(DailyLimitExceededException.class)
+    public ResponseEntity<ApiError> handleDailyLimitExceeded(DailyLimitExceededException ex) {
+        return error(HttpStatus.BAD_REQUEST, ApiErrors.DAILY_LIMIT_EXCEEDED);
     }
 
     @ExceptionHandler({ValidationException.class, InvalidAmountException.class})

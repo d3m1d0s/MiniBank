@@ -1,14 +1,17 @@
 package cz.vsb.minibank.infrastructure.json.repo;
 
 import cz.vsb.minibank.domain.Transfer;
+import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
+import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.dto.JsonTransfer;
 import cz.vsb.minibank.infrastructure.json.mapping.JsonMapper;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -118,5 +121,46 @@ public class JsonTransferRepository implements TransferRepository {
                     return d;
                 })
                 .collect(Collectors.toList()));
+    }
+
+    @Override
+    public Money sentTotalBetween(int accountId, Instant fromInclusive, Instant toExclusive) {
+        // Summed off the DTOs. bySourceAccount would build a Transfer and two LazyRef closures
+        // per row to read one number off each, and would substitute identity-map instances
+        // whose in-memory status can already differ from the stored one. Each row is wrapped in
+        // Money before it is added, so the total rounds exactly as the amounts themselves do -
+        // adding the raw doubles first and rounding once would not.
+        //
+        // store.read holds the store lock, which a JsonUnitOfWork on this thread already holds,
+        // so the re-acquisition is reentrant and costs nothing.
+        return store.read(bundle -> {
+            Money total = Money.czk(0.0);
+            for (JsonTransfer dto : bundle.transfers) {
+                if (dto.sourceAccountId != accountId) continue;
+                if (!TransferStatus.SENT.name().equals(dto.status)) continue;
+                if (!"CZK".equals(dto.currency)) continue;
+                Instant createdAt = parseInstantOrNull(dto.createdAt);
+                if (createdAt == null) continue;
+                if (createdAt.isBefore(fromInclusive) || !createdAt.isBefore(toExclusive)) continue;
+                total = total.plus(Money.czk(dto.amount));
+            }
+            return total;
+        });
+    }
+
+    /**
+     * A row whose timestamp is missing or unreadable counts toward no day at all.
+     *
+     * Parsed here rather than by going through JsonMapper, because Transfer.hydrateForLoad only
+     * assigns createdAt when it is non-null: a row the mapper cannot parse keeps the moment it
+     * was constructed, which would put it in today's total on every call, forever.
+     */
+    private static Instant parseInstantOrNull(String value) {
+        if (value == null) return null;
+        try {
+            return Instant.parse(value);
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
