@@ -17,11 +17,14 @@ export default function App() {
 
     // This app already had the "return to sign-in" mechanism, on the Logout buttons below.
     // Nothing in any error path ever invoked it, so a session the server had forgotten
-    // left the analyst on a queue where every request failed.
+    // left the analyst on a queue where every request failed. Sessions now go idle, hit a
+    // ceiling and end when the analyst's own row changes, so this fires on a schedule rather
+    // than only after a restart - and the notice names no cause, because the server
+    // deliberately answers all of them the same way.
     useEffect(() => {
         setSessionExpiredHandler(() => {
             setAuth(null);
-            setSignedOutReason('Your session has expired. Please sign in again.');
+            setSignedOutReason('You have been signed out. Please sign in again.');
         });
         return () => setSessionExpiredHandler(null);
     }, []);

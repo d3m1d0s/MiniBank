@@ -80,8 +80,22 @@ export async function login(payload: LoginRequest): Promise<LoginResponse> {
     return data;
 }
 
+/**
+ * Closes the session at both ends. Until the server put logout behind authentication this
+ * could not be called safely at all, so it only ever cleared the local variable and the
+ * session stayed fully usable on the server after every Logout press.
+ *
+ * Fire and forget on purpose: a session that has already expired answers 401 AUTH_REQUIRED,
+ * and routing that through handle() would show "you have been signed out" to somebody who
+ * just pressed Logout.
+ */
 export function logoutSession() {
+    const id = currentSessionId;
     setSessionId(null);
+    if (id) {
+        void fetch('/api/auth/logout', { method: 'POST', headers: { 'X-Session-Id': id } })
+            .catch(() => { /* the session is gone locally either way */ });
+    }
 }
 
 // --- Fraud desk ---

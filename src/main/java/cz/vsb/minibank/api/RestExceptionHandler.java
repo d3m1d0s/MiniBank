@@ -15,6 +15,7 @@ import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.exceptions.NotAuthenticatedException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
 import cz.vsb.minibank.domain.exceptions.SelfTransferNotAllowedException;
+import cz.vsb.minibank.domain.exceptions.TooManySessionsException;
 import cz.vsb.minibank.domain.exceptions.TransferUnderReviewException;
 import cz.vsb.minibank.domain.exceptions.ValidationException;
 import org.springframework.http.HttpStatus;
@@ -47,6 +48,18 @@ public class RestExceptionHandler {
     public ResponseEntity<ApiError> handleAuthenticationFailed(AuthenticationFailedException ex) {
         AppLogger.warn("api", "Sign-in refused: " + ex.getMessage());
         return error(HttpStatus.UNAUTHORIZED, ApiErrors.AUTH_FAILED);
+    }
+
+    /**
+     * The store refused to open another session. 503 rather than 500: nothing is broken, and
+     * the same request succeeds later as sessions expire. Not a 401 either - answering a
+     * correct password with an authentication failure would send the caller to fix something
+     * that is not wrong.
+     */
+    @ExceptionHandler(TooManySessionsException.class)
+    public ResponseEntity<ApiError> handleTooManySessions(TooManySessionsException ex) {
+        AppLogger.warn("api", "Sign-in refused: " + ex.getMessage());
+        return error(HttpStatus.SERVICE_UNAVAILABLE, ApiErrors.SESSION_LIMIT_REACHED);
     }
 
     @ExceptionHandler(AccessDeniedException.class)

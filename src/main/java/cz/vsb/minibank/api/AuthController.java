@@ -45,15 +45,31 @@ public class AuthController {
         }
 
         User u = authService.login(req.username(), req.password().toCharArray());
-        String sessionId = sessions.createSession(u);
 
-        SecurityContext.clear();
-
-        return new LoginResponse(sessionId, u.username(), u.role().name(), u.customerId());
+        // In a finally because createSession can now refuse. AuthService.login has already put
+        // the user in the security context, and leaving it there on a thread that is about to
+        // be returned to the pool would let the next request start out signed in as whoever
+        // last failed to open a session here.
+        try {
+            String sessionId = sessions.createSession(u);
+            return new LoginResponse(sessionId, u.username(), u.role().name(), u.customerId());
+        } finally {
+            SecurityContext.clear();
+        }
     }
 
     /**
-     * Logs the user out and removes the session if the session ID is provided.
+     * Closes the caller's own session.
+     *
+     * The interceptor guards this path, so the id in the header is one the store resolved to a
+     * live user a moment ago: a caller can only close the session it is already holding. While
+     * the exemption was a prefix over /api/auth/, this endpoint authenticated nobody and would
+     * terminate any session id at all for anyone who asked.
+     *
+     * The header stays optional even though the interceptor now makes a missing one
+     * unreachable. Requiring it would make Spring throw a checked ServletException that the
+     * advice cannot catch, putting a body with no code field on the wire and breaking the
+     * error contract to guard a case that cannot happen.
      */
     @PostMapping("/logout")
     public void logout(@RequestHeader(name = "X-Session-Id", required = false) String sessionId) {

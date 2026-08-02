@@ -5,6 +5,7 @@ import cz.vsb.minibank.application.BootstrapServices;
 import cz.vsb.minibank.application.Pbkdf2PasswordEncoder;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.application.SessionStore;
+import cz.vsb.minibank.application.TestClock;
 import cz.vsb.minibank.application.TransferApplicationService;
 import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.Address;
@@ -13,6 +14,7 @@ import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.UserRole;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
+import cz.vsb.minibank.domain.exceptions.TooManySessionsException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -32,12 +34,14 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.file.Path;
+import java.time.Instant;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The HTTP error contract, asserted on the wire.
@@ -81,6 +85,8 @@ class HttpErrorContractTest {
             "{\"code\":\"AUTH_REQUIRED\",\"message\":\"You are not signed in. Please sign in and try again.\"}";
     private static final String BODY_AUTH_FAILED =
             "{\"code\":\"AUTH_FAILED\",\"message\":\"The username or password is not correct.\"}";
+    private static final String BODY_SESSION_LIMIT_REACHED =
+            "{\"code\":\"SESSION_LIMIT_REACHED\",\"message\":\"Too many people are signed in right now. Please try again in a few minutes.\"}";
     private static final String BODY_FORBIDDEN =
             "{\"code\":\"FORBIDDEN\",\"message\":\"You do not have access to this operation.\"}";
     private static final String BODY_NOT_FOUND =
@@ -109,8 +115,10 @@ class HttpErrorContractTest {
             "{\"code\":\"INTERNAL_ERROR\",\"message\":\"Unexpected error occurred.\"}";
 
     /**
-     * Two endpoints that exist only to reach the two 500 rows. Corrupting a store to
-     * produce a dangling reference would test the store, not the contract.
+     * Endpoints that exist only to reach rows no ordinary request can. Corrupting a store to
+     * produce a dangling reference would test the store, not the contract; and filling the
+     * session store over HTTP would mean a thousand real logins at 120 000 PBKDF2 iterations
+     * each, so the refusal is raised here instead and the wire body is what gets asserted.
      */
     @RestController
     static class BoomController {
@@ -123,6 +131,11 @@ class HttpErrorContractTest {
         @GetMapping("/api/test/unmapped")
         public String unmapped() {
             throw new IllegalStateException("something the contract does not know about");
+        }
+
+        @GetMapping("/api/test/session-limit")
+        public String sessionLimit() {
+            throw new TooManySessionsException("Session store is full at 1000");
         }
     }
 
@@ -140,6 +153,8 @@ class HttpErrorContractTest {
     private PaymentController paymentController;
     private AuthorizationController authorizationController;
     private SessionStore sessions;
+    private InMemoryUserRepository users;
+    private TestClock sessionClock;
 
     /** The victim's own transfers, created by the victim, as an attacker would find them. */
     private int victimWaitingTransfer;
@@ -191,12 +206,16 @@ class HttpErrorContractTest {
                 infra.alerts, transfers, accounts, services.fraudService, services.feePolicy);
 
         var encoder = new Pbkdf2PasswordEncoder();
-        var users = new InMemoryUserRepository();
+        users = new InMemoryUserRepository();
         byte[] salt = encoder.generateSalt();
         users.save(new User(1, "alice", encoder.hash("alice123".toCharArray(), salt), salt,
                 UserRole.CUSTOMER, CUSTOMER_ID));
 
-        sessions = new SessionStore();
+        // The store revalidates against the same repository the login path authenticates
+        // against, and its clock is one the test moves by hand, so the expiry case below costs
+        // no wall-clock time.
+        sessionClock = new TestClock(Instant.parse("2026-01-01T09:00:00Z"));
+        sessions = new SessionStore(users, sessionClock);
         AuthController authController = new AuthController(new AuthService(users, encoder), sessions);
 
         api = MockMvcBuilders
@@ -205,8 +224,10 @@ class HttpErrorContractTest {
                 .setControllerAdvice(new RestExceptionHandler())
                 .build();
 
+        // authController is behind the interceptor here as well as in front of it above,
+        // because after B11 logout is a guarded endpoint and login is the only exempt one.
         guarded = MockMvcBuilders
-                .standaloneSetup(paymentController, authorizationController)
+                .standaloneSetup(paymentController, authorizationController, authController)
                 .setControllerAdvice(new RestExceptionHandler())
                 .addInterceptors(new SessionAuthInterceptor(sessions))
                 .build();
@@ -254,7 +275,7 @@ class HttpErrorContractTest {
 
     /**
      * A session id the store has never heard of - routine after a backend restart, since
-     * SessionStore has no expiry - must be indistinguishable from no header at all. Both
+     * sessions live in memory - must be indistinguishable from no header at all. Both
      * renderers of this body are exercised here: the interceptor writes these two, and the
      * advice writes the one below.
      */
@@ -263,11 +284,103 @@ class HttpErrorContractTest {
         assertResponse(guarded, get("/api/me/accounts").header("X-Session-Id", "not-a-real-session"), 401, BODY_AUTH_REQUIRED);
     }
 
+    /**
+     * A10. An expired session is the same answer again, and it has to be: telling it apart
+     * from an id that was never issued would answer "is this one you have ever handed out?".
+     * Before this item there was no expiry at all and a session of any age answered 200.
+     */
+    @Test
+    void anExpiredSessionIs401AuthRequiredWithTheSameBody() throws Exception {
+        String sessionId = sessions.createSession(users.byId(1).orElseThrow());
+        sessionClock.advance(SessionStore.IDLE_TIMEOUT.plusSeconds(1));
+
+        assertResponse(guarded, get("/api/me/accounts").header("X-Session-Id", sessionId), 401, BODY_AUTH_REQUIRED);
+    }
+
+    /**
+     * A10's headline case, end to end. The user this session was opened for is no longer the
+     * user behind that id, and the store finds that out on this request rather than never.
+     * InMemoryUserRepository has no delete, so the row is replaced rather than removed - the
+     * harsher half of the same check, since the id still resolves to a real user.
+     */
+    @Test
+    void aSessionWhoseUserWasReplacedIs401AuthRequiredWithTheSameBody() throws Exception {
+        String sessionId = sessions.createSession(users.byId(1).orElseThrow());
+        users.save(new User(1, "mallory", new byte[]{1}, new byte[]{2}, UserRole.CUSTOMER, CUSTOMER_ID));
+
+        assertResponse(guarded, get("/api/me/accounts").header("X-Session-Id", sessionId), 401, BODY_AUTH_REQUIRED);
+    }
+
+    /**
+     * The one case in this file that is not an error, and the only end-to-end proof that
+     * revalidation still lets the ordinary caller through. Without it every assertion here
+     * would pass just as well if resolve answered empty for everybody and nobody could use
+     * the application at all.
+     */
+    @Test
+    void aLiveSessionIsServedThroughTheInterceptor() throws Exception {
+        String sessionId = sessions.createSession(users.byId(1).orElseThrow());
+
+        MockHttpServletResponse response = guarded
+                .perform(get("/api/me/accounts").header("X-Session-Id", sessionId))
+                .andReturn().getResponse();
+
+        assertEquals(200, response.getStatus(), "body was " + response.getContentAsString());
+        assertTrue(response.getContentAsString().contains(CUSTOMER_IBAN),
+                "the caller's own accounts, read from the row the session points at");
+    }
+
     @Test
     void noAuthenticatedUserIs401AuthRequired() throws Exception {
         SecurityContext.clear();
 
         assertResponse(api, get("/api/me/accounts"), 401, BODY_AUTH_REQUIRED);
+    }
+
+    // ------------------------------------------------- B11: logout is a guarded endpoint
+
+    /**
+     * B11. The interceptor exempted the whole /api/auth/ prefix, so this endpoint
+     * authenticated nobody and terminated whatever session id it was handed.
+     */
+    @Test
+    void logoutWithoutASessionIs401AuthRequired() throws Exception {
+        assertResponse(guarded, post("/api/auth/logout"), 401, BODY_AUTH_REQUIRED);
+    }
+
+    /** And an id the store does not accept cannot be used to close one that it does. */
+    @Test
+    void logoutWithAnIdTheStoreRejectsLeavesLiveSessionsAlone() throws Exception {
+        String live = sessions.createSession(users.byId(1).orElseThrow());
+
+        assertResponse(guarded, post("/api/auth/logout").header("X-Session-Id", "not-a-real-session"),
+                401, BODY_AUTH_REQUIRED);
+
+        assertTrue(sessions.resolve(live).isPresent(), "a stranger must not be able to sign anyone out");
+    }
+
+    /** The endpoint still does its job for the caller it belongs to. */
+    @Test
+    void logoutWithTheCallersOwnSessionClosesIt() throws Exception {
+        String sessionId = sessions.createSession(users.byId(1).orElseThrow());
+
+        MockHttpServletResponse response = guarded
+                .perform(post("/api/auth/logout").header("X-Session-Id", sessionId))
+                .andReturn().getResponse();
+
+        assertEquals(200, response.getStatus(), "body was " + response.getContentAsString());
+        assertTrue(sessions.resolve(sessionId).isEmpty(), "the session must be gone");
+    }
+
+    /**
+     * The exemption is one exact path and it still works. A 401 here would mean nobody can
+     * sign in; the 400 proves the request reached the handler and the advice answered it.
+     */
+    @Test
+    void loginIsStillReachableWithoutASession() throws Exception {
+        assertResponse(guarded, post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"username\":\"alice\"}"), 400, BODY_VALIDATION_ERROR);
     }
 
     /**
@@ -613,6 +726,19 @@ class HttpErrorContractTest {
                         .content("sourceAccountId=101"), 415, BODY_UNSUPPORTED_MEDIA_TYPE);
     }
 
+    // ---------------------------------------------------------------- 503
+
+    /**
+     * A10's global cap, on the wire. Its own code and its own status because none of the
+     * neighbours would be true: the password was right, so AUTH_FAILED would send the caller
+     * to change something that is not wrong, and nothing is broken, so a 500 would say the
+     * request cannot succeed when the same one succeeds a few minutes later.
+     */
+    @Test
+    void aRefusedSessionIs503SessionLimitReached() throws Exception {
+        assertResponse(api, get("/api/test/session-limit"), 503, BODY_SESSION_LIMIT_REACHED);
+    }
+
     // ---------------------------------------------------------------- 500
 
     /**
@@ -650,6 +776,7 @@ class HttpErrorContractTest {
                         .content("{\"otp\":\"0000\"}")).andReturn().getResponse().getContentAsString(),
                 api.perform(get("/api/test/data-integrity")).andReturn().getResponse().getContentAsString(),
                 api.perform(get("/api/test/unmapped")).andReturn().getResponse().getContentAsString(),
+                api.perform(get("/api/test/session-limit")).andReturn().getResponse().getContentAsString(),
                 guarded.perform(get("/api/me/accounts").header("X-Session-Id", "ghost"))
                         .andReturn().getResponse().getContentAsString(),
         };

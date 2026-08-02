@@ -22,16 +22,18 @@ function App() {
     const [signedOutReason, setSignedOutReason] = useState<string | null>(null);
 
     // A 401 AUTH_REQUIRED means the server no longer accepts the session this app is
-    // holding - routine after a backend restart, since sessions are in memory with no
-    // expiry. Until now there was no path back to the sign-in screen at all: setAuth was
-    // called exactly once and this app has no logout control, so recovery was an
-    // undiscoverable F5. The reason is carried across so the user is not simply ejected
-    // mid-payment with no explanation. The hook sits above the early return below because
-    // the rules of hooks require it.
+    // holding: it has gone idle, hit its ceiling, been closed, or the user behind it has
+    // been removed or replaced - and the server deliberately does not say which. Until now
+    // there was no path back to the sign-in screen at all: setAuth was called exactly once
+    // and this app has no logout control, so recovery was an undiscoverable F5. The reason
+    // is carried across so the user is not simply ejected mid-payment with no explanation,
+    // and it names none of the four causes, because "expired" would be a false statement
+    // about three of them. The hook sits above the early return below because the rules of
+    // hooks require it.
     useEffect(() => {
         setSessionExpiredHandler(() => {
             setAuth(null);
-            setSignedOutReason('Your session has expired. Please sign in again.');
+            setSignedOutReason('You have been signed out. Please sign in again.');
         });
         return () => setSessionExpiredHandler(null);
     }, []);

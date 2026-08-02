@@ -24,6 +24,14 @@ final class ApiErrors {
             "AUTH_FAILED",
             "The username or password is not correct.");
 
+    // The credentials were fine and the caller has nothing to correct; the server has no room
+    // to remember another session. A code of its own because both sign-in screens render this
+    // catalogue's message verbatim, so reusing AUTH_FAILED would tell somebody whose password
+    // was right that their password is wrong.
+    static final ApiError SESSION_LIMIT_REACHED = new ApiError(
+            "SESSION_LIMIT_REACHED",
+            "Too many people are signed in right now. Please try again in a few minutes.");
+
     static final ApiError FORBIDDEN = new ApiError(
             "FORBIDDEN",
             "You do not have access to this operation.");

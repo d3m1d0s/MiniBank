@@ -10,6 +10,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Profile;
 
+import java.time.Clock;
+
 /**
  * Spring configuration for MiniBank REST API wiring repositories, services and authentication.
  */
@@ -124,8 +126,16 @@ public class MinibankApiConfig {
         return new AuthService(infra.users, encoder);
     }
 
+    /**
+     * infra.users is the same repository {@link #authService} is built from, so the check that
+     * opens a session and the check that keeps it alive read one source.
+     *
+     * The clock is a parameter only so a test can advance time instead of sleeping; the store
+     * measures elapsed time and never asks the clock for a calendar date, so its zone is
+     * immaterial here and no Clock bean is added - there is none today and one would be inert.
+     */
     @Bean
-    public SessionStore sessionStore() {
-        return new SessionStore();
+    public SessionStore sessionStore(Bootstrap infra) {
+        return new SessionStore(infra.users, Clock.systemUTC());
     }
 }
