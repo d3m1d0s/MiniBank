@@ -15,6 +15,7 @@ import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.exceptions.NotAuthenticatedException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
 import cz.vsb.minibank.domain.exceptions.SelfTransferNotAllowedException;
+import cz.vsb.minibank.domain.exceptions.TooManyLoginAttemptsException;
 import cz.vsb.minibank.domain.exceptions.TooManySessionsException;
 import cz.vsb.minibank.domain.exceptions.TransferUnderReviewException;
 import cz.vsb.minibank.domain.exceptions.ValidationException;
@@ -60,6 +61,28 @@ public class RestExceptionHandler {
     public ResponseEntity<ApiError> handleTooManySessions(TooManySessionsException ex) {
         AppLogger.warn("api", "Sign-in refused: " + ex.getMessage());
         return error(HttpStatus.SERVICE_UNAVAILABLE, ApiErrors.SESSION_LIMIT_REACHED);
+    }
+
+    /**
+     * A13. The caller has spent its recent sign-in allowance. 429 rather than 401, because
+     * nothing about the credential was checked: calling it an authentication failure would be
+     * a claim about something the server never looked at, and would hide from an honest user
+     * the one thing they can act on. Added for the same reason the 503 above was - the caller
+     * has nothing to correct and the same request works later.
+     *
+     * Not 503 either: that says the server is at fault and everyone is affected, where here
+     * one caller is limited and the rest of the bank is fine.
+     *
+     * The only handler here that deliberately writes nothing to the log. It fires once per
+     * refused attempt, and an attempt is one unauthenticated POST, so a line each would let
+     * any caller drive the unrotated log file at request rate - what SessionAuthInterceptor
+     * declines to do for its two 401 paths. The attempts this replaces were each writing one
+     * through handleAuthenticationFailed, so the net effect is a quieter log, at the price of
+     * the throttle firing leaving no trace at all.
+     */
+    @ExceptionHandler(TooManyLoginAttemptsException.class)
+    public ResponseEntity<ApiError> handleTooManyLoginAttempts(TooManyLoginAttemptsException ex) {
+        return error(HttpStatus.TOO_MANY_REQUESTS, ApiErrors.TOO_MANY_ATTEMPTS);
     }
 
     @ExceptionHandler(AccessDeniedException.class)

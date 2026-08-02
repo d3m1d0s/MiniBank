@@ -2,6 +2,7 @@ package cz.vsb.minibank.api;
 
 import cz.vsb.minibank.application.AuthService;
 import cz.vsb.minibank.application.BootstrapServices;
+import cz.vsb.minibank.application.LoginThrottle;
 import cz.vsb.minibank.application.Pbkdf2PasswordEncoder;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.application.SessionStore;
@@ -26,6 +27,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.RequestBuilder;
@@ -87,6 +89,8 @@ class HttpErrorContractTest {
             "{\"code\":\"AUTH_FAILED\",\"message\":\"The username or password is not correct.\"}";
     private static final String BODY_SESSION_LIMIT_REACHED =
             "{\"code\":\"SESSION_LIMIT_REACHED\",\"message\":\"Too many people are signed in right now. Please try again in a few minutes.\"}";
+    private static final String BODY_TOO_MANY_ATTEMPTS =
+            "{\"code\":\"TOO_MANY_ATTEMPTS\",\"message\":\"Too many sign-in attempts have been made from this computer or network. No account has been locked. Please wait a few minutes and try again.\"}";
     private static final String BODY_FORBIDDEN =
             "{\"code\":\"FORBIDDEN\",\"message\":\"You do not have access to this operation.\"}";
     private static final String BODY_NOT_FOUND =
@@ -155,6 +159,15 @@ class HttpErrorContractTest {
     private SessionStore sessions;
     private InMemoryUserRepository users;
     private TestClock sessionClock;
+    private LoginThrottle throttle;
+
+    /**
+     * The throttle gets a clock of its own rather than sharing the session store's. Their two
+     * spans are deliberately equal - LoginThrottle.WINDOW is SessionStore.IDLE_TIMEOUT - so one
+     * shared clock would silently expire every open session the moment a case advanced the
+     * throttle's window, and the failure would read as a session bug.
+     */
+    private TestClock throttleClock;
 
     /** The victim's own transfers, created by the victim, as an attacker would find them. */
     private int victimWaitingTransfer;
@@ -216,7 +229,14 @@ class HttpErrorContractTest {
         // no wall-clock time.
         sessionClock = new TestClock(Instant.parse("2026-01-01T09:00:00Z"));
         sessions = new SessionStore(users, sessionClock);
-        AuthController authController = new AuthController(new AuthService(users, encoder), sessions);
+
+        // A fresh throttle per test, like a fresh controller per test, so the attempts one case
+        // spends cannot reach another. No case in this file drives more than one real credential
+        // failure, so none of them approaches MAX_FAILURES.
+        throttleClock = new TestClock(Instant.parse("2026-01-01T09:00:00Z"));
+        throttle = new LoginThrottle(throttleClock);
+        AuthController authController =
+                new AuthController(new AuthService(users, encoder), sessions, throttle);
 
         api = MockMvcBuilders
                 .standaloneSetup(paymentController, authorizationController, fraudController,
@@ -399,6 +419,79 @@ class HttpErrorContractTest {
         assertResponse(api, post("/api/auth/login")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"username\":\"nobody\",\"password\":\"whatever\"}"), 401, BODY_AUTH_FAILED);
+    }
+
+    // ---------------------------------------------------------------- 429
+
+    /**
+     * A13's second half on the wire. Before it, alice signed in normally after forty
+     * consecutive failures.
+     *
+     * The first attempt is a real POST, which is what proves the wiring: the controller reads
+     * getRemoteAddr and hands it to the throttle, and one wrong password is still an ordinary
+     * 401. The rest of the allowance is spent directly against the counter, because ten more
+     * real sign-ins would mean ten more 120 000-iteration hashes to assert something
+     * LoginThrottleTest already asserts for nothing. MockMvc's remote address is the constant
+     * below, so the two paths address the same bucket.
+     *
+     * Four assertions follow, and the third is the one that matters most: an unknown username
+     * is refused with the same status and the same bytes as a known one, because the throttle
+     * is never told which was asked for. A throttle that fired only for names in the users
+     * table would hand back the enumeration oracle A10 and A11 were about.
+     */
+    @Test
+    void theAttemptAfterTheAllowanceIsRefusedAlikeForEveryUsername() throws Exception {
+        assertResponse(api, post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"not-my-password\"}"), 401, BODY_AUTH_FAILED);
+
+        for (int i = 1; i < LoginThrottle.MAX_FAILURES; i++) {
+            throttle.requireAttemptAllowed(MockHttpServletRequest.DEFAULT_REMOTE_ADDR);
+        }
+
+        assertResponse(api, post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"not-my-password\"}"), 429, BODY_TOO_MANY_ATTEMPTS);
+
+        assertResponse(api, post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"nobody\",\"password\":\"whatever\"}"), 429, BODY_TOO_MANY_ATTEMPTS);
+
+        // Even the right password is refused while the window stands - that is what makes this
+        // a bound on guessing and not merely a different message - and the way back in is time
+        // and nothing else.
+        assertResponse(api, post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"alice123\"}"), 429, BODY_TOO_MANY_ATTEMPTS);
+
+        throttleClock.advance(LoginThrottle.WINDOW);
+
+        MockHttpServletResponse ok = api.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"alice123\"}"))
+                .andReturn().getResponse();
+        assertEquals(200, ok.getStatus(), "body was " + ok.getContentAsString());
+    }
+
+    /**
+     * And the refusal says nothing about any account. Both sign-in screens render this
+     * catalogue message verbatim, so a body that claimed a lockout would be the entire user
+     * experience of a condition in which nothing is locked at all.
+     */
+    @Test
+    void theThrottledBodyClaimsNoAccountIsLocked() throws Exception {
+        for (int i = 0; i < LoginThrottle.MAX_FAILURES; i++) {
+            throttle.requireAttemptAllowed(MockHttpServletRequest.DEFAULT_REMOTE_ADDR);
+        }
+
+        String body = api.perform(post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"alice\",\"password\":\"not-my-password\"}"))
+                .andReturn().getResponse().getContentAsString();
+
+        assertFalse(body.contains("alice"), "no username may come back: " + body);
+        assertTrue(body.contains("No account has been locked"),
+                "the honest user must be told their account is fine: " + body);
     }
 
     // ---------------------------------------------------------------- 403

@@ -138,4 +138,18 @@ public class MinibankApiConfig {
     public SessionStore sessionStore(Bootstrap infra) {
         return new SessionStore(infra.users, Clock.systemUTC());
     }
+
+    /**
+     * One throttle for the process, so a counter follows the caller across requests instead of
+     * being reset by whichever bean handled the last one.
+     *
+     * The clock is a parameter for the reason {@link #sessionStore}'s is - a test advances a
+     * window rather than waiting a quarter of an hour for one - and no Clock bean is added for
+     * the same reason: this measures elapsed time and never asks for a calendar date, so its
+     * zone is immaterial.
+     */
+    @Bean
+    public LoginThrottle loginThrottle() {
+        return new LoginThrottle(Clock.systemUTC());
+    }
 }

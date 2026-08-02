@@ -32,6 +32,27 @@ final class ApiErrors {
             "SESSION_LIMIT_REACHED",
             "Too many people are signed in right now. Please try again in a few minutes.");
 
+    // A13. The attempt was refused before the credential was looked at, so the caller is told
+    // what to do - wait - rather than that their password is wrong. Its own code for exactly
+    // the reason SESSION_LIMIT_REACHED has one: both sign-in screens render this catalogue's
+    // message verbatim, and AUTH_FAILED here would send somebody to change a password that is
+    // correct, with no way to discover that waiting is what is required.
+    //
+    // It names where the attempts came from rather than the account, and says outright that
+    // nothing is locked. That is the true and actionable thing: no account is ever locked by
+    // LoginThrottle, the same person can sign in from elsewhere, and "your account is locked"
+    // is both far more alarming and simply false. It gives an attacker nothing they could not
+    // establish with one request from a second address.
+    //
+    // "A few minutes", not "a quarter of an hour", although the window is fifteen minutes. The
+    // window is anchored at the caller's first counted attempt and never extended, so somebody
+    // refused on their eleventh try has already burned most of it and the true remaining wait
+    // is usually seconds. Naming the window would overstate the wait for nearly everyone who
+    // sees this; SESSION_LIMIT_REACHED above sets the same precedent for the same reason.
+    static final ApiError TOO_MANY_ATTEMPTS = new ApiError(
+            "TOO_MANY_ATTEMPTS",
+            "Too many sign-in attempts have been made from this computer or network. No account has been locked. Please wait a few minutes and try again.");
+
     static final ApiError FORBIDDEN = new ApiError(
             "FORBIDDEN",
             "You do not have access to this operation.");
