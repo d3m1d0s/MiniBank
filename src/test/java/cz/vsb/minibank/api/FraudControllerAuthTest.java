@@ -84,7 +84,7 @@ class FraudControllerAuthTest {
                 10,                               // id
                 100,                              // sourceAccountId
                 null,                             // beneficiaryId
-                "CZ0201000000000012345678",       // targetIbanSnapshot
+                "CZ2001000000000012345678",       // targetIbanSnapshot
                 Money.czk(1000),                  // amount
                 "CZK"                             // currency
         );

@@ -55,12 +55,12 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 class HttpErrorContractTest {
 
     private static final String CUSTOMER_IBAN = "CZ6508000000192000145399";
-    private static final String TARGET_IBAN = "CZ0201000000000012345678";
+    private static final String TARGET_IBAN = "CZ2001000000000012345678";
     private static final int CUSTOMER_ID = 2;
     private static final int ACCOUNT_ID = 101;
 
     /** A second customer, so the "exists but is not yours" half of 404 can be asserted. */
-    private static final String VICTIM_IBAN = "CZ6508000000192000145407";
+    private static final String VICTIM_IBAN = "CZ4308000000192000145407";
     private static final int VICTIM_CUSTOMER_ID = 3;
     private static final int VICTIM_ACCOUNT_ID = 202;
 
@@ -80,6 +80,8 @@ class HttpErrorContractTest {
             "{\"code\":\"INVALID_IBAN\",\"message\":\"The IBAN you entered is not valid.\"}";
     private static final String BODY_INSUFFICIENT_FUNDS =
             "{\"code\":\"INSUFFICIENT_FUNDS\",\"message\":\"There are not enough funds on the selected account to cover amount and fee.\"}";
+    private static final String BODY_SELF_TRANSFER =
+            "{\"code\":\"SELF_TRANSFER\",\"message\":\"The destination is the account the payment is sent from. Choose a different account.\"}";
     private static final String BODY_VALIDATION_ERROR =
             "{\"code\":\"VALIDATION_ERROR\",\"message\":\"The request contains invalid or missing values.\"}";
     private static final String BODY_METHOD_NOT_ALLOWED =
@@ -416,6 +418,18 @@ class HttpErrorContractTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"sourceAccountId\":" + ACCOUNT_ID
                                 + ",\"targetIban\":\"XX12\",\"amountCzk\":100.0,\"message\":\"x\"}"), 400, BODY_INVALID_IBAN);
+    }
+
+    /**
+     * Its own code rather than the generic one: told only that something was invalid, a
+     * customer has no way to see that the destination they picked was their own account.
+     */
+    @Test
+    void payingTheSourceAccountsOwnIbanIs400SelfTransfer() throws Exception {
+        assertResponse(api, post("/api/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceAccountId\":" + ACCOUNT_ID + ",\"targetIban\":\"" + CUSTOMER_IBAN
+                                + "\",\"amountCzk\":100.0,\"message\":\"x\"}"), 400, BODY_SELF_TRANSFER);
     }
 
     @Test

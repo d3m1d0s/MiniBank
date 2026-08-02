@@ -31,9 +31,9 @@ public final class DemoScenario {
      * the constraint that would reject a second seed.
      */
     public static final IBAN PRIMARY_IBAN = new IBAN("CZ6508000000192000145399");
-    public static final IBAN SECONDARY_IBAN = new IBAN("CZ6508000000192000145407");
-    public static final IBAN TRUSTED_BENEFICIARY_IBAN = new IBAN("CZ6508000000192000145415");
-    public static final IBAN UNTRUSTED_BENEFICIARY_IBAN = new IBAN("CZ6508000000192000145423");
+    public static final IBAN SECONDARY_IBAN = new IBAN("CZ4308000000192000145407");
+    public static final IBAN TRUSTED_BENEFICIARY_IBAN = new IBAN("CZ2108000000192000145415");
+    public static final IBAN UNTRUSTED_BENEFICIARY_IBAN = new IBAN("CZ9608000000192000145423");
 
     private static final String CUSTOMER_NAME = "Alice Demo";
     private static final String CUSTOMER_EMAIL = "alice@example.com";

@@ -13,6 +13,7 @@ import cz.vsb.minibank.domain.exceptions.InvalidIbanException;
 import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.exceptions.NotAuthenticatedException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
+import cz.vsb.minibank.domain.exceptions.SelfTransferNotAllowedException;
 import cz.vsb.minibank.domain.exceptions.ValidationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -75,6 +76,15 @@ public class RestExceptionHandler {
     @ExceptionHandler(InsufficientFundsException.class)
     public ResponseEntity<ApiError> handleInsufficientFunds(InsufficientFundsException ex) {
         return error(HttpStatus.BAD_REQUEST, ApiErrors.INSUFFICIENT_FUNDS);
+    }
+
+    /**
+     * A subtype of ValidationException, so Spring picks this more specific handler and the
+     * caller is told which value is wrong instead of only that something is.
+     */
+    @ExceptionHandler(SelfTransferNotAllowedException.class)
+    public ResponseEntity<ApiError> handleSelfTransfer(SelfTransferNotAllowedException ex) {
+        return error(HttpStatus.BAD_REQUEST, ApiErrors.SELF_TRANSFER);
     }
 
     @ExceptionHandler({ValidationException.class, InvalidAmountException.class})

@@ -330,7 +330,7 @@ public class ConsoleMenu {
         System.out.print("Beneficiary name: ");
         String name = in.nextLine().trim();
 
-        System.out.print("IBAN (e.g., CZ0201000000000012345678): ");
+        System.out.print("IBAN (e.g., CZ2001000000000012345678): ");
         String iban = in.nextLine().trim();
 
         System.out.print("Trusted? (y/N): ");

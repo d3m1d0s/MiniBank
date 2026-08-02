@@ -72,7 +72,7 @@ public class DemoRunner {
             int t1 = services.transferService.submitPaymentToIban(
                     customerId,
                     accountId,
-                    "CZ0201000000000098765432",
+                    "CZ1301000000000098765432",
                     AUTH_AMOUNT,
                     "demo AUTH"
             );
@@ -138,7 +138,7 @@ public class DemoRunner {
             int t3 = services.transferService.submitPaymentToIban(
                     customerId,
                     accountId,
-                    "CZ6508000000192000142222",
+                    "CZ9608000000192000142222",
                     CANCEL_AMOUNT,
                     "demo CANCEL"
             );

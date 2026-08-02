@@ -115,7 +115,7 @@ public class ConsoleMenuCommandTests {
         // name, IBAN, trusted = "y"
         String consoleInput = String.join("\n",
                 "Alice",
-                "CZ0201000000000098765432",
+                "CZ1301000000000098765432",
                 "y"
         ) + "\n";
 
@@ -145,7 +145,7 @@ public class ConsoleMenuCommandTests {
                     "After addBeneficiary the customer should have one beneficiary");
             Beneficiary b = reloaded.beneficiaries().get(0);
             assertEquals("Alice", b.name());
-            assertEquals("CZ0201000000000098765432", b.iban().value());
+            assertEquals("CZ1301000000000098765432", b.iban().value());
             assertTrue(b.trusted(), "Trusted flag should be true");
             uow.commit();
         } catch (RuntimeException e) {

@@ -42,6 +42,10 @@ final class ApiErrors {
             "VALIDATION_ERROR",
             "The request contains invalid or missing values.");
 
+    static final ApiError SELF_TRANSFER = new ApiError(
+            "SELF_TRANSFER",
+            "The destination is the account the payment is sent from. Choose a different account.");
+
     static final ApiError INVALID_OTP = new ApiError(
             "INVALID_OTP",
             "The confirmation code is not valid.");

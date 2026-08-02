@@ -56,7 +56,7 @@ class TransferAmountValidationTest {
         customer.addAccountId(ACCOUNT_ID);
         customers.save(customer);
 
-        accounts.save(new Account(ACCOUNT_ID, new IBAN("CZ2801000000199999999999"),
+        accounts.save(new Account(ACCOUNT_ID, new IBAN("CZ5201000000199999999999"),
                 OPENING_BALANCE, Money.czk(15_000)));
 
         customers.saveBeneficiary(CUSTOMER_ID,

@@ -72,7 +72,7 @@ public class MinibankLazyLoadTests {
                     transferId,
                     accountId,
                     null,
-                    "CZ0201000000000000000000",
+                    "CZ0401000000000000000000",
                     Money.czk(1_000),
                     "CZK"
             );

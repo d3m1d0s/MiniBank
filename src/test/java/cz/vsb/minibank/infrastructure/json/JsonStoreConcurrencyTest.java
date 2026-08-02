@@ -57,7 +57,7 @@ class JsonStoreConcurrencyTest {
 
     private static final Money PAYMENT = Money.czk(100.00);
     private static final Money FLAGGED_PAYMENT = Money.czk(12_000.00);
-    private static final String TARGET_IBAN = "CZ6508000000192000145415";
+    private static final String TARGET_IBAN = "CZ2108000000192000145415";
 
     /** No thread should ever wait this long; a timeout means something is wedged. */
     private static final int TIMEOUT_SECONDS = 60;

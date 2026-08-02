@@ -78,7 +78,7 @@ public class MinibankUowTests {
 
             // save a new beneficiary - goes through repository with UoW
             int bid = infra.customers.nextBeneficiaryId();
-            Beneficiary b = new Beneficiary(bid, "Alice", new IBAN("CZ0201000000000098765432"), false);
+            Beneficiary b = new Beneficiary(bid, "Alice", new IBAN("CZ1301000000000098765432"), false);
             infra.customers.saveBeneficiary(customerId, b);
 
             // aggregate cache should be updated immediately:
@@ -118,7 +118,7 @@ public class MinibankUowTests {
             doomedTransferId = infra.transfers.nextId();
             infra.transfers.add(new Transfer(
                     doomedTransferId, accountId, null,
-                    "CZ0201000000000000000000", Money.czk(1_000), "CZK"));
+                    "CZ0401000000000000000000", Money.czk(1_000), "CZK"));
 
             // Fails after the transfer has already been applied to the shared data.
             doomed.registerMutation(() -> { throw new IllegalStateException("commit fails here"); });

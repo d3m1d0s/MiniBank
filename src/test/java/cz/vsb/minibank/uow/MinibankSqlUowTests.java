@@ -172,7 +172,7 @@ public class MinibankSqlUowTests {
             Beneficiary b = new Beneficiary(
                     beneficiaryId,
                     "Alice SQL",
-                    new IBAN("CZ0201000000000098765432"),
+                    new IBAN("CZ1301000000000098765432"),
                     false
             );
 
@@ -206,7 +206,7 @@ public class MinibankSqlUowTests {
             );
             Beneficiary b2 = reloaded.beneficiaries().get(0);
             assertEquals("Alice SQL", b2.name());
-            assertEquals("CZ0201000000000098765432", b2.iban().value());
+            assertEquals("CZ1301000000000098765432", b2.iban().value());
 
             uow3.commit();
         } catch (RuntimeException e) {
@@ -265,7 +265,7 @@ public class MinibankSqlUowTests {
                     transferId,
                     accountId,
                     null,
-                    "CZ0201000000000000000000",
+                    "CZ0401000000000000000000",
                     Money.czk(1_000),
                     "CZK"
             );
@@ -366,7 +366,7 @@ public class MinibankSqlUowTests {
                     transferId,
                     accountId,
                     null,
-                    "CZ0201000000000000000000",
+                    "CZ0401000000000000000000",
                     Money.czk(500),
                     "CZK"
             );
@@ -698,7 +698,7 @@ public class MinibankSqlUowTests {
             infra.customers.save(stranger);
 
             int strangerAccount = infra.accounts.nextId();
-            infra.accounts.save(new Account(strangerAccount, new IBAN("CZ6508000000192000145431"),
+            infra.accounts.save(new Account(strangerAccount, new IBAN("CZ7408000000192000145431"),
                     Money.czk(20_000), Money.czk(5_000)));
             stranger.addAccountId(strangerAccount);
             infra.customers.save(stranger);
@@ -712,14 +712,14 @@ public class MinibankSqlUowTests {
         Money victimBefore = infra.accounts.byId(ownedAccount).orElseThrow().balance();
 
         assertThrows(NotFoundException.class, () -> services.transferService.submitPaymentToIban(
-                strangerId, ownedAccount, "CZ0201000000000012345678", 900.0, "not my account"));
+                strangerId, ownedAccount, "CZ2001000000000012345678", 900.0, "not my account"));
         assertEquals(0, victimBefore.amount().compareTo(
                         infra.accounts.byId(ownedAccount).orElseThrow().balance().amount()),
                 "The refused payment must not have debited the owner");
 
         // The owner's own path still works end to end against a real database.
         int transferId = services.transferService.submitPaymentToIban(
-                ownerId, ownedAccount, "CZ0201000000000012345678", 100.0, "mine");
+                ownerId, ownedAccount, "CZ2001000000000012345678", 100.0, "mine");
         assertEquals(TransferStatus.SENT, infra.transfers.byId(transferId).orElseThrow().status());
     }
 

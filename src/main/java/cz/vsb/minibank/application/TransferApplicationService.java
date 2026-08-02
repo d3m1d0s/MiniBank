@@ -12,6 +12,7 @@ import cz.vsb.minibank.domain.exceptions.ConflictException;
 import cz.vsb.minibank.domain.exceptions.InsufficientFundsException;
 import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
+import cz.vsb.minibank.domain.exceptions.SelfTransferNotAllowedException;
 import cz.vsb.minibank.domain.value.Money;
 
 import java.util.Objects;
@@ -73,6 +74,8 @@ public class TransferApplicationService {
             var account = guard.requireOwnedAccount(caller, sourceAccountId);
             var beneficiary = guard.requireOwnedBeneficiary(caller, beneficiaryId);
 
+            requireDifferentAccount(account, beneficiary.iban());
+
             boolean trusted = beneficiary.trusted();
             RiskDecision decision = riskService.evaluate(trusted, amount, account.dailyLimit());
 
@@ -108,6 +111,7 @@ public class TransferApplicationService {
             // The daily limit that decides whether this needs authorization is now read off an
             // account the caller owns, so a victim's limits cannot settle an attacker's payment.
             var account = guard.requireOwnedAccount(caller, sourceAccountId);
+            requireDifferentAccount(account, iban);
 
             boolean trusted = false;
             RiskDecision decision = riskService.evaluate(trusted, amount, account.dailyLimit());
@@ -183,6 +187,22 @@ public class TransferApplicationService {
                 .orElseThrow(() -> new NotFoundException("Transfer not found: " + transferId));
         guard.requireOwnedTransfer(caller, t);
         return t;
+    }
+
+    /**
+     * Refuses a payment that names the source account's own IBAN.
+     *
+     * There is no credit leg yet, so such a transfer debits the source and credits nobody:
+     * the money is destroyed rather than moved back. The comparison is against the account
+     * already loaded for this transaction, never against a fresh accounts.byIban lookup,
+     * because within one unit of work that call puts a second instance of the same row into
+     * the identity map and a later save would write back the stale balance from it.
+     */
+    private void requireDifferentAccount(Account source, IBAN target) {
+        if (source.iban().equals(target)) {
+            throw new SelfTransferNotAllowedException(
+                    "Account " + source.id() + " cannot pay itself: " + target.value());
+        }
     }
 
     /**

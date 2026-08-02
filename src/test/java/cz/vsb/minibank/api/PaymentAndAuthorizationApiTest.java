@@ -116,14 +116,14 @@ public class PaymentAndAuthorizationApiTest {
                 "victim3@example.com", new Address("Test Street 3", "Ostrava"));
         victim.addAccountId(VICTIM_ACCOUNT_ID);
         infra.customers.save(victim);
-        infra.accounts.save(new Account(VICTIM_ACCOUNT_ID, new IBAN("CZ6508000000192000145407"),
+        infra.accounts.save(new Account(VICTIM_ACCOUNT_ID, new IBAN("CZ4308000000192000145407"),
                 Money.czk(20_000), Money.czk(5_000)));
         infra.customers.saveBeneficiary(VICTIM_CUSTOMER_ID, new Beneficiary(
                 VICTIM_BENEFICIARY_ID, "Victim's payee",
-                new IBAN("CZ6508000000192000145423"), true));
+                new IBAN("CZ9608000000192000145423"), true));
 
         victimWaitingTransfer = transferService.submitPaymentToIban(
-                VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, "CZ0201000000000012345678",
+                VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, "CZ2001000000000012345678",
                 WAITING_TRANSFER_AMOUNT, "victim's own");
 
         paymentController = new PaymentController(
@@ -155,7 +155,7 @@ public class PaymentAndAuthorizationApiTest {
 
         NewPaymentRequest req = new NewPaymentRequest(
                 acc.id(),
-                "CZ0201000000000012345678",
+                "CZ2001000000000012345678",
                 WAITING_TRANSFER_AMOUNT,
                 "Test waiting transfer"
         );
@@ -203,7 +203,7 @@ public class PaymentAndAuthorizationApiTest {
         TransferDetailsDto details = authorizationController.transferDetails(transferId);
 
         assertEquals(transferId, details.id());
-        assertEquals("CZ0201000000000012345678", details.toIban());
+        assertEquals("CZ2001000000000012345678", details.toIban());
         String expectedPrefix = String.format(Locale.US, "%.2f", WAITING_TRANSFER_AMOUNT);
         assertTrue(
                 details.amount().startsWith(expectedPrefix),
@@ -313,7 +313,7 @@ public class PaymentAndAuthorizationApiTest {
     @Test
     void createPayment_withAnUnknownSourceAccount_isNotFound() {
         NewPaymentRequest req = new NewPaymentRequest(
-                999_999, "CZ0201000000000012345678", 1000.0, "no such account");
+                999_999, "CZ2001000000000012345678", 1000.0, "no such account");
 
         assertThrows(NotFoundException.class, () -> paymentController.createPayment(req));
     }
@@ -349,7 +349,7 @@ public class PaymentAndAuthorizationApiTest {
     @Test
     void createPayment_fromAnotherCustomersAccount_isNotFoundAndMovesNothing() {
         NewPaymentRequest req = new NewPaymentRequest(
-                VICTIM_ACCOUNT_ID, "CZ0201000000000012345678", 900.0, "not my account");
+                VICTIM_ACCOUNT_ID, "CZ2001000000000012345678", 900.0, "not my account");
 
         assertThrows(NotFoundException.class, () -> paymentController.createPayment(req));
 
@@ -446,7 +446,7 @@ public class PaymentAndAuthorizationApiTest {
 
         NewPaymentRequest req = new NewPaymentRequest(
                 accBefore.id(),
-                "CZ0201000000000012345678",
+                "CZ2001000000000012345678",
                 1000.0,
                 "JUnit REST payment"
         );

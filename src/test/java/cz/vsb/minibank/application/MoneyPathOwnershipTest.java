@@ -55,7 +55,7 @@ class MoneyPathOwnershipTest {
     private static final int UNKNOWN_ACCOUNT = 999_999;
     private static final int UNKNOWN_TRANSFER = 999_999;
 
-    private static final String TARGET_IBAN = "CZ0201000000000012345678";
+    private static final String TARGET_IBAN = "CZ2001000000000012345678";
     private static final Money OPENING_BALANCE = Money.czk(30_000);
     private static final Money DAILY_LIMIT = Money.czk(5_000);
 
@@ -85,10 +85,10 @@ class MoneyPathOwnershipTest {
 
         openCustomer(customers, ATTACKER_ID, "Alice Attacker", ATTACKER_ACCOUNT,
                 "CZ6508000000192000145399", ATTACKER_BENEFICIARY, "Alice's own payee",
-                "CZ6508000000192000145415");
+                "CZ2108000000192000145415");
         openCustomer(customers, VICTIM_ID, "Bob Victim", VICTIM_ACCOUNT,
-                "CZ6508000000192000145407", VICTIM_BENEFICIARY, "Bob's own payee",
-                "CZ6508000000192000145423");
+                "CZ4308000000192000145407", VICTIM_BENEFICIARY, "Bob's own payee",
+                "CZ9608000000192000145423");
 
         BootstrapServices services = new BootstrapServices(
                 customers, accounts, transfers, infra.alerts, infra.uowFactory);

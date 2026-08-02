@@ -88,7 +88,7 @@ class PaymentNetworkIntegrationTest {
                 transferId,
                 accountId,
                 null,
-                "CZ0201000000000098765432",
+                "CZ1301000000000098765432",
                 Money.czk(1_000),
                 "CZK"
         );
