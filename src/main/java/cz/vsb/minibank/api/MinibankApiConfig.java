@@ -75,6 +75,11 @@ public class MinibankApiConfig {
     }
 
     @Bean
+    public OwnershipGuard ownershipGuard(BootstrapServices services) {
+        return services.ownershipGuard;
+    }
+
+    @Bean
     public FraudApplicationService fraudApplicationService(BootstrapServices services) {
         return services.fraudService;
     }

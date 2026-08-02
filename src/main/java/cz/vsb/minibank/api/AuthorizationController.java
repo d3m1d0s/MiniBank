@@ -4,6 +4,7 @@ import cz.vsb.minibank.api.dto.AuthorizePaymentRequest;
 import cz.vsb.minibank.api.dto.AuthorizePaymentResult;
 import cz.vsb.minibank.api.dto.TransferDetailsDto;
 import cz.vsb.minibank.api.dto.WaitingTransferItemDto;
+import cz.vsb.minibank.application.OwnershipGuard;
 import cz.vsb.minibank.application.TransferApplicationService;
 import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.Transfer;
@@ -34,34 +35,33 @@ public class AuthorizationController {
     private final AccountRepository accounts;
     private final TransferRepository transfers;
     private final FeePolicy feePolicy;
+    private final OwnershipGuard ownershipGuard;
 
     public AuthorizationController(TransferApplicationService transferService,
                                    AccountRepository accounts,
                                    TransferRepository transfers,
-                                   FeePolicy feePolicy) {
+                                   FeePolicy feePolicy,
+                                   OwnershipGuard ownershipGuard) {
         this.transferService = transferService;
         this.accounts = accounts;
         this.transfers = transfers;
         this.feePolicy = feePolicy;
+        this.ownershipGuard = ownershipGuard;
     }
 
     /**
-     * Lists all transfers in WAITING_AUTH state for the specified customer.
+     * Lists the transfers waiting for authorization that belong to the current customer.
      *
-     * No role check and no ownership check: any authenticated caller can read any
-     * customer's waiting transfers here. The guarded twin is {@link #listMyWaiting()},
-     * which is guarded only because it needs a customer id, not as an access rule.
-     * Closing this is backlog item A4, and the type to throw is NotFoundException.
-     *
-     * A3 guarded the write paths and left this one open, so it is currently the oracle those
-     * 404s were meant to remove: this route names a stranger's transfer ids for free. Use
-     * BootstrapServices.ownershipGuard so the two answer identically.
+     * There is no route that takes a customer id. This one reads its subject from the
+     * session, so a caller has no way to name somebody else. The twin that took the id in
+     * the path was removed rather than guarded: it handed out a stranger's transfer ids for
+     * free, which is exactly the disclosure the 404s elsewhere exist to prevent.
      */
-    @GetMapping("/customers/{customerId}/waiting-transfers")
-    public List<WaitingTransferItemDto> listWaiting(@PathVariable("customerId") int customerId) {
+    @GetMapping("/me/waiting-transfers")
+    public List<WaitingTransferItemDto> listMyWaiting() {
         List<WaitingTransferItemDto> result = new ArrayList<>();
 
-        for (Account acc : accounts.byCustomerId(customerId)) {
+        for (Account acc : accounts.byCustomerId(requireCustomerId())) {
             for (Transfer t : transfers.bySourceAccount(acc.id())) {
                 if (t.status() == TransferStatus.WAITING_AUTH) {
                     result.add(new WaitingTransferItemDto(
@@ -80,28 +80,21 @@ public class AuthorizationController {
     }
 
     /**
-     * Shortcut endpoint that lists waiting transfers for the current authenticated customer.
-     */
-    @GetMapping("/me/waiting-transfers")
-    public List<WaitingTransferItemDto> listMyWaiting() {
-        int customerId = requireCustomerId();
-        return listWaiting(customerId);
-    }
-
-    /**
      * Returns detailed information for a transfer including fee, status and authorization metadata.
      *
-     * No ownership check: any authenticated caller can read any transfer, including the
-     * source account's IBAN and balance. Closing this is backlog item A4, and a transfer
-     * belonging to somebody else must throw NotFoundException so it is indistinguishable
-     * from an id that does not exist - the same type and the same message
-     * TransferApplicationService.requireTransfer already throws, so a read and a write can
-     * never disagree about whether a transfer exists for you.
+     * A transfer that belongs to somebody else is refused as not found, with the same type
+     * and message {@code TransferApplicationService.requireTransfer} throws, so a read and a
+     * write can never disagree about whether a transfer exists for the caller. Reading a
+     * stranger's row disclosed the source IBAN and its live balance, which is the
+     * reconnaissance the write-side 404s were meant to deny.
      */
     @GetMapping("/transfers/{id}")
     public TransferDetailsDto transferDetails(@PathVariable("id") int id) {
+        var caller = ownershipGuard.requireCaller(requireCustomerId());
         Transfer t = transfers.byId(id)
                 .orElseThrow(() -> new NotFoundException("Transfer not found: " + id));
+        ownershipGuard.requireOwnedTransfer(caller, t);
+
         // The id came from the store, not from the caller, so a missing account is our fault.
         Account acc = accounts.byId(t.sourceAccountId())
                 .orElseThrow(() -> new DataIntegrityException(

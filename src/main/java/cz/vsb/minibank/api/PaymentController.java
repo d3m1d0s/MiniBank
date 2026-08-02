@@ -43,32 +43,18 @@ public class PaymentController {
     }
 
     /**
-     * Lists all accounts for the given customer identifier.
-     *
-     * No role check and no ownership check: any authenticated caller can read any
-     * customer's account ids, IBANs and balances here. The guarded twin is
-     * {@link #listMyAccounts()}, which is guarded only because it needs a customer id,
-     * not as an access rule. Closing this is backlog item A4, and the type to throw is
-     * NotFoundException.
-     *
-     * A3 closed the write paths, so a stranger's account can no longer be paid from; this
-     * route still discloses that it exists. Use BootstrapServices.ownershipGuard, or retire
-     * this route in favour of its /me twin, which is the only one either frontend calls.
-     */
-    @GetMapping("/customers/{customerId}/accounts")
-    public List<AccountSummaryDto> listAccounts(@PathVariable("customerId") int customerId) {
-        return accounts.byCustomerId(customerId).stream()
-                .map(this::toAccountSummary)
-                .toList();
-    }
-
-    /**
      * Lists accounts for the currently authenticated customer.
+     *
+     * There is no route that takes a customer id. This one reads its subject from the
+     * session, so a caller has no way to name somebody else and no ownership check is
+     * needed. The twin that took the id in the path was removed rather than guarded:
+     * two doors onto the same data are two standing obligations to remember the check.
      */
     @GetMapping("/me/accounts")
     public List<AccountSummaryDto> listMyAccounts() {
-        int customerId = requireCustomerId();
-        return listAccounts(customerId);
+        return accounts.byCustomerId(requireCustomerId()).stream()
+                .map(this::toAccountSummary)
+                .toList();
     }
 
     /**

@@ -158,7 +158,7 @@ class HttpErrorContractTest {
                 VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, TARGET_IBAN, 100.0, "victim sent");
 
         paymentController = new PaymentController(transferService, accounts, transfers, services.feePolicy);
-        authorizationController = new AuthorizationController(transferService, accounts, transfers, services.feePolicy);
+        authorizationController = new AuthorizationController(transferService, accounts, transfers, services.feePolicy, services.ownershipGuard);
         FraudController fraudController = new FraudController(
                 infra.alerts, transfers, accounts, services.fraudService, services.feePolicy);
 

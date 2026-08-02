@@ -137,7 +137,8 @@ public class PaymentAndAuthorizationApiTest {
                 transferService,
                 accounts,
                 transfers,
-                services.feePolicy
+                services.feePolicy,
+                services.ownershipGuard
         );
     }
 
@@ -148,7 +149,7 @@ public class PaymentAndAuthorizationApiTest {
     }
 
     private int createWaitingTransferForCustomer2() {
-        List<AccountSummaryDto> accList = paymentController.listAccounts(TEST_CUSTOMER_ID);
+        List<AccountSummaryDto> accList = paymentController.listMyAccounts();
         assertFalse(accList.isEmpty(), "Customer 2 should have at least one account");
         AccountSummaryDto acc = accList.get(0);
 
@@ -176,8 +177,8 @@ public class PaymentAndAuthorizationApiTest {
     }
 
     @Test
-    void listAccounts_forExistingCustomer2_returnsAccount101() {
-        List<AccountSummaryDto> list = paymentController.listAccounts(TEST_CUSTOMER_ID);
+    void listMyAccounts_returnsTheSessionCustomersAccount() {
+        List<AccountSummaryDto> list = paymentController.listMyAccounts();
         assertFalse(list.isEmpty(), "Expected accounts for customer 2");
         AccountSummaryDto acc = list.get(0);
         assertEquals(TEST_ACCOUNT_ID, acc.id());
@@ -188,7 +189,7 @@ public class PaymentAndAuthorizationApiTest {
     void listWaitingTransfers_forCustomer2_containsNewWaitingTransfer() {
         int transferId = createWaitingTransferForCustomer2();
 
-        List<WaitingTransferItemDto> waiting = authorizationController.listWaiting(TEST_CUSTOMER_ID);
+        List<WaitingTransferItemDto> waiting = authorizationController.listMyWaiting();
         assertFalse(waiting.isEmpty(), "Expected at least one waiting transfer for customer 2");
 
         boolean hasNew = waiting.stream().anyMatch(t -> t.id() == transferId);
@@ -381,6 +382,33 @@ public class PaymentAndAuthorizationApiTest {
     }
 
     /**
+     * A4: reading a stranger's transfer disclosed the source IBAN and its live balance, which
+     * is the reconnaissance step that made the write-side escalation usable with no prior
+     * knowledge. The refusal has to be the same as for an id that does not exist.
+     */
+    @Test
+    void transferDetails_ofAnotherCustomersTransfer_isNotFound() {
+        NotFoundException foreign = assertThrows(NotFoundException.class,
+                () -> authorizationController.transferDetails(victimWaitingTransfer));
+        NotFoundException absent = assertThrows(NotFoundException.class,
+                () -> authorizationController.transferDetails(999_999));
+
+        assertEquals(absent.getClass(), foreign.getClass(),
+                "A stranger's transfer must be refused exactly like one that does not exist");
+        assertVictimUntouched();
+    }
+
+    @Test
+    void transferDetails_ofTheOwnersOwnTransfer_stillWorks() {
+        int mine = createWaitingTransferForCustomer2();
+
+        var details = authorizationController.transferDetails(mine);
+
+        assertEquals(mine, details.id());
+        assertTrue(details.fromIban().startsWith("CZ"));
+    }
+
+    /**
      * N15: before A3 these two handlers read no identity at all, so a FRAUD_ANALYST session
      * could drive them. The refusal is a role denial, raised before the transfer id is used.
      */
@@ -412,7 +440,7 @@ public class PaymentAndAuthorizationApiTest {
 
     @Test
     void createPaymentToIban_createsTransferAndReturnsResult() {
-        List<AccountSummaryDto> beforeAccounts = paymentController.listAccounts(TEST_CUSTOMER_ID);
+        List<AccountSummaryDto> beforeAccounts = paymentController.listMyAccounts();
         assertFalse(beforeAccounts.isEmpty(), "Customer 2 should have at least one account");
         AccountSummaryDto accBefore = beforeAccounts.get(0);
 
