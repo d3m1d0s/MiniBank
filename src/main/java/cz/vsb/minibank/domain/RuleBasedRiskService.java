@@ -42,9 +42,16 @@ public class RuleBasedRiskService implements RiskService {
         boolean untrustedAndHigh = !beneficiaryTrusted && amount.gt(AUTH_THRESHOLD_FOR_UNTRUSTED);
 
         boolean requireAuth = overDayAuthThreshold || untrustedAndHigh;
-        // The new term only widens requireAuth, so createAlert still strictly implies it: an
-        // untrusted amount over 10 000 is also over 5 000. FraudApplicationService.approve
-        // depends on that implication for sendApproved to stay unreachable.
+        // createAlert still strictly implies requireAuth here, but nothing depends on that any
+        // more: routeTransferCreation tests createFraudAlert on its own and holds the transfer
+        // for review, and the fraud service settles nothing, so these two thresholds can be
+        // reordered without a money-path consequence. It used to be load-bearing - it was the
+        // only reason the analyst's settle branch was unreachable.
+        //
+        // What this rule does NOT catch, and what the review gate therefore does not close: it
+        // keys on one payment's amount, so 13 000 split into two payments of 6 500 to the same
+        // untrusted IBAN raises no alert and is never held. A cumulative alert term, mirroring
+        // what AUTH_THRESHOLD_FOR_DAY_TOTAL already does for authorization, is its own item.
         boolean createAlert = !beneficiaryTrusted && amount.gt(ALERT_THRESHOLD_FOR_UNTRUSTED);
 
         String reason = createAlert

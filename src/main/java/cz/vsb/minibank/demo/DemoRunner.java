@@ -3,6 +3,7 @@ package cz.vsb.minibank.demo;
 import cz.vsb.minibank.application.BootstrapServices;
 import cz.vsb.minibank.application.MinibankProperties;
 import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.exceptions.TransferUnderReviewException;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 
@@ -94,8 +95,10 @@ public class DemoRunner {
                     + " (fee=" + expectedFee1 + ") \n");
 
             // 2) UC 04 -> 11 -> 05 (FRAUD ALERT + APPROVE + AUTH)
-            // Untrusted beneficiary above the alert threshold -> FraudAlert{NEW} + WAITING_AUTH.
-            // Approve the alert -> still WAITING_AUTH -> authorize via OTP -> SENT.
+            // Untrusted beneficiary above the alert threshold -> FraudAlert{NEW} +
+            // HELD_FOR_REVIEW. A valid code is refused while the alert is open. Approve the
+            // alert -> released to WAITING_AUTH, and no money has moved -> authorize via OTP
+            // -> SENT.
             int benId = untrustedBeneficiaryOf(infra, customerId);
             int t2 = services.transferService.submitPaymentByBeneficiary(
                     customerId,
@@ -105,11 +108,29 @@ public class DemoRunner {
                     "demo FRAUD"
             );
             var tr2 = infra.transfers.byId(t2).orElseThrow();
-            assertState(tr2.status() == TransferStatus.WAITING_AUTH,
-                    "T2 must be WAITING_AUTH after creation");
+            assertState(tr2.status() == TransferStatus.HELD_FOR_REVIEW,
+                    "T2 must be HELD_FOR_REVIEW after creation");
             var alert2 = infra.alerts.byTransferId(t2).orElseThrow();
             assertState(alert2.state() == FraudAlertState.NEW,
                     "Alert for T2 must be NEW");
+
+            // The gate, exercised end to end: "123456" is a code FixedOtpValidator accepts, and
+            // it is refused anyway because the alert is open. This is the one place the whole
+            // feature is visible in a single script.
+            Money beforeGate = infra.accounts.byId(accountId).orElseThrow().balance();
+            try {
+                services.transferService.authorizePayment(customerId, t2, "123456");
+                throw new AssertionError("T2 must not be authorizable while its alert is open");
+            } catch (TransferUnderReviewException expected) {
+                System.out.println("[OK] A held transfer refuses a valid code");
+            }
+            tr2 = infra.transfers.byId(t2).orElseThrow();
+            assertState(tr2.status() == TransferStatus.HELD_FOR_REVIEW,
+                    "A refused authorization must leave T2 held");
+            assertState(tr2.authAttempts() == 0,
+                    "A refusal that is not about the code must spend no OTP attempt");
+            assertState(infra.accounts.byId(accountId).orElseThrow().balance().equals(beforeGate),
+                    "A refused authorization must move nothing");
 
             services.fraudService.approve(t2);
             alert2 = infra.alerts.byTransferId(t2).orElseThrow();
@@ -117,7 +138,9 @@ public class DemoRunner {
                     "Alert for T2 must be OK after approve");
             tr2 = infra.transfers.byId(t2).orElseThrow();
             assertState(tr2.status() == TransferStatus.WAITING_AUTH,
-                    "T2 still has WAITING_AUTH (customer authorization required)");
+                    "T2 is released to WAITING_AUTH; approve does not send the money");
+            assertState(infra.accounts.byId(accountId).orElseThrow().balance().equals(beforeGate),
+                    "Approving an alert must not debit anything");
 
             services.transferService.authorizePayment(customerId, t2, "123456");
             tr2 = infra.transfers.byId(t2).orElseThrow();

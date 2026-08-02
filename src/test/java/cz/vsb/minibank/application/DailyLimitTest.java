@@ -210,11 +210,15 @@ class DailyLimitTest {
     void cancelledAndPendingPaymentsDoNotConsumeTheDaysBudget() {
         var service = serviceAt(DAY_ONE_NOON);
 
-        int cancelled = payExternal(service, 30_000);
+        // Trusted, so the transfers land in WAITING_AUTH on A9's own day-total rule rather than
+        // being held for fraud review, which is what an untrusted 30 000 would now do. Both
+        // amounts are over the 15 000 soft threshold, so the premise - a pending payment that
+        // has debited nothing - is exactly the one this test was written for.
+        int cancelled = payTrusted(service, 30_000);
         service.cancelPayment(CUSTOMER_ID, cancelled);
         assertEquals(TransferStatus.DECLINED, status(cancelled));
 
-        int pending = payExternal(service, 30_000);
+        int pending = payTrusted(service, 30_000);
         assertEquals(TransferStatus.WAITING_AUTH, status(pending));
 
         assertEquals(Money.czk(0), sentOnDayOf(DAY_ONE_NOON),
@@ -248,8 +252,10 @@ class DailyLimitTest {
     void twoPendingPaymentsThatEachPassAtCreationCollideAtAuthorization() {
         var service = serviceAt(DAY_ONE_NOON);
 
-        int first = payExternal(service, 25_000);
-        int second = payExternal(service, 25_000);
+        // Trusted for the same reason as above: 25 000 is over the alert threshold, and an
+        // alerted payment would be held for review rather than waiting on the customer.
+        int first = payTrusted(service, 25_000);
+        int second = payTrusted(service, 25_000);
         assertEquals(TransferStatus.WAITING_AUTH, status(first));
         assertEquals(TransferStatus.WAITING_AUTH, status(second),
                 "both pass at creation: neither has debited anything, so both see a day total of zero");
@@ -282,17 +288,31 @@ class DailyLimitTest {
      * total of zero for the new day, each pass, and put 45 000 through a 40 000 ceiling. The
      * window comes from the transfer's own creation day instead, so they accumulate against
      * each other and the third is refused.
+     *
+     * These three are untrusted 15 000 payments, so each one is over the fraud-alert threshold
+     * and is held for review before it ever reaches the customer's confirmation step. Written
+     * that way on purpose rather than routed round the alert with a trusted beneficiary: it is
+     * the only place A9's re-check is exercised on a transfer an analyst released, which is now
+     * a path a real payment takes.
      */
     @Test
     void aPaymentAuthorizedAfterMidnightIsCheckedAgainstTheDayItWasCreatedOn() {
-        var lateOnDayOne = serviceAt(DAY_ONE_LAST_MINUTE);
+        var lateOnDayOne = servicesAt(DAY_ONE_LAST_MINUTE);
 
-        int first = payExternal(lateOnDayOne, 15_000);
-        int second = payExternal(lateOnDayOne, 15_000);
-        int third = payExternal(lateOnDayOne, 15_000);
-        assertEquals(TransferStatus.WAITING_AUTH, status(first));
-        assertEquals(TransferStatus.WAITING_AUTH, status(second));
-        assertEquals(TransferStatus.WAITING_AUTH, status(third));
+        int first = payExternal(lateOnDayOne.transferService, 15_000);
+        int second = payExternal(lateOnDayOne.transferService, 15_000);
+        int third = payExternal(lateOnDayOne.transferService, 15_000);
+        assertEquals(TransferStatus.HELD_FOR_REVIEW, status(first));
+        assertEquals(TransferStatus.HELD_FOR_REVIEW, status(second));
+        assertEquals(TransferStatus.HELD_FOR_REVIEW, status(third));
+
+        for (int id : new int[]{first, second, third}) {
+            lateOnDayOne.fraudService.approve(id);
+            assertEquals(TransferStatus.WAITING_AUTH, status(id),
+                    "an analyst's approval releases the transfer, it does not send it");
+        }
+        assertEquals(Money.czk(0), sentOnDayOf(DAY_ONE_NOON),
+                "releasing three transfers must have moved nothing");
 
         var afterMidnight = serviceAt(DAY_TWO_JUST_AFTER);
 
@@ -351,10 +371,10 @@ class DailyLimitTest {
      */
     @Test
     void theBankingDayEndsAtPragueMidnightAndNotAtUtcMidnight() {
-        int lastSecondOfDayOne = settleExternal(serviceAt(DAY_ONE_LAST_SECOND), 30_000);
+        int lastSecondOfDayOne = settleTrusted(serviceAt(DAY_ONE_LAST_SECOND), 30_000);
         assertEquals(TransferStatus.SENT, status(lastSecondOfDayOne));
 
-        int firstSecondOfDayTwo = settleExternal(serviceAt(DAY_TWO_MIDNIGHT), 30_000);
+        int firstSecondOfDayTwo = settleTrusted(serviceAt(DAY_TWO_MIDNIGHT), 30_000);
         assertEquals(TransferStatus.SENT, status(firstSecondOfDayTwo),
                 "midnight in Prague starts a new day, whatever the UTC date says");
 
@@ -402,12 +422,21 @@ class DailyLimitTest {
         return serviceAt(now, new ZeroFeePolicy());
     }
 
+    private TransferApplicationService serviceAt(Instant now, FeePolicy policy) {
+        return servicesAt(now, policy).transferService;
+    }
+
+    /** The whole bundle, for the one test that needs the fraud desk to release a held payment. */
+    private BootstrapServices servicesAt(Instant now) {
+        return servicesAt(now, new ZeroFeePolicy());
+    }
+
     /**
-     * A service pinned to one instant. The repositories are the same objects every time, so
+     * Services pinned to one instant. The repositories are the same objects every time, so
      * successive clocks read and write one store - which is what lets one test place payments
      * on two different days.
      */
-    private TransferApplicationService serviceAt(Instant now, FeePolicy policy) {
+    private BootstrapServices servicesAt(Instant now, FeePolicy policy) {
         return new BootstrapServices(
                 infra.customers,
                 infra.accounts,
@@ -419,7 +448,7 @@ class DailyLimitTest {
                 new FakePaymentNetworkGateway(),
                 infra.uowFactory,
                 Clock.fixed(now, TransferApplicationService.BANK_ZONE)
-        ).transferService;
+        );
     }
 
     private int payTrusted(TransferApplicationService service, double amountCzk) {
@@ -431,9 +460,13 @@ class DailyLimitTest {
         return service.submitPaymentToIban(CUSTOMER_ID, ACCOUNT_ID, EXTERNAL_IBAN, amountCzk, "");
     }
 
-    /** An untrusted payment always waits, so settling one takes two calls. */
-    private int settleExternal(TransferApplicationService service, double amountCzk) {
-        int id = payExternal(service, amountCzk);
+    /**
+     * A payment over the soft threshold always waits, so settling one takes two calls. Trusted,
+     * so the amounts here are held on A9's day-total rule and not for fraud review - a held
+     * transfer would refuse the code rather than settle.
+     */
+    private int settleTrusted(TransferApplicationService service, double amountCzk) {
+        int id = payTrusted(service, amountCzk);
         service.authorizePayment(CUSTOMER_ID, id, FixedOtpValidator.DEMO_OTP);
         return id;
     }

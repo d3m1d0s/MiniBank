@@ -133,7 +133,7 @@ class JsonStoreConcurrencyTest {
 
     /**
      * Ten concurrent 12 000.00 payments to an untrusted IBAN. Each one trips the fraud
-     * rules, so each writes a WAITING_AUTH transfer and a fraud alert in the same
+     * rules, so each writes a HELD_FOR_REVIEW transfer and a fraud alert in the same
      * transaction - two structural list additions per commit.
      *
      * Before the fix these two adds could race independently, which is how an alert ended

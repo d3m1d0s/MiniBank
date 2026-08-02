@@ -100,6 +100,67 @@ public class Transfer {
     }
 
     /**
+     * Holds the transfer for fraud review, ahead of the customer's own confirmation step.
+     *
+     * authValidUntil is deliberately left null. The five-minute window is the customer's time
+     * to enter a code, not the analyst's time to reach the queue; starting it here would expire
+     * most held transfers before anyone looked at them, and {@link #isAuthExpired()} reads null
+     * as "no deadline" rather than as an expired one.
+     *
+     * The payment method is captured now, like {@link #requestAuthorization}, so a released
+     * transfer presents the same method the customer was shown when they submitted it.
+     */
+    public void holdForReview(Payment method) {
+        if (status != TransferStatus.CREATED)
+            throw new InvalidStateTransitionException("Review hold allowed only from CREATED");
+
+        TransferStatus old = this.status;
+
+        this.authMethod = method;
+        this.status = TransferStatus.HELD_FOR_REVIEW;
+
+        this.authAttempts = 0;
+        this.authValidUntil = null;
+
+        TransferEvents.notifyStatusChanged(this, old, this.status);
+    }
+
+    /**
+     * Clears a reviewed transfer for the customer's confirmation step. It moves no money: the
+     * customer still has to authorize it, and that path re-checks the funds and the daily
+     * ceiling.
+     *
+     * The HELD_FOR_REVIEW precondition is what stops a second analyst on a stale queue
+     * releasing a transfer that has already been released, declined or cancelled.
+     *
+     * authValidUntil stays null, and that is the deliberate part. Starting a five-minute clock
+     * here would start it on an event the customer neither causes nor sees - somebody else's
+     * click, at a desk, at a time of their choosing. The customer would come back to a payment
+     * that had auto-declined, resubmit it, have it held again, and never be able to complete a
+     * payment over the alert threshold at all. Nothing is left unguarded by that: the three-OTP
+     * cap, the customer's own Cancel, and the funds and daily-ceiling re-checks in
+     * TransferApplicationService.authorizePayment all still run at confirmation time. The cost
+     * is that a released transfer waits indefinitely; see the note on
+     * TransferApplicationService.sentOnTheDayOf for what that does to the day it is counted
+     * against.
+     */
+    public void releaseForAuthorization() {
+        if (status != TransferStatus.HELD_FOR_REVIEW)
+            throw new InvalidStateTransitionException("Release allowed only from HELD_FOR_REVIEW");
+
+        TransferStatus old = this.status;
+        this.status = TransferStatus.WAITING_AUTH;
+
+        // Necessarily already zero - registerFailedOtpAttempt refuses anything but WAITING_AUTH,
+        // so a held transfer cannot have spent one - and written anyway so the invariant does
+        // not depend on that argument staying true.
+        this.authAttempts = 0;
+        this.authValidUntil = null;
+
+        TransferEvents.notifyStatusChanged(this, old, this.status);
+    }
+
+    /**
      * Settles the transfer: debits the source with the fee applied, and credits the
      * destination when the target IBAN belongs to this bank.
      *
@@ -114,6 +175,10 @@ public class Transfer {
      * input, which is why they are DataIntegrityException and not a caller-facing refusal: a
      * payment to the source's own IBAN is already refused at creation with a 400, and the
      * other two say the accounts handed over are not the ones this transfer names.
+     *
+     * HELD_FOR_REVIEW is not in the guard, and that is the backstop under the service-level
+     * gate: even if a caller reached this method with a transfer whose alert is still open,
+     * the money would not move. A held transfer is settled by first being released.
      */
     public void send(Account source, Account destination, FeePolicy policy) {
         if (status != TransferStatus.CREATED && status != TransferStatus.WAITING_AUTH)
@@ -167,6 +232,10 @@ public class Transfer {
 
     /**
      * Declines the transfer with the given reason.
+     *
+     * Only SENT is refused, so a HELD_FOR_REVIEW transfer is always cancellable by its owner.
+     * That is what keeps a customer from being trapped behind a queue nobody is working: the
+     * hold has no expiry of its own, so the customer's own Cancel is their way out of it.
      */
     public void decline(String reason) {
         if (status == TransferStatus.SENT)
@@ -221,6 +290,9 @@ public class Transfer {
 
     /**
      * Returns true when the transfer is waiting for authorization and the validity window has expired.
+     *
+     * A null authValidUntil is no deadline rather than an elapsed one, which is what lets a
+     * transfer released from review wait for its owner instead of expiring on them.
      */
     public boolean isAuthExpired() {
         return status == TransferStatus.WAITING_AUTH

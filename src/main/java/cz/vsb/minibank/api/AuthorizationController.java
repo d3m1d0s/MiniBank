@@ -50,7 +50,8 @@ public class AuthorizationController {
     }
 
     /**
-     * Lists the transfers waiting for authorization that belong to the current customer.
+     * Lists the current customer's transfers that have not settled and have not been stopped:
+     * the ones waiting for their code, and the ones the bank is still reviewing.
      *
      * There is no route that takes a customer id. This one reads its subject from the
      * session, so a caller has no way to name somebody else. The twin that took the id in
@@ -63,7 +64,11 @@ public class AuthorizationController {
 
         for (Account acc : accounts.byCustomerId(requireCustomerId())) {
             for (Transfer t : transfers.bySourceAccount(acc.id())) {
-                if (t.status() == TransferStatus.WAITING_AUTH) {
+                // Held transfers belong in this list. Filtering them out would make a
+                // customer's payment disappear from the only screen that mentions it, with
+                // nothing on any screen to say where it went.
+                if (t.status() == TransferStatus.WAITING_AUTH
+                        || t.status() == TransferStatus.HELD_FOR_REVIEW) {
                     result.add(new WaitingTransferItemDto(
                             t.id(),
                             t.targetIbanSnapshot(),
@@ -71,7 +76,8 @@ public class AuthorizationController {
                             t.createdAt().toString(),
                             t.authMethod() != null
                                     ? t.authMethod().toString()
-                                    : ""
+                                    : "",
+                            t.status().name()
                     ));
                 }
             }

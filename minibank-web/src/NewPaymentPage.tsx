@@ -9,6 +9,7 @@ import {
     type NewPaymentRequest,
     type NewPaymentResult,
     isApiError,
+    isUnderReview,
     mapPaymentError,
 } from './api';
 
@@ -275,10 +276,20 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                 {info.type === 'success' && (
                                     <div className="summary">
                                         <div className="summary-title">
-                                            {info.result.authorizationRequired
-                                                ? 'Authorization will be required'
-                                                : 'Confirmation'}
+                                            {isUnderReview(info.result.status)
+                                                ? 'The bank is reviewing this payment'
+                                                : info.result.authorizationRequired
+                                                    ? 'Authorization will be required'
+                                                    : 'Confirmation'}
                                         </div>
+                                        {isUnderReview(info.result.status) && (
+                                            <p className="helper-text">
+                                                Nothing has been taken from your account. You
+                                                will be able to confirm this payment once the
+                                                review is finished, and you can cancel it at any
+                                                time from Waiting authorizations.
+                                            </p>
+                                        )}
                                         <ul>
                                             <li>Transfer ID: {info.result.transferId}</li>
                                             <li>Status: {info.result.status}</li>

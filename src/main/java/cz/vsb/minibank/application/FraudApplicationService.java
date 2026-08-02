@@ -19,46 +19,61 @@ import cz.vsb.minibank.infrastructure.uow.UowScope;
  * caller is the console fraud menu, which in the legacy JSON mode has no login to check a
  * role against. That is a separate backlog item and it wants the legacy console to gain a
  * login first - inventing an analyst for a mode with no users would be worse than the gap.
+ *
+ * The state guards below - FraudAlert's, and the transfer's - are checks against a snapshot,
+ * not locks. SqlUnitOfWorkFactory.begin only clears auto-commit; there is no isolation level
+ * set anywhere and no SELECT ... FOR UPDATE in this project, so two analysts committing at the
+ * same instant can still interleave, exactly as a customer authorizing and an analyst deciding
+ * can. What the guards do buy is that a stale decision is refused rather than silently applied
+ * on any interleaving the two units of work actually observe. Row locking is its own item.
  */
 public class FraudApplicationService {
     private final TransferRepository transfers;
     private final FraudAlertRepository alerts;
-    private final AccountRepository accounts;
-    private final FeePolicy feePolicy;
     private final UnitOfWorkFactory uowFactory;
 
+    /**
+     * No AccountRepository, no FeePolicy, and no gateway. This service decides alerts; it does
+     * not move money, and the only method that ever did - the one that settled a transfer an
+     * analyst had approved - is gone with the branch that called it. That is what makes the
+     * absent payment gateway moot rather than merely unfixed: a class that never settles has
+     * nothing to dispatch.
+     */
     public FraudApplicationService(TransferRepository transfers,
                                    FraudAlertRepository alerts,
-                                   AccountRepository accounts,
-                                   FeePolicy feePolicy,
                                    UnitOfWorkFactory uowFactory) {
-        this.transfers = transfers; this.alerts = alerts; this.accounts = accounts; this.feePolicy = feePolicy;
+        this.transfers = transfers;
+        this.alerts = alerts;
         this.uowFactory = uowFactory;
     }
 
     /**
      * UC 11 - Review Suspicious Transaction: APPROVE.
-     * Approves the fraud alert and, if the transfer is still in CREATED state, sends the transfer with the configured fee policy.
+     *
+     * Clears the alert and releases the transfer for the customer's own confirmation step. It
+     * does not send the money: the customer still has to authorize it, and that path re-checks
+     * the balance and the day's ceiling.
+     *
+     * The branch this replaces settled a transfer that was still CREATED, which no alerted
+     * transfer ever was - RuleBasedRiskService made createAlert strictly imply requireAuth - so
+     * "approve the suspicious transaction" was a use case with no reachable body. Alerted
+     * transfers are now HELD_FOR_REVIEW by construction and this branch runs on all of them.
      */
     public void approve(int transferId) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
             var alert = alerts.byTransferId(transferId).orElseThrow(() -> new NotFoundException("Alert not found for transfer " + transferId));
+            var t = transfers.byId(transferId).orElseThrow(() -> new NotFoundException("Transfer not found: " + transferId));
+
             alert.approve();
             alerts.save(alert);
 
-            var t = transfers.byId(transferId).orElseThrow(() -> new NotFoundException("Transfer not found: " + transferId));
-            // Unreachable today, and only because RuleBasedRiskService makes createAlert
-            // (untrusted, over 10 000) strictly imply requireAuth (untrusted, over 5 000), so
-            // no alerted transfer is ever CREATED. Raising AUTH_THRESHOLD_FOR_UNTRUSTED above
-            // ALERT_THRESHOLD_FOR_UNTRUSTED would silently give the analyst an unguarded debit.
-            // A9's day-total term is OR-ed into requireAuth and can only widen it, so the
-            // implication still holds. The other half of the invariant is that no stored row
-            // arrives here in CREATED with an alert attached: since A9 this is the one debit
-            // site with no daily-limit check, because this service has neither a RiskService
-            // nor a Clock. Attaching an alert to a CREATED transfer means giving it both.
-            if (t.status() == TransferStatus.CREATED) {
-                sendApproved(t);
+            // Conditional because the customer may have cancelled the payment while it was
+            // held. Clearing the alert is still the right record of the analyst's decision;
+            // there is simply nothing left to release.
+            if (t.status() == TransferStatus.HELD_FOR_REVIEW) {
+                t.releaseForAuthorization();
+                transfers.save(t);
             }
             uow.commit();
         } catch (RuntimeException e) {
@@ -69,18 +84,30 @@ public class FraudApplicationService {
 
     /**
      * UC 11 - Review Suspicious Transaction: DECLINE.
-     * Marks the alert as suspicious with the provided reason and declines the transfer.
+     * Marks the alert as suspicious with the provided reason and declines the transfer, unless
+     * the money has already gone - in which case the verdict is recorded on the alert alone.
      */
     public void decline(int transferId, String reason) {
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
             var alert = alerts.byTransferId(transferId).orElseThrow(() -> new NotFoundException("Alert not found for transfer " + transferId));
+            var t = transfers.byId(transferId).orElseThrow(() -> new NotFoundException("Transfer not found: " + transferId));
+
             alert.markSuspicious(reason);
             alerts.save(alert);
 
-            var t = transfers.byId(transferId).orElseThrow(() -> new NotFoundException("Transfer not found: " + transferId));
-            t.decline(reason);
-            transfers.save(t);
+            // A verdict on money that has already left is a record, not a reversal. Calling
+            // decline() there raised a 409 that rolled the verdict back with it, so APPROVE was
+            // the only decision a sent transfer would accept and confirmed fraud was filed as
+            // OK. Nothing here reverses a settlement; there is no path that could.
+            //
+            // DECLINED is excluded too: the transfer is already stopped, and declining it again
+            // would overwrite the customer's own "Canceled by customer" with the analyst's
+            // wording, rewriting the record of why their payment stopped.
+            if (t.status() != TransferStatus.SENT && t.status() != TransferStatus.DECLINED) {
+                t.decline(reason);
+                transfers.save(t);
+            }
             uow.commit();
         } catch (RuntimeException e) {
             uow.rollback();
@@ -89,20 +116,26 @@ public class FraudApplicationService {
     }
 
     /**
-     * UC 12 - Request Customer Confirmation (simplified).
-     * Updates the alert reason to indicate the system is waiting for customer confirmation.
+     * UC 12 - Request Customer Confirmation.
+     *
+     * Leaves the alert open and the transfer held. It is not a verdict: the customer's
+     * confirmation step is exactly what APPROVE unlocks, so resolving the alert here would
+     * leave the transfer held with nothing able to release it - approve() refuses a resolved
+     * alert - and the customer's only way out would be to cancel. Marking it suspicious also
+     * overwrote the risk reason the rules produced, which was the only record of why the alert
+     * existed.
+     *
+     * Over HTTP this is now the metadata-only action: the switch branch changes no state and
+     * the assignee/tags/notes block after it runs and commits. That makes it the one route by
+     * which an analyst can annotate an already-decided alert, since approve() and
+     * markSuspicious() both refuse a second verdict and take the metadata down with them.
+     *
+     * The console carries no metadata, so this method has nothing left to do but prove the
+     * alert exists. No unit of work: both backends serve a read with no ambient one.
      */
     public void requestCustomerConfirmation(int transferId) {
-        var uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
-            var alert = alerts.byTransferId(transferId).orElseThrow(() -> new NotFoundException("Alert not found for transfer " + transferId));
-            alert.markSuspicious("Waiting for customer confirmation");
-            alerts.save(alert);
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
-        }
+        alerts.byTransferId(transferId).orElseThrow(
+                () -> new NotFoundException("Alert not found for transfer " + transferId));
     }
 
     public void decideAndUpdateAlert(
@@ -128,29 +161,49 @@ public class FraudApplicationService {
 
             switch (decision) {
                 case "APPROVE" -> {
-                    alert.approve();
-                    alerts.save(alert);
-
                     // transferId came from the alert row, not from the request.
                     var t = transfers.byId(transferId).orElseThrow(() -> new DataIntegrityException(
                             "Fraud alert " + alertId + " points at missing transfer " + transferId));
-                    if (t.status() == TransferStatus.CREATED) {
-                        sendApproved(t);
+
+                    alert.approve();
+                    alerts.save(alert);
+
+                    // Clears the transfer for the customer's confirmation step; it does not
+                    // send the money. Conditional because the customer may have cancelled it
+                    // while it was held. A second analyst on a stale queue never reaches here:
+                    // alert.approve() refuses an already-decided alert first.
+                    if (t.status() == TransferStatus.HELD_FOR_REVIEW) {
+                        t.releaseForAuthorization();
+                        transfers.save(t);
                     }
                 }
                 case "DECLINE" -> {
                     String r = (reason != null && !reason.isBlank()) ? reason : "Declined by fraud analyst";
+                    var t = transfers.byId(transferId).orElseThrow(() -> new DataIntegrityException(
+                            "Fraud alert " + alertId + " points at missing transfer " + transferId));
+
                     alert.markSuspicious(r);
                     alerts.save(alert);
 
-                    var t = transfers.byId(transferId).orElseThrow(() -> new DataIntegrityException(
-                            "Fraud alert " + alertId + " points at missing transfer " + transferId));
-                    t.decline(r);
-                    transfers.save(t);
+                    // Recorded, not reversed, once the money has left. Refusing it here used to
+                    // roll the assignee, tags and notes below back with the verdict, so a
+                    // settled transfer accepted APPROVE and nothing else and confirmed fraud
+                    // was filed as OK. DECLINED is excluded so an analyst's wording does not
+                    // overwrite the customer's own cancellation reason.
+                    if (t.status() != TransferStatus.SENT && t.status() != TransferStatus.DECLINED) {
+                        t.decline(r);
+                        transfers.save(t);
+                    }
                 }
                 case "REQUEST_CONFIRMATION" -> {
-                    alert.markSuspicious("Waiting for customer confirmation");
-                    alerts.save(alert);
+                    // Not a verdict, and deliberately a no-op on both aggregates. The
+                    // confirmation step this asks for is the one APPROVE unlocks, so resolving
+                    // the alert here would strand the transfer held with nothing able to
+                    // release it, and it destroyed the risk reason that says why it was raised.
+                    //
+                    // What it does do is fall through to the metadata block below, which is why
+                    // it survives: it is the only route that can attach an assignee, tags or
+                    // notes to an alert that has already been decided.
                 }
                 default -> throw new ValidationException("Unsupported decision: " + decisionRaw);
             }
@@ -179,28 +232,4 @@ public class FraudApplicationService {
             throw e;
         }
     }
-
-    /**
-     * Sends a transfer an analyst approved while it was still CREATED.
-     *
-     * Both approve branches held the same six lines. Folding them into one method means a
-     * threshold change re-opens one code path rather than two that can disagree about who
-     * receives the money.
-     *
-     * No gateway call, unlike the customer paths: this service has never had a gateway, so an
-     * approved payment to an IBAN outside this bank still reaches nobody. That gap is older
-     * than the credit leg and is left alone here; what changes is that an approved payment to
-     * an account of this bank now arrives.
-     */
-    private void sendApproved(Transfer t) {
-        var acc = accounts.byId(t.sourceAccountId()).orElseThrow(() -> new DataIntegrityException(
-                "Transfer " + t.id() + " points at missing account " + t.sourceAccountId()));
-        Account destination = accounts.inBankByIban(t.targetIbanSnapshot()).orElse(null);
-        t.send(acc, destination, feePolicy);
-        transfers.save(t);
-        // Ascending id order, the same rule the customer paths follow, so a settlement started
-        // by an analyst cannot deadlock against one started by a customer.
-        accounts.saveBothInIdOrder(acc, destination);
-    }
-
 }

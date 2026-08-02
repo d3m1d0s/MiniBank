@@ -38,6 +38,21 @@ final class ApiErrors {
             "CONFLICT",
             "This action is no longer possible because the item has already changed state.");
 
+    // Says that the bank is checking the payment and nothing else. No amount, no threshold, no
+    // beneficiary, no risk score: the customer learns that it is under review and that it is
+    // not lost, which is everything they can act on, and it names the one action they still
+    // have.
+    //
+    // The message leaks nothing. The status that travels with it does: HELD_FOR_REVIEW is
+    // visible to the owning customer on the payment-creation result, in the waiting list and in
+    // the transfer details, so the alert threshold is discoverable by submitting and cancelling
+    // payments around it. That is the price of the rule that a customer whose payment is
+    // blocked must be able to see why; hiding the status would buy secrecy with a dead Confirm
+    // button and no explanation, which is worse. It is written down rather than fixed.
+    static final ApiError TRANSFER_UNDER_REVIEW = new ApiError(
+            "TRANSFER_UNDER_REVIEW",
+            "This payment is being reviewed by the bank. You will be able to confirm it once the review is finished, or you can cancel it.");
+
     static final ApiError VALIDATION_ERROR = new ApiError(
             "VALIDATION_ERROR",
             "The request contains invalid or missing values.");

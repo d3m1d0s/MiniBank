@@ -14,6 +14,7 @@ import cz.vsb.minibank.domain.exceptions.InsufficientFundsException;
 import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
 import cz.vsb.minibank.domain.exceptions.SelfTransferNotAllowedException;
+import cz.vsb.minibank.domain.exceptions.TransferUnderReviewException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -179,7 +180,12 @@ public class TransferApplicationService {
     }
 
     /**
-     * Routes transfer creation based on risk decision by either sending immediately or requiring authorization and an optional fraud alert.
+     * Routes transfer creation on the risk decision: settle now, hold for fraud review, or wait
+     * for the customer's authorization.
+     *
+     * Three branches, and the order matters. An alert takes precedence over an authorization
+     * request, because an alerted transfer must not be confirmable by its owner while the alert
+     * is open; the customer's confirmation step is what an analyst's APPROVE unlocks.
      *
      * @throws DailyLimitExceededException when the day's outflow plus this amount would pass
      *         the account's ceiling
@@ -212,27 +218,34 @@ public class TransferApplicationService {
             // money after these two lines writes exactly what moving it before them would.
             settle(t, account);
 
+        } else if (decision.createFraudAlert()) {
+            // Held, not waiting: the alert created below is what an analyst must clear before
+            // the customer's code is worth anything. Tested on createFraudAlert alone rather
+            // than nested inside the authorization branch, so that an alerted transfer is held
+            // whatever the authorization thresholds are later set to. That is also what makes
+            // "approve the suspicious transaction" a use case that exists: every alerted
+            // transfer is now HELD_FOR_REVIEW at the instant its alert does.
+            t.holdForReview(new CardPayment(t.amount(), "****0000"));
+            transfers.add(t);
+            account.registerTransfer(t.id());
+            accounts.save(account);
+
+            FraudAlert a = new FraudAlert(
+                    alerts.nextId(),
+                    t.id(),
+                    Objects.requireNonNullElse(decision.reason(), "Suspicious"),
+                    decision.riskScore(),
+                    null,
+                    null,
+                    null
+            );
+            alerts.add(a);
+
         } else {
             t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
             transfers.add(t);
             account.registerTransfer(t.id());
             accounts.save(account);
-
-            if (decision.createFraudAlert()) {
-                int aid = alerts.nextId();
-                int riskScore = decision.riskScore();
-
-                FraudAlert a = new FraudAlert(
-                        aid,
-                        t.id(),
-                        Objects.requireNonNullElse(decision.reason(), "Suspicious"),
-                        riskScore,
-                        null,
-                        null,
-                        null
-                );
-                alerts.add(a);
-            }
         }
     }
 
@@ -253,9 +266,16 @@ public class TransferApplicationService {
      *
      * What that costs, stated plainly: a payment created at 23:57 and authorized at 00:01
      * debits the account on day D+1 but is counted against day D, so a calendar day can see up
-     * to two days' budgets leave. authValidUntil bounds that to the five minutes after
-     * midnight. Removing it needs a settlement timestamp, which needs a column in
-     * db/init/schema.sql, and that file belongs to A14 and A6.
+     * to two days' budgets leave. That used to be bounded to the five minutes after midnight by
+     * authValidUntil. It no longer is: a transfer held for fraud review has no authorization
+     * window at all, and neither does one an analyst has released, so the gap between the day a
+     * payment is counted against and the day it actually debits is now bounded only by how long
+     * the review takes and how long the customer waits before confirming. The per-day invariant
+     * is unchanged - for every day D, the SENT transfers created on D still sum to at most the
+     * account's limit - it is only the drift that grew. Removing it needs a settlement
+     * timestamp, which needs a column in db/init/schema.sql, and that file belongs to A14 and
+     * A6; re-stamping createdAt on release is the cheaper alternative and is an owner decision,
+     * not one to take inside this change.
      *
      * atStartOfDay on a LocalDate in the zone is DST-correct in both directions; truncating an
      * instant to UTC days is not.
@@ -333,6 +353,9 @@ public class TransferApplicationService {
      *
      * @throws NotFoundException when this caller has no transfer with this id, whether
      *         because none exists or because it debits somebody else's account
+     * @throws TransferUnderReviewException when a fraud alert on this transfer is still open.
+     *         Nothing changes: no OTP attempt is spent and the transfer stays held. An analyst
+     *         has to decide before any code is worth anything, however valid
      * @throws ConflictException when the transfer is not waiting for authorization
      * @throws InsufficientFundsException when the balance no longer covers amount and fee
      * @throws DailyLimitExceededException when other payments have settled since this one was
@@ -351,6 +374,28 @@ public class TransferApplicationService {
             // requireTransfer has just proved the caller owns this account, so a miss here is
             // a dangling row of ours; requireOwnedAccount answers that with the 500 it is.
             var acc = guard.requireOwnedAccount(caller, t.sourceAccountId());
+
+            // The gate. An open alert blocks confirmation, and HELD_FOR_REVIEW is how that fact
+            // is stored: it is set when the alert is created and left only by an analyst's
+            // decision. One source of truth, and the status rather than a re-read of the alert,
+            // because the status is what every surface already renders and because it keeps
+            // FraudAlertRepository.byTransferId - whose two backends disagree about the
+            // identity map - off the debit path entirely.
+            //
+            // Raised in this class and not in a controller because the console and the demo
+            // runner call this method directly, which is why A3's ownership check and A9's
+            // ceiling re-check are here too.
+            //
+            // Above the generic conflict, following A5 and A9: told only that the transfer is
+            // "not waiting for authorization", a customer whose payment is under review has no
+            // way to see why. Below requireTransfer, because a 409 a non-owner can reach proves
+            // the id is real. Above the OTP check, so a refusal that is not about the code
+            // spends no attempt, and above the expiry and funds checks, which are meaningless
+            // on a transfer that has no window and is not going anywhere.
+            if (t.status() == TransferStatus.HELD_FOR_REVIEW) {
+                throw new TransferUnderReviewException(
+                        "Transfer " + transferId + " is held for fraud review");
+            }
 
             if (t.status() != TransferStatus.WAITING_AUTH) {
                 throw new ConflictException(
@@ -424,6 +469,16 @@ public class TransferApplicationService {
 
     /**
      * UC 19 - Cancel Payment Order if it has not been sent yet.
+     *
+     * Deliberately not gated on the review hold. A transfer held for fraud review has no
+     * expiry, so if the customer could not withdraw it they would be parked behind a queue with
+     * no way forward; the only guard is SENT, exactly as {@link Transfer#decline} has.
+     *
+     * The alert on a cancelled transfer stays NEW, pointing at a DECLINED transfer. That is a
+     * known consequence rather than an oversight - a withdrawn payment that tripped the rules
+     * is still evidence, and nothing here should decide unilaterally that it is not - but it
+     * does mean an analyst's NEW queue accumulates alerts with nothing left to decide. The
+     * queue now carries the transfer's status so they are at least visible as such.
      *
      * @throws NotFoundException when this caller has no transfer with this id, whether
      *         because none exists or because it debits somebody else's account

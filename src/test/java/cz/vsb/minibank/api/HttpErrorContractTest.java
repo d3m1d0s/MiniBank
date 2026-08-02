@@ -69,6 +69,9 @@ class HttpErrorContractTest {
     private static final String LIMITED_IBAN = "CZ2108000000192000145415";
     private static final double OVER_THE_LIMITED_CEILING = 12_000.0;
 
+    /** Above RuleBasedRiskService's 10 000 alert threshold, so it is held for fraud review. */
+    private static final double OVER_THE_ALERT_THRESHOLD = 12_000.0;
+
     /** A second customer, so the "exists but is not yours" half of 404 can be asserted. */
     private static final String VICTIM_IBAN = "CZ4308000000192000145407";
     private static final int VICTIM_CUSTOMER_ID = 3;
@@ -84,6 +87,8 @@ class HttpErrorContractTest {
             "{\"code\":\"NOT_FOUND\",\"message\":\"The requested item does not exist or is not available to you.\"}";
     private static final String BODY_CONFLICT =
             "{\"code\":\"CONFLICT\",\"message\":\"This action is no longer possible because the item has already changed state.\"}";
+    private static final String BODY_TRANSFER_UNDER_REVIEW =
+            "{\"code\":\"TRANSFER_UNDER_REVIEW\",\"message\":\"This payment is being reviewed by the bank. You will be able to confirm it once the review is finished, or you can cancel it.\"}";
     private static final String BODY_INVALID_OTP =
             "{\"code\":\"INVALID_OTP\",\"message\":\"The confirmation code is not valid.\"}";
     private static final String BODY_INVALID_IBAN =
@@ -228,6 +233,16 @@ class HttpErrorContractTest {
     private int waitingTransfer() {
         return paymentController.createPayment(new cz.vsb.minibank.api.dto.NewPaymentRequest(
                 ACCOUNT_ID, TARGET_IBAN, 6_000.0, "waiting")).getBody().transferId();
+    }
+
+    /**
+     * Creates a transfer above the fraud-alert threshold, so it lands in HELD_FOR_REVIEW with an
+     * open alert. 12 000 plus its fee is inside this account's 20 000 balance and inside its
+     * 40 000 ceiling, so neither of those refusals fires first.
+     */
+    private int heldTransfer() {
+        return paymentController.createPayment(new cz.vsb.minibank.api.dto.NewPaymentRequest(
+                ACCOUNT_ID, TARGET_IBAN, OVER_THE_ALERT_THRESHOLD, "held")).getBody().transferId();
     }
 
     // ---------------------------------------------------------------- 401
@@ -420,6 +435,42 @@ class HttpErrorContractTest {
                 ACCOUNT_ID, TARGET_IBAN, 100.0, "sent")).getBody().transferId();
 
         assertResponse(api, post("/api/transfers/" + id + "/cancel"), 409, BODY_CONFLICT);
+    }
+
+    /**
+     * Its own row in the contract rather than the generic conflict. Told only that the item
+     * "has already changed state", a customer whose payment is under review has no way to see
+     * that the bank is looking at it or that they can still cancel it - the same reason
+     * SELF_TRANSFER and DAILY_LIMIT_EXCEEDED have codes of their own.
+     */
+    @Test
+    void authorizingATransferHeldForFraudReviewIs409TransferUnderReview() throws Exception {
+        assertResponse(api, post("/api/transfers/" + heldTransfer() + "/authorize")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"otp\":\"0000\"}"), 409, BODY_TRANSFER_UNDER_REVIEW);
+    }
+
+    /**
+     * And the body still names nothing about the rule that raised the alert: no amount, no
+     * threshold, no beneficiary, no risk score. The transfer id is in the exception message and
+     * the exception message stays in the log.
+     */
+    @Test
+    void theUnderReviewBodyLeaksNothingAboutTheFraudRules() throws Exception {
+        String body = api.perform(post("/api/transfers/" + heldTransfer() + "/authorize")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"otp\":\"0000\"}"))
+                .andReturn().getResponse().getContentAsString();
+
+        assertFalse(body.contains("10000") || body.contains("10 000"),
+                "the alert threshold must not be in the body: " + body);
+        assertFalse(body.contains(String.valueOf((int) OVER_THE_ALERT_THRESHOLD)),
+                "the amount must not be in the body: " + body);
+        assertFalse(body.contains(TARGET_IBAN), "the beneficiary must not be in the body: " + body);
+        assertFalse(body.toLowerCase().contains("fraud"),
+                "the word fraud must not be in the body: " + body);
+        assertFalse(body.contains("HELD_FOR_REVIEW"),
+                "internal state wording must not come back: " + body);
     }
 
     // ---------------------------------------------------------------- 400

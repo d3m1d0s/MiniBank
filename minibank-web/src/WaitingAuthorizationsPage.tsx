@@ -10,7 +10,18 @@ import {
     type TransferDetails,
     type AuthorizePaymentResult,
     cancelTransfer,
+    isUnderReview,
 } from './api';
+
+/**
+ * The one sentence a customer whose payment is held needs, kept identical to the server's
+ * TRANSFER_UNDER_REVIEW message. It is rendered under the disabled Confirm button rather than
+ * only as an error, because the button they would have to press to see the error is the one
+ * that is disabled - so as an error alone it would be copy nobody ever reads.
+ */
+const UNDER_REVIEW_TEXT =
+    'The bank is reviewing this payment. You will be able to confirm it once the review is ' +
+    'finished, or you can cancel it below.';
 
 interface Props {
     onNavigate: (view: 'new-payment' | 'waiting-auth' | 'fraud-desk') => void;
@@ -61,6 +72,12 @@ function describeAuthorizationError(err: ApiError, triesLeft?: number): string {
         }
         case 'INSUFFICIENT_FUNDS':
             return 'Insufficient balance – top up your account and try again or cancel this transfer.';
+        // Reachable for an API caller and for a customer whose payment was held between the
+        // page loading and their pressing Confirm. Without this case it falls to `default`,
+        // which renders the catalogue sentence but also leaves CONFLICT's "refresh the list"
+        // advice as the nearest thing on screen, and refreshing shows nothing new.
+        case 'TRANSFER_UNDER_REVIEW':
+            return UNDER_REVIEW_TEXT;
         case 'CONFLICT':
             return 'This transfer can no longer be confirmed. Refresh the list to see its current state.';
         case 'NOT_FOUND':
@@ -84,10 +101,42 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
     const [confirmError, setConfirmError] = useState<string | null>(null);
 
     const [loading, setLoading] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
 
     useEffect(() => {
         void loadList();
     }, []);
+
+    // The selected row as the list last reported it. The whole point of the status is that the
+    // customer can see why Confirm is dead, so it has to come from the row rather than from
+    // `details`, which may not have loaded yet.
+    const selectedItem = items.find((x) => x.id === selectedId) ?? null;
+    const selectedUnderReview =
+        isUnderReview(selectedItem?.status as string | undefined) ||
+        isUnderReview(details?.status);
+
+    /**
+     * Manual refresh. A held payment is released by somebody else, at a time the customer is
+     * not told about, and nothing on this page polls - loadList runs on mount and after the
+     * customer's own confirm or cancel. Without a control here the only way to notice a release
+     * is to reload the browser tab, because clicking the already-active nav link does not
+     * remount the page.
+     */
+    async function handleRefresh() {
+        try {
+            setRefreshing(true);
+            await loadList();
+            if (selectedId) {
+                try {
+                    setDetails(await fetchTransferDetails(selectedId));
+                } catch {
+                    // The transfer may no longer be readable; the list is the source of truth.
+                }
+            }
+        } finally {
+            setRefreshing(false);
+        }
+    }
 
     async function loadList() {
         try {
@@ -274,6 +323,17 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                         <section className="section">
                             <h2 className="section-title">Waiting transfers</h2>
 
+                            <div className="section-block inline">
+                                <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    onClick={handleRefresh}
+                                    disabled={refreshing}
+                                >
+                                    {refreshing ? 'Refreshing…' : 'Refresh'}
+                                </button>
+                            </div>
+
                             {/* Errors related to list/details loading */}
                             {listError && (
                                 <div
@@ -299,6 +359,7 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                             <th>Amount</th>
                                             <th>Created</th>
                                             <th>Auth</th>
+                                            <th>Status</th>
                                         </tr>
                                         </thead>
                                         <tbody>
@@ -319,6 +380,13 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                                         : ''}
                                                 </td>
                                                 <td>{it.authMethod}</td>
+                                                <td>
+                                                    {isUnderReview(
+                                                        it.status as string | undefined,
+                                                    )
+                                                        ? 'Under review'
+                                                        : 'Waiting for your code'}
+                                                </td>
                                             </tr>
                                         ))}
                                         </tbody>
@@ -374,16 +442,22 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                     onChange={(e) => setOtp(e.target.value)}
                                     placeholder="Enter OTP"
                                     maxLength={10}
+                                    disabled={selectedUnderReview}
                                 />
                                 <button
                                     type="button"
                                     className="btn-primary"
                                     onClick={handleConfirm}
-                                    disabled={!selectedId || !otp || loading}
+                                    disabled={
+                                        !selectedId || !otp || loading || selectedUnderReview
+                                    }
                                 >
                                     {loading ? 'Confirming…' : 'Confirm'}
                                 </button>
 
+                                {/* Never disabled by the review: a held payment has no expiry
+                                    of its own, so this is the customer's only way out of the
+                                    queue if nobody works it. */}
                                 <button
                                     type="button"
                                     className="btn-secondary"
@@ -394,6 +468,10 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                     Cancel transfer
                                 </button>
                             </div>
+
+                            {selectedUnderReview && (
+                                <p className="helper-text">{UNDER_REVIEW_TEXT}</p>
+                            )}
 
                             <div className="helper-text">
                                 <p>

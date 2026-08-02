@@ -169,12 +169,16 @@ public final class DemoScenario {
     }
 
     /**
-     * A payment large enough to trip the fraud rules, so the analyst queue and
-     * the customer's pending-authorization list are both non-empty.
+     * A payment large enough to trip the fraud rules, so the analyst queue and the customer's
+     * pending list are both non-empty.
+     *
+     * Held, not waiting: the seed has to produce the shape the service produces. Seeding it as
+     * WAITING_AUTH would ship the exact bug the review gate closes - an alert sitting NEW in
+     * the queue on a transfer the customer can confirm at will.
      */
     private void flagTransfer(Account source, Beneficiary target) {
         Transfer transfer = newTransfer(source, target, FLAGGED_AMOUNT);
-        transfer.requestAuthorization(new CardPayment(transfer.amount(), "****0000"));
+        transfer.holdForReview(new CardPayment(transfer.amount(), "****0000"));
         transfers.add(transfer);
         source.registerTransfer(transfer.id());
         accounts.save(source);

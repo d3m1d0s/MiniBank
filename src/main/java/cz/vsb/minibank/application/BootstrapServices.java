@@ -120,8 +120,6 @@ public class BootstrapServices {
         this.fraudService = new FraudApplicationService(
                 transfers,
                 alerts,
-                accounts,
-                feePolicy,
                 uowFactory
         );
     }

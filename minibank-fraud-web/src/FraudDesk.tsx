@@ -17,6 +17,33 @@ function fmt(dt?: string | null) {
     return Number.isNaN(d.getTime()) ? dt : d.toLocaleString();
 }
 
+/**
+ * What actually happened, read off the alert the server sent back rather than off the button
+ * that was pressed - a DECLINE on a payment that has already gone now succeeds and records the
+ * verdict without stopping anything, so a message keyed on the label would say the money was
+ * held when it is gone.
+ *
+ * Kept word for word in step with minibank-web's FraudDeskPage, so the two desks cannot
+ * disagree about what a decision did.
+ */
+function describeDecision(kind: FraudDecision, updated: AlertDetail): string {
+    const status = updated.transfer.status;
+
+    if (kind === 'APPROVE') {
+        return status === 'WAITING_AUTH'
+            ? 'Alert cleared. The payment is released to the customer to confirm; no money has moved.'
+            : `Alert cleared. The transfer was already ${status}, so there was nothing to release.`;
+    }
+
+    if (kind === 'DECLINE') {
+        return status === 'SENT'
+            ? 'Recorded as confirmed fraud. The payment had already been sent and has NOT been reversed.'
+            : `Alert marked suspicious and the transfer is ${status}.`;
+    }
+
+    return 'Notes, assignee and tags saved. No decision was taken: the alert is still open and the transfer is unchanged.';
+}
+
 export default function FraudDesk(props: { username: string; onLogout: () => void }) {
     const [filters, setFilters] = useState<AlertFilters>({ state: 'NEW' });
     const [alerts, setAlerts] = useState<AlertQueueItem[]>([]);
@@ -28,6 +55,10 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
     const [listErr, setListErr] = useState<string | null>(null);
     const [detailErr, setDetailErr] = useState<string | null>(null);
     const [decisionErr, setDecisionErr] = useState<string | null>(null);
+    // This desk had no success state at all: after a decision the alert left the NEW-filtered
+    // queue, the panel unmounted with it, and the analyst was left with an empty pane and no
+    // statement of what had happened.
+    const [decisionMsg, setDecisionMsg] = useState<string | null>(null);
     const [busyList, setBusyList] = useState(false);
     const [busyDetail, setBusyDetail] = useState(false);
     const [busyDecision, setBusyDecision] = useState(false);
@@ -39,14 +70,14 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
 
     useEffect(() => { void reloadList(); }, [filters]);
 
-    async function reloadList() {
+    async function reloadList(keepSelection = false) {
         try {
             setBusyList(true);
             setListErr(null);
             const resp = await fetchAlerts(filters);
             setAlerts(resp.items);
             setCounters(resp.counters);
-            if (selectedId && !resp.items.some(x => x.id === selectedId)) {
+            if (!keepSelection && selectedId && !resp.items.some(x => x.id === selectedId)) {
                 setSelectedId(null);
                 setDetail(null);
             }
@@ -62,6 +93,8 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
         setDetail(null);
         setDecisionReason('');
         setNotes('');
+        setDecisionMsg(null);
+        setDecisionErr(null);
         try {
             setBusyDetail(true);
             setDetailErr(null);
@@ -79,6 +112,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
         try {
             setBusyDecision(true);
             setDecisionErr(null);
+            setDecisionMsg(null);
             const updated = await postFraudDecision(selectedId, {
                 decision: kind,
                 reason: decisionReason.trim() || undefined,
@@ -88,7 +122,11 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                 tags: detail?.alert.tags || undefined,
             });
             setDetail(updated);
-            await reloadList();
+            setDecisionMsg(describeDecision(kind, updated));
+            // Keeps the decided alert on screen: with the default NEW filter it leaves the
+            // queue the instant it is decided, and clearing the selection would unmount the
+            // panel that shows what the decision actually did.
+            await reloadList(true);
         } catch (e) {
             // There was no catch here at all. A rejected decision became an unhandled
             // promise rejection: the buttons un-greyed, the stale pre-decision alert stayed
@@ -100,7 +138,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
             // Re-read before reporting. This desk has no refresh control - reloadList runs
             // on mount and on a filter change and nowhere else - so telling the analyst to
             // reload would name something the UI does not offer.
-            await reloadList();
+            await reloadList(true);
             try {
                 setDetail(await fetchAlertDetail(selectedId));
             } catch {
@@ -108,12 +146,13 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
             }
 
             setDecisionErr(
-                // The only 409 this endpoint can produce comes from Transfer.decline
-                // refusing an already-sent transfer. FraudAlert.approve and markSuspicious
-                // have no state guard at all, so "this alert was already decided" is not a
-                // fact the server can report - do not claim it here.
+                // A 409 here now means the alert was already decided by somebody else, or the
+                // transfer moved out from under the decision. Both are refused by a state guard
+                // and neither is distinguishable in the body, so the wording names the one thing
+                // certainly true and points at the refreshed panel. The sentence this replaced
+                // named "already sent", which is now the one case that succeeds.
                 err.code === 'CONFLICT'
-                    ? 'This transfer has already been sent, so the decision can no longer be applied.'
+                    ? 'This decision was not applied: the alert or its transfer has already changed state. The panel above has been refreshed.'
                     : err.code === 'NOT_FOUND'
                         ? 'This alert no longer exists.'
                         : err.code === 'VALIDATION_ERROR'
@@ -181,7 +220,10 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                     >
                                         <div className="li-top">
                                             <div className="li-code">{a.alertCode}</div>
-                                            <div className="li-state">{a.state}</div>
+                                            {/* The transfer's status next to the alert's: an
+                                                alert on money that has already gone used to
+                                                look exactly like one on money still held. */}
+                                            <div className="li-state">{a.state} • {a.transferStatus}</div>
                                         </div>
                                         <div className="li-mid">{a.transferCode} • {a.amount} {a.currency}</div>
                                         <div className="li-bot">{a.shortReason}</div>
@@ -265,11 +307,38 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                             </div>
 
                                             {decisionErr && <div className="error">{decisionErr}</div>}
+                                            {decisionMsg && <div className="hint">{decisionMsg}</div>}
 
+                                            {/* The buttons mirror the domain guards exactly, so
+                                                a click the server would refuse - taking the
+                                                typed notes down with it - is not reachable.
+                                                Approve only from NEW; Decline from anything but
+                                                SUSPICIOUS, which is what lets fraud confirmed
+                                                after the money left be recorded on an alert
+                                                that had already been cleared. */}
                                             <div className="actions">
-                                                <button className="btn btn--primary" disabled={busyDecision} onClick={() => decide('APPROVE')}>Approve</button>
-                                                <button className="btn" disabled={busyDecision} onClick={() => decide('DECLINE')}>Decline</button>
-                                                <button className="btn" disabled={busyDecision} onClick={() => decide('REQUEST_CONFIRMATION')}>Request confirmation</button>
+                                                <button
+                                                    className="btn btn--primary"
+                                                    disabled={busyDecision || detail.alert.state !== 'NEW'}
+                                                    onClick={() => decide('APPROVE')}
+                                                >Approve: release to customer</button>
+                                                <button
+                                                    className="btn"
+                                                    disabled={busyDecision || detail.alert.state === 'SUSPICIOUS'}
+                                                    onClick={() => decide('DECLINE')}
+                                                >Decline: record fraud</button>
+                                                <button
+                                                    className="btn"
+                                                    disabled={busyDecision}
+                                                    onClick={() => decide('REQUEST_CONFIRMATION')}
+                                                >Save notes, no decision</button>
+                                            </div>
+
+                                            <div className="hint">
+                                                Approving does not send the money: it releases the
+                                                payment for the customer to confirm. Declining a
+                                                payment that has already been sent records the
+                                                verdict; it does not reverse it.
                                             </div>
                                         </div>
                                     </>

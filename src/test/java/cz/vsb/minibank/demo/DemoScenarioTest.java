@@ -65,17 +65,22 @@ class DemoScenarioTest {
 
         assertEquals(2, history.size());
         assertEquals(1, history.stream().filter(t -> t.status() == TransferStatus.SENT).count());
-        assertEquals(1, history.stream().filter(t -> t.status() == TransferStatus.WAITING_AUTH).count());
+        // Held, not waiting. A seeded alert on a transfer the customer could confirm at will
+        // would be exactly the shape the review gate exists to make impossible.
+        assertEquals(1, history.stream().filter(t -> t.status() == TransferStatus.HELD_FOR_REVIEW).count());
 
         List<FraudAlert> queue = infra.alerts.all();
         assertEquals(1, queue.size());
         assertEquals(FraudAlertState.NEW, queue.get(0).state());
 
         Transfer flagged = history.stream()
-                .filter(t -> t.status() == TransferStatus.WAITING_AUTH)
+                .filter(t -> t.status() == TransferStatus.HELD_FOR_REVIEW)
                 .findFirst().orElseThrow();
         assertEquals(flagged.id(), queue.get(0).transferId(),
-                "The alert must point at the pending transfer");
+                "The alert must point at the held transfer");
+        assertNull(flagged.authValidUntil(),
+                "A held transfer has no authorization window: the five minutes must not run "
+                        + "out while the alert sits in the analyst's queue");
     }
 
     @Test

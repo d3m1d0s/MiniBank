@@ -243,7 +243,7 @@ class CreditLegTest {
     void aTransferDeclinedByTheFraudDeskNeverCreditsAnybody() {
         int id = service.submitPaymentToIban(
                 PAYER_CUSTOMER_ID, PAYER_ACCOUNT_ID, PAYEE_IBAN, RAISES_ALERT, "");
-        assertEquals(TransferStatus.WAITING_AUTH, transfers.byId(id).orElseThrow().status());
+        assertEquals(TransferStatus.HELD_FOR_REVIEW, transfers.byId(id).orElseThrow().status());
 
         fraudService.decline(id, "looks wrong");
 

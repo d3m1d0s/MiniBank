@@ -90,6 +90,9 @@ export interface AlertQueueItem {
     alertCode: string;
     transferCode: string;
     state: string;
+    // The transfer's status, not the alert's. Without it a payment that has already gone looks
+    // identical in the queue to one still held for review.
+    transferStatus: string;
     amount: string;
     currency: string;
     shortReason: string;

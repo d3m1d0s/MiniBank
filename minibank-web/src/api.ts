@@ -66,7 +66,15 @@ export interface WaitingTransferItem {
     amount?: string;
     createdAt?: string;
     authMethod?: string;
+    // 'WAITING_AUTH' or 'HELD_FOR_REVIEW'. Left as a plain string like every other status on
+    // this wire, so an unrecognised value renders rather than failing to parse.
+    status?: string;
     [key: string]: unknown;
+}
+
+/** True when the bank is still reviewing this payment, so the customer cannot confirm it yet. */
+export function isUnderReview(status?: string | null): boolean {
+    return status === 'HELD_FOR_REVIEW';
 }
 
 export interface TransferDetails {
@@ -257,6 +265,9 @@ export interface AlertQueueItem {
     alertCode: string;
     transferCode: string;
     state: string;
+    // The transfer's status, not the alert's. Without it a payment that has already gone looks
+    // identical in the queue to one still held for review.
+    transferStatus: string;
     amount: string;
     currency: string;
     shortReason: string;

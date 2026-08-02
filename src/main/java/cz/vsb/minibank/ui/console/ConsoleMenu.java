@@ -7,6 +7,7 @@ import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
 import cz.vsb.minibank.domain.exceptions.AuthenticationFailedException;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
+import cz.vsb.minibank.domain.exceptions.TransferUnderReviewException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
@@ -333,8 +334,12 @@ public class ConsoleMenu {
         System.out.print("IBAN (e.g., CZ2001000000000012345678): ");
         String iban = in.nextLine().trim();
 
-        System.out.print("Trusted? (y/N): ");
-        boolean trusted = in.nextLine().trim().equalsIgnoreCase("y");
+        // Never prompted for. Beneficiary.trusted is the input the fraud rules key on, so a
+        // customer who could set it could opt out of both the authorization threshold and the
+        // alert - and now that an alert is what stops money, that would be a customer-settable
+        // authorization bypass rather than merely a skipped OTP. It is a bank-set attribute;
+        // the demo dataset is the only writer of `true`.
+        boolean trusted = false;
 
         UnitOfWork uow = infra.uowFactory.begin();
         try (UowScope ignored = new UowScope(uow)) {
@@ -406,6 +411,12 @@ public class ConsoleMenu {
             services.transferService.authorizePayment(cid, tid, otp);
         } catch (InvalidOtpException e) {
             System.out.println("[Error] Wrong one-time password.");
+        } catch (TransferUnderReviewException e) {
+            // Caught here rather than left to the menu's DomainException clause so the operator
+            // still gets the status and balance readout below. Nothing was spent and nothing
+            // moved; the transfer is simply waiting on an analyst.
+            System.out.println("[Error] This payment is being reviewed by the bank."
+                    + " It can be confirmed once the review is finished, or cancelled.");
         }
 
         TransferRepository transfers = infra.transfers;
@@ -428,8 +439,16 @@ public class ConsoleMenu {
 
         System.out.println("Alerts:");
         for (FraudAlert a : list) {
+            // The transfer's status, not only the alert's: an operator deciding an alert has to
+            // be able to see whether the money is still held or has already gone. '?' rather
+            // than an exception because a dangling alert is possible on the JSON backend and a
+            // listing must not fail on one.
+            String transferStatus = infra.transfers.byId(a.transferId())
+                    .map(t -> t.status().name())
+                    .orElse("?");
             System.out.println("  - id=" + a.id()
                     + ", transfer=" + a.transferId()
+                    + " (" + transferStatus + ")"
                     + ", state=" + a.state()
                     + ", reason=" + a.reason());
         }
@@ -439,13 +458,30 @@ public class ConsoleMenu {
         int tid = askInt("Transfer id", -1);
 
         switch (act.toLowerCase()) {
-            case "approve" -> services.fraudService.approve(tid);
+            case "approve" -> {
+                services.fraudService.approve(tid);
+                System.out.println("[OK] Alert cleared. Transfer " + tid
+                        + " is released for the customer to confirm; no money has moved.");
+            }
             case "decline" -> {
                 System.out.print("Reason: ");
                 String reason = in.nextLine().trim();
                 services.fraudService.decline(tid, reason.isEmpty() ? "Declined" : reason);
+                var t = infra.transfers.byId(tid).orElseThrow();
+                System.out.println("[OK] Alert marked suspicious. Transfer " + tid
+                        + " has status " + t.status()
+                        + (t.status() == TransferStatus.SENT
+                        ? " - the payment had already been sent and was not reversed."
+                        : "."));
             }
-            case "request" -> services.fraudService.requestCustomerConfirmation(tid);
+            // Prints a line because the call is now a no-op on both aggregates: without one the
+            // operator would see a menu redraw and no evidence that anything happened.
+            case "request" -> {
+                services.fraudService.requestCustomerConfirmation(tid);
+                System.out.println("[OK] Alert left open and the transfer left as it was."
+                        + " The customer's confirmation step is what 'approve' unlocks,"
+                        + " and the console carries no notes to record.");
+            }
             default -> System.out.println("Unknown action");
         }
     }

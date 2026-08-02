@@ -82,7 +82,12 @@ public class PaymentController {
                 .orElseThrow(() -> new DataIntegrityException(
                         "Transfer " + transferId + " points at missing account " + t.sourceAccountId()));
 
-        boolean authorizationRequired = (t.status() == TransferStatus.WAITING_AUTH);
+        // True for a held transfer as well: nothing has been debited and a confirmation step is
+        // still to come. Reading it off WAITING_AUTH alone made the creation screen announce a
+        // held payment as completed, with a "New balance" that had not changed and
+        // "Authorization required: NO".
+        boolean authorizationRequired = (t.status() == TransferStatus.WAITING_AUTH
+                || t.status() == TransferStatus.HELD_FOR_REVIEW);
 
         Money fee = t.feeAmount(feePolicy);
         Money charged = t.amount().plus(fee);

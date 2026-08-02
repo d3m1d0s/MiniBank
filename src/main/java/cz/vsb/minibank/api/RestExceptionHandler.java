@@ -15,6 +15,7 @@ import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.exceptions.NotAuthenticatedException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
 import cz.vsb.minibank.domain.exceptions.SelfTransferNotAllowedException;
+import cz.vsb.minibank.domain.exceptions.TransferUnderReviewException;
 import cz.vsb.minibank.domain.exceptions.ValidationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -62,6 +63,18 @@ public class RestExceptionHandler {
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ApiError> handleConflict(ConflictException ex) {
         return error(HttpStatus.CONFLICT, ApiErrors.CONFLICT);
+    }
+
+    /**
+     * A subtype of ConflictException, so Spring picks this more specific handler and the
+     * customer is told their payment is under review instead of only that it changed state.
+     * Still a 409: a blocked authorization is a state conflict, not a bad request.
+     *
+     * The exception message carries the transfer id and reaches the server log only.
+     */
+    @ExceptionHandler(TransferUnderReviewException.class)
+    public ResponseEntity<ApiError> handleTransferUnderReview(TransferUnderReviewException ex) {
+        return error(HttpStatus.CONFLICT, ApiErrors.TRANSFER_UNDER_REVIEW);
     }
 
     @ExceptionHandler(InvalidOtpException.class)

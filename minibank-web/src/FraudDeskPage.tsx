@@ -25,6 +25,32 @@ function formatDate(value?: string | null): string {
     return d.toLocaleString();
 }
 
+/**
+ * What actually happened, read off the alert the server sent back rather than off the button
+ * that was pressed. Deriving it from the button was safe only while every decision did the one
+ * thing its label said: a DECLINE on a payment that had already gone is now accepted and
+ * records the verdict without stopping anything, and announcing "Transfer declined" for it
+ * would tell the analyst the money was held when it is gone - a worse lie than the 409 it
+ * replaced.
+ */
+function describeDecision(kind: FraudDecision, updated: AlertDetail): string {
+    const status = updated.transfer.status;
+
+    if (kind === 'APPROVE') {
+        return status === 'WAITING_AUTH'
+            ? 'Alert cleared. The payment is released to the customer to confirm; no money has moved.'
+            : `Alert cleared. The transfer was already ${status}, so there was nothing to release.`;
+    }
+
+    if (kind === 'DECLINE') {
+        return status === 'SENT'
+            ? 'Recorded as confirmed fraud. The payment had already been sent and has NOT been reversed.'
+            : `Alert marked suspicious and the transfer is ${status}.`;
+    }
+
+    return 'Notes, assignee and tags saved. No decision was taken: the alert is still open and the transfer is unchanged.';
+}
+
 export default function FraudDeskPage() {
     const [alerts, setAlerts] = useState<AlertQueueItem[]>([]);
     const [counters, setCounters] = useState<AlertCounters | null>(null);
@@ -50,7 +76,7 @@ export default function FraudDeskPage() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filters]);
 
-    async function loadAlerts() {
+    async function loadAlerts(keepSelection = false) {
         try {
             setLoadingList(true);
             setListError(null);
@@ -59,7 +85,7 @@ export default function FraudDeskPage() {
             setCounters(resp.counters);
 
             // If the currently selected alert disappeared from the list, reset selection and details
-            if (selectedId && !resp.items.some((a) => a.id === selectedId)) {
+            if (!keepSelection && selectedId && !resp.items.some((a) => a.id === selectedId)) {
                 setSelectedId(null);
                 setDetail(null);
             }
@@ -107,26 +133,23 @@ export default function FraudDeskPage() {
 
             const updated = await postFraudDecision(selectedId, payload);
             setDetail(updated);
+            setDecisionMessage(describeDecision(kind, updated));
 
-            const msg =
-                kind === 'APPROVE'
-                    ? 'Transfer approved and fraud alert closed.'
-                    : kind === 'DECLINE'
-                        ? 'Transfer declined and fraud alert marked as suspicious.'
-                        : 'Customer confirmation has been requested for this transfer.';
-
-            setDecisionMessage(msg);
-
-            await loadAlerts();
+            // Keeps the decided alert on screen. With the default NEW filter it leaves the
+            // queue the moment it is decided, and clearing the selection would unmount the
+            // panel that shows what the decision did.
+            await loadAlerts(true);
         } catch (e) {
             const err = e as ApiError;
 
-            // Re-read before reporting, so the panel matches the server, and word the 409
-            // after the fact that actually produces it: Transfer.decline refusing an
-            // already-sent transfer. The alert itself has no state guard, so "already
-            // decided" is not something the server can tell us. Kept identical to the
-            // wording in minibank-fraud-web, so the two desks do not disagree.
-            await loadAlerts();
+            // Re-read before reporting, so the panel matches the server. The 409 wording had to
+            // change outright: it used to name "already sent", which is now the one case that
+            // succeeds. What produces a 409 here is a state guard - the alert was decided by
+            // somebody else, or the transfer moved out from under the decision - and neither is
+            // distinguishable in the body, so the sentence names the one thing certainly true
+            // and points at the refreshed panel. Kept identical to the wording in
+            // minibank-fraud-web, so the two desks do not disagree.
+            await loadAlerts(true);
             try {
                 setDetail(await fetchAlertDetail(selectedId));
             } catch {
@@ -135,7 +158,7 @@ export default function FraudDeskPage() {
 
             setDecisionError(
                 err.code === 'CONFLICT'
-                    ? 'This transfer has already been sent, so the decision can no longer be applied.'
+                    ? 'This decision was not applied: the alert or its transfer has already changed state. The panel above has been refreshed.'
                     : err.code === 'NOT_FOUND'
                         ? 'This alert no longer exists.'
                         : err.message || 'Failed to apply decision.',
@@ -322,6 +345,10 @@ export default function FraudDeskPage() {
                                             <th>Alert</th>
                                             <th>Transfer</th>
                                             <th>State</th>
+                                            {/* The transfer's status. An alert on money that
+                                                has already gone used to look exactly like one
+                                                on money still held. */}
+                                            <th>Transfer status</th>
                                             <th>Amount</th>
                                             <th>Reason</th>
                                             <th>Risk</th>
@@ -345,6 +372,7 @@ export default function FraudDeskPage() {
                                                 <td>{a.alertCode}</td>
                                                 <td>{a.transferCode}</td>
                                                 <td>{a.state}</td>
+                                                <td>{a.transferStatus}</td>
                                                 <td>
                                                     {a.amount}{' '}
                                                     {a.currency}
@@ -598,6 +626,13 @@ export default function FraudDeskPage() {
                                             />
                                         </div>
 
+                                        {/* The buttons mirror the domain guards exactly, so a
+                                            click that the server would refuse - and whose
+                                            refusal would take the typed notes down with it -
+                                            is not reachable. Approve only from NEW; Decline
+                                            from anything but SUSPICIOUS, which is what lets
+                                            fraud confirmed after the money left be recorded on
+                                            an alert that was already cleared. */}
                                         <div
                                             className="actions"
                                             style={{ marginTop: 12 }}
@@ -605,24 +640,30 @@ export default function FraudDeskPage() {
                                             <button
                                                 type="button"
                                                 className="btn-primary"
-                                                disabled={loadingDecision}
+                                                disabled={
+                                                    loadingDecision ||
+                                                    detail.alert.state !== 'NEW'
+                                                }
                                                 onClick={() =>
                                                     handleDecision('APPROVE')
                                                 }
                                             >
                                                 {loadingDecision
                                                     ? 'Applying…'
-                                                    : 'Approve transfer'}
+                                                    : 'Approve: release to the customer'}
                                             </button>
                                             <button
                                                 type="button"
                                                 className="btn-secondary"
-                                                disabled={loadingDecision}
+                                                disabled={
+                                                    loadingDecision ||
+                                                    detail.alert.state === 'SUSPICIOUS'
+                                                }
                                                 onClick={() =>
                                                     handleDecision('DECLINE')
                                                 }
                                             >
-                                                Decline transfer
+                                                Decline: record confirmed fraud
                                             </button>
                                             <button
                                                 type="button"
@@ -634,9 +675,16 @@ export default function FraudDeskPage() {
                                                     )
                                                 }
                                             >
-                                                Request customer confirmation
+                                                Save notes, no decision
                                             </button>
                                         </div>
+
+                                        <p className="helper-text">
+                                            Approving does not send the money: it releases the
+                                            payment for the customer to confirm. Declining a
+                                            payment that has already been sent records the
+                                            verdict; it does not reverse it.
+                                        </p>
                                     </div>
 
                                     {decisionError && (
@@ -662,7 +710,7 @@ export default function FraudDeskPage() {
                                             style={{ marginTop: 8 }}
                                         >
                                             <div className="summary-title">
-                                                Decision applied
+                                                Result
                                             </div>
                                             <ul>
                                                 <li>{decisionMessage}</li>

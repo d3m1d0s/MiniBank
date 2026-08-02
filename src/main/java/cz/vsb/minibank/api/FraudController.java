@@ -118,6 +118,8 @@ public class FraudController {
                     "ALERT-%d".formatted(alert.id()),
                     "TR-%d".formatted(t.id()),
                     alert.state().name(),
+                    // From the Transfer already loaded above for its amount, so no extra lookup.
+                    t.status().name(),
                     amountStr,
                     currency,
                     alert.reason(),
