@@ -195,8 +195,16 @@ public class PaymentAndAuthorizationApiTest {
         List<WaitingTransferItemDto> waiting = authorizationController.listMyWaiting();
         assertFalse(waiting.isEmpty(), "Expected at least one waiting transfer for customer 2");
 
-        boolean hasNew = waiting.stream().anyMatch(t -> t.id() == transferId);
-        assertTrue(hasNew, "Expected newly created waiting transfer in the list");
+        WaitingTransferItemDto item = waiting.stream()
+                .filter(t -> t.id() == transferId)
+                .findFirst()
+                .orElse(null);
+        assertNotNull(item, "Expected newly created waiting transfer in the list");
+
+        // Named rather than merely non-empty: the failure this pins is a well-formed string
+        // that happens to be Object's identity hash, which any looser assertion accepts.
+        assertEquals("CARD", item.authMethod(),
+                "The waiting list must name the authorization method, not the Payment object");
     }
 
     @Test
@@ -215,6 +223,8 @@ public class PaymentAndAuthorizationApiTest {
         assertEquals("WAITING_AUTH", details.status());
         assertNotNull(details.fromIban());
         assertTrue(details.fromIban().startsWith("CZ"));
+        assertEquals("CARD", details.authMethod(),
+                "Transfer details must name the authorization method, not the Payment object");
     }
 
     @Test

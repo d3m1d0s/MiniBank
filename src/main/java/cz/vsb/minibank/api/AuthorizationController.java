@@ -74,9 +74,7 @@ public class AuthorizationController {
                             t.targetIbanSnapshot(),
                             t.amount().toString(),
                             t.createdAt().toString(),
-                            t.authMethod() != null
-                                    ? t.authMethod().toString()
-                                    : "",
+                            authMethodOf(t),
                             t.status().name()
                     ));
                 }
@@ -130,12 +128,23 @@ public class AuthorizationController {
                 t.createdAt().toString(),
                 t.settledAt() != null ? t.settledAt().toString() : null,
                 t.message(),
-                t.authMethod() != null
-                        ? t.authMethod().toString()
-                        : "",
+                authMethodOf(t),
                 triesLeft,
                 authValidUntilStr
         );
+    }
+
+    /**
+     * The name of the method that authorized a transfer, or an empty string when it has none.
+     *
+     * {@code Payment} is an abstract base class with no {@code toString}, so asking it for one
+     * yields {@code Object}'s identity string: both of these screens used to show the customer
+     * something of the shape {@code cz.vsb.minibank.domain.CardPayment@13e69db6}. The field it
+     * should read is {@code method()}, which is what the two persistence mappers and the fraud
+     * desk already store and return.
+     */
+    private static String authMethodOf(Transfer t) {
+        return t.authMethod() != null ? t.authMethod().method() : "";
     }
 
     /**
