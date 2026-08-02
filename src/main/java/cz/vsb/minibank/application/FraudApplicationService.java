@@ -10,6 +10,15 @@ import cz.vsb.minibank.infrastructure.uow.UowScope;
 
 /**
  * Application service for fraud related use cases such as approving, declining and confirming suspicious transfers.
+ *
+ * Every method here is role-gated, not owner-gated, and that is deliberate rather than the
+ * oversight A3 fixed next door: an analyst is supposed to reach every customer's alerts, so
+ * there is no ownership rule to write. Over HTTP the only route in is FraudController.decide,
+ * which calls requireRole and reads the transfer id off the alert row rather than off the
+ * request. The three single-argument methods below have no HTTP route at all; their only
+ * caller is the console fraud menu, which in the legacy JSON mode has no login to check a
+ * role against. That is a separate backlog item and it wants the legacy console to gain a
+ * login first - inventing an analyst for a mode with no users would be worse than the gap.
  */
 public class FraudApplicationService {
     private final TransferRepository transfers;
@@ -39,6 +48,10 @@ public class FraudApplicationService {
             alerts.save(alert);
 
             var t = transfers.byId(transferId).orElseThrow(() -> new NotFoundException("Transfer not found: " + transferId));
+            // Unreachable today, and only because RuleBasedRiskService makes createAlert
+            // (untrusted, over 10 000) strictly imply requireAuth (untrusted, over 5 000), so
+            // no alerted transfer is ever CREATED. Raising AUTH_THRESHOLD_FOR_UNTRUSTED above
+            // ALERT_THRESHOLD_FOR_UNTRUSTED would silently give the analyst an unguarded debit.
             if (t.status() == TransferStatus.CREATED) {
                 var acc = accounts.byId(t.sourceAccountId()).orElseThrow(() -> new DataIntegrityException(
                         "Transfer " + transferId + " points at missing account " + t.sourceAccountId()));

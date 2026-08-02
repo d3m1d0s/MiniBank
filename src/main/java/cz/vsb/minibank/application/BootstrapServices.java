@@ -15,6 +15,12 @@ public class BootstrapServices {
     public final PaymentNetworkGateway paymentGateway; // for integration tests and possibly UI
     public final FeePolicy feePolicy;
 
+    /**
+     * The one ownership rule, exposed so the read endpoints of A4 answer the same way the
+     * money-moving paths do instead of growing a second copy of it.
+     */
+    public final OwnershipGuard ownershipGuard;
+
     public BootstrapServices(CustomerRepository customers,
                              AccountRepository accounts,
                              TransferRepository transfers,
@@ -63,9 +69,9 @@ public class BootstrapServices {
 
         this.paymentGateway = paymentGateway;
         this.feePolicy = feePolicy;
+        this.ownershipGuard = new OwnershipGuard(customers, accounts);
 
         this.transferService = new TransferApplicationService(
-                customers,
                 accounts,
                 transfers,
                 alerts,
@@ -73,7 +79,8 @@ public class BootstrapServices {
                 riskService,
                 otp,
                 paymentGateway,
-                uowFactory
+                uowFactory,
+                ownershipGuard
         );
 
         this.fraudService = new FraudApplicationService(

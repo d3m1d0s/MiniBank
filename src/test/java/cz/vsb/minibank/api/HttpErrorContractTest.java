@@ -9,6 +9,7 @@ import cz.vsb.minibank.application.TransferApplicationService;
 import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.Address;
 import cz.vsb.minibank.domain.Customer;
+import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.UserRole;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
@@ -36,6 +37,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * The HTTP error contract, asserted on the wire.
@@ -56,6 +58,11 @@ class HttpErrorContractTest {
     private static final String TARGET_IBAN = "CZ0201000000000012345678";
     private static final int CUSTOMER_ID = 2;
     private static final int ACCOUNT_ID = 101;
+
+    /** A second customer, so the "exists but is not yours" half of 404 can be asserted. */
+    private static final String VICTIM_IBAN = "CZ6508000000192000145407";
+    private static final int VICTIM_CUSTOMER_ID = 3;
+    private static final int VICTIM_ACCOUNT_ID = 202;
 
     private static final String BODY_AUTH_REQUIRED =
             "{\"code\":\"AUTH_REQUIRED\",\"message\":\"You are not signed in. Please sign in and try again.\"}";
@@ -115,6 +122,10 @@ class HttpErrorContractTest {
     private AuthorizationController authorizationController;
     private SessionStore sessions;
 
+    /** The victim's own transfers, created by the victim, as an attacker would find them. */
+    private int victimWaitingTransfer;
+    private int victimSentTransfer;
+
     @BeforeEach
     void setUp() {
         Bootstrap infra = new Bootstrap(tempDir.resolve("data.json").toString());
@@ -128,9 +139,23 @@ class HttpErrorContractTest {
         accounts.save(new Account(ACCOUNT_ID, new IBAN(CUSTOMER_IBAN),
                 Money.czk(20_000), Money.czk(5_000)));
 
+        Customer victim = new Customer(VICTIM_CUSTOMER_ID, "Contract Victim", "victim@example.com",
+                new Address("Test Street 2", "Ostrava"));
+        victim.addAccountId(VICTIM_ACCOUNT_ID);
+        infra.customers.save(victim);
+        accounts.save(new Account(VICTIM_ACCOUNT_ID, new IBAN(VICTIM_IBAN),
+                Money.czk(20_000), Money.czk(5_000)));
+
         BootstrapServices services = new BootstrapServices(
                 infra.customers, accounts, transfers, infra.alerts, infra.uowFactory);
         TransferApplicationService transferService = services.transferService;
+
+        // Created through the service as the victim, so they are ordinary rows rather than
+        // hand-built ones, and 6 000 is above the authorization threshold while 100 is not.
+        victimWaitingTransfer = transferService.submitPaymentToIban(
+                VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, TARGET_IBAN, 6_000.0, "victim waiting");
+        victimSentTransfer = transferService.submitPaymentToIban(
+                VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, TARGET_IBAN, 100.0, "victim sent");
 
         paymentController = new PaymentController(transferService, accounts, transfers, services.feePolicy);
         authorizationController = new AuthorizationController(transferService, accounts, transfers, services.feePolicy);
@@ -179,7 +204,7 @@ class HttpErrorContractTest {
     /** Creates a transfer above the authorization threshold, so it lands in WAITING_AUTH. */
     private int waitingTransfer() {
         return paymentController.createPayment(new cz.vsb.minibank.api.dto.NewPaymentRequest(
-                CUSTOMER_ID, ACCOUNT_ID, TARGET_IBAN, 6_000.0, "waiting")).getBody().transferId();
+                ACCOUNT_ID, TARGET_IBAN, 6_000.0, "waiting")).getBody().transferId();
     }
 
     // ---------------------------------------------------------------- 401
@@ -239,6 +264,40 @@ class HttpErrorContractTest {
         assertResponse(api, get("/api/fraud/alerts"), 403, BODY_FORBIDDEN);
     }
 
+    /**
+     * N15: authorize and cancel read no identity at all before A3, so a FRAUD_ANALYST session
+     * - whose customerId is null by construction - could drive them directly. The refusal is
+     * a role denial rather than an ownership one, and it is raised before the path variable is
+     * used for anything, so it is the same answer for every transfer id.
+     */
+    @Test
+    void analystAuthorizingACustomerTransferIs403Forbidden() throws Exception {
+        signInAsAnalyst();
+
+        assertResponse(api, post("/api/transfers/" + victimWaitingTransfer + "/authorize")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"otp\":\"0000\"}"), 403, BODY_FORBIDDEN);
+
+        assertVictimUntouched();
+    }
+
+    @Test
+    void analystCancellingACustomerTransferIs403Forbidden() throws Exception {
+        signInAsAnalyst();
+
+        assertResponse(api, post("/api/transfers/" + victimWaitingTransfer + "/cancel"), 403, BODY_FORBIDDEN);
+
+        assertVictimUntouched();
+    }
+
+    /** An id that does not exist must be refused the same way, so the 403 discloses nothing. */
+    @Test
+    void analystOnAnUnknownTransferIs403ForbiddenToo() throws Exception {
+        signInAsAnalyst();
+
+        assertResponse(api, post("/api/transfers/999999/cancel"), 403, BODY_FORBIDDEN);
+    }
+
     // ---------------------------------------------------------------- 404
 
     @Test
@@ -261,6 +320,64 @@ class HttpErrorContractTest {
                                 + "\",\"amountCzk\":100.0,\"message\":\"x\"}"), 404, BODY_NOT_FOUND);
     }
 
+    /**
+     * A3, and the half that matters. An account that exists but belongs to somebody else has
+     * to produce the same status and the same body bytes as one that exists nowhere - the
+     * assertion above and this one share the BODY_NOT_FOUND literal, so a refusal that grew a
+     * distinguishing word fails here. Account ids are small consecutive integers, and this is
+     * what stops them being enumerated by their answers.
+     */
+    @Test
+    void anotherCustomersSourceAccountIsTheSame404AsAnUnknownOne() throws Exception {
+        assertResponse(api, post("/api/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceAccountId\":" + VICTIM_ACCOUNT_ID + ",\"targetIban\":\"" + TARGET_IBAN
+                                + "\",\"amountCzk\":900.0,\"message\":\"x\"}"), 404, BODY_NOT_FOUND);
+
+        assertVictimUntouched();
+    }
+
+    @Test
+    void authorizingAnotherCustomersTransferIs404NotFound() throws Exception {
+        assertResponse(api, post("/api/transfers/" + victimWaitingTransfer + "/authorize")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"otp\":\"0000\"}"), 404, BODY_NOT_FOUND);
+
+        assertVictimUntouched();
+    }
+
+    @Test
+    void cancellingAnotherCustomersTransferIs404NotFound() throws Exception {
+        assertResponse(api, post("/api/transfers/" + victimWaitingTransfer + "/cancel"), 404, BODY_NOT_FOUND);
+
+        assertVictimUntouched();
+    }
+
+    /**
+     * The ordering, asserted where it is visible to a client: a stranger's SENT transfer must
+     * answer 404, not the 409 that cancellingASentTransferIs409Conflict pins for its owner.
+     * A 409 a non-owner can reach proves the id is real.
+     */
+    @Test
+    void cancellingAnotherCustomersSentTransferIs404AndNotAConflict() throws Exception {
+        assertResponse(api, post("/api/transfers/" + victimSentTransfer + "/cancel"), 404, BODY_NOT_FOUND);
+
+        assertVictimUntouched();
+    }
+
+    /**
+     * The same for the authorize path, where reaching the status guard would also have let a
+     * stranger spend the victim's OTP attempts and get 400 INVALID_OTP instead.
+     */
+    @Test
+    void authorizingAnotherCustomersSentTransferIs404AndNotAConflict() throws Exception {
+        assertResponse(api, post("/api/transfers/" + victimSentTransfer + "/authorize")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"otp\":\"9999\"}"), 404, BODY_NOT_FOUND);
+
+        assertVictimUntouched();
+    }
+
     // ---------------------------------------------------------------- 409
 
     @Test
@@ -277,7 +394,7 @@ class HttpErrorContractTest {
     void cancellingASentTransferIs409Conflict() throws Exception {
         // Below the authorization threshold, so it is sent immediately.
         int id = paymentController.createPayment(new cz.vsb.minibank.api.dto.NewPaymentRequest(
-                CUSTOMER_ID, ACCOUNT_ID, TARGET_IBAN, 100.0, "sent")).getBody().transferId();
+                ACCOUNT_ID, TARGET_IBAN, 100.0, "sent")).getBody().transferId();
 
         assertResponse(api, post("/api/transfers/" + id + "/cancel"), 409, BODY_CONFLICT);
     }
@@ -433,6 +550,24 @@ class HttpErrorContractTest {
             assertFalse(body.contains("DECLINED"),
                     "Internal state wording must not come back: " + body);
         }
+    }
+
+    /**
+     * A refused request must leave the victim exactly as it found them. Asserting only the
+     * status would pass just as well for a refusal thrown after the money had already moved.
+     */
+    private void assertVictimUntouched() {
+        assertEquals(Money.czk(19_900), accounts.byId(VICTIM_ACCOUNT_ID).orElseThrow().balance(),
+                "The victim's balance must not move; only their own 100.00 payment settled");
+
+        var waiting = transfers.byId(victimWaitingTransfer).orElseThrow();
+        assertEquals(TransferStatus.WAITING_AUTH, waiting.status());
+        assertEquals(0, waiting.authAttempts(),
+                "A stranger must not be able to spend the victim's OTP attempts");
+        assertNull(waiting.declineReason(),
+                "A stranger must not be able to write the victim's audit reason");
+
+        assertEquals(TransferStatus.SENT, transfers.byId(victimSentTransfer).orElseThrow().status());
     }
 
     /**

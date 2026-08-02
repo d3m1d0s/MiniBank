@@ -79,7 +79,7 @@ public class DemoRunner {
             var tr1 = infra.transfers.byId(t1).orElseThrow();
             assertState(tr1.status() == TransferStatus.WAITING_AUTH,
                     "T1 must be WAITING_AUTH after creation");
-            services.transferService.authorizePayment(t1, "0000");
+            services.transferService.authorizePayment(customerId, t1, "0000");
             tr1 = infra.transfers.byId(t1).orElseThrow();
             assertState(tr1.status() == TransferStatus.SENT,
                     "T1 must be SENT after authorization");
@@ -119,7 +119,7 @@ public class DemoRunner {
             assertState(tr2.status() == TransferStatus.WAITING_AUTH,
                     "T2 still has WAITING_AUTH (customer authorization required)");
 
-            services.transferService.authorizePayment(t2, "123456");
+            services.transferService.authorizePayment(customerId, t2, "123456");
             tr2 = infra.transfers.byId(t2).orElseThrow();
             assertState(tr2.status() == TransferStatus.SENT,
                     "T2 must be SENT after authorization");
@@ -145,7 +145,7 @@ public class DemoRunner {
             var tr3 = infra.transfers.byId(t3).orElseThrow();
             assertState(tr3.status() == TransferStatus.WAITING_AUTH,
                     "T3 must be WAITING_AUTH after creation");
-            services.transferService.cancelPayment(t3);
+            services.transferService.cancelPayment(customerId, t3);
             tr3 = infra.transfers.byId(t3).orElseThrow();
             assertState(tr3.status() == TransferStatus.DECLINED,
                     "T3 must be DECLINED after cancel");

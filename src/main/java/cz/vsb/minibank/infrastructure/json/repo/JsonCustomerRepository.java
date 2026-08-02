@@ -97,24 +97,6 @@ public class JsonCustomerRepository implements CustomerRepository {
     }
 
     @Override
-    public Optional<Beneficiary> beneficiaryById(int beneficiaryId) {
-        // The nested beneficiaries lists this flatMap walks are the ones saveBeneficiary
-        // mutates in place, which is the one structural modification of a nested list in
-        // the whole adapter.
-        return store.read(bundle -> {
-            var f = bundle.customers.stream()
-                    .flatMap(c -> c.beneficiaries.stream())
-                    .filter(b -> b.id == beneficiaryId)
-                    .findFirst();
-            if (f.isEmpty()) {
-                return Optional.<Beneficiary>empty();
-            }
-            // do not cache beneficiary globally in the Identity Map - it is aggregated inside Customer
-            return Optional.of(JsonMapper.toDomain(f.get()));
-        });
-    }
-
-    @Override
     public void saveBeneficiary(int customerId, Beneficiary b) {
         UnitOfWork uow = UowContext.current();
         Runnable mutate = () -> {

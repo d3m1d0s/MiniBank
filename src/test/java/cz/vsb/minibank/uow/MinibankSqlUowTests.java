@@ -1,6 +1,9 @@
 package cz.vsb.minibank.uow;
 
+import cz.vsb.minibank.application.BootstrapServices;
+import cz.vsb.minibank.demo.DemoScenario;
 import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.exceptions.NotFoundException;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -643,6 +646,81 @@ public class MinibankSqlUowTests {
             uow2.rollback();
             throw e;
         }
+    }
+
+// -------------------------------------------------------------------------
+// 8) Ownership (A3) rests on accounts.customer_id, which only SQL mode has
+// -------------------------------------------------------------------------
+
+    /**
+     * In SQL mode {@code Customer.accountIds()} is {@code SELECT id FROM accounts WHERE
+     * customer_id = ?}, so that one column is the sole record of ownership and the only thing
+     * OwnershipGuard can read. Nothing else in the suite exercises the guard against a real
+     * database: the JSON tests cannot see this column, and SqlAccountRepository deliberately
+     * writes it NULL, leaving SqlCustomerRepository.upsertCustomer as the only writer.
+     */
+    @Test
+    void ownershipIsAnsweredFromAccountsCustomerIdInSqlMode() {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+
+        int ownerId = new DemoScenario(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts,
+                infra.uowFactory, services.feePolicy).seed();
+
+        int ownedAccount;
+        UnitOfWork uow = infra.uowFactory.begin();
+        try (UowScope __ = new UowScope(uow)) {
+            Customer owner = infra.customers.byId(ownerId).orElseThrow();
+
+            assertFalse(owner.accountIds().isEmpty(),
+                    "Seeding must have assigned accounts.customer_id, or every money path 404s");
+            assertEquals(
+                    owner.accountIds().stream().sorted().toList(),
+                    infra.accounts.byCustomerId(ownerId).stream().map(Account::id).sorted().toList(),
+                    "The guard's view of ownership and byCustomerId must be the same set");
+
+            ownedAccount = infra.accounts.byIban(DemoScenario.PRIMARY_IBAN).orElseThrow().id();
+            uow.commit();
+        } catch (RuntimeException e) {
+            uow.rollback();
+            throw e;
+        }
+
+        // A stranger: a real customer row with an account of its own, so the refusal below is
+        // the ownership rule and not a missing caller.
+        int strangerId;
+        UnitOfWork uow2 = infra.uowFactory.begin();
+        try (UowScope __ = new UowScope(uow2)) {
+            strangerId = infra.customers.nextId();
+            Customer stranger = new Customer(strangerId, "Stranger", "stranger@example.com",
+                    new Address("Elsewhere 1", "Brno"));
+            infra.customers.save(stranger);
+
+            int strangerAccount = infra.accounts.nextId();
+            infra.accounts.save(new Account(strangerAccount, new IBAN("CZ6508000000192000145431"),
+                    Money.czk(20_000), Money.czk(5_000)));
+            stranger.addAccountId(strangerAccount);
+            infra.customers.save(stranger);
+
+            uow2.commit();
+        } catch (RuntimeException e) {
+            uow2.rollback();
+            throw e;
+        }
+
+        Money victimBefore = infra.accounts.byId(ownedAccount).orElseThrow().balance();
+
+        assertThrows(NotFoundException.class, () -> services.transferService.submitPaymentToIban(
+                strangerId, ownedAccount, "CZ0201000000000012345678", 900.0, "not my account"));
+        assertEquals(0, victimBefore.amount().compareTo(
+                        infra.accounts.byId(ownedAccount).orElseThrow().balance().amount()),
+                "The refused payment must not have debited the owner");
+
+        // The owner's own path still works end to end against a real database.
+        int transferId = services.transferService.submitPaymentToIban(
+                ownerId, ownedAccount, "CZ0201000000000012345678", 100.0, "mine");
+        assertEquals(TransferStatus.SENT, infra.transfers.byId(transferId).orElseThrow().status());
     }
 
 }

@@ -107,6 +107,11 @@ public final class DemoScenario {
 
         Account primary = openAccount(customer, PRIMARY_IBAN, PRIMARY_OPENING_BALANCE, PRIMARY_DAILY_LIMIT);
         openAccount(customer, SECONDARY_IBAN, SECONDARY_OPENING_BALANCE, SECONDARY_DAILY_LIMIT);
+        // Not a redundant repeat of the save above. In SQL mode this is what writes
+        // accounts.customer_id: SqlAccountRepository leaves the column NULL and only
+        // SqlCustomerRepository.upsertCustomer assigns it, from Customer.accountIds(), which
+        // is empty on the first save. That column is the sole record of ownership and is what
+        // OwnershipGuard reads, so dropping this line makes every money path 404 in SQL.
         customers.save(customer);
 
         addBeneficiary(customerId, "Bob Trusted", TRUSTED_BENEFICIARY_IBAN, true);

@@ -5,6 +5,7 @@ import cz.vsb.minibank.application.BootstrapServices;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.application.TransferApplicationService;
 import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
 import cz.vsb.minibank.domain.exceptions.ConflictException;
 import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
@@ -32,6 +33,11 @@ public class PaymentAndAuthorizationApiTest {
     private static final int TEST_ACCOUNT_ID = 101;
     private static final double WAITING_TRANSFER_AMOUNT = 6000.0;
 
+    /** A second customer, so "exists but is not yours" can be told apart from "does not exist". */
+    private static final int VICTIM_CUSTOMER_ID = 3;
+    private static final int VICTIM_ACCOUNT_ID = 202;
+    private static final int VICTIM_BENEFICIARY_ID = 5002;
+
     @TempDir
     Path tempDir;
 
@@ -39,6 +45,8 @@ public class PaymentAndAuthorizationApiTest {
     private AuthorizationController authorizationController;
     private AccountRepository accounts;
     private TransferRepository transfers;
+    private TransferApplicationService transferService;
+    private int victimWaitingTransfer;
 
     @BeforeEach
     void setup() {
@@ -100,7 +108,23 @@ public class PaymentAndAuthorizationApiTest {
                 infra.uowFactory
         );
 
-        TransferApplicationService transferService = services.transferService;
+        transferService = services.transferService;
+
+        // A second customer with an account and a beneficiary of their own, plus one pending
+        // transfer they created themselves. This is what customer 2 must not be able to touch.
+        Customer victim = new Customer(VICTIM_CUSTOMER_ID, "Victim Customer 3",
+                "victim3@example.com", new Address("Test Street 3", "Ostrava"));
+        victim.addAccountId(VICTIM_ACCOUNT_ID);
+        infra.customers.save(victim);
+        infra.accounts.save(new Account(VICTIM_ACCOUNT_ID, new IBAN("CZ6508000000192000145407"),
+                Money.czk(20_000), Money.czk(5_000)));
+        infra.customers.saveBeneficiary(VICTIM_CUSTOMER_ID, new Beneficiary(
+                VICTIM_BENEFICIARY_ID, "Victim's payee",
+                new IBAN("CZ6508000000192000145423"), true));
+
+        victimWaitingTransfer = transferService.submitPaymentToIban(
+                VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, "CZ0201000000000012345678",
+                WAITING_TRANSFER_AMOUNT, "victim's own");
 
         paymentController = new PaymentController(
                 transferService,
@@ -129,7 +153,6 @@ public class PaymentAndAuthorizationApiTest {
         AccountSummaryDto acc = accList.get(0);
 
         NewPaymentRequest req = new NewPaymentRequest(
-                TEST_CUSTOMER_ID, // field is still present in the record but controller may ignore it
                 acc.id(),
                 "CZ0201000000000012345678",
                 WAITING_TRANSFER_AMOUNT,
@@ -280,14 +303,16 @@ public class PaymentAndAuthorizationApiTest {
     }
 
     /**
-     * A source account id the caller made up is the caller's mistake, not ours. This is
-     * also the exact line A4 extends with the "exists but is another customer's" branch,
-     * which must throw the same type so the two stay indistinguishable.
+     * A source account id the caller made up is the caller's mistake, not ours.
+     *
+     * This case alone cannot show that A3 works: 999999 belongs to nobody, so it is refused
+     * with or without the ownership guard. The "exists but is another customer's" half is
+     * pinned by MoneyPathOwnershipTest and, byte for byte on the wire, by HttpErrorContractTest.
      */
     @Test
     void createPayment_withAnUnknownSourceAccount_isNotFound() {
         NewPaymentRequest req = new NewPaymentRequest(
-                TEST_CUSTOMER_ID, 999_999, "CZ0201000000000012345678", 1000.0, "no such account");
+                999_999, "CZ0201000000000012345678", 1000.0, "no such account");
 
         assertThrows(NotFoundException.class, () -> paymentController.createPayment(req));
     }
@@ -313,6 +338,78 @@ public class PaymentAndAuthorizationApiTest {
         assertEquals(TransferStatus.DECLINED, after.status());
     }
 
+    // ------------------------------------------------------------------ A3: ownership
+
+    /**
+     * The same four escalations MoneyPathOwnershipTest pins at the service, asserted here
+     * through the controllers so the HTTP layer is shown to carry the session identity into
+     * the service rather than dropping it.
+     */
+    @Test
+    void createPayment_fromAnotherCustomersAccount_isNotFoundAndMovesNothing() {
+        NewPaymentRequest req = new NewPaymentRequest(
+                VICTIM_ACCOUNT_ID, "CZ0201000000000012345678", 900.0, "not my account");
+
+        assertThrows(NotFoundException.class, () -> paymentController.createPayment(req));
+
+        assertVictimUntouched();
+    }
+
+    /** B17, through the service the console and DemoRunner also call. */
+    @Test
+    void submitPaymentByBeneficiary_withAnotherCustomersBeneficiary_isNotFound() {
+        assertThrows(NotFoundException.class, () -> transferService.submitPaymentByBeneficiary(
+                TEST_CUSTOMER_ID, TEST_ACCOUNT_ID, VICTIM_BENEFICIARY_ID, 900.0, "not my payee"));
+
+        assertVictimUntouched();
+    }
+
+    @Test
+    void authorizePayment_onAnotherCustomersTransfer_isNotFoundAndSpendsNoAttempt() {
+        assertThrows(NotFoundException.class, () -> authorizationController.authorize(
+                victimWaitingTransfer, new AuthorizePaymentRequest("0000")));
+
+        assertVictimUntouched();
+    }
+
+    @Test
+    void cancelPayment_onAnotherCustomersTransfer_isNotFoundAndWritesNoAuditReason() {
+        assertThrows(NotFoundException.class,
+                () -> authorizationController.cancel(victimWaitingTransfer));
+
+        assertVictimUntouched();
+    }
+
+    /**
+     * N15: before A3 these two handlers read no identity at all, so a FRAUD_ANALYST session
+     * could drive them. The refusal is a role denial, raised before the transfer id is used.
+     */
+    @Test
+    void authorizeAndCancel_asAFraudAnalyst_areRefusedByRole() {
+        SecurityContext.setCurrentUser(new User(
+                2, "fraud", new byte[0], new byte[0], UserRole.FRAUD_ANALYST, null));
+
+        assertThrows(AccessDeniedException.class, () -> authorizationController.authorize(
+                victimWaitingTransfer, new AuthorizePaymentRequest("0000")));
+        assertThrows(AccessDeniedException.class,
+                () -> authorizationController.cancel(victimWaitingTransfer));
+
+        assertVictimUntouched();
+    }
+
+    /** A refused request must leave the victim exactly as it found them. */
+    private void assertVictimUntouched() {
+        assertEquals(Money.czk(20_000), accounts.byId(VICTIM_ACCOUNT_ID).orElseThrow().balance(),
+                "The victim's balance must not move");
+
+        Transfer waiting = transfers.byId(victimWaitingTransfer).orElseThrow();
+        assertEquals(TransferStatus.WAITING_AUTH, waiting.status());
+        assertEquals(0, waiting.authAttempts(),
+                "A stranger must not be able to spend the victim's OTP attempts");
+        assertNull(waiting.declineReason(),
+                "A stranger must not be able to write the victim's audit reason");
+    }
+
     @Test
     void createPaymentToIban_createsTransferAndReturnsResult() {
         List<AccountSummaryDto> beforeAccounts = paymentController.listAccounts(TEST_CUSTOMER_ID);
@@ -320,7 +417,6 @@ public class PaymentAndAuthorizationApiTest {
         AccountSummaryDto accBefore = beforeAccounts.get(0);
 
         NewPaymentRequest req = new NewPaymentRequest(
-                TEST_CUSTOMER_ID,
                 accBefore.id(),
                 "CZ0201000000000012345678",
                 1000.0,

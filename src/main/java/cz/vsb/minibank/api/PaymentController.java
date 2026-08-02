@@ -48,8 +48,12 @@ public class PaymentController {
      * No role check and no ownership check: any authenticated caller can read any
      * customer's account ids, IBANs and balances here. The guarded twin is
      * {@link #listMyAccounts()}, which is guarded only because it needs a customer id,
-     * not as an access rule. Closing this is backlog item A3, and the type to throw is
+     * not as an access rule. Closing this is backlog item A4, and the type to throw is
      * NotFoundException.
+     *
+     * A3 closed the write paths, so a stranger's account can no longer be paid from; this
+     * route still discloses that it exists. Use BootstrapServices.ownershipGuard, or retire
+     * this route in favour of its /me twin, which is the only one either frontend calls.
      */
     @GetMapping("/customers/{customerId}/accounts")
     public List<AccountSummaryDto> listAccounts(@PathVariable("customerId") int customerId) {

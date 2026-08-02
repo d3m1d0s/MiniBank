@@ -196,6 +196,22 @@ public class ConsoleMenu {
      * - in the new mode it is taken from currentUser.customerId()
      * - in the legacy mode it uses the customerId field.
      */
+    /**
+     * The role the menu filter is applied against.
+     *
+     * The legacy JSON mode has no login, so this used to be null and every filter became a
+     * no-op: an operator of that mode could select command 6 and decline any transfer in the
+     * store through the fraud service, which has no ownership rule to stop it. A fixed
+     * customerId is a real customer row, so that operator is a CUSTOMER and gets the customer
+     * menu. No identity is invented here - a mode with no users still has no analyst.
+     */
+    private UserRole effectiveRole() {
+        if (currentUser != null) {
+            return currentUser.role();
+        }
+        return customerId > 0 ? UserRole.CUSTOMER : null;
+    }
+
     private int resolveCustomerId() {
         if (currentUser != null) {
             Integer cid = currentUser.customerId();
@@ -216,8 +232,10 @@ public class ConsoleMenu {
         while (true) {
             System.out.println("\n=== Mini-bank (Domain Model) ===");
 
+            UserRole role = effectiveRole();
+
             for (ConsoleCommand cmd : commands) {
-                if (currentUser != null && !cmd.isVisibleFor(currentUser.role())) {
+                if (!cmd.isVisibleFor(role)) {
                     continue;
                 }
                 System.out.printf("%s) %s%n", cmd.code(), cmd.description());
@@ -233,7 +251,7 @@ public class ConsoleMenu {
 
             ConsoleCommand cmd = commands.stream()
                     .filter(c -> c.code().equals(choice))
-                    .filter(c -> currentUser == null || c.isVisibleFor(currentUser.role()))
+                    .filter(c -> c.isVisibleFor(role))
                     .findFirst()
                     .orElse(null);
 
@@ -373,6 +391,9 @@ public class ConsoleMenu {
     }
 
     private void authorizePayment() {
+        // Asked first, like commands 3 and 4, so a user with no customer id is refused by a
+        // server-side rule before being prompted for a transfer id.
+        int cid = resolveCustomerId();
         int tid = askInt("Transfer id", -1);
         System.out.print("OTP (0000/123456): ");
         String otp = in.nextLine().trim();
@@ -382,7 +403,7 @@ public class ConsoleMenu {
         // error and the third - which declines the transfer and returns normally - would
         // still print the status and balance below.
         try {
-            services.transferService.authorizePayment(tid, otp);
+            services.transferService.authorizePayment(cid, tid, otp);
         } catch (InvalidOtpException e) {
             System.out.println("[Error] Wrong one-time password.");
         }
@@ -430,8 +451,9 @@ public class ConsoleMenu {
     }
 
     private void cancelPayment() {
+        int cid = resolveCustomerId();
         int tid = askInt("Transfer id", -1);
-        services.transferService.cancelPayment(tid);
+        services.transferService.cancelPayment(cid, tid);
 
         TransferRepository transfers = infra.transfers;
         var t = transfers.byId(tid).orElseThrow();
@@ -449,6 +471,9 @@ public class ConsoleMenu {
             return;
         }
 
+        // A4: this reads an account id the operator typed straight out of the repository,
+        // bypassing the application services, so OwnershipGuard cannot reach it from where it
+        // lives. Either restrict the prompt to accs or route this through a guarded read.
         int accId = askInt("Account id", accs.get(0).id());
         var list = transfers.bySourceAccount(accId);
         if (list.isEmpty()) {

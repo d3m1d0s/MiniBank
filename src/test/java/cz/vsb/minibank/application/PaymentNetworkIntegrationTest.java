@@ -48,7 +48,6 @@ class PaymentNetworkIntegrationTest {
         gateway = new FakePaymentNetworkGateway();
 
         transferService = new TransferApplicationService(
-                infra.customers,
                 infra.accounts,
                 infra.transfers,
                 infra.alerts,
@@ -56,7 +55,8 @@ class PaymentNetworkIntegrationTest {
                 riskService,
                 otpValidator,
                 gateway,
-                infra.uowFactory
+                infra.uowFactory,
+                new OwnershipGuard(infra.customers, infra.accounts)
         );
 
         // Initial domain data (outside any UnitOfWork)
@@ -117,7 +117,9 @@ class PaymentNetworkIntegrationTest {
     @Test
     void authorizedTransferIsDispatchedToPaymentNetwork() {
         // act: UC 05 – successful payment authorization
-        transferService.authorizePayment(transferId, "any-otp");
+        // The fixture links accountId to customerId and saves the customer afterwards, so the
+        // ownership guard passes on the data this test already sets up.
+        transferService.authorizePayment(customerId, transferId, "any-otp");
 
         // assert - gateway is called exactly once with our transfer
         assertEquals(1, gateway.sentTransfers().size(),

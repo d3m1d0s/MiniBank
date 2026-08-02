@@ -269,53 +269,6 @@ public final class SqlCustomerRepository implements CustomerRepository {
     }
 
     @Override
-    public Optional<Beneficiary> beneficiaryById(int beneficiaryId) {
-        UnitOfWork uow = UowContext.current();
-
-        try {
-            if (uow instanceof SqlUnitOfWork sqlUow) {
-                return loadBeneficiaryByIdWithConnection(sqlUow.connection(), beneficiaryId);
-            } else {
-                try (Connection conn = DriverManager.getConnection(url, user, password)) {
-                    return loadBeneficiaryByIdWithConnection(conn, beneficiaryId);
-                }
-            }
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to load beneficiary id=" + beneficiaryId, e);
-        }
-    }
-
-    private Optional<Beneficiary> loadBeneficiaryByIdWithConnection(Connection conn, int beneficiaryId)
-            throws SQLException {
-
-        String sql = """
-                SELECT id, name, iban, trusted
-                  FROM beneficiaries
-                 WHERE id = ?
-                """;
-
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, beneficiaryId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (!rs.next()) return Optional.empty();
-
-                int bid = rs.getInt("id");
-                String name = rs.getString("name");
-                String ibanStr = rs.getString("iban");
-                boolean trusted = rs.getBoolean("trusted");
-
-                Beneficiary b = new Beneficiary(
-                        bid,
-                        name,
-                        new IBAN(ibanStr),
-                        trusted
-                );
-                return Optional.of(b);
-            }
-        }
-    }
-
-    @Override
     public void saveBeneficiary(int customerId, Beneficiary b) {
         UnitOfWork uow = UowContext.current();
         if (!(uow instanceof SqlUnitOfWork sqlUow)) {

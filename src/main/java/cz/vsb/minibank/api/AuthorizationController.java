@@ -51,7 +51,11 @@ public class AuthorizationController {
      * No role check and no ownership check: any authenticated caller can read any
      * customer's waiting transfers here. The guarded twin is {@link #listMyWaiting()},
      * which is guarded only because it needs a customer id, not as an access rule.
-     * Closing this is backlog item A3, and the type to throw is NotFoundException.
+     * Closing this is backlog item A4, and the type to throw is NotFoundException.
+     *
+     * A3 guarded the write paths and left this one open, so it is currently the oracle those
+     * 404s were meant to remove: this route names a stranger's transfer ids for free. Use
+     * BootstrapServices.ownershipGuard so the two answer identically.
      */
     @GetMapping("/customers/{customerId}/waiting-transfers")
     public List<WaitingTransferItemDto> listWaiting(@PathVariable("customerId") int customerId) {
@@ -88,9 +92,11 @@ public class AuthorizationController {
      * Returns detailed information for a transfer including fee, status and authorization metadata.
      *
      * No ownership check: any authenticated caller can read any transfer, including the
-     * source account's IBAN and balance. Closing this is backlog item A3, and a transfer
+     * source account's IBAN and balance. Closing this is backlog item A4, and a transfer
      * belonging to somebody else must throw NotFoundException so it is indistinguishable
-     * from an id that does not exist.
+     * from an id that does not exist - the same type and the same message
+     * TransferApplicationService.requireTransfer already throws, so a read and a write can
+     * never disagree about whether a transfer exists for you.
      */
     @GetMapping("/transfers/{id}")
     public TransferDetailsDto transferDetails(@PathVariable("id") int id) {
@@ -134,13 +140,18 @@ public class AuthorizationController {
     @PostMapping("/transfers/{id}/authorize")
     public AuthorizePaymentResult authorize(@PathVariable("id") int id,
                                             @RequestBody AuthorizePaymentRequest req) {
+        // Settled before the body is read: who the caller is decides whether this transfer
+        // exists for them at all. A user with no customer id is refused here with the same
+        // answer for every transfer id, including ones that do not exist.
+        int customerId = requireCustomerId();
+
         // Checked here so an omitted field is not silently treated as a wrong code and
         // charged against the three attempts.
         if (req.otp() == null || req.otp().isBlank()) {
             throw new ValidationException("Missing one-time password in the authorize request");
         }
 
-        transferService.authorizePayment(id, req.otp());
+        transferService.authorizePayment(customerId, id, req.otp());
 
         // The service resolved this id inside a committed unit of work, so a failure here
         // means the store lost a row, not that the caller named a transfer that never existed.
@@ -172,8 +183,11 @@ public class AuthorizationController {
      */
     @PostMapping("/transfers/{id}/cancel")
     public AuthorizePaymentResult cancel(@PathVariable("id") int id) {
-        transferService.cancelPayment(id);
+        int customerId = requireCustomerId();
+        transferService.cancelPayment(customerId, id);
 
+        // The re-reads below stay unscoped on purpose: the service has already proved this
+        // transfer is the caller's before either of them runs.
         Transfer t = transfers.byId(id)
                 .orElseThrow(() -> new DataIntegrityException(
                         "Transfer " + id + " disappeared after cancellation"));
