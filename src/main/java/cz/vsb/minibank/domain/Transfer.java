@@ -9,14 +9,36 @@ import cz.vsb.minibank.domain.lazy.LazyRef;
 import java.time.Duration;
 import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.Beneficiary;
-import cz.vsb.minibank.domain.TransferEvents;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Domain model representing an outgoing transfer with status, authorization and audit data.
  */
-public class Transfer {
+public class Transfer implements RecordsDomainEvents {
+
+    /**
+     * What has happened to this transfer and has not been published yet.
+     *
+     * Not persisted and not part of the aggregate's identity: it is empty on every rehydrated
+     * row, because loading a transfer is not something happening to it. Transient in the literal
+     * sense, and the unit of work empties it at commit.
+     */
+    private final List<DomainEvent> pendingEvents = new ArrayList<>();
+
+    private void raise(DomainEvent event) {
+        pendingEvents.add(event);
+    }
+
+    @Override
+    public List<DomainEvent> drainDomainEvents() {
+        List<DomainEvent> drained = List.copyOf(pendingEvents);
+        pendingEvents.clear();
+        return drained;
+    }
+
     private int id;
     private int sourceAccountId;
     private Integer beneficiaryId; // optional snapshot of target beneficiary
@@ -123,7 +145,7 @@ public class Transfer {
         this.authAttempts = 0;
         this.authValidUntil = Instant.now().plus(Duration.ofMinutes(5));
 
-        TransferEvents.notifyStatusChanged(this, old, this.status);
+        raise(new TransferStatusChanged(this, old, this.status));
     }
 
     /**
@@ -149,7 +171,7 @@ public class Transfer {
         this.authAttempts = 0;
         this.authValidUntil = null;
 
-        TransferEvents.notifyStatusChanged(this, old, this.status);
+        raise(new TransferStatusChanged(this, old, this.status));
     }
 
     /**
@@ -184,7 +206,7 @@ public class Transfer {
         this.authAttempts = 0;
         this.authValidUntil = null;
 
-        TransferEvents.notifyStatusChanged(this, old, this.status);
+        raise(new TransferStatusChanged(this, old, this.status));
     }
 
     /**
@@ -259,7 +281,7 @@ public class Transfer {
         TransferStatus old = this.status;
         this.status = TransferStatus.SENT;
 
-        TransferEvents.notifyStatusChanged(this, old, this.status);
+        raise(new TransferStatusChanged(this, old, this.status));
     }
 
     /**
@@ -297,7 +319,7 @@ public class Transfer {
         this.status = TransferStatus.DECLINED;
         this.declineReason = reason;
 
-        TransferEvents.notifyStatusChanged(this, old, this.status);
+        raise(new TransferStatusChanged(this, old, this.status));
     }
 
     /**

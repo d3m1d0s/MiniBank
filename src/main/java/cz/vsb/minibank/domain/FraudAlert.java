@@ -10,7 +10,25 @@ import java.util.List;
 /**
  * Domain model representing a fraud alert attached to a transfer.
  */
-public class FraudAlert {
+public class FraudAlert implements RecordsDomainEvents {
+
+    /**
+     * What has happened to this alert and has not been published yet. See
+     * {@link Transfer#drainDomainEvents()}; the reasoning is the same and is not repeated.
+     */
+    private final List<DomainEvent> pendingEvents = new ArrayList<>();
+
+    private void raise(DomainEvent event) {
+        pendingEvents.add(event);
+    }
+
+    @Override
+    public List<DomainEvent> drainDomainEvents() {
+        List<DomainEvent> drained = List.copyOf(pendingEvents);
+        pendingEvents.clear();
+        return drained;
+    }
+
 
     /** The two verdicts an analyst can record. Stored in fraud_alerts.decision. */
     public static final String DECISION_APPROVE = "APPROVE";
@@ -152,7 +170,7 @@ public class FraudAlert {
         this.decidedBy = decidedBy;
         this.resolvedAt = java.util.Objects.requireNonNull(decidedAt, "decidedAt");
 
-        FraudAlertEvents.notifyStateChanged(this, old, this.state);
+        raise(new FraudAlertStateChanged(this, old, this.state));
     }
 
     /**
@@ -194,7 +212,7 @@ public class FraudAlert {
         this.decidedBy = decidedBy;
         this.resolvedAt = java.util.Objects.requireNonNull(decidedAt, "decidedAt");
 
-        FraudAlertEvents.notifyStateChanged(this, old, this.state);
+        raise(new FraudAlertStateChanged(this, old, this.state));
     }
 
     public void setRiskScore(Integer riskScore) {

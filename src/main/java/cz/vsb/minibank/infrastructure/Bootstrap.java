@@ -3,6 +3,7 @@ package cz.vsb.minibank.infrastructure;
 
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.repo.*;
+import cz.vsb.minibank.domain.DomainEventBus;
 import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.json.JsonUnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWorkFactory;
@@ -23,6 +24,15 @@ public class Bootstrap {
     public final FraudAlertRepository alerts;
     public final UserRepository users;
     public final UnitOfWorkFactory uowFactory;
+
+    /**
+     * Who hears about domain events, and the reason there is no static bus any more.
+     *
+     * One per Bootstrap, handed to the unit of work factory, which hands it to every unit of work
+     * it opens. Whatever starts the process registers its observers here; nothing else should,
+     * because an observer registered twice writes every audit line twice.
+     */
+    public final DomainEventBus events = new DomainEventBus();
 
     /**
      * Creates infrastructure backed by a JSON data store.
@@ -46,7 +56,7 @@ public class Bootstrap {
         this.transfers = new JsonTransferRepository(store);
         this.alerts = new JsonFraudAlertRepository(store);
         this.users = new InMemoryUserRepository();
-        this.uowFactory = new JsonUnitOfWorkFactory(store);
+        this.uowFactory = new JsonUnitOfWorkFactory(store, events);
     }
 
     /**
@@ -65,6 +75,6 @@ public class Bootstrap {
         this.transfers = new SqlTransferRepository(jdbcUrl, user, password);
         this.alerts = new SqlFraudAlertRepository(jdbcUrl, user, password);
         this.users = new SqlUserRepository(jdbcUrl, user, password);
-        this.uowFactory = new SqlUnitOfWorkFactory(jdbcUrl, user, password);
+        this.uowFactory = new SqlUnitOfWorkFactory(jdbcUrl, user, password, events);
     }
 }

@@ -1,5 +1,6 @@
 package cz.vsb.minibank.infrastructure.json;
 
+import cz.vsb.minibank.domain.DomainEventBus;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.JsonUnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
@@ -11,9 +12,11 @@ import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 public final class JsonUnitOfWorkFactory implements UnitOfWorkFactory {
 
     private final JsonDataStore store;
+    private final DomainEventBus events;
 
-    public JsonUnitOfWorkFactory(JsonDataStore store) {
+    public JsonUnitOfWorkFactory(JsonDataStore store, DomainEventBus events) {
         this.store = store;
+        this.events = java.util.Objects.requireNonNull(events, "events");
     }
 
     /**
@@ -26,6 +29,6 @@ public final class JsonUnitOfWorkFactory implements UnitOfWorkFactory {
      */
     @Override
     public UnitOfWork begin() {
-        return new JsonUnitOfWork(store);
+        return new JsonUnitOfWork(store, events);
     }
 }

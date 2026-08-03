@@ -1,5 +1,8 @@
 package cz.vsb.minibank.infrastructure.json;
 
+import cz.vsb.minibank.domain.DomainEvent;
+import cz.vsb.minibank.domain.DomainEventBus;
+import cz.vsb.minibank.domain.RecordsDomainEvents;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
 import java.util.*;
@@ -24,13 +27,15 @@ import java.util.*;
  */
 public final class JsonUnitOfWork implements UnitOfWork {
     private final JsonDataStore store;
+    private final DomainEventBus events;
     private final Thread owner;
     private final Map<Class<?>, Map<Integer, Object>> identities = new HashMap<>();
     private final List<Runnable> mutations = new ArrayList<>();
     private boolean active = true;
 
-    public JsonUnitOfWork(JsonDataStore store) {
+    public JsonUnitOfWork(JsonDataStore store, DomainEventBus events) {
         this.store = store;
+        this.events = Objects.requireNonNull(events, "events");
         this.owner = Thread.currentThread();
         // Held until commit() or rollback(). Every caller opens the unit of work in a
         // try-with-resources UowScope, and UowScope.close() ends one that was left open.
@@ -83,14 +88,27 @@ public final class JsonUnitOfWork implements UnitOfWork {
         mutations.add(r);
     }
 
+    /**
+     * Persists, releases the lock, and only then announces what happened.
+     *
+     * Two orderings matter here and they point the same way. Events are drained after
+     * store.save() so that a transaction which failed to persist announces nothing - the defect
+     * an aggregate that published from inside its own setter always had. And they are published
+     * after finish(), which is to say outside the store lock, so an observer writing to the audit
+     * log no longer blocks every other JSON transaction for the duration of a file write. That
+     * lock is held for the whole transaction by design, and this is the one thing that no longer
+     * needs to be inside it.
+     */
     @Override public void commit() {
         requireOwner();
         if (!active) return;
+        List<DomainEvent> happened;
         try {
             // The store lock is already held by this thread, so the buffered mutations
             // and the single save cannot interleave with another thread's reads or commits.
             for (Runnable r : mutations) r.run();
             store.save(); // single physical persist
+            happened = drainDomainEvents();
         } catch (Exception e) {
             // The mutations above have already been applied to the shared Bundle. The next
             // transaction starts the moment finish() releases the lock and would persist
@@ -100,6 +118,23 @@ public final class JsonUnitOfWork implements UnitOfWork {
         } finally {
             finish();
         }
+        events.publishAll(happened);
+    }
+
+    /**
+     * Everything the aggregates in this transaction recorded, emptied out of them. See
+     * {@code SqlUnitOfWork.drainDomainEvents}; the reasoning is identical and is not repeated.
+     */
+    private List<DomainEvent> drainDomainEvents() {
+        List<DomainEvent> collected = new ArrayList<>();
+        for (Map<Integer, Object> byId : identities.values()) {
+            for (Object cached : byId.values()) {
+                if (cached instanceof RecordsDomainEvents source) {
+                    collected.addAll(source.drainDomainEvents());
+                }
+            }
+        }
+        return collected;
     }
 
     @Override public void rollback() {
@@ -122,6 +157,12 @@ public final class JsonUnitOfWork implements UnitOfWork {
     private void finish() {
         active = false;
         mutations.clear();
+
+        // Whatever is still recorded belongs to a transaction that is not committing - commit()
+        // has already emptied the aggregates by the time it gets here. Dropped rather than left
+        // on the object, which outlives this identity map.
+        drainDomainEvents();
+
         identities.clear();
         store.unlock();
     }

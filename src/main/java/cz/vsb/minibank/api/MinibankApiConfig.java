@@ -5,8 +5,6 @@ import cz.vsb.minibank.demo.DemoScenario;
 import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.domain.FeePolicy;
-import cz.vsb.minibank.domain.FraudAlertEvents;
-import cz.vsb.minibank.domain.TransferEvents;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -51,14 +49,15 @@ public class MinibankApiConfig {
     /**
      * The API's composition root for services, and the one place it attaches the audit observers.
      *
-     * The event buses are static, so this has to happen exactly once per process. A singleton
-     * bean method runs exactly once, which is what makes this the right hook; it must not move
-     * back into {@code BootstrapServices}, which anything may construct any number of times.
+     * The bus belongs to the Bootstrap bean and lives as long as the context does, so this has to
+     * happen exactly once per context. A singleton bean method runs exactly once, which is what
+     * makes this the right hook; it must not move back into {@code BootstrapServices}, which
+     * anything may construct any number of times.
      */
     @Bean
     public BootstrapServices bootstrapServices(Bootstrap infra) {
-        TransferEvents.register(new TransferAuditLogObserver());
-        FraudAlertEvents.register(new FraudAlertAuditLogObserver());
+        infra.events.register(new TransferAuditLogObserver());
+        infra.events.register(new FraudAlertAuditLogObserver());
 
         return new BootstrapServices(
                 infra.customers,
