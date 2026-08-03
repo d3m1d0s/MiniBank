@@ -16,6 +16,9 @@ import {
 } from './api';
 import { amountRangeProblem } from './alertFilters';
 
+/** The transfer status a withdrawn payment ends in. */
+const WITHDRAWN = 'DECLINED';
+
 // The fraud desk takes no navigation callback: only a FRAUD_ANALYST reaches it,
 // and App restricts that role to this view.
 
@@ -58,7 +61,21 @@ export default function FraudDeskPage() {
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [detail, setDetail] = useState<AlertDetail | null>(null);
 
-    const [filters, setFilters] = useState<AlertFilters>({ state: 'NEW' });
+    /**
+     * The desk hides withdrawn payments by default; the endpoint hides nothing by default.
+     *
+     * An alert whose payment the customer cancelled has nothing left to decide - the money is
+     * not going anywhere - but it is still evidence and nothing has resolved it, so it stays
+     * New and used to sit in this queue forever. Hidden here rather than resolved anywhere: the
+     * alert's state is the analyst's verdict and no screen may write it.
+     *
+     * The same shape as the state filter: the server has no default, the page has one, and the
+     * control that undoes it is on screen.
+     */
+    const [filters, setFilters] = useState<AlertFilters>({
+        state: 'NEW',
+        excludeTransferStatus: [WITHDRAWN],
+    });
 
     const [unreadable, setUnreadable] = useState({ min: false, max: false });
 
@@ -371,6 +388,32 @@ export default function FraudDeskPage() {
                                             )
                                         }
                                     />
+                                </div>
+
+                                <div className="field-row">
+                                    <label className="field-label">
+                                        Withdrawn
+                                    </label>
+                                    <label>
+                                        <input
+                                            type="checkbox"
+                                            checked={
+                                                !filters.excludeTransferStatus?.includes(
+                                                    WITHDRAWN,
+                                                )
+                                            }
+                                            onChange={(e) =>
+                                                setFilters((prev) => ({
+                                                    ...prev,
+                                                    excludeTransferStatus: e
+                                                        .currentTarget.checked
+                                                        ? undefined
+                                                        : [WITHDRAWN],
+                                                }))
+                                            }
+                                        />{' '}
+                                        Show alerts on cancelled payments
+                                    </label>
                                 </div>
                             </div>
 

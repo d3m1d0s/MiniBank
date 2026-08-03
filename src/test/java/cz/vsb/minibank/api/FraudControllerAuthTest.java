@@ -112,7 +112,7 @@ class FraudControllerAuthTest {
         );
 
         // act
-        var resp = ctrl.listAlerts(null, null, null, null, null, null);
+        var resp = ctrl.listAlerts(null, null, null, null, null, null, null);
 
         // assert: call succeeds and the alert is included in the result
         assertNotNull(resp);
@@ -143,7 +143,7 @@ class FraudControllerAuthTest {
         // act + assert
         assertThrows(
                 AccessDeniedException.class,
-                () -> ctrl.listAlerts(null, null, null, null, null, null)
+                () -> ctrl.listAlerts(null, null, null, null, null, null, null)
         );
     }
 }

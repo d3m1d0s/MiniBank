@@ -179,6 +179,15 @@ export interface AlertFilters {
     createdFrom?: string;
     createdTo?: string;
     assignee?: string;
+
+    /**
+     * Transfer statuses whose alerts should not be listed.
+     *
+     * An exclusion, not a selection: the desk hides withdrawn payments, and the day a new
+     * transfer status appears it must show up in the queue rather than disappear from it
+     * because nobody remembered to add it to a list of wanted ones.
+     */
+    excludeTransferStatus?: string[];
 }
 
 export async function fetchAlerts(filters: AlertFilters = {}): Promise<AlertQueueResponse> {
@@ -189,6 +198,10 @@ export async function fetchAlerts(filters: AlertFilters = {}): Promise<AlertQueu
     if (filters.createdFrom) params.set('createdFrom', filters.createdFrom);
     if (filters.createdTo) params.set('createdTo', filters.createdTo);
     if (filters.assignee) params.set('assignee', filters.assignee);
+    // append, not set: the parameter is repeatable and each status is its own value.
+    for (const status of filters.excludeTransferStatus ?? []) {
+        params.append('excludeTransferStatus', status);
+    }
 
     const qs = params.toString();
     const url = qs ? `/api/fraud/alerts?${qs}` : `/api/fraud/alerts`;

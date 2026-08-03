@@ -534,9 +534,14 @@ public class TransferApplicationService {
      *
      * The alert on a cancelled transfer stays NEW, pointing at a DECLINED transfer. That is a
      * known consequence rather than an oversight - a withdrawn payment that tripped the rules
-     * is still evidence, and nothing here should decide unilaterally that it is not - but it
-     * does mean an analyst's NEW queue accumulates alerts with nothing left to decide. The
-     * queue now carries the transfer's status so they are at least visible as such.
+     * is still evidence, and nothing here should decide unilaterally that it is not.
+     *
+     * What it used to mean was that an analyst's NEW queue filled with alerts that had nothing
+     * left to decide. It no longer does: the queue carries the transfer's status, and
+     * {@code GET /api/fraud/alerts} takes an {@code excludeTransferStatus} filter that both
+     * desks apply to withdrawn payments by default, with the control to show them again on
+     * screen. The alert is hidden from a view, not resolved - its state is still the analyst's
+     * verdict, and nothing outside {@code FraudApplicationService} writes it.
      *
      * Not covered by A6's version column, and worth naming because A6 is in this same change.
      * This method writes only the transfers row; it never touches accounts, so accounts.version

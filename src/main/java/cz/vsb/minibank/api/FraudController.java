@@ -5,6 +5,7 @@ import cz.vsb.minibank.application.FraudApplicationService;
 import cz.vsb.minibank.domain.FraudAlert;
 import cz.vsb.minibank.domain.FraudAlertState;
 import cz.vsb.minibank.domain.Transfer;
+import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.FeePolicy;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
@@ -77,7 +78,21 @@ public class FraudController {
             @RequestParam(name = "maxAmount",   required = false) BigDecimal maxAmount,
             @RequestParam(name = "createdFrom", required = false) String createdFrom,
             @RequestParam(name = "createdTo",   required = false) String createdTo,
-            @RequestParam(name = "assignee",    required = false) String assignee
+            @RequestParam(name = "assignee",    required = false) String assignee,
+
+            /*
+             * Transfer statuses whose alerts the caller does not want to see. Repeatable, and
+             * Spring also accepts one comma-separated value.
+             *
+             * An exclusion rather than an inclusion, which is the opposite of every other filter
+             * here and deliberate. The screen's real question is "hide the ones I cannot act
+             * on", and today that is exactly one status; expressing it as an inclusion means the
+             * desk lists four of the five, and the day a sixth status is added it would vanish
+             * from the analyst's default view without anyone touching the desk. For a tool whose
+             * job is not to lose evidence, "forgot to list it" must mean shown, not hidden.
+             */
+            @RequestParam(name = "excludeTransferStatus", required = false)
+            List<String> excludeTransferStatus
     ) {
         requireRole(UserRole.FRAUD_ANALYST);
 
@@ -91,6 +106,7 @@ public class FraudController {
         // before a connection is opened for it rather than after.
         Instant fromTs = parseInstant(createdFrom);
         Instant toTs = parseInstant(createdTo);
+        Set<TransferStatus> hidden = parseTransferStatuses(excludeTransferStatus);
 
         // One unit of work for the whole read, and the reason is the shape of the loop below:
         // it asks for every alert and then for one transfer per alert. There is no connection
@@ -108,7 +124,7 @@ public class FraudController {
         // the alternative is the connection storm above on the backend that actually ships.
         var uow = uowFactory.begin();
         try (UowScope __ = new UowScope(uow)) {
-            return buildQueue(state, minAmount, maxAmount, fromTs, toTs, assignee);
+            return buildQueue(state, minAmount, maxAmount, fromTs, toTs, assignee, hidden);
         }
     }
 
@@ -120,7 +136,8 @@ public class FraudController {
                                              BigDecimal maxAmount,
                                              Instant fromTs,
                                              Instant toTs,
-                                             String assignee) {
+                                             String assignee,
+                                             Set<TransferStatus> hidden) {
         List<FraudAlert> all = alerts.all();
 
         FraudAlertState stateFilter = parseState(state);
@@ -157,6 +174,15 @@ public class FraudController {
             }
 
             Transfer t = optT.get();
+
+            // Filtered on the transfer rather than on the alert, because that is where the fact
+            // lives. An alert whose payment was withdrawn is still the analyst's to decide - the
+            // verdict field is theirs and nothing here writes it - it is simply not urgent, and
+            // a queue that cannot hide it fills up with rows that have nothing left to decide.
+            if (hidden.contains(t.status())) {
+                continue;
+            }
+
             BigDecimal amount = t.amount().amount();
             if (minAmount != null && amount.compareTo(minAmount) < 0) continue;
             if (maxAmount != null && amount.compareTo(maxAmount) > 0) continue;
@@ -348,6 +374,29 @@ public class FraudController {
      * Parses the state filter. An unknown value is caller input: FraudAlertState.valueOf
      * would raise IllegalArgumentException, which has no handler and answers 500.
      */
+    /**
+     * Reads the transfer statuses the caller wants hidden, refusing one it does not recognise.
+     *
+     * Refused rather than ignored, like every other filter here: a typo that silently widens the
+     * queue tells the analyst they have seen everything when the filter they asked for was never
+     * applied. An absent or empty parameter hides nothing, which is the API's default - a screen
+     * may choose to hide withdrawn payments, an endpoint must not do it on its own.
+     */
+    private static Set<TransferStatus> parseTransferStatuses(List<String> values) {
+        if (values == null || values.isEmpty()) return Set.of();
+
+        Set<TransferStatus> parsed = EnumSet.noneOf(TransferStatus.class);
+        for (String value : values) {
+            if (value == null || value.isBlank()) continue;
+            try {
+                parsed.add(TransferStatus.valueOf(value.trim().toUpperCase(Locale.ROOT)));
+            } catch (IllegalArgumentException e) {
+                throw new ValidationException("Unknown transfer status filter: " + value);
+            }
+        }
+        return parsed;
+    }
+
     private static FraudAlertState parseState(String value) {
         if (value == null || value.isBlank()) return null;
         try {

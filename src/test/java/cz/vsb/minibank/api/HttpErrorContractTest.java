@@ -790,6 +790,18 @@ class HttpErrorContractTest {
      * nothing to review by a filter that was simply the wrong way round.
      */
     @Test
+    void anUnknownTransferStatusFilterIs400ValidationError() throws Exception {
+        signInAsAnalyst();
+
+        assertResponse(api, get("/api/fraud/alerts")
+                .param("excludeTransferStatus", "WITHDRAWN"), 400, BODY_VALIDATION_ERROR);
+        // One good value beside one bad one is still a bad request; a partially applied filter
+        // answers 200 with a queue nobody asked for.
+        assertResponse(api, get("/api/fraud/alerts")
+                .param("excludeTransferStatus", "DECLINED", "NONSENSE"), 400, BODY_VALIDATION_ERROR);
+    }
+
+    @Test
     void aReversedAmountRangeIs400ValidationError() throws Exception {
         signInAsAnalyst();
 

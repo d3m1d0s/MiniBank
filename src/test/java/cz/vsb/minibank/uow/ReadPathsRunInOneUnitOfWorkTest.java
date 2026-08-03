@@ -111,7 +111,7 @@ class ReadPathsRunInOneUnitOfWorkTest {
         signInAsAnalyst();
         witness.seen.clear();
 
-        fraudController.listAlerts(null, null, null, null, null, null);
+        fraudController.listAlerts(null, null, null, null, null, null, null);
 
         UnitOfWork only = witness.theOnlyOne("The alert queue");
         assertTrue(witness.seen.size() >= 4,
@@ -148,7 +148,7 @@ class ReadPathsRunInOneUnitOfWorkTest {
         seedAlertedTransfers(1);
         signInAsAnalyst();
 
-        fraudController.listAlerts(null, null, null, null, null, null);
+        fraudController.listAlerts(null, null, null, null, null, null, null);
 
         // The JSON unit of work holds the store lock until it completes, so one left open would
         // wedge every later request rather than merely leaking a connection.

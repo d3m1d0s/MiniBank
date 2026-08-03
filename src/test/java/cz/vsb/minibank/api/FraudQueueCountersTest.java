@@ -10,6 +10,7 @@ import cz.vsb.minibank.domain.UserRole;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
+import cz.vsb.minibank.domain.exceptions.ValidationException;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -69,7 +71,7 @@ class FraudQueueCountersTest {
 
     @Test
     void withNoFilterTheListAndTheCountersAgree() {
-        AlertQueueResponseDto response = controller.listAlerts(null, null, null, null, null, null);
+        AlertQueueResponseDto response = controller.listAlerts(null, null, null, null, null, null, null);
 
         assertEquals(3, response.items().size());
         assertEquals(1, response.counters().newCount());
@@ -79,7 +81,7 @@ class FraudQueueCountersTest {
 
     @Test
     void aStateFilterShortensTheListAndLeavesTheCountersAlone() {
-        AlertQueueResponseDto response = controller.listAlerts("NEW", null, null, null, null, null);
+        AlertQueueResponseDto response = controller.listAlerts("NEW", null, null, null, null, null, null);
 
         assertEquals(1, response.items().size(), "the list is the filter");
         assertEquals(1, response.counters().newCount());
@@ -93,7 +95,7 @@ class FraudQueueCountersTest {
         // The finding this was filed under named only the state filter. Every filter does it:
         // the counters are computed before any of them.
         AlertQueueResponseDto response = controller.listAlerts(
-                null, new BigDecimal("999999"), null, null, null, null);
+                null, new BigDecimal("999999"), null, null, null, null, null);
 
         assertEquals(0, response.items().size(), "nothing is that expensive");
         assertEquals(3, response.counters().newCount()
@@ -102,11 +104,66 @@ class FraudQueueCountersTest {
                 "an empty list does not mean an empty queue, and the counters must keep saying so");
     }
 
+    @Test
+    void excludingATransferStatusHidesThoseAlertsAndStillCountsThem() {
+        // The alert on transfer 11 belongs to a payment the customer withdrew. It is the
+        // analyst's to decide and nothing has decided it for them - it is simply not urgent,
+        // and a queue that cannot hide it fills up with rows with nothing left to do.
+        when(transfers.byId(11)).thenReturn(Optional.of(declinedTransferOf(11)));
+
+        AlertQueueResponseDto response = controller.listAlerts(
+                null, null, null, null, null, null, List.of("DECLINED"));
+
+        assertEquals(2, response.items().size(), "the withdrawn one is out of the list");
+        assertEquals(3, response.counters().newCount()
+                        + response.counters().okCount()
+                        + response.counters().suspiciousCount(),
+                "and still in the queue, because hiding a row does not resolve an alert");
+    }
+
+    @Test
+    void severalStatusesCanBeExcludedAtOnce() {
+        when(transfers.byId(11)).thenReturn(Optional.of(declinedTransferOf(11)));
+
+        AlertQueueResponseDto response = controller.listAlerts(
+                null, null, null, null, null, null, List.of("DECLINED", "CREATED"));
+
+        assertEquals(0, response.items().size(),
+                "the other two are CREATED, so nothing is left to show");
+    }
+
+    @Test
+    void excludingNothingHidesNothing() {
+        // Both the absent parameter and an empty one. The endpoint must not hide anything of its
+        // own accord: a screen may choose to, an API answering an investigator may not.
+        assertEquals(3, controller.listAlerts(null, null, null, null, null, null, null)
+                .items().size());
+        assertEquals(3, controller.listAlerts(null, null, null, null, null, null, List.of())
+                .items().size());
+        assertEquals(3, controller.listAlerts(null, null, null, null, null, null, List.of(" "))
+                .items().size());
+    }
+
+    @Test
+    void anUnknownTransferStatusIsRefusedRatherThanIgnored() {
+        // Ignoring it would answer 200 with a queue wider than the one that was asked for,
+        // which tells the analyst they have seen everything when the filter never ran.
+        assertThrows(ValidationException.class, () -> controller.listAlerts(
+                null, null, null, null, null, null, List.of("WITHDRAWN")));
+    }
+
     private static FraudAlert alertOn(int transferId) {
         return new FraudAlert(transferId * 100, transferId, "New beneficiary + high amount");
     }
 
     private static Transfer transferOf(int id) {
         return new Transfer(id, 1, null, "CZ2001000000000012345678", Money.czk(1000), "CZK");
+    }
+
+    /** A payment the customer withdrew: the alert on it survives, the payment does not. */
+    private static Transfer declinedTransferOf(int id) {
+        Transfer t = transferOf(id);
+        t.decline("Canceled by customer");
+        return t;
     }
 }
