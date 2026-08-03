@@ -51,7 +51,6 @@ class AuditLogObserverTest {
         } else {
             System.setProperty(MinibankProperties.LOG_FILE, previousLogFile);
         }
-        SecurityContext.clear();
     }
 
     @Test

@@ -5,7 +5,6 @@ import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.UserRole;
 import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
 import cz.vsb.minibank.domain.exceptions.NotAuthenticatedException;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -32,11 +31,6 @@ class AuthHelpersTest {
                 UserRole.FRAUD_ANALYST,
                 null
         );
-    }
-
-    @AfterEach
-    void tearDown() {
-        SecurityContext.clear();
     }
 
     @Test

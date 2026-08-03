@@ -22,7 +22,6 @@ import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.infrastructure.memory.InMemoryUserRepository;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -253,11 +252,6 @@ class HttpErrorContractTest {
                 .build();
 
         signInAsCustomer();
-    }
-
-    @AfterEach
-    void tearDown() {
-        SecurityContext.clear();
     }
 
     private void signInAsCustomer() {

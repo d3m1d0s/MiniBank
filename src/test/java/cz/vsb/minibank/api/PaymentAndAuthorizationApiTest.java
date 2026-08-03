@@ -16,7 +16,6 @@ import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -143,12 +142,6 @@ public class PaymentAndAuthorizationApiTest {
                 services.feePolicy,
                 services.ownershipGuard
         );
-    }
-
-    @AfterEach
-    void tearDown() {
-        // SecurityContext is a static ThreadLocal shared by the whole suite
-        SecurityContext.clear();
     }
 
     private int createWaitingTransferForCustomer2() {
