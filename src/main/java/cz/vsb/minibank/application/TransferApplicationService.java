@@ -219,6 +219,7 @@ public class TransferApplicationService {
                 beneficiaryTrusted,
                 t.amount(),
                 sentOnTheDayOf(account.id(), t.createdAt()),
+                sentToPayeeOnTheDayOf(account.id(), t.targetIbanSnapshot(), t.createdAt()),
                 account.dailyLimit(),
                 account.softDailyThreshold());
 
@@ -328,6 +329,19 @@ public class TransferApplicationService {
         LocalDate day = LocalDate.ofInstant(when, zone);
         return transfers.sentTotalBetween(
                 accountId,
+                day.atStartOfDay(zone).toInstant(),
+                day.plusDays(1).atStartOfDay(zone).toInstant());
+    }
+
+    /**
+     * The same day window, narrowed to one payee. Feeds the alert rule and nothing else.
+     */
+    private Money sentToPayeeOnTheDayOf(int accountId, String targetIban, Instant when) {
+        ZoneId zone = clock.getZone();
+        LocalDate day = LocalDate.ofInstant(when, zone);
+        return transfers.sentTotalToIbanBetween(
+                accountId,
+                targetIban,
                 day.atStartOfDay(zone).toInstant(),
                 day.plusDays(1).atStartOfDay(zone).toInstant());
     }
@@ -492,6 +506,55 @@ public class TransferApplicationService {
             // five minute window has run out.
             riskService.requireWithinDailyLimit(
                     t.amount(), sentOnTheDayOf(acc.id(), now), acc.dailyLimit());
+
+            // And the alert, asked again for the same reason and with the same shape. A rule
+            // that totals what has gone to one payee cannot see at creation what has not
+            // settled yet: two payments of 6 500 to one new payee are each under the threshold
+            // when they are made, and the second crosses it only once the first has gone. That
+            // ordering is the one an attacker controls, so a rule asked only at creation closes
+            // the convenient half of B20 and not the other one.
+            //
+            // Asked once per transfer. An alert that already exists has been seen by an analyst
+            // or is waiting to be, and raising a second one would make an approved payment
+            // permanently unconfirmable: released to WAITING_AUTH, held again on the next
+            // attempt, released again.
+            //
+            // Above the OTP check, like the ceiling, so a refusal that is not about the code
+            // spends no attempt. The hold is committed and only then reported: a rolled-back
+            // hold would leave the alert unraised and the payment still confirmable, which is
+            // the outcome this exists to prevent.
+            if (alerts.byTransferId(transferId).isEmpty()) {
+                // Read now rather than trusted at creation: a beneficiary the customer has since
+                // marked untrusted is untrusted. An IBAN payment has no beneficiary row and is
+                // never trusted, exactly as submitPaymentToIban decides at creation.
+                boolean trustedNow = t.beneficiaryId() != null
+                        && guard.requireOwnedBeneficiary(caller, t.beneficiaryId()).trusted();
+
+                RiskDecision atAuthorization = riskService.evaluate(
+                        trustedNow,
+                        t.amount(),
+                        sentOnTheDayOf(acc.id(), now),
+                        sentToPayeeOnTheDayOf(acc.id(), t.targetIbanSnapshot(), now),
+                        acc.dailyLimit(),
+                        acc.softDailyThreshold());
+
+                if (atAuthorization.createFraudAlert()) {
+                    t.holdForReviewOnAuthorization();
+                    transfers.save(t);
+                    alerts.add(new FraudAlert(
+                            alerts.nextId(),
+                            t.id(),
+                            Objects.requireNonNullElse(atAuthorization.reason(), "Suspicious"),
+                            atAuthorization.riskScore(),
+                            null,
+                            null,
+                            null));
+                    uow.commit();
+
+                    throw new TransferUnderReviewException(
+                            "Transfer " + transferId + " is held for fraud review");
+                }
+            }
 
             boolean valid = otpValidator.isValid(transferId, otp);
             if (!valid) {

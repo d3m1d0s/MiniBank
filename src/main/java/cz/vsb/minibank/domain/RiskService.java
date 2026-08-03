@@ -16,6 +16,12 @@ public interface RiskService {
      *                           sentSoFar and is added by this service
      * @param sentSoFar          what has already left the source account on the day this
      *                           transfer belongs to, fees excluded
+     * @param sentToPayeeSoFar   what has already left the source account FOR THIS DESTINATION on
+     *                           the same day, fees excluded, and on the same terms as sentSoFar:
+     *                           the amount being attempted is not part of it. Separate from
+     *                           sentSoFar because the two rules ask different questions - one is
+     *                           about how much a customer may move, the other about whether one
+     *                           payment has been split into several to one new payee
      * @param dailyLimit         the source account's hard ceiling on one day's outflow
      * @param softDailyThreshold the source account's own soft authorization tier, or null to
      *                           apply the bank-wide default. A per-account value is what makes
@@ -25,7 +31,7 @@ public interface RiskService {
      * @throws DailyLimitExceededException when sentSoFar plus amount passes dailyLimit
      */
     RiskDecision evaluate(boolean beneficiaryTrusted, Money amount, Money sentSoFar,
-                          Money dailyLimit, Money softDailyThreshold);
+                          Money sentToPayeeSoFar, Money dailyLimit, Money softDailyThreshold);
 
     /**
      * Refuses a transfer that would take the day's outflow past the account's ceiling.

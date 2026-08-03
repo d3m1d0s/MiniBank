@@ -42,9 +42,16 @@ public interface TransferRepository {
      * range, fees excluded.
      *
      * "Actually left" is status SENT. {@link cz.vsb.minibank.domain.Transfer#send} is the only
-     * method that assigns it, it is the only method that debits, and it is terminal, so no
-     * auxiliary flag is needed. The range is matched against the transfer's creation time,
-     * because that is the only timestamp a transfer carries - nothing records when one settled.
+     * method that assigns it on the money path, it is the only method that debits, and it is
+     * terminal, so no auxiliary flag is needed.
+     *
+     * The range is matched against {@code COALESCE(settled_at, created_at)}: when the money
+     * moved, falling back to when the order was placed for rows written before {@code settled_at}
+     * existed. This paragraph used to say the range was matched against the creation time
+     * "because that is the only timestamp a transfer carries - nothing records when one settled",
+     * which stopped being true when A14 added the column and both implementations moved to the
+     * fallback. A transfer an analyst held for a week is counted against the day it settles on,
+     * not the day it was ordered on.
      *
      * An aggregate rather than a filter over {@link #bySourceAccount}: that method substitutes
      * instances from the identity map, whose in-memory status can already differ from the
@@ -56,4 +63,28 @@ public interface TransferRepository {
      *         with it, and the currency predicate is what keeps that assumption checked
      */
     Money sentTotalBetween(int accountId, Instant fromInclusive, Instant toExclusive);
+
+    /**
+     * The same total, narrowed to one destination: what has left this account for this IBAN in
+     * the range.
+     *
+     * A sibling rather than a parameter on the method above, because the two answer different
+     * questions and only one of them may ever widen. That one bounds what a customer may spend
+     * in a day and the suite pins its shape; this one feeds the fraud rule, which asks whether
+     * an amount is being split across several payments to one new payee. Sharing an aggregate
+     * would mean a change made for the alert could move the ceiling.
+     *
+     * The stored snapshot is compared in its normalized form - see {@link
+     * cz.vsb.minibank.domain.value.IBAN#normalize} - because {@code Transfer} takes the snapshot
+     * as a plain String and a denormalized one is reachable through the public constructor. A
+     * row whose snapshot is missing is left out rather than matched: the column is NOT NULL in
+     * SQL only, and the JSON store has no such guarantee.
+     *
+     * @param targetIban the destination, in any form; normalized before comparison
+     * @return the total in CZK, on the same terms as {@link #sentTotalBetween}
+     */
+    Money sentTotalToIbanBetween(int accountId,
+                                 String targetIban,
+                                 Instant fromInclusive,
+                                 Instant toExclusive);
 }

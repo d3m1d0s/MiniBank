@@ -4,6 +4,7 @@ import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
+import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.dto.JsonTransfer;
@@ -13,6 +14,7 @@ import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -139,6 +141,37 @@ public class JsonTransferRepository implements TransferRepository {
                 if (dto.sourceAccountId != accountId) continue;
                 if (!TransferStatus.SENT.name().equals(dto.status)) continue;
                 if (!"CZK".equals(dto.currency)) continue;
+                Instant countedOn = dayKeyOf(dto);
+                if (countedOn == null) continue;
+                if (countedOn.isBefore(fromInclusive) || !countedOn.isBefore(toExclusive)) continue;
+                total = total.plus(Money.czk(dto.amount));
+            }
+            return total;
+        });
+    }
+
+    /**
+     * The same total, narrowed to one destination. See the interface for why it is its own
+     * method and not a parameter on the one above.
+     *
+     * Both sides of the destination comparison are normalized, and the stored one is allowed to
+     * be null. Neither is paranoia: JsonTransfer.targetIbanSnapshot is a bare field with no
+     * constraint behind it - the NOT NULL exists in db/init/schema.sql and nowhere else - and
+     * Transfer's constructor takes the snapshot as a plain String, so a denormalized one is
+     * reachable through the public domain API and CreditLegTest pins that it must still resolve.
+     */
+    @Override
+    public Money sentTotalToIbanBetween(int accountId, String targetIban,
+                                        Instant fromInclusive, Instant toExclusive) {
+        String wanted = IBAN.normalize(targetIban);
+
+        return store.read(bundle -> {
+            Money total = Money.czk(0.0);
+            for (JsonTransfer dto : bundle.transfers) {
+                if (dto.sourceAccountId != accountId) continue;
+                if (!TransferStatus.SENT.name().equals(dto.status)) continue;
+                if (!"CZK".equals(dto.currency)) continue;
+                if (!Objects.equals(wanted, IBAN.normalize(dto.targetIbanSnapshot))) continue;
                 Instant countedOn = dayKeyOf(dto);
                 if (countedOn == null) continue;
                 if (countedOn.isBefore(fromInclusive) || !countedOn.isBefore(toExclusive)) continue;

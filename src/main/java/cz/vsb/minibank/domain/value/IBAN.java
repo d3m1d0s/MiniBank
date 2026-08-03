@@ -28,9 +28,27 @@ public final class IBAN {
      * @param raw raw IBAN string, possibly with spaces and mixed case
      * @throws InvalidIbanException when the format or the check digits are wrong
      */
+    /**
+     * The comparable form of an IBAN: no whitespace, upper case, nothing else changed.
+     *
+     * Exposed because two places outside this class have to compare a STORED IBAN string that
+     * never went through this constructor. {@code transfers.target_iban_snapshot} is written by
+     * the application services from an already-normalized value, but the domain does not enforce
+     * that - {@code Transfer}'s constructor takes the snapshot as a plain String and validates
+     * only the amount - so a row holding {@code "cz43 0800 0000 1920 0014 5407"} is reachable
+     * through the public API, and CreditLegTest pins that such a row must still resolve. A
+     * repository comparing snapshots with {@code equals} would silently drop it.
+     *
+     * Validation is deliberately not part of this: a total over stored rows must not throw on
+     * one that is malformed, it must simply not match.
+     */
+    public static String normalize(String raw) {
+        return raw == null ? null : raw.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
+    }
+
     public IBAN(String raw) {
         Objects.requireNonNull(raw);
-        String s = raw.replaceAll("\\s+", "").toUpperCase(Locale.ROOT);
+        String s = normalize(raw);
 
         if (!s.startsWith("CZ") || s.length() != CZ_LENGTH) {
             throw new InvalidIbanException("Invalid IBAN format: " + raw);

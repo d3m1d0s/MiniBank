@@ -193,6 +193,37 @@ public class Transfer implements RecordsDomainEvents {
      * TransferApplicationService.sentOnTheDayOf for what that does to the day it is counted
      * against.
      */
+    /**
+     * Holds a transfer the customer was already free to confirm, because the rules found it
+     * suspicious only once an earlier payment to the same payee had settled.
+     *
+     * A second edge into HELD_FOR_REVIEW, and the reason there was only one before is that the
+     * alert rule keyed on a single amount: everything it could catch, it caught at creation. A
+     * cumulative rule cannot, because the payment that pushes a payee over the threshold may be
+     * created before the one it is being added to has settled. The daily ceiling has had the
+     * same shape of second check since A9 and for the same reason.
+     *
+     * Two things differ from {@link #holdForReview}, and both follow from where this one is
+     * reached. The payment method is kept rather than captured: the customer chose it when they
+     * submitted, and nothing about a review changes it. And authAttempts is NOT reset - a
+     * customer who has already spent two guesses on this transfer has spent them, and a hold
+     * that handed them back would make the three-attempt cap something a caller could refill.
+     *
+     * authValidUntil is cleared, exactly as it is in holdForReview and for its reason: the five
+     * minutes are the customer's time to type a code, not the analyst's time to reach a queue.
+     */
+    public void holdForReviewOnAuthorization() {
+        if (status != TransferStatus.WAITING_AUTH)
+            throw new InvalidStateTransitionException(
+                    "A review hold at authorization is allowed only from WAITING_AUTH");
+
+        TransferStatus old = this.status;
+        this.status = TransferStatus.HELD_FOR_REVIEW;
+        this.authValidUntil = null;
+
+        raise(new TransferStatusChanged(this, old, this.status));
+    }
+
     public void releaseForAuthorization() {
         if (status != TransferStatus.HELD_FOR_REVIEW)
             throw new InvalidStateTransitionException("Release allowed only from HELD_FOR_REVIEW");

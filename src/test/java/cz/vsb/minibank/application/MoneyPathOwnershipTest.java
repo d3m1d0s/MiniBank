@@ -325,6 +325,18 @@ class MoneyPathOwnershipTest {
         // UC 19: cancel a pending one of the caller's own.
         int toCancel = service.submitPaymentToIban(
                 ATTACKER_ID, ATTACKER_ACCOUNT, TARGET_IBAN, WAITING_AMOUNT, "cancel me");
+
+        // Held, not waiting, and that is the cumulative alert rule working rather than a
+        // regression: this is the second payment of WAITING_AMOUNT to TARGET_IBAN today from
+        // this account, the first has already settled, and together they pass the alert
+        // threshold. The owner's third money path now goes through the fraud desk. Asserted
+        // rather than left implicit, because nothing else here would notice - cancelPayment
+        // guards only SENT, so the DECLINED below holds either way and the change would be
+        // silent.
+        assertEquals(TransferStatus.HELD_FOR_REVIEW, status(toCancel),
+                "a split above the threshold to one payee is held, even when it is the owner's");
+
+        // And a held payment is still the owner's to withdraw, which is the point of the path.
         service.cancelPayment(ATTACKER_ID, toCancel);
         assertEquals(TransferStatus.DECLINED, status(toCancel));
 

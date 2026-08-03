@@ -36,7 +36,8 @@ public class RuleBasedRiskService implements RiskService {
      */
     @Override
     public RiskDecision evaluate(boolean beneficiaryTrusted, Money amount, Money sentSoFar,
-                                 Money dailyLimit, Money softDailyThreshold) {
+                                 Money sentToPayeeSoFar, Money dailyLimit,
+                                 Money softDailyThreshold) {
         requireWithinDailyLimit(amount, sentSoFar, dailyLimit);
 
         Money softTier = (softDailyThreshold != null) ? softDailyThreshold : DEFAULT_SOFT_DAILY_THRESHOLD;
@@ -44,17 +45,27 @@ public class RuleBasedRiskService implements RiskService {
         boolean untrustedAndHigh = !beneficiaryTrusted && amount.gt(AUTH_THRESHOLD_FOR_UNTRUSTED);
 
         boolean requireAuth = overDayAuthThreshold || untrustedAndHigh;
-        // createAlert still strictly implies requireAuth here, but nothing depends on that any
-        // more: routeTransferCreation tests createFraudAlert on its own and holds the transfer
-        // for review, and the fraud service settles nothing, so these two thresholds can be
-        // reordered without a money-path consequence. It used to be load-bearing - it was the
-        // only reason the analyst's settle branch was unreachable.
+        // Cumulative, and keyed on the payee rather than on the account. It used to read
+        // `amount.gt(ALERT_THRESHOLD_FOR_UNTRUSTED)`, so 13 000 split into two payments of 6 500
+        // to the same untrusted IBAN raised no alert and was never held - the gap the review
+        // gate could not close because nothing ever asked the question.
         //
-        // What this rule does NOT catch, and what the review gate therefore does not close: it
-        // keys on one payment's amount, so 13 000 split into two payments of 6 500 to the same
-        // untrusted IBAN raises no alert and is never held. A cumulative alert term, mirroring
-        // what AUTH_THRESHOLD_FOR_DAY_TOTAL already does for authorization, is its own item.
-        boolean createAlert = !beneficiaryTrusted && amount.gt(ALERT_THRESHOLD_FOR_UNTRUSTED);
+        // Keyed on the payee and not on the account's day total, which was the cheaper option
+        // and the wrong one. The reason this alert carries is fixed - see below, "New
+        // beneficiary + high amount" - so a trigger that fires on an unrelated day total would
+        // hold a small payment to a payee of ten years' standing under a reason that is false,
+        // and TransferApplicationService then refuses the owner's own valid code. Keyed on the
+        // payee, the reason is true whenever the rule fires.
+        //
+        // What it costs, stated rather than discovered: once 10 000 has gone to one untrusted
+        // payee in a day, every later payment to THAT payee is held, however small. That is
+        // inherent to a cumulative threshold and is not what the destination key avoids - it
+        // narrows which payments are affected, not the shape of the rule.
+        //
+        // createAlert no longer implies requireAuth. It used to, and nothing depended on it:
+        // routeTransferCreation tests createFraudAlert on its own.
+        boolean createAlert =
+                !beneficiaryTrusted && sentToPayeeSoFar.plus(amount).gt(ALERT_THRESHOLD_FOR_UNTRUSTED);
 
         String reason = createAlert
                 ? "New beneficiary + high amount"

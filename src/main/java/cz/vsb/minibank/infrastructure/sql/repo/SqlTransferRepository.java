@@ -6,6 +6,7 @@ import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.exceptions.TransferChangedException;
 import cz.vsb.minibank.domain.repository.TransferRepository;
+import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
@@ -404,6 +405,71 @@ public final class SqlTransferRepository implements TransferRepository {
             }
         } catch (SQLException e) {
             throw new RuntimeException("Failed to total sent transfers for accountId=" + accountId, e);
+        }
+    }
+
+    @Override
+    public Money sentTotalToIbanBetween(int accountId, String targetIban,
+                                        Instant fromInclusive, Instant toExclusive) {
+        UnitOfWork uow = UowContext.current();
+
+        try {
+            if (uow instanceof SqlUnitOfWork sqlUow) {
+                return sumSentToIbanWithConnection(
+                        sqlUow.connection(), accountId, targetIban, fromInclusive, toExclusive);
+            } else {
+                try (Connection conn = DriverManager.getConnection(url, user, password)) {
+                    return sumSentToIbanWithConnection(
+                            conn, accountId, targetIban, fromInclusive, toExclusive);
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException(
+                    "Failed to total sent transfers for accountId=" + accountId + " to one payee", e);
+        }
+    }
+
+    /**
+     * The same aggregate as {@link #sumSentWithConnection}, narrowed to one destination.
+     *
+     * The destination predicate is the only interesting line. It compares NORMALIZED snapshots:
+     * whitespace removed, upper case, which is what {@code IBAN.normalize} does in Java and what
+     * the two expressions here do in SQL. A plain {@code =} would be wrong rather than merely
+     * strict - {@code Transfer} takes its snapshot as a plain String and validates only the
+     * amount, so a row holding {@code "cz43 0800 ..."} is reachable through the public
+     * constructor, CreditLegTest pins that such a row must still resolve, and an unnormalized
+     * comparison would drop it from the total silently instead of failing.
+     *
+     * It cannot use an index, and that changes nothing: idx_transfers_source_account serves the
+     * account equality and everything after it was already a sequential filter over that one
+     * account's rows.
+     */
+    private Money sumSentToIbanWithConnection(Connection conn, int accountId, String targetIban,
+                                              Instant fromInclusive, Instant toExclusive)
+            throws SQLException {
+
+        String sql = """
+        SELECT COALESCE(SUM(amount), 0)
+          FROM transfers
+         WHERE source_account_id = ?
+           AND status = ?
+           AND currency = ?
+           AND UPPER(REGEXP_REPLACE(target_iban_snapshot, '\\s', '', 'g')) = ?
+           AND COALESCE(settled_at, created_at) >= ?
+           AND COALESCE(settled_at, created_at) <  ?
+        """;
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, accountId);
+            ps.setString(2, TransferStatus.SENT.name());
+            ps.setString(3, "CZK");
+            ps.setString(4, IBAN.normalize(targetIban));
+            ps.setTimestamp(5, Timestamp.from(fromInclusive));
+            ps.setTimestamp(6, Timestamp.from(toExclusive));
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return Money.czk(rs.getBigDecimal(1));
+            }
         }
     }
 

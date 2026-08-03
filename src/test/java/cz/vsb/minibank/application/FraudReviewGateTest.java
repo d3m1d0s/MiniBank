@@ -454,7 +454,11 @@ class FraudReviewGateTest {
         held.releaseForAuthorization();
         assertEquals(TransferStatus.WAITING_AUTH, held.status());
 
-        // WAITING_AUTH -> HELD_FOR_REVIEW has no path either: an alert is raised at creation.
+        // WAITING_AUTH -> HELD_FOR_REVIEW has exactly one path, and holdForReview is not it:
+        // that one is the creation-time hold and stays CREATED-only. The second edge exists
+        // because the alert rule became cumulative - a payment can be innocent when it is made
+        // and suspicious by the time it is confirmed - and it is asserted below rather than only
+        // refused here.
         assertThrows(InvalidStateTransitionException.class,
                 () -> held.holdForReview(new CardPayment(held.amount(), "****0000")));
 
@@ -474,6 +478,44 @@ class FraudReviewGateTest {
         cancelled.decline("Canceled by customer");
         assertThrows(InvalidStateTransitionException.class, cancelled::releaseForAuthorization,
                 "an approval must not resurrect a payment its owner withdrew");
+    }
+
+    /**
+     * The second edge into HELD_FOR_REVIEW, and what it may be reached from.
+     *
+     * It exists because the alert rule totals what has gone to one payee: a payment can be under
+     * the threshold when it is created and over it by the time it is confirmed, which the rule
+     * can only see at confirmation. Everywhere else this transition stays closed.
+     */
+    @Test
+    void aReviewHoldAtAuthorizationIsReachableOnlyFromWaitingAuth() {
+        Transfer waiting = heldTransfer();
+        waiting.releaseForAuthorization();
+
+        waiting.holdForReviewOnAuthorization();
+        assertEquals(TransferStatus.HELD_FOR_REVIEW, waiting.status());
+        assertNull(waiting.authValidUntil(),
+                "the five minutes are the customer's time to type a code, not the analyst's to"
+                        + " reach a queue");
+
+        // Held once. A second hold on the same transfer is what a missing once-per-transfer
+        // guard in the service would produce, and the aggregate refuses it whatever the caller.
+        assertThrows(InvalidStateTransitionException.class, waiting::holdForReviewOnAuthorization);
+
+        Transfer created = createdTransfer();
+        assertThrows(InvalidStateTransitionException.class, created::holdForReviewOnAuthorization,
+                "a transfer that has not been offered for confirmation cannot be held by one");
+
+        Transfer sent = heldTransfer();
+        sent.releaseForAuthorization();
+        sent.send(sourceAccount(), null, new ZeroFeePolicy(), sent.createdAt());
+        assertThrows(InvalidStateTransitionException.class, sent::holdForReviewOnAuthorization,
+                "money that has left cannot be held back by a review");
+
+        Transfer declined = heldTransfer();
+        declined.decline("Canceled by customer");
+        assertThrows(InvalidStateTransitionException.class,
+                declined::holdForReviewOnAuthorization);
     }
 
     /**
@@ -585,9 +627,14 @@ class FraudReviewGateTest {
 
     /** A detached transfer in HELD_FOR_REVIEW, for the domain-only transition assertions. */
     private Transfer heldTransfer() {
-        Transfer t = new Transfer(9_000, ACCOUNT_ID, null, EXTERNAL_IBAN,
-                Money.czk(RAISES_ALERT), "CZK");
+        Transfer t = createdTransfer();
         t.holdForReview(new CardPayment(t.amount(), "****0000"));
         return t;
+    }
+
+    /** The same transfer before anything has happened to it. */
+    private Transfer createdTransfer() {
+        return new Transfer(9_000, ACCOUNT_ID, null, EXTERNAL_IBAN,
+                Money.czk(RAISES_ALERT), "CZK");
     }
 }
