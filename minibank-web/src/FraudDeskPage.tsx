@@ -252,8 +252,28 @@ export default function FraudDeskPage() {
                                     className="summary"
                                     style={{ marginBottom: 8 }}
                                 >
+                                    {/*
+                                      "Overview" was nearly right and too vague to settle the
+                                      question these numbers raise. They count the WHOLE queue,
+                                      not the list below, and the server means it that way: it
+                                      counts before applying any filter. New: 7 over a list of
+                                      three reads as a contradiction until the screen says which
+                                      number is which.
+
+                                      Counting the visible list instead would be worse: this
+                                      page opens filtered to New, so two of the three would be
+                                      permanently zero, and watching Suspicious rise as you work
+                                      is the whole point of having them.
+
+                                      The three states are the only three, so their sum is the
+                                      queue.
+                                    */}
                                     <div className="summary-title">
-                                        Overview
+                                        Whole queue,{' '}
+                                        {counters.newCount +
+                                            counters.suspiciousCount +
+                                            counters.okCount}{' '}
+                                        alerts
                                     </div>
                                     <ul>
                                         <li>New: {counters.newCount}</li>
@@ -263,6 +283,10 @@ export default function FraudDeskPage() {
                                         </li>
                                         <li>OK: {counters.okCount}</li>
                                     </ul>
+                                    <div>
+                                        Showing {alerts.length} with the filters
+                                        below.
+                                    </div>
                                 </div>
                             )}
 

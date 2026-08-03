@@ -22,7 +22,10 @@ describe('ranges that can be sent', () => {
         [{ minAmount: '0' }, 'a zero floor, which is a filter and not an absence'],
         [{ minAmount: '0', maxAmount: '0' }, 'zero to zero'],
         [{ minAmount: '0.01', maxAmount: '0.02' }, 'hellers'],
-    ])('passes %o - %s', (filters) => {
+    // The second element of each row is only there to name the case in the report. It has to be
+    // accepted as a parameter for the row to type-check, and the leading underscore is what
+    // keeps noUnusedParameters from objecting to accepting it.
+    ])('passes %o - %s', (filters, _case) => {
         expect(amountRangeProblem(filters, READABLE)).toBeNull();
     });
 
@@ -64,7 +67,7 @@ describe('a box the browser could not read', () => {
         [{ min: true, max: false }, 'the floor'],
         [{ min: false, max: true }, 'the ceiling'],
         [{ min: true, max: true }, 'both'],
-    ])('refuses when %o could not be read - %s', (unreadable) => {
+    ])('refuses when %o could not be read - %s', (unreadable, _case) => {
         expect(amountRangeProblem({}, unreadable)).toContain('could not be read');
     });
 

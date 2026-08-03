@@ -291,11 +291,31 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                 {!busyList && alerts.length === 0 && <div className="hint">No alerts</div>}
                             </div>
 
+                            {/*
+                              These three count the WHOLE queue, not the list above them, and
+                              the server means it that way: it counts before applying any
+                              filter. That is the right design and the numbers were never
+                              wrong - what was missing is this sentence. NEW: 7 sitting over a
+                              list of three reads as a contradiction unless the screen says
+                              which number is which.
+
+                              Counting the visible list instead would be worse: the desk opens
+                              filtered to NEW, so two of the three would be permanently zero,
+                              and watching SUSPICIOUS rise as you work is the whole point of
+                              having them.
+
+                              The three states are the only three, so their sum is the queue.
+                            */}
                             {counters && (
                                 <div className="counters">
+                                    <div>
+                                        Whole queue,{' '}
+                                        {counters.newCount + counters.suspiciousCount + counters.okCount}:
+                                    </div>
                                     <div>NEW: {counters.newCount}</div>
                                     <div>SUSPICIOUS: {counters.suspiciousCount}</div>
                                     <div>OK: {counters.okCount}</div>
+                                    <div>showing {alerts.length}</div>
                                 </div>
                             )}
                         </div>

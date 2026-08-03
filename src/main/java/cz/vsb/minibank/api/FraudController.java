@@ -181,6 +181,14 @@ public class FraudController {
             ));
         }
 
+        // Over `all` rather than over `items`, deliberately: these describe the whole queue, and
+        // the list beside them describes the filter. Both desks say so now, because seven over a
+        // list of three reads as a contradiction until a screen names which number is which.
+        //
+        // Do not "fix" this to count the filtered list. State is itself one of the filters and
+        // both desks open filtered to NEW, so two of the three would be permanently zero; and
+        // the reason an analyst watches them at all is to see SUSPICIOUS rise as they work,
+        // which a filtered count cannot show.
         long newCount = all.stream().filter(a -> a.state() == FraudAlertState.NEW).count();
         long suspiciousCount = all.stream().filter(a -> a.state() == FraudAlertState.SUSPICIOUS).count();
         long okCount = all.stream().filter(a -> a.state() == FraudAlertState.OK).count();
