@@ -18,6 +18,7 @@ import cz.vsb.minibank.domain.exceptions.OptimisticLockException;
 import cz.vsb.minibank.domain.exceptions.SelfTransferNotAllowedException;
 import cz.vsb.minibank.domain.exceptions.TooManyLoginAttemptsException;
 import cz.vsb.minibank.domain.exceptions.TooManySessionsException;
+import cz.vsb.minibank.domain.exceptions.TransferChangedException;
 import cz.vsb.minibank.domain.exceptions.TransferUnderReviewException;
 import cz.vsb.minibank.domain.exceptions.ValidationException;
 import org.springframework.http.HttpStatus;
@@ -130,6 +131,19 @@ public class RestExceptionHandler {
     public ResponseEntity<ApiError> handleOptimisticLock(OptimisticLockException ex) {
         AppLogger.warn("api", "Refused a stale account write: " + ex.getMessage());
         return error(HttpStatus.CONFLICT, ApiErrors.CONCURRENT_MODIFICATION);
+    }
+
+    /**
+     * The transfers row lost a race.
+     *
+     * Declared separately from its own supertype, which Spring resolves by picking the most
+     * specific handler, because the two answers differ: this one must not promise that nothing
+     * was charged. See {@link ApiErrors#TRANSFER_CHANGED}.
+     */
+    @ExceptionHandler(TransferChangedException.class)
+    public ResponseEntity<ApiError> handleTransferChanged(TransferChangedException ex) {
+        AppLogger.warn("api", "Refused a stale transfer write: " + ex.getMessage());
+        return error(HttpStatus.CONFLICT, ApiErrors.TRANSFER_CHANGED);
     }
 
     @ExceptionHandler(InvalidOtpException.class)

@@ -4,6 +4,7 @@ import cz.vsb.minibank.domain.CardPayment;
 import cz.vsb.minibank.domain.Payment;
 import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.exceptions.TransferChangedException;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWork;
@@ -83,6 +84,10 @@ public final class SqlTransferRepository implements TransferRepository {
 
         uow.registerMutation(() -> {
             try {
+                // Only a driver failure is wrapped. TransferChangedException is unchecked and
+                // deliberately passes through untouched: it is a domain outcome, and wrapping it
+                // would have it reported as INTERNAL_ERROR instead of as the 409 that tells the
+                // customer to look at the payment again.
                 upsertTransfer(sqlUow.connection(), t);
             } catch (SQLException e) {
                 throw new RuntimeException("Failed to save transfer id=" + t.id(), e);
@@ -95,11 +100,30 @@ public final class SqlTransferRepository implements TransferRepository {
 
     /**
      * Inserts or updates a transfer row including the charged fee, the customer's reference,
-     * the settlement instant and the authorization metadata.
+     * the settlement instant and the authorization metadata, refusing a write built on a stale
+     * read.
      *
      * fee, message and settled_at are in the DO UPDATE SET list and not only in the INSERT, and
      * that is load-bearing: a transfer is inserted at CREATED and settled by a later save, so
      * an insert-only fee would never be written at all and A14 would be inert on this backend.
+     *
+     * The guard is the WHERE on the DO UPDATE arm, the same shape
+     * {@code SqlAccountRepository.upsertAccount} carries and for the same reasons - it holds
+     * under READ COMMITTED with no isolation level set anywhere, and the detection is the empty
+     * RETURNING rather than a rowcount, because executeUpdate answers 1 for an insert and for an
+     * update alike. A6 explains why in full and that comment is not repeated here.
+     *
+     * What it adds over A6 is the row it covers. Every column above is assigned unconditionally,
+     * so before this guard existed a cancel committing just after an authorization wrote
+     * DECLINED over SENT and blanked fee and settled_at with it: the debit stood while the row
+     * dropped out of the SENT-only day total. Three writers reach this method without ever
+     * calling accounts.save - cancelPayment, the wrong-OTP branch and the expired-window branch -
+     * which is precisely why accounts.version could not see any of it.
+     *
+     * A version rather than a status token, deliberately. A status token would not catch
+     * WAITING_AUTH to WAITING_AUTH, and that is a real transition: two concurrent wrong-OTP
+     * authorizations both read auth_attempts = N and both write N+1, which defeats
+     * MAX_OTP_ATTEMPTS.
      */
     private void upsertTransfer(Connection conn, Transfer t) throws SQLException {
         String sql = """
@@ -137,7 +161,10 @@ public final class SqlTransferRepository implements TransferRepository {
                     card_number_masked   = EXCLUDED.card_number_masked,
                     decline_reason       = EXCLUDED.decline_reason,
                     auth_attempts        = EXCLUDED.auth_attempts,
-                    auth_valid_until     = EXCLUDED.auth_valid_until
+                    auth_valid_until     = EXCLUDED.auth_valid_until,
+                    version              = transfers.version + 1
+                WHERE transfers.version = ?
+                RETURNING version
                 """;
 
         Payment auth = t.authMethod();
@@ -218,7 +245,18 @@ public final class SqlTransferRepository implements TransferRepository {
                 ps.setNull(16, Types.TIMESTAMP_WITH_TIMEZONE);
             }
 
-            ps.executeUpdate();
+            ps.setInt(17, t.version());
+
+            // version is absent from the INSERT column list on purpose: a new row takes the
+            // column default 0, so no code path ever chooses an insert version.
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    throw new TransferChangedException(
+                            "Transfer " + t.id() + " was changed by another transaction"
+                                    + " (this transaction read version " + t.version() + ")");
+                }
+                t.hydrateVersion(rs.getInt(1));
+            }
         }
     }
 
@@ -266,7 +304,8 @@ public final class SqlTransferRepository implements TransferRepository {
                    card_number_masked,
                    decline_reason,
                    auth_attempts,
-                   auth_valid_until
+                   auth_valid_until,
+                   version
               FROM transfers
              WHERE id = ?
             """;
@@ -320,7 +359,8 @@ public final class SqlTransferRepository implements TransferRepository {
                card_number_masked,
                decline_reason,
                auth_attempts,
-               auth_valid_until
+               auth_valid_until,
+               version
           FROM transfers
          WHERE source_account_id = ?
         """;
@@ -478,6 +518,11 @@ public final class SqlTransferRepository implements TransferRepository {
                 feeBd != null ? Money.czk(feeBd) : null,
                 settledTs != null ? settledTs.toInstant() : null);
         t.attachMessage(rs.getString("message"));
+
+        // Also outside that catch, and for a sharper reason than the three above: a transfer
+        // that arrived here without its version would carry 0 and the next guarded write would
+        // be compared against the version of a row nobody has written yet.
+        t.hydrateVersion(rs.getInt("version"));
 
         return t;
     }

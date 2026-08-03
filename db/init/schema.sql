@@ -143,6 +143,13 @@ CREATE TABLE transfers (
                            auth_attempts        INTEGER,
                            auth_valid_until     TIMESTAMPTZ,
 
+                           -- Bumped by every guarded write, exactly as accounts.version is.
+                           -- A6 gave the column to accounts alone because the measured leak was
+                           -- on the balance; this row needs its own, because cancelPayment and
+                           -- the two authorization failure paths write the transfer and never
+                           -- touch accounts, so accounts.version cannot see them.
+                           version              INTEGER NOT NULL DEFAULT 0,
+
                            -- The same invariant Transfer's constructor enforces, now also
                            -- enforced against anything that writes this table without going
                            -- through the domain: psql, a future report job, a bad migration.

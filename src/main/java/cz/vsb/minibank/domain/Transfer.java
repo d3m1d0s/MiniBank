@@ -44,6 +44,22 @@ public class Transfer {
 
     private Instant authValidUntil;
 
+    /**
+     * The version the store holds for this row, or 0 for a transfer no store has seen.
+     *
+     * The same token {@link Account} carries and for the same reason, kept here rather than in a
+     * side map because the identity map already makes this instance a transaction's single view
+     * of the row. Only SqlTransferRepository touches it. On the JSON backend it stays 0 forever
+     * and nothing reads it: JsonUnitOfWork holds the store lock from its constructor to commit,
+     * so a JSON transaction's read and write cannot interleave and there is no stale write for a
+     * version to catch.
+     *
+     * Accounts got one first because the measured leak was on the balance. This row needs its
+     * own because three paths write it without ever calling accounts.save - cancelPayment, the
+     * wrong-OTP branch and the expired-window branch - so accounts.version cannot see them.
+     */
+    private int version;
+
     // Lazy navigation properties (optional)
     private LazyRef<Account> sourceAccountRef;
     private LazyRef<Beneficiary> beneficiaryRef;
@@ -372,6 +388,23 @@ public class Transfer {
     public String declineReason() { return declineReason; }
     public int authAttempts() { return authAttempts; }
     public Instant authValidUntil() { return authValidUntil; }
+    public int version() { return version; }
+
+    /**
+     * Records the version the store holds for this transfer.
+     *
+     * Two callers, both in SqlTransferRepository: once when a row is read, and once after a
+     * guarded write reports the version it left behind. The second call is what lets the same
+     * transfer be saved more than once in one unit of work without the second write conflicting
+     * with the first - {@code routeTransferCreation} saves and then settles.
+     *
+     * The invariant a future retry must respect is {@link Account#hydrateVersion}'s: after a
+     * save has executed this number is the store's only while the transaction still commits. A
+     * rolled-back transaction leaves this instance one ahead of the row and therefore unusable.
+     */
+    public void hydrateVersion(int version) {
+        this.version = version;
+    }
 
     /**
      * Returns true when the transfer is waiting for authorization and the validity window has expired.

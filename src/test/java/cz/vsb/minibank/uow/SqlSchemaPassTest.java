@@ -9,6 +9,7 @@ import cz.vsb.minibank.domain.SimpleFeePolicy;
 import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.exceptions.OptimisticLockException;
+import cz.vsb.minibank.domain.exceptions.TransferChangedException;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
@@ -33,6 +34,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -41,7 +43,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * A6 and the columns bundled with it, asserted against a real PostgreSQL.
+ * A6, the columns bundled with it, and B19's guard on the transfers row, asserted against a real
+ * PostgreSQL.
  *
  * Everything here needs a database, and for a reason: a version column that is compared inside a
  * statement cannot be tested against a fake, a CHECK constraint is not a Java rule, and a column
@@ -61,6 +64,12 @@ public class SqlSchemaPassTest {
 
     /** No thread should ever wait this long; a timeout means something is wedged. */
     private static final int TIMEOUT_SECONDS = 60;
+
+    /**
+     * Which of the two racing threads plays the cancel. Claimed rather than assigned, because
+     * both threads run the same Callable and neither may be told which one it is in advance.
+     */
+    private final AtomicBoolean cancelTaken = new AtomicBoolean(false);
 
     private static final IBAN PAYER_IBAN = new IBAN("CZ6508000000192000145399");
     private static final IBAN EXTERNAL_IBAN = new IBAN("CZ2001000000000012345678");
@@ -222,6 +231,127 @@ public class SqlSchemaPassTest {
     }
 
     // -------------------------------------------------------------------------
+    // B19: the same guard on the transfers row, which A6 did not cover
+    // -------------------------------------------------------------------------
+
+    /**
+     * Two tabs on one waiting payment: the cancel and the authorization cannot both land.
+     *
+     * The shape A6 left open. Both writers here touch only the transfers row - the cancel never
+     * loads an account at all, and a failed OTP attempt does not either - so accounts.version
+     * cannot see either of them and, before transfers got its own, the second writer simply
+     * overwrote the first. Concretely: a cancel committing after an authorization wrote DECLINED
+     * over SENT and blanked fee and settled_at with it, so the debit stood while the row dropped
+     * out of the SENT-only day total.
+     *
+     * The two mutations are deliberately different, and one of them is the case a status token
+     * would have missed. A failed OTP attempt leaves the status at WAITING_AUTH, so a guard of
+     * the form {@code WHERE status = ?} would have let both through - which is why this column is
+     * a version and not a status.
+     *
+     * Both orderings are covered by the one run, exactly as the account test above covers them:
+     * the loser either finds version 1 where it read 0, or blocks on the row lock and is
+     * evaluated against the winner's committed row when it is released.
+     */
+    @Test
+    void cancellingAndAuthorizingOneTransferAtOnceLeavesOneOutcomeAndRefusesTheOther() throws Exception {
+        int transferId = seedWaitingTransfer();
+
+        CyclicBarrier atTheSameMoment = new CyclicBarrier(2);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+
+        Callable<Throwable> writeOnce = () -> {
+            UnitOfWork uow = infra.uowFactory.begin();
+            try (UowScope __ = new UowScope(uow)) {
+                Transfer t = infra.transfers.byId(transferId).orElseThrow();
+
+                // Whichever thread gets here first decides which mutation this one is. Both are
+                // real: the first is what cancelPayment does, the second what the wrong-OTP
+                // branch does, and neither writes an account.
+                if (t.status() == TransferStatus.WAITING_AUTH && !cancelTaken.getAndSet(true)) {
+                    t.decline("Canceled by customer");
+                } else {
+                    t.registerFailedOtpAttempt(99);
+                }
+                infra.transfers.save(t);
+
+                atTheSameMoment.await(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+                uow.commit();
+                return null;
+            } catch (RuntimeException e) {
+                uow.rollback();
+                return e;
+            }
+        };
+
+        try {
+            List<Future<Throwable>> futures = List.of(pool.submit(writeOnce), pool.submit(writeOnce));
+            List<Throwable> outcomes = new ArrayList<>();
+            for (Future<Throwable> f : futures) {
+                outcomes.add(f.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            }
+
+            assertEquals(1, outcomes.stream().filter(java.util.Objects::isNull).count(),
+                    "exactly one of the two writers may win; outcomes were " + outcomes);
+
+            Throwable refused = outcomes.stream()
+                    .filter(java.util.Objects::nonNull).findFirst().orElseThrow();
+            assertTrue(refused instanceof TransferChangedException,
+                    "the loser must be refused as a stale transfer write, not as an internal"
+                            + " error and not as the account conflict: " + refused);
+            assertTrue(refused.getMessage().contains(String.valueOf(transferId)),
+                    "the refusal must name the transfer, for the log: " + refused.getMessage());
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertEquals(1, versionOfTransfer(transferId),
+                "exactly one guarded write reached the row; two would mean one of them was"
+                        + " silently overwritten, which is the defect this column exists to refuse");
+    }
+
+    /**
+     * The token survives a round trip, which is what makes the write after a load guarded at all.
+     *
+     * Asserted because the load path is the half that fails silently. A transfer that came back
+     * without its version would carry 0, the next update would compare against the version of a
+     * row nobody has written yet, and the guard would either refuse a legitimate write or - if
+     * the row really were at 0 - pass one it should have refused.
+     */
+    @Test
+    void theTransferVersionComesBackFromTheStoreAndCountsTheGuardedWrites() throws Exception {
+        int transferId = seedWaitingTransfer();
+
+        // Creating a payment is a single write, and an insert takes the column default: the
+        // DO UPDATE arm is the only thing that bumps. So a transfer that has been written once
+        // has never yet been guarded against anything.
+        assertEquals(0, versionOfTransfer(transferId),
+                "an insert must leave the default rather than choosing a version of its own");
+
+        Transfer loaded = infra.transfers.byId(transferId).orElseThrow();
+        assertEquals(0, loaded.version(),
+                "the aggregate must carry the version the store holds after a load");
+
+        UnitOfWork uow = infra.uowFactory.begin();
+        try (UowScope __ = new UowScope(uow)) {
+            Transfer t = infra.transfers.byId(transferId).orElseThrow();
+            t.decline("Canceled by customer");
+            infra.transfers.save(t);
+            uow.commit();
+        } catch (RuntimeException e) {
+            uow.rollback();
+            throw e;
+        }
+
+        assertEquals(1, versionOfTransfer(transferId),
+                "one guarded write, one version");
+        assertEquals(1, infra.transfers.byId(transferId).orElseThrow().version(),
+                "and the load brings the new one back, which is what lets the write after it"
+                        + " be guarded in turn");
+    }
+
+    // -------------------------------------------------------------------------
     // The CHECK constraint
     // -------------------------------------------------------------------------
 
@@ -370,6 +500,50 @@ public class SqlSchemaPassTest {
 
     private int versionOf(int accountId) throws SQLException {
         return readOne("SELECT version FROM accounts WHERE id = ?", accountId, rs -> rs.getInt(1));
+    }
+
+    private int versionOfTransfer(int transferId) throws SQLException {
+        return readOne("SELECT version FROM transfers WHERE id = ?", transferId, rs -> rs.getInt(1));
+    }
+
+    /**
+     * A payment parked at WAITING_AUTH, through the production services.
+     *
+     * The account gets a soft tier of 3 000 and the payment is 3 500, so it crosses that tier and
+     * waits. Below every other threshold on purpose: nothing else may be what stopped it, or the
+     * fixture would be testing the wrong rule.
+     */
+    private int seedWaitingTransfer() {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+
+        int customerId;
+        int accountId;
+
+        UnitOfWork uow = infra.uowFactory.begin();
+        try (UowScope __ = new UowScope(uow)) {
+            customerId = infra.customers.nextId();
+            Customer c = new Customer(customerId, "Race Probe", "race@example.com",
+                    new Address("Hlavni 1", "Ostrava"));
+            infra.customers.save(c);
+
+            accountId = infra.accounts.nextId();
+            infra.accounts.save(new Account(accountId, PAYER_IBAN,
+                    Money.czk(500_000), Money.czk(400_000), Money.czk(3_000)));
+            c.addAccountId(accountId);
+            infra.customers.save(c);
+            uow.commit();
+        } catch (RuntimeException e) {
+            uow.rollback();
+            throw e;
+        }
+
+        int transferId = services.transferService.submitPaymentToIban(
+                customerId, accountId, EXTERNAL_IBAN.value(), 3_500, null);
+        assertEquals(TransferStatus.WAITING_AUTH,
+                infra.transfers.byId(transferId).orElseThrow().status(),
+                "the fixture must park the payment, or the race under test never happens");
+        return transferId;
     }
 
     private interface RowReader<T> {

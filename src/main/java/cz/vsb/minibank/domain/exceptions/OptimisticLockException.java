@@ -15,6 +15,10 @@ package cz.vsb.minibank.domain.exceptions;
  *
  * The message carries the account id and the version this transaction read. It reaches the
  * server log only; no handler echoes an exception message.
+ *
+ * {@link TransferChangedException} extends this for the same mechanism on the transfers row.
+ * Anything thrown as this type rather than as that one is about an account, which is what lets
+ * this class keep a message that promises nothing was charged.
  */
 public class OptimisticLockException extends ConflictException {
     public OptimisticLockException(String msg) { super(msg); }

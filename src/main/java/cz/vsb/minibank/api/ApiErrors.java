@@ -88,6 +88,20 @@ final class ApiErrors {
             "CONCURRENT_MODIFICATION",
             "This payment could not be completed because another change was applied first. Nothing was charged. Please send it again.");
 
+    // The transfers row lost the same kind of race, and it deliberately does NOT reuse the
+    // message above. Two tabs on one payment: if the cancel loses to the authorization, the
+    // customer has been charged - by the other tab - so "nothing was charged" is false, and
+    // "please send it again" is an invitation to pay twice. The reverse order is harmless but
+    // the message cannot know which way it went.
+    //
+    // What is true either way, and all this says: this request changed nothing, and the payment
+    // is no longer in the state the caller was looking at. So it names looking again as the
+    // action, not retrying. It still names no amount and no status - the status is on the
+    // payment, which is where the customer is being sent.
+    static final ApiError TRANSFER_CHANGED = new ApiError(
+            "TRANSFER_CHANGED",
+            "This payment changed while you were working on it, so nothing in this request was applied. Open the payment again to see where it stands.");
+
     // Says that the bank is checking the payment and nothing else. No amount, no threshold, no
     // beneficiary, no risk score: the customer learns that it is under review and that it is
     // not lost, which is everything they can act on, and it names the one action they still
