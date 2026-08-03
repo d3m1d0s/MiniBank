@@ -3,12 +3,19 @@ package cz.vsb.minibank.application;
 import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
-import cz.vsb.minibank.domain.FraudAlertEvents;
 
 import java.time.Clock;
 
 /**
  * Aggregates core application services, policies and gateways used by the MiniBank application.
+ *
+ * It deliberately registers no observers, although it used to register the two audit ones. This
+ * class is a bag of services, not a composition root: the test suite builds it once per test
+ * class that needs services, and the event buses are static, so every construction left another
+ * pair of observers on them and one status change reached the audit log hundreds of times in a
+ * single run. Attaching them belongs to the four places that actually start the application -
+ * {@code App}, {@code AppSql}, {@code DemoRunner} and {@code MinibankApiConfig} - each of which
+ * runs once.
  */
 public class BootstrapServices {
 
@@ -96,9 +103,6 @@ public class BootstrapServices {
                              PaymentNetworkGateway paymentGateway,
                              UnitOfWorkFactory uowFactory,
                              Clock clock) {
-
-        TransferEvents.register(new TransferAuditLogObserver());
-        FraudAlertEvents.register(new FraudAlertAuditLogObserver());
 
         this.paymentGateway = paymentGateway;
         this.feePolicy = feePolicy;

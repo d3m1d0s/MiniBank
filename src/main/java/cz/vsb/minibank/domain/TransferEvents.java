@@ -31,6 +31,18 @@ public final class TransferEvents {
     }
 
     /**
+     * How many observers are attached.
+     *
+     * The bus is static and process-wide, so "attached twice" is a real defect rather than a
+     * detail: it duplicates every audit line and it is invisible to any assertion about what a
+     * single observer saw. Exposed so that the composition roots can be held to attaching the
+     * audit observers exactly once.
+     */
+    public static int observerCount() {
+        return observers.size();
+    }
+
+    /**
      * Notifies observers about a transfer status change.
      */
     public static void notifyStatusChanged(Transfer transfer,

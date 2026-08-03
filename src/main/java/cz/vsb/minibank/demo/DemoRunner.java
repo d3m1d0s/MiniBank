@@ -1,7 +1,9 @@
 package cz.vsb.minibank.demo;
 
 import cz.vsb.minibank.application.BootstrapServices;
+import cz.vsb.minibank.application.FraudAlertAuditLogObserver;
 import cz.vsb.minibank.application.MinibankProperties;
+import cz.vsb.minibank.application.TransferAuditLogObserver;
 import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.exceptions.TransferUnderReviewException;
 import cz.vsb.minibank.domain.value.Money;
@@ -52,6 +54,11 @@ public class DemoRunner {
         if (MinibankProperties.demoReset()) {
             resetStore(dataPath);
         }
+        // The event buses are static, so this belongs to whatever starts the process exactly
+        // once, not to BootstrapServices, which anything may construct any number of times.
+        TransferEvents.register(new TransferAuditLogObserver());
+        FraudAlertEvents.register(new FraudAlertAuditLogObserver());
+
         Bootstrap infra = new Bootstrap(dataPath);
         BootstrapServices services = new BootstrapServices(
                 infra.customers,

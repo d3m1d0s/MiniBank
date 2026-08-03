@@ -3,10 +3,14 @@ package cz.vsb.minibank;
 import cz.vsb.minibank.application.AppLogger;
 import cz.vsb.minibank.application.AuthService;
 import cz.vsb.minibank.application.BootstrapServices;
+import cz.vsb.minibank.application.FraudAlertAuditLogObserver;
 import cz.vsb.minibank.application.MinibankProperties;
 import cz.vsb.minibank.application.PasswordEncoder;
 import cz.vsb.minibank.application.Pbkdf2PasswordEncoder;
+import cz.vsb.minibank.application.TransferAuditLogObserver;
 import cz.vsb.minibank.demo.DemoScenario;
+import cz.vsb.minibank.domain.FraudAlertEvents;
+import cz.vsb.minibank.domain.TransferEvents;
 import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.UserRole;
 import cz.vsb.minibank.domain.repository.UserRepository;
@@ -22,6 +26,11 @@ public class AppSql {
 
     public static void main(String[] args) {
         AppLogger.info("app", "Starting MiniBank in SQL mode");
+
+        // The event buses are static, so this belongs to whatever starts the process exactly
+        // once, not to BootstrapServices, which anything may construct any number of times.
+        TransferEvents.register(new TransferAuditLogObserver());
+        FraudAlertEvents.register(new FraudAlertAuditLogObserver());
 
         Bootstrap infra = new Bootstrap(
                 MinibankProperties.sqlUrl(),

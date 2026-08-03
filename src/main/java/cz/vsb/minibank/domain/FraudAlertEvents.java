@@ -32,6 +32,13 @@ public final class FraudAlertEvents {
     }
 
     /**
+     * How many observers are attached. See {@link TransferEvents#observerCount()}.
+     */
+    public static int observerCount() {
+        return observers.size();
+    }
+
+    /**
      * Notifies observers about a fraud alert state change.
      */
     public static void notifyStateChanged(FraudAlert alert,
