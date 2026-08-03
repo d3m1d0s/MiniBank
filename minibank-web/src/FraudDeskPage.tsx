@@ -14,6 +14,7 @@ import {
     type AlertCounters,
     type ApiError,
 } from './api';
+import { amountRangeProblem } from './alertFilters';
 
 // The fraud desk takes no navigation callback: only a FRAUD_ANALYST reaches it,
 // and App restricts that role to this view.
@@ -59,6 +60,8 @@ export default function FraudDeskPage() {
 
     const [filters, setFilters] = useState<AlertFilters>({ state: 'NEW' });
 
+    const [unreadable, setUnreadable] = useState({ min: false, max: false });
+
     const [listError, setListError] = useState<string | null>(null);
     const [detailError, setDetailError] = useState<string | null>(null);
     const [decisionError, setDecisionError] = useState<string | null>(null);
@@ -74,9 +77,36 @@ export default function FraudDeskPage() {
     useEffect(() => {
         void loadAlerts();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [filters]);
+        // unreadable belongs in here beside filters. Typing something the box cannot read into
+        // an already empty field leaves the value at '' and the filters untouched, so on filters
+        // alone nothing would re-run and the analyst would be told nothing at all.
+    }, [filters, unreadable]);
+
+    /**
+     * Records whether the browser could read what was typed into an amount box.
+     *
+     * A number input reports an unreadable value as the empty string, which is exactly what a
+     * cleared box reports, so without this the parameter would simply not be sent and the
+     * analyst would get the whole queue looking like a filtered one. Kept per box: fixing the
+     * upper bound must not silently forgive the lower one.
+     */
+    function setAmountReadable(which: 'min' | 'max', input: HTMLInputElement) {
+        setUnreadable((prev) => ({ ...prev, [which]: input.validity.badInput }));
+    }
 
     async function loadAlerts(keepSelection = false) {
+        // Checked before the request, and the server checks it again. This half exists to name
+        // which two numbers are the wrong way round; the server cannot, because no handler
+        // echoes an exception message. The server half exists because the endpoint is reachable
+        // without this screen.
+        const problem = amountRangeProblem(filters, unreadable);
+        if (problem) {
+            setAlerts([]);
+            setCounters(null);
+            setListError(problem);
+            return;
+        }
+
         try {
             setLoadingList(true);
             setListError(null);
@@ -265,30 +295,39 @@ export default function FraudDeskPage() {
                                     <label className="field-label">
                                         Amount
                                     </label>
+                                    {/*
+                                      Numeric, with a floor, because the queue prints amounts
+                                      plainly - 1500.00 - and that is what an analyst copies in
+                                      here. The one thing a number box must not be allowed to do
+                                      quietly is report unreadable input as empty; that is what
+                                      setAmountReadable is for.
+                                    */}
                                     <input
                                         className="field-input"
-                                        type="text"
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        inputMode="decimal"
                                         placeholder="Min"
                                         value={filters.minAmount ?? ''}
-                                        onChange={(e) =>
-                                            updateFilter(
-                                                'minAmount',
-                                                e.target.value,
-                                            )
-                                        }
+                                        onChange={(e) => {
+                                            setAmountReadable('min', e.currentTarget);
+                                            updateFilter('minAmount', e.currentTarget.value);
+                                        }}
                                     />
                                     <div className="field-side">-</div>
                                     <input
                                         className="field-input"
-                                        type="text"
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        inputMode="decimal"
                                         placeholder="Max"
                                         value={filters.maxAmount ?? ''}
-                                        onChange={(e) =>
-                                            updateFilter(
-                                                'maxAmount',
-                                                e.target.value,
-                                            )
-                                        }
+                                        onChange={(e) => {
+                                            setAmountReadable('max', e.currentTarget);
+                                            updateFilter('maxAmount', e.currentTarget.value);
+                                        }}
                                     />
                                 </div>
 

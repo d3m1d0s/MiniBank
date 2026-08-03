@@ -66,6 +66,13 @@ public class FraudController {
             @RequestParam(name = "assignee",    required = false) String assignee
     ) {
         requireRole(UserRole.FRAUD_ANALYST);
+
+        // Before anything is loaded: a range that cannot match is a mistake in the request, not
+        // an empty result. Left unchecked, min above max returned an empty queue while the
+        // counters below still reported non-zero totals, which reads as "no alerts match" rather
+        // than as "your filter is backwards".
+        requireUsableAmountRange(minAmount, maxAmount);
+
         List<FraudAlert> all = alerts.all();
 
         FraudAlertState stateFilter = parseState(state);
@@ -295,6 +302,31 @@ public class FraudController {
      * Parses an ISO instant filter. An unparseable value used to be dropped, which answered
      * 200 with a queue that did not match what the analyst asked for.
      */
+    /**
+     * Refuses an amount range no transfer could ever fall in.
+     *
+     * A negative bound and a reversed range are both refused, and for the same reason: neither
+     * can match anything, and an empty queue is how this endpoint reports "nothing matched". The
+     * analyst has no way to tell those apart from the answer alone, and the counters make it
+     * worse by continuing to report the whole queue's totals beside the empty list.
+     *
+     * Both desks check the same thing before sending, which is the affordance - it names which
+     * two numbers are the wrong way round, and this cannot, because no handler echoes an
+     * exception message. This is the guard: the endpoint is reachable without either desk.
+     */
+    private static void requireUsableAmountRange(BigDecimal minAmount, BigDecimal maxAmount) {
+        if (minAmount != null && minAmount.signum() < 0) {
+            throw new ValidationException("minAmount must not be negative: " + minAmount);
+        }
+        if (maxAmount != null && maxAmount.signum() < 0) {
+            throw new ValidationException("maxAmount must not be negative: " + maxAmount);
+        }
+        if (minAmount != null && maxAmount != null && minAmount.compareTo(maxAmount) > 0) {
+            throw new ValidationException(
+                    "minAmount " + minAmount + " is above maxAmount " + maxAmount);
+        }
+    }
+
     private static Instant parseInstant(String value) {
         if (value == null || value.isBlank()) return null;
         try {

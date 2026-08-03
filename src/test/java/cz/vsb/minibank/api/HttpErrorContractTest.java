@@ -780,6 +780,49 @@ class HttpErrorContractTest {
         assertResponse(api, get("/api/fraud/alerts").param("createdFrom", "yesterday"), 400, BODY_VALIDATION_ERROR);
     }
 
+    /**
+     * A range that cannot match is refused rather than answered with an empty queue.
+     *
+     * The 200 these used to return is the failure worth naming: the list came back empty while
+     * the counters beside it still reported the whole queue, so the analyst was told there was
+     * nothing to review by a filter that was simply the wrong way round.
+     */
+    @Test
+    void aReversedAmountRangeIs400ValidationError() throws Exception {
+        signInAsAnalyst();
+
+        assertResponse(api, get("/api/fraud/alerts")
+                .param("minAmount", "500")
+                .param("maxAmount", "100"), 400, BODY_VALIDATION_ERROR);
+    }
+
+    @Test
+    void aNegativeAmountFilterIs400ValidationError() throws Exception {
+        signInAsAnalyst();
+
+        assertResponse(api, get("/api/fraud/alerts").param("minAmount", "-1"), 400, BODY_VALIDATION_ERROR);
+        assertResponse(api, get("/api/fraud/alerts").param("maxAmount", "-0.01"), 400, BODY_VALIDATION_ERROR);
+    }
+
+    /**
+     * The bounds that do describe a real range still work, including the two that look like
+     * edge cases and are not: a single-value range, and a zero floor.
+     */
+    @Test
+    void aUsableAmountRangeIsAccepted() throws Exception {
+        signInAsAnalyst();
+
+        assertEquals(200, statusOf(get("/api/fraud/alerts")
+                .param("minAmount", "100").param("maxAmount", "500")));
+        assertEquals(200, statusOf(get("/api/fraud/alerts")
+                .param("minAmount", "100").param("maxAmount", "100")));
+        assertEquals(200, statusOf(get("/api/fraud/alerts").param("minAmount", "0")));
+    }
+
+    private int statusOf(RequestBuilder request) throws Exception {
+        return api.perform(request).andReturn().getResponse().getStatus();
+    }
+
     /** HttpMessageNotReadableException: unchecked, so without its handler this was a 500. */
     @Test
     void anUnparseableJsonBodyIs400ValidationError() throws Exception {

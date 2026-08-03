@@ -10,6 +10,7 @@ import {
     type ApiError,
     type FraudDecision,
 } from './api';
+import { amountRangeProblem } from './alertFilters';
 
 function fmt(dt?: string | null) {
     if (!dt) return '';
@@ -52,6 +53,8 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [detail, setDetail] = useState<AlertDetail | null>(null);
 
+    const [unreadable, setUnreadable] = useState({ min: false, max: false });
+
     const [listErr, setListErr] = useState<string | null>(null);
     const [detailErr, setDetailErr] = useState<string | null>(null);
     const [decisionErr, setDecisionErr] = useState<string | null>(null);
@@ -68,9 +71,24 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
 
     const selected = useMemo(() => alerts.find(a => a.id === selectedId) || null, [alerts, selectedId]);
 
-    useEffect(() => { void reloadList(); }, [filters]);
+    // unreadable belongs in here beside filters. Typing something the box cannot read into an
+    // already empty field leaves the value at '' and the filters untouched, so on filters alone
+    // nothing would re-run and the analyst would be told nothing at all.
+    useEffect(() => { void reloadList(); }, [filters, unreadable]);
 
     async function reloadList(keepSelection = false) {
+        // Checked before the request, and the server checks it again. This half exists to name
+        // which two numbers are the wrong way round; the server cannot, because no handler
+        // echoes an exception message. The server half exists because the endpoint is reachable
+        // without this screen.
+        const problem = amountRangeProblem(filters, unreadable);
+        if (problem) {
+            setAlerts([]);
+            setCounters(null);
+            setListErr(problem);
+            return;
+        }
+
         try {
             setBusyList(true);
             setListErr(null);
@@ -168,6 +186,18 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
         setFilters(prev => ({ ...prev, [k]: v || undefined }));
     }
 
+    /**
+     * Records whether the browser could read what was typed into an amount box.
+     *
+     * A number input reports an unreadable value as the empty string, which is exactly what a
+     * cleared box reports, so without this the parameter would simply not be sent and the
+     * analyst would get the whole queue looking like a filtered one. Kept per box: fixing the
+     * upper bound must not silently forgive the lower one.
+     */
+    function setAmountReadable(which: 'min' | 'max', input: HTMLInputElement) {
+        setUnreadable(prev => ({ ...prev, [which]: input.validity.badInput }));
+    }
+
     return (
         <div className="shell">
             <div className="window">
@@ -198,8 +228,37 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
 
                                 <div className="row row--3">
                                     <label>Amount</label>
-                                    <input placeholder="min" value={filters.minAmount ?? ''} onChange={(e) => setF('minAmount', e.target.value)} />
-                                    <input placeholder="max" value={filters.maxAmount ?? ''} onChange={(e) => setF('maxAmount', e.target.value)} />
+                                    {/*
+                                      Numeric, with a floor, because the queue prints amounts
+                                      plainly - 1500.00 - and that is what an analyst copies in
+                                      here. The one thing a number box must not be allowed to do
+                                      quietly is report unreadable input as empty; that is what
+                                      setAmountReadable is for.
+                                    */}
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        inputMode="decimal"
+                                        placeholder="min"
+                                        value={filters.minAmount ?? ''}
+                                        onChange={(e) => {
+                                            setAmountReadable('min', e.currentTarget);
+                                            setF('minAmount', e.currentTarget.value);
+                                        }}
+                                    />
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        inputMode="decimal"
+                                        placeholder="max"
+                                        value={filters.maxAmount ?? ''}
+                                        onChange={(e) => {
+                                            setAmountReadable('max', e.currentTarget);
+                                            setF('maxAmount', e.currentTarget.value);
+                                        }}
+                                    />
                                 </div>
 
                                 <div className="row row--2">
