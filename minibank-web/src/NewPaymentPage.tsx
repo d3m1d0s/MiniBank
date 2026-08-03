@@ -12,8 +12,20 @@ import {
     isUnderReview,
     mapPaymentError,
 } from './api';
+import { parseAmount } from './money';
 
 const MAX_MESSAGE_LENGTH = 140;
+
+/**
+ * The locale to read an ambiguous amount in.
+ *
+ * Only `1,234` needs it - the one string that is a valid number under both the Czech and the
+ * English convention and means two different things. Everything the customer sees is Czech
+ * whatever this returns.
+ */
+function readerLocale(): string {
+    return navigator.language || 'cs-CZ';
+}
 
 type InfoState =
     | { type: 'none' }
@@ -84,17 +96,15 @@ export default function NewPaymentPage({ onNavigate }: Props) {
             return;
         }
 
-        // Parse amount
-        const amountValue = Number(
-            amount.replace(/\s+/g, '').replace(',', '.'),
-        );
-        if (!Number.isFinite(amountValue) || amountValue <= 0) {
-            setInfo({
-                type: 'error',
-                messages: ['Please enter a valid amount.'],
-            });
+        // Parse amount. The reason is shown as given: it names what is wrong with this string,
+        // which one generic "invalid amount" cannot, and the amounts people get wrong are the
+        // ones where the difference between two readings is a factor of a thousand.
+        const parsed = parseAmount(amount, readerLocale());
+        if (!parsed.ok) {
+            setInfo({ type: 'error', messages: [parsed.reason] });
             return;
         }
+        const amountValue = parsed.value;
 
         // Basic IBAN check
         if (!targetIban.trim()) {
@@ -234,12 +244,31 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                     />
                                     <div className="field-side">
                                         Amount:
+                                        {/*
+                                          Stays type="text". A Czech amount is written
+                                          `1 500,00`, which type="number" refuses outright -
+                                          it reports .value as the empty string for anything
+                                          it cannot interpret, so the field would go blank
+                                          on a perfectly good amount.
+
+                                          Normalized on blur rather than on every keystroke:
+                                          rewriting while someone is still typing moves the
+                                          caret out from under them, and half an amount is
+                                          not yet an amount.
+                                        */}
                                         <input
                                             className="amount-input"
                                             type="text"
-                                            placeholder="0.00 CZK"
+                                            inputMode="decimal"
+                                            placeholder="0,00"
                                             value={amount}
                                             onChange={(e) => setAmount(e.target.value)}
+                                            onBlur={() => {
+                                                const parsed = parseAmount(amount, readerLocale());
+                                                if (parsed.ok) {
+                                                    setAmount(parsed.czech);
+                                                }
+                                            }}
                                         />
                                     </div>
                                 </div>
@@ -294,9 +323,18 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                             <li>Transfer ID: {info.result.transferId}</li>
                                             <li>Status: {info.result.status}</li>
 
-                                            {/* Display charged amount including fee */}
+                                            {/*
+                                              "Charged", not "Amount requested". This field is
+                                              amount plus fee - PaymentController sets it that
+                                              way and NewPaymentResultDto says so - and the fee
+                                              is printed on the next line, so the old label
+                                              invited the reader to add the two and arrive at
+                                              the amount plus twice the fee. Waiting
+                                              authorizations already labels the same field
+                                              "Charged"; the two money screens now agree.
+                                            */}
                                             <li>
-                                                Amount requested: {info.result.chargedAmount}
+                                                Charged: {info.result.chargedAmount}
                                             </li>
                                             <li>
                                                 Fee: {info.result.feeAmount}
