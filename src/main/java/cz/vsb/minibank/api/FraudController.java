@@ -13,6 +13,8 @@ import cz.vsb.minibank.domain.exceptions.ValidationException;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.repository.AccountRepository;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
+import cz.vsb.minibank.infrastructure.uow.UowScope;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -37,16 +39,28 @@ public class FraudController {
     private final FraudApplicationService fraudService;
     private final FeePolicy feePolicy;
 
+    /**
+     * Opens the unit of work the read endpoints below run inside.
+     *
+     * The write endpoint does not use it - {@code decide} goes through the application service,
+     * which opens its own. The reads needed one because without it every repository call opens
+     * and tears down its own connection: this project has no connection pool, and the queue made
+     * one per alert.
+     */
+    private final UnitOfWorkFactory uowFactory;
+
     public FraudController(FraudAlertRepository alerts,
                            TransferRepository transfers,
                            AccountRepository accounts,
                            FraudApplicationService fraudService,
-                           FeePolicy feePolicy) {
+                           FeePolicy feePolicy,
+                           UnitOfWorkFactory uowFactory) {
         this.alerts = alerts;
         this.transfers = transfers;
         this.accounts = accounts;
         this.fraudService = fraudService;
         this.feePolicy = feePolicy;
+        this.uowFactory = uowFactory;
     }
 
     // -------------------------------------------------------------------------
@@ -73,12 +87,43 @@ public class FraudController {
         // than as "your filter is backwards".
         requireUsableAmountRange(minAmount, maxAmount);
 
+        // Parsed up here with the range check, so a filter the request got wrong is refused
+        // before a connection is opened for it rather than after.
+        Instant fromTs = parseInstant(createdFrom);
+        Instant toTs = parseInstant(createdTo);
+
+        // One unit of work for the whole read, and the reason is the shape of the loop below:
+        // it asks for every alert and then for one transfer per alert. There is no connection
+        // pool in this project, so outside a unit of work each of those calls opened and tore
+        // down its own JDBC connection - N+1 of them to draw one screen. Inside one, they share
+        // a connection and the identity map answers the second request for the same transfer.
+        //
+        // It buys connections and deduplication, not a consistent snapshot: nothing here sets an
+        // isolation level, so at READ COMMITTED every statement still sees its own snapshot even
+        // inside a transaction. An alert decided while this loop runs can still appear with its
+        // old state.
+        //
+        // On the JSON backend the unit of work holds the store lock for the whole read, so
+        // payments wait while a queue is drawn. Accepted: the loop is in memory and short, and
+        // the alternative is the connection storm above on the backend that actually ships.
+        var uow = uowFactory.begin();
+        try (UowScope __ = new UowScope(uow)) {
+            return buildQueue(state, minAmount, maxAmount, fromTs, toTs, assignee);
+        }
+    }
+
+    /**
+     * Builds the queue. Called only from {@link #listAlerts}, inside its unit of work.
+     */
+    private AlertQueueResponseDto buildQueue(String state,
+                                             BigDecimal minAmount,
+                                             BigDecimal maxAmount,
+                                             Instant fromTs,
+                                             Instant toTs,
+                                             String assignee) {
         List<FraudAlert> all = alerts.all();
 
         FraudAlertState stateFilter = parseState(state);
-
-        Instant fromTs = parseInstant(createdFrom);
-        Instant toTs = parseInstant(createdTo);
 
         String assigneeFilter = (assignee != null && !assignee.isBlank())
                 ? assignee.trim().toLowerCase(Locale.ROOT)
@@ -155,23 +200,29 @@ public class FraudController {
     @GetMapping("/alerts/{id}")
     public AlertDetailDto getAlert(@PathVariable("id") int id) {
         requireRole(UserRole.FRAUD_ANALYST);
-        FraudAlert alert = alerts.byId(id)
-                .orElseThrow(() -> new NotFoundException("Fraud alert not found: " + id));
 
-        // Both references below came from stored rows, not from the request.
-        Transfer transfer = transfers.byId(alert.transferId())
-                .orElseThrow(() -> new DataIntegrityException(
-                        "Fraud alert " + id + " points at missing transfer " + alert.transferId()));
+        // Four lookups that used to be four connections: the alert, its transfer, that
+        // transfer's account, and the account's whole history. Same reasoning as the queue.
+        var uow = uowFactory.begin();
+        try (UowScope __ = new UowScope(uow)) {
+            FraudAlert alert = alerts.byId(id)
+                    .orElseThrow(() -> new NotFoundException("Fraud alert not found: " + id));
 
-        Account source = accounts.byId(transfer.sourceAccountId())
-                .orElseThrow(() -> new DataIntegrityException(
-                        "Transfer " + transfer.id() + " points at missing account " + transfer.sourceAccountId()));
+            // Both references below came from stored rows, not from the request.
+            Transfer transfer = transfers.byId(alert.transferId())
+                    .orElseThrow(() -> new DataIntegrityException(
+                            "Fraud alert " + id + " points at missing transfer " + alert.transferId()));
 
-        AlertInfoDto alertDto = mapAlertInfo(alert);
-        TransferInfoDto transferDto = mapTransferInfo(transfer, source);
-        List<HistoryItemDto> history = mapHistoryForAccount(source.id());
+            Account source = accounts.byId(transfer.sourceAccountId())
+                    .orElseThrow(() -> new DataIntegrityException(
+                            "Transfer " + transfer.id() + " points at missing account " + transfer.sourceAccountId()));
 
-        return new AlertDetailDto(alertDto, transferDto, history);
+            AlertInfoDto alertDto = mapAlertInfo(alert);
+            TransferInfoDto transferDto = mapTransferInfo(transfer, source);
+            List<HistoryItemDto> history = mapHistoryForAccount(source.id());
+
+            return new AlertDetailDto(alertDto, transferDto, history);
+        }
     }
 
     // -------------------------------------------------------------------------

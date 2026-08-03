@@ -4,6 +4,7 @@ import cz.vsb.minibank.application.*;
 import cz.vsb.minibank.demo.DemoScenario;
 import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.Bootstrap;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.domain.FeePolicy;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -110,6 +111,18 @@ public class MinibankApiConfig {
     @Bean
     public FraudAlertRepository fraudAlertRepository(Bootstrap infra) {
         return infra.alerts;
+    }
+
+    /**
+     * Exposed so a controller can scope a read path to one unit of work.
+     *
+     * The write paths never needed it - they go through the application services, which open
+     * their own. The read paths did: without one, every repository call opens and tears down its
+     * own connection, and the alert queue made one per alert.
+     */
+    @Bean
+    public UnitOfWorkFactory unitOfWorkFactory(Bootstrap infra) {
+        return infra.uowFactory;
     }
 
     @Bean

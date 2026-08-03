@@ -11,6 +11,8 @@ import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
+import cz.vsb.minibank.infrastructure.uow.UowScope;
 import cz.vsb.minibank.domain.FeePolicy;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
@@ -37,16 +39,27 @@ public class AuthorizationController {
     private final FeePolicy feePolicy;
     private final OwnershipGuard ownershipGuard;
 
+    /**
+     * Opens the unit of work the two read endpoints run inside.
+     *
+     * Not used by authorize or cancel: those go through the application service, which opens its
+     * own, and their re-reads afterwards are a separate problem - they run after that
+     * transaction has committed and can therefore see another one's balance.
+     */
+    private final UnitOfWorkFactory uowFactory;
+
     public AuthorizationController(TransferApplicationService transferService,
                                    AccountRepository accounts,
                                    TransferRepository transfers,
                                    FeePolicy feePolicy,
-                                   OwnershipGuard ownershipGuard) {
+                                   OwnershipGuard ownershipGuard,
+                                   UnitOfWorkFactory uowFactory) {
         this.transferService = transferService;
         this.accounts = accounts;
         this.transfers = transfers;
         this.feePolicy = feePolicy;
         this.ownershipGuard = ownershipGuard;
+        this.uowFactory = uowFactory;
     }
 
     /**
@@ -60,9 +73,25 @@ public class AuthorizationController {
      */
     @GetMapping("/me/waiting-transfers")
     public List<WaitingTransferItemDto> listMyWaiting() {
+        int customerId = requireCustomerId();
+
+        // The same N+1 the alert queue had, on a screen that is polled far more often: one
+        // lookup for the customer's accounts, then one per account for its transfers. Without a
+        // unit of work each of those opens and tears down its own JDBC connection, because this
+        // project has no connection pool.
+        var uow = uowFactory.begin();
+        try (UowScope __ = new UowScope(uow)) {
+            return waitingFor(customerId);
+        }
+    }
+
+    /**
+     * Called only from {@link #listMyWaiting}, inside its unit of work.
+     */
+    private List<WaitingTransferItemDto> waitingFor(int customerId) {
         List<WaitingTransferItemDto> result = new ArrayList<>();
 
-        for (Account acc : accounts.byCustomerId(requireCustomerId())) {
+        for (Account acc : accounts.byCustomerId(customerId)) {
             for (Transfer t : transfers.bySourceAccount(acc.id())) {
                 // Held transfers belong in this list. Filtering them out would make a
                 // customer's payment disappear from the only screen that mentions it, with
@@ -94,7 +123,21 @@ public class AuthorizationController {
      */
     @GetMapping("/transfers/{id}")
     public TransferDetailsDto transferDetails(@PathVariable("id") int id) {
-        var caller = ownershipGuard.requireCaller(requireCustomerId());
+        int customerId = requireCustomerId();
+
+        // Three lookups - the caller, the transfer, its account - and the same rule as the two
+        // reads above: a read path in this controller runs inside one unit of work.
+        var uow = uowFactory.begin();
+        try (UowScope __ = new UowScope(uow)) {
+            return detailsOf(customerId, id);
+        }
+    }
+
+    /**
+     * Called only from {@link #transferDetails}, inside its unit of work.
+     */
+    private TransferDetailsDto detailsOf(int customerId, int id) {
+        var caller = ownershipGuard.requireCaller(customerId);
         Transfer t = transfers.byId(id)
                 .orElseThrow(() -> new NotFoundException("Transfer not found: " + id));
         ownershipGuard.requireOwnedTransfer(caller, t);

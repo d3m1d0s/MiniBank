@@ -140,7 +140,8 @@ public class PaymentAndAuthorizationApiTest {
                 accounts,
                 transfers,
                 services.feePolicy,
-                services.ownershipGuard
+                services.ownershipGuard,
+                infra.uowFactory
         );
     }
 

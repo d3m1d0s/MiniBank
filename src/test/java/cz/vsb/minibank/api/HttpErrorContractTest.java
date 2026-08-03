@@ -213,9 +213,11 @@ class HttpErrorContractTest {
                 VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, TARGET_IBAN, 100.0, "victim sent");
 
         paymentController = new PaymentController(transferService, accounts, transfers, services.feePolicy);
-        authorizationController = new AuthorizationController(transferService, accounts, transfers, services.feePolicy, services.ownershipGuard);
+        authorizationController = new AuthorizationController(transferService, accounts, transfers,
+                services.feePolicy, services.ownershipGuard, infra.uowFactory);
         FraudController fraudController = new FraudController(
-                infra.alerts, transfers, accounts, services.fraudService, services.feePolicy);
+                infra.alerts, transfers, accounts, services.fraudService, services.feePolicy,
+                infra.uowFactory);
 
         var encoder = new Pbkdf2PasswordEncoder();
         users = new InMemoryUserRepository();

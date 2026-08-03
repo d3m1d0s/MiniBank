@@ -9,6 +9,8 @@ import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -19,6 +21,20 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class FraudControllerAuthTest {
+
+    /**
+     * A unit of work that does nothing, which is all this test needs one to do.
+     *
+     * The read endpoints open one so that a real backend answers a whole screen on a single
+     * connection. Here the repositories are mocks and have no connection, so the scope only has
+     * to exist and close cleanly - which is itself worth asserting by construction: a controller
+     * that opened a unit of work and failed to close it would wedge the JSON store.
+     */
+    private static UnitOfWorkFactory noOpUnitOfWork() {
+        UnitOfWorkFactory factory = mock(UnitOfWorkFactory.class);
+        when(factory.begin()).thenReturn(mock(UnitOfWork.class));
+        return factory;
+    }
 
     private static User fraudUser() {
         return new User(
@@ -91,7 +107,8 @@ class FraudControllerAuthTest {
                 transfers,
                 accounts,
                 fraudService,
-                feePolicy
+                feePolicy,
+                noOpUnitOfWork()
         );
 
         // act
@@ -119,7 +136,8 @@ class FraudControllerAuthTest {
                 transfers,
                 accounts,
                 fraudService,
-                feePolicy
+                feePolicy,
+                noOpUnitOfWork()
         );
 
         // act + assert
