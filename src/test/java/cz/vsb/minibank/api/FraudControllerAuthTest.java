@@ -146,4 +146,46 @@ class FraudControllerAuthTest {
                 () -> ctrl.listAlerts(null, null, null, null, null, null, null)
         );
     }
+
+    /**
+     * The two endpoints the queue test did not cover.
+     *
+     * FraudApplicationService does not check the role itself - the gate is in its callers, and
+     * this controller is the only one of them reachable over HTTP. That makes these assertions
+     * the gate rather than a duplicate of it, which is why they are worth writing down: the
+     * mutating route in particular had nothing standing behind it in the suite.
+     *
+     * Refused before the body is read, so the request payload is irrelevant and passed as null.
+     */
+    @Test
+    void decidingOnAnAlertIsForbiddenForCustomer() {
+        SecurityContext.setCurrentUser(customerUser());
+
+        FraudController ctrl = new FraudController(
+                mock(FraudAlertRepository.class),
+                mock(TransferRepository.class),
+                mock(AccountRepository.class),
+                mock(FraudApplicationService.class),
+                new ZeroFeePolicy(),
+                noOpUnitOfWork()
+        );
+
+        assertThrows(AccessDeniedException.class, () -> ctrl.decide(1, null));
+    }
+
+    @Test
+    void openingOneAlertIsForbiddenForCustomer() {
+        SecurityContext.setCurrentUser(customerUser());
+
+        FraudController ctrl = new FraudController(
+                mock(FraudAlertRepository.class),
+                mock(TransferRepository.class),
+                mock(AccountRepository.class),
+                mock(FraudApplicationService.class),
+                new ZeroFeePolicy(),
+                noOpUnitOfWork()
+        );
+
+        assertThrows(AccessDeniedException.class, () -> ctrl.getAlert(1));
+    }
 }

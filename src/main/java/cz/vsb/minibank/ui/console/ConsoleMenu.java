@@ -95,10 +95,30 @@ public class ConsoleMenu {
             action.run();
         }
 
+        /**
+         * Whether an operator in this role may see this command and run it.
+         *
+         * Read on the dispatch path as well as the display one, so it is an access check and
+         * not a formatting rule.
+         *
+         * A command that names no role is open to anybody, an unknown role included: that is
+         * what "no restriction" means. A command that does name roles is closed to an unknown
+         * one. That second line used to return true, which is the wrong direction for a check
+         * like this - it made "we do not know who you are" mean "you may do anything",
+         * including the fraud menu.
+         *
+         * Not reachable today: {@code effectiveRole} answers null only when there is no signed
+         * in user and no positive customer id, and nothing constructs the menu that way. A
+         * default that fails open is one caller away from mattering, which is why it is the
+         * default that changed rather than the caller.
+         */
         @Override
         public boolean isVisibleFor(UserRole role) {
-            if (allowedRoles == null || role == null) {
+            if (allowedRoles == null || allowedRoles.length == 0) {
                 return true;
+            }
+            if (role == null) {
+                return false;
             }
             for (UserRole r : allowedRoles) {
                 if (r == role) return true;

@@ -14,14 +14,27 @@ import java.time.Instant;
 /**
  * Application service for fraud related use cases such as approving, declining and confirming suspicious transfers.
  *
- * Every method here is role-gated, not owner-gated, and that is deliberate rather than the
+ * Every way in here is role-gated, not owner-gated, and that is deliberate rather than the
  * oversight A3 fixed next door: an analyst is supposed to reach every customer's alerts, so
- * there is no ownership rule to write. Over HTTP the only route in is FraudController.decide,
- * which calls requireRole and reads the transfer id off the alert row rather than off the
- * request. The three single-argument methods below have no HTTP route at all; their only
- * caller is the console fraud menu, which in the legacy JSON mode has no login to check a
- * role against. That is a separate backlog item and it wants the legacy console to gain a
- * login first - inventing an analyst for a mode with no users would be worse than the gap.
+ * there is no ownership rule to write.
+ *
+ * The gate is in the callers, not in this class, and that is worth stating plainly because it
+ * is the kind of arrangement a reader assumes the other way round. There are three callers and
+ * all three are accounted for:
+ *
+ * - Over HTTP, FraudController. Every endpoint there opens with requireRole, and decide reads
+ *   the transfer id off the alert row rather than off the request.
+ * - The console fraud menu, registered for FRAUD_ANALYST. ConsoleMenu checks that on the
+ *   dispatch path and not only when drawing the menu, so the command cannot be typed past. In
+ *   the legacy JSON mode effectiveRole answers CUSTOMER, so the menu is unreachable there
+ *   rather than unguarded - the opposite of what this comment used to claim.
+ * - DemoRunner, a script with no operator at all.
+ *
+ * What follows from that, and is the residual: a NEW caller gets no check. Moving the check in
+ * here would close that, and was decided against. It would force an identity on the two callers
+ * that have none - inventing an analyst for a mode with no users is worse than the gap - and
+ * requireRole lives in the api package, so this class would either depend downward on it or
+ * write the rule a second time.
  *
  * The state guards below - FraudAlert's, and the transfer's - are checks against a snapshot,
  * not locks. SqlUnitOfWorkFactory.begin only clears auto-commit; there is no isolation level

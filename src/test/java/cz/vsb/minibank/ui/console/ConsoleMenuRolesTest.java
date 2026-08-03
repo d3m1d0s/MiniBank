@@ -102,6 +102,34 @@ class ConsoleMenuRolesTest {
         assertFalse(visibleForCustomer.contains("6"));
     }
 
+    /**
+     * An operator whose role is unknown gets nothing that names a role.
+     *
+     * This check is read on the dispatch path, not only when the menu is drawn, so it decides
+     * what can be run and not merely what can be seen. It used to answer true for a null role,
+     * which made "we do not know who you are" mean "you may do anything" - the fraud menu
+     * included. Nothing constructs the menu that way today; the default is what changed, so
+     * that nothing has to.
+     */
+    @Test
+    void anUnknownRoleSeesNothingThatNamesARole() throws Exception {
+        ConsoleMenu menu = new ConsoleMenu(app, infra, customerId);
+
+        var field = ConsoleMenu.class.getDeclaredField("commands");
+        field.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        List<ConsoleCommand> commands = (List<ConsoleCommand>) field.get(menu);
+
+        Set<String> visibleToAnUnknownRole = commands.stream()
+                .filter(c -> c.isVisibleFor(null))
+                .map(ConsoleCommand::code)
+                .collect(Collectors.toSet());
+
+        assertTrue(visibleToAnUnknownRole.isEmpty(),
+                "every command in this menu names a role, so an unknown role must see none of"
+                        + " them; saw " + visibleToAnUnknownRole);
+    }
+
     @Test
     void fraudAnalystRoleSeesOnlyFraudCommands() throws Exception {
         ConsoleMenu menu = new ConsoleMenu(app, infra, customerId);
