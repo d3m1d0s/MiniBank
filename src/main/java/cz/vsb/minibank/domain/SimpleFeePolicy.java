@@ -1,5 +1,6 @@
 package cz.vsb.minibank.domain;
 
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.value.Money;
 
 /**
@@ -29,6 +30,21 @@ public class SimpleFeePolicy implements FeePolicy {
 
     @Override
     public Money compute(Money amount) {
+        // Every comparison below goes through Money.compareTo, which raises a bare
+        // IllegalArgumentException("Currency mismatch") on a foreign amount. That is an accidental
+        // RuntimeException for what is really a data-shape problem, and the API can only answer it
+        // as an unhandled 500. Refusing here names it, and names it as what it is rather than as
+        // the caller's mistake: both creation paths stamp the literal "CZK" and no wire contract
+        // carries a currency, so a foreign amount can only have come from a hand-written row.
+        //
+        // This also has to sit ahead of the account guard. Both money paths compute the fee before
+        // comparing it against a balance, so without this the first thing to fail would be
+        // Account.balance.gte(total) - the same bare exception, one layer further from the cause.
+        if (!"CZK".equals(amount.currency())) {
+            throw new DataIntegrityException(
+                    "Fees are charged in CZK, but this amount is " + amount.currency());
+        }
+
         if (amount.compareTo(FREE_UP_TO) <= 0) {
             return Money.czk(0.00);
         }

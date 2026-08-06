@@ -41,7 +41,18 @@ public class BootstrapServices {
     /**
      * Creates services with a configurable demo mode.
      *
-     * @param demoMode when true, uses ZeroFeePolicy (no fees) as a special case
+     * @param demoMode when true, uses ZeroFeePolicy, which charges nothing. <strong>Nothing in
+     *                 the running application passes true.</strong> The only caller that supplies
+     *                 the flag at all is the Spring configuration, which passes a literal false,
+     *                 and the console apps and the demo runner all reach this through the
+     *                 five-argument constructor above. No property and no profile is wired to it.
+     *                 So every fee any screen has ever shown came from SimpleFeePolicy, and
+     *                 ZeroFeePolicy is reachable from tests only. It is kept because a test that
+     *                 asserts a settled transfer keeps what it was charged needs two policies that
+     *                 disagree, and because zero fees are what lets a balance assertion be about
+     *                 the daily limit rather than about the fee. Turning this into a real mode
+     *                 would be a feature, and one that makes every money figure on screen differ
+     *                 from the tariff the bank documents.
      */
     public BootstrapServices(CustomerRepository customers,
                              AccountRepository accounts,

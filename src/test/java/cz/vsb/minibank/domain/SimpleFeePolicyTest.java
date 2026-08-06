@@ -1,9 +1,14 @@
 package cz.vsb.minibank.domain;
 
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.value.Money;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * Pins the published fee schedule, and in particular its two boundaries.
@@ -103,6 +108,44 @@ class SimpleFeePolicyTest {
         assertEquals(Money.czk(25.01),
                 totalOutlay(10_000.01).minus(totalOutlay(10_000.00)),
                 "one more heller of value costs 25.01 more in total at the upper boundary");
+    }
+
+    // -------------------------------------------------------------------------
+    // The currency the whole schedule is written in
+    // -------------------------------------------------------------------------
+
+    /**
+     * The refusal must be the named domain exception and not the bare
+     * {@code IllegalArgumentException("Currency mismatch")} that {@code Money.compareTo} would
+     * raise two statements later. Both halves matter: the type says this is a stored-data problem
+     * rather than the caller's, and it is the difference between a 500 the error contract knows
+     * about and logs as inconsistent data, and one that falls through to the catch-all as
+     * "Unhandled error".
+     */
+    @Test
+    void aForeignAmountIsRefusedAsCorruptDataAndNotAsBadInput() {
+        Money eur = Money.of("EUR", new BigDecimal("2000.00"));
+
+        DataIntegrityException thrown =
+                assertThrows(DataIntegrityException.class, () -> policy.compute(eur));
+
+        assertTrue(thrown.getMessage().contains("EUR"),
+                "the message must name the currency that was found, not only the one expected");
+    }
+
+    /**
+     * The guard covers the whole schedule and not just the tier that happens to compare first.
+     * A foreign amount below the free boundary would otherwise return CZK 0.00 without ever
+     * reaching a comparison, and a policy that answers for an amount it cannot read is worse
+     * than one that refuses.
+     */
+    @Test
+    void aForeignAmountIsRefusedInEveryTierIncludingTheFreeOne() {
+        for (String value : new String[] { "500.00", "2000.00", "30000.00" }) {
+            Money eur = Money.of("EUR", new BigDecimal(value));
+            assertThrows(DataIntegrityException.class, () -> policy.compute(eur),
+                    "EUR " + value + " must be refused whichever tier it falls in");
+        }
     }
 
     @Test
