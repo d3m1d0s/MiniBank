@@ -328,7 +328,9 @@ public class FraudController {
         // charged last month whenever the FeePolicy bean was swapped.
         String feeStr = t.feeFor(feePolicy).amount().toPlainString();
 
-        String createdAtStr = t.createdAt() != null ? t.createdAt().toString() : null;
+        // Unguarded: a transfer always carries its creation instant. The authorization method
+        // beside it genuinely may be absent, which is why only one of these two is a ternary.
+        String createdAtStr = t.createdAt().toString();
         String authMethod = (t.authMethod() != null ? t.authMethod().method() : null);
 
         return new TransferInfoDto(
@@ -347,20 +349,31 @@ public class FraudController {
     }
 
     /**
-     * Builds recent outgoing transfer history for the given account.
+     * Builds recent outgoing transfer history for the given account: newest first, at most ten.
+     *
+     * The sort used to compose a null rule and then reverse the whole comparator.
+     * {@code Comparator.reversed()} is {@code Collections.reverseOrder(this)}, which swaps the
+     * two arguments rather than negating the result, so it inverted the null placement along
+     * with the order: a null would have sorted *first* under a rule that says last, and taken a
+     * slot in the ten this panel shows. Reverse the key comparator inside if a null rule is ever
+     * wanted here again - never the composed one outside.
+     *
+     * It sorts on the raw value now, because a transfer cannot carry a null creation instant:
+     * {@code Transfer}'s constructor requires it, and the loader drops a null rather than
+     * storing one. That makes this the one form that is not null-safe, and deliberately so - a
+     * null here would mean the domain has been broken by an edit, and a fraud desk answering 500
+     * is better than one quietly reordering the evidence.
      */
     private List<HistoryItemDto> mapHistoryForAccount(int accountId) {
         List<Transfer> list = transfers.bySourceAccount(accountId);
 
-        list.sort(Comparator.comparing(Transfer::createdAt,
-                        Comparator.nullsLast(Comparator.naturalOrder()))
-                .reversed());
+        list.sort(Comparator.comparing(Transfer::createdAt).reversed());
 
         return list.stream()
                 .limit(10)
                 .map(t -> new HistoryItemDto(
                         t.id(),
-                        t.createdAt() != null ? t.createdAt().toString() : null,
+                        t.createdAt().toString(),
                         t.amount().amount().toPlainString(),
                         t.currency(),
                         t.status().name(),

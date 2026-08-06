@@ -206,11 +206,12 @@ public final class SqlTransferRepository implements TransferRepository {
             }
 
             ps.setString(9, t.status().name());
-            if (t.createdAt() != null) {
-                ps.setTimestamp(10, Timestamp.from(t.createdAt()));
-            } else {
-                ps.setNull(10, Types.TIMESTAMP_WITH_TIMEZONE);
-            }
+            // Written unconditionally, unlike settled_at below: a transfer always has a creation
+            // instant and only sometimes a settlement one. The branch that used to write NULL
+            // here was the only way this application could put one in the column, so with it
+            // gone every row this code writes carries a timestamp. The column still permits NULL
+            // and rows written before this do not change.
+            ps.setTimestamp(10, Timestamp.from(t.createdAt()));
             if (t.settledAt() != null) {
                 ps.setTimestamp(11, Timestamp.from(t.settledAt()));
             } else {
