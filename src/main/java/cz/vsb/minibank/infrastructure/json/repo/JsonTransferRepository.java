@@ -2,6 +2,7 @@ package cz.vsb.minibank.infrastructure.json.repo;
 
 import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -131,7 +132,11 @@ public class JsonTransferRepository implements TransferRepository {
         // per row to read one number off each, and would substitute identity-map instances
         // whose in-memory status can already differ from the stored one. Each row is wrapped in
         // Money before it is added, so the total rounds exactly as the amounts themselves do -
-        // adding the raw doubles first and rounding once would not.
+        // summing the stored values first and rounding once would not.
+        //
+        // A SENT row with no amount is refused rather than skipped. Skipping it would answer a
+        // daily total that is quietly short by one payment, which is the shape of defect this
+        // ceiling exists to prevent.
         //
         // store.read holds the store lock, which a JsonUnitOfWork on this thread already holds,
         // so the re-acquisition is reentrant and costs nothing.
@@ -144,7 +149,7 @@ public class JsonTransferRepository implements TransferRepository {
                 Instant countedOn = dayKeyOf(dto);
                 if (countedOn == null) continue;
                 if (countedOn.isBefore(fromInclusive) || !countedOn.isBefore(toExclusive)) continue;
-                total = total.plus(Money.czk(dto.amount));
+                total = total.plus(amountOf(dto));
             }
             return total;
         });
@@ -175,10 +180,25 @@ public class JsonTransferRepository implements TransferRepository {
                 Instant countedOn = dayKeyOf(dto);
                 if (countedOn == null) continue;
                 if (countedOn.isBefore(fromInclusive) || !countedOn.isBefore(toExclusive)) continue;
-                total = total.plus(Money.czk(dto.amount));
+                total = total.plus(amountOf(dto));
             }
             return total;
         });
+    }
+
+    /**
+     * The amount of a row being counted towards a total, refusing a row that carries none.
+     *
+     * The field is a {@link java.math.BigDecimal} rather than a primitive, so "absent" is now a
+     * value it can hold. That is the point of the type - a primitive answered 0.00 for a missing
+     * amount and no total ever noticed - but it means the reading side has to say what absent
+     * means, and here it means the store is corrupt.
+     */
+    private static Money amountOf(JsonTransfer dto) {
+        if (dto.amount == null) {
+            throw new DataIntegrityException("Stored transfer " + dto.id + " has no amount");
+        }
+        return Money.czk(dto.amount);
     }
 
     /**

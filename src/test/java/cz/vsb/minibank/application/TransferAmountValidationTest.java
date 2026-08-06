@@ -19,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.math.BigDecimal;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -190,10 +191,33 @@ class TransferAmountValidationTest {
         row.id = 900;
         row.sourceAccountId = ACCOUNT_ID;
         row.targetIbanSnapshot = TARGET_IBAN;
-        row.amount = -1000.00;
+        row.amount = new BigDecimal("-1000.00");
         row.currency = "CZK";
         row.status = "SENT";
 
         assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(row));
+    }
+
+    /**
+     * The neighbouring case, and the reason the stored amount stopped being a primitive. A
+     * {@code double} field has no absent value: a row written without an amount deserialized to
+     * 0.00 and was loaded as a transfer of nothing, which the positivity guard above would then
+     * refuse for the wrong reason or, before that guard existed, accept outright. A reference
+     * type can hold "no amount", so the row is refused for what is actually wrong with it.
+     */
+    @Test
+    void aStoredRowWithNoAmountAtAllIsRefusedRatherThanReadAsZero() {
+        JsonTransfer row = new JsonTransfer();
+        row.id = 901;
+        row.sourceAccountId = ACCOUNT_ID;
+        row.targetIbanSnapshot = TARGET_IBAN;
+        row.amount = null;
+        row.currency = "CZK";
+        row.status = "SENT";
+
+        DataIntegrityException thrown =
+                assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(row));
+        assertTrue(thrown.getMessage().contains("901"),
+                "the refusal must name the row, so a corrupt store can be found");
     }
 }

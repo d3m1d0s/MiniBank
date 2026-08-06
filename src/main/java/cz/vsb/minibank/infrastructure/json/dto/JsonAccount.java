@@ -2,6 +2,8 @@ package cz.vsb.minibank.infrastructure.json.dto;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
+import java.math.BigDecimal;
+
 /**
  * JSON representation of an account stored in the JSON data store.
  *
@@ -26,15 +28,30 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 public class JsonAccount {
     public int id;
     public String iban;
-    public double balance;
-    public double dailyLimit;
+
+    /**
+     * Money is stored as the same type the domain holds it in. {@code Money} wraps a
+     * {@link BigDecimal} normalized to two decimal places, so writing one out and reading it back
+     * is a copy rather than a conversion, and Jackson parses the JSON number straight into it.
+     *
+     * These were {@code double} until this change. That was exact for every amount the bank can
+     * hold - a heller-by-heller round trip over the whole range up to 100 000.00 loses nothing,
+     * and the first loss is four orders of magnitude above what {@code NUMERIC(14,2)} on the SQL
+     * side even accepts - so nothing was being lost. What it did cost is subtler and is the real
+     * reason for the change: a primitive has no absent value, so a stored account with no
+     * {@code balance} key deserialized to a silent 0.00. A reference type cannot do that, and
+     * {@code JsonMapper} refuses the null instead.
+     */
+    public BigDecimal balance;
+
+    public BigDecimal dailyLimit;
 
     /**
      * This account's own soft authorization tier, or null to use the bank-wide one.
      *
-     * Boxed rather than a primitive double, because 0.0 would mean "every payment crosses the
-     * soft tier" and null has to be distinguishable from a real zero. A store written before
-     * this change has the key absent, which Jackson leaves as null - the right answer.
+     * Null is a meaning here rather than an absence to tolerate: 0.00 would mean "every payment
+     * crosses the soft tier", so the two cannot be collapsed. A store written before the field
+     * existed has the key absent, which Jackson leaves as null - the right answer.
      */
-    public Double softDailyThreshold;
+    public BigDecimal softDailyThreshold;
 }

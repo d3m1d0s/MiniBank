@@ -1,6 +1,7 @@
 package cz.vsb.minibank.infrastructure.json.mapping;
 
 import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.json.dto.*;
@@ -10,6 +11,7 @@ import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 
 /**
@@ -115,25 +117,43 @@ public class JsonMapper {
         JsonAccount j = new JsonAccount();
         j.id = a.id();
         j.iban = a.iban().value();
-        j.balance = a.balance().amount().doubleValue();
-        j.dailyLimit = a.dailyLimit().amount().doubleValue();
-        // Left absent rather than written as 0.0 when the account has no override: a stored
+        j.balance = a.balance().amount();
+        j.dailyLimit = a.dailyLimit().amount();
+        // Left absent rather than written as 0.00 when the account has no override: a stored
         // zero would mean "authorize every payment", which is a real and different rule.
         if (a.softDailyThreshold() != null) {
-            j.softDailyThreshold = a.softDailyThreshold().amount().doubleValue();
+            j.softDailyThreshold = a.softDailyThreshold().amount();
         }
         return j;
     }
 
     public static Account toDomain(JsonAccount j) {
-        // Guarded rather than handed straight to Money.czk. That method has a double overload,
-        // so Money.czk(j.softDailyThreshold) would compile by autounboxing and throw a
-        // NullPointerException on every account in every store written before this field
-        // existed - which is all of them.
-        Money soft = (j.softDailyThreshold != null) ? Money.czk(j.softDailyThreshold.doubleValue()) : null;
+        // Null is a meaning on this field and not a missing value: an account with no override
+        // uses the bank-wide tier, and a stored 0.00 would be the opposite rule.
+        Money soft = (j.softDailyThreshold != null) ? Money.czk(j.softDailyThreshold) : null;
         // Account.version is deliberately not restored: the JSON backend has no version column
         // and nothing on this side reads one. See JsonAccount.
-        return new Account(j.id, new IBAN(j.iban), Money.czk(j.balance), Money.czk(j.dailyLimit), soft);
+        return new Account(j.id, new IBAN(j.iban),
+                requiredMoney(j.balance, "balance", "account", j.id),
+                requiredMoney(j.dailyLimit, "dailyLimit", "account", j.id),
+                soft);
+    }
+
+    /**
+     * Reads a money field that a stored row must carry, refusing the row when it does not.
+     *
+     * These fields were primitive doubles until money moved to {@link java.math.BigDecimal}, and a
+     * primitive has no absent value: an account written without a {@code balance} key came back
+     * with a balance of 0.00 and nothing anywhere said so. Refusing the row is the same choice
+     * {@code Transfer}'s constructor already makes about a non-positive stored amount, and for the
+     * same reason - a corrupt store must be refused rather than loaded into the domain.
+     */
+    private static Money requiredMoney(BigDecimal stored, String field, String kind, int id) {
+        if (stored == null) {
+            throw new DataIntegrityException(
+                    "Stored " + kind + " " + id + " has no " + field);
+        }
+        return Money.czk(stored);
     }
 
     // Transfer
@@ -144,12 +164,12 @@ public class JsonMapper {
         j.sourceAccountId = t.sourceAccountId();
         j.beneficiaryId = t.beneficiaryId();
         j.targetIbanSnapshot = t.targetIbanSnapshot();
-        j.amount = t.amount().amount().doubleValue();
+        j.amount = t.amount().amount();
         j.currency = t.currency();
-        // Absent rather than 0.0 on a transfer that has not settled, so "charged nothing" and
+        // Absent rather than 0.00 on a transfer that has not settled, so "charged nothing" and
         // "not charged yet" survive the round trip as different values.
         if (t.fee() != null) {
-            j.fee = t.fee().amount().doubleValue();
+            j.fee = t.fee().amount();
         }
         j.message = t.message();
         j.status = t.status().name();
@@ -173,19 +193,21 @@ public class JsonMapper {
     }
 
     public static Transfer toDomain(JsonTransfer j) {
+        Money amount = requiredMoney(j.amount, "amount", "transfer", j.id);
+
         Transfer t = new Transfer(
                 j.id, j.sourceAccountId, j.beneficiaryId, j.targetIbanSnapshot,
-                Money.czk(j.amount), j.currency
+                amount, j.currency
         );
 
         // restore authMethod if it was present
         Payment payment = null;
         if (j.authMethod != null) {
             if ("CARD".equalsIgnoreCase(j.authMethod)) {
-                payment = new CardPayment(Money.czk(j.amount), j.cardNumberMasked);
+                payment = new CardPayment(amount, j.cardNumberMasked);
             } else {
                 // generic fallback object for other auth methods
-                payment = new Payment(j.authMethod, Money.czk(j.amount)) {
+                payment = new Payment(j.authMethod, amount) {
                 };
             }
         }
@@ -224,7 +246,7 @@ public class JsonMapper {
         //
         // Both values are guarded: Money.czk has a double overload that would autounbox a null
         // fee into a NullPointerException, and Instant.parse(null) throws.
-        Money fee = (j.fee != null) ? Money.czk(j.fee.doubleValue()) : null;
+        Money fee = (j.fee != null) ? Money.czk(j.fee) : null;
         Instant settledAt = null;
         try {
             if (j.settledAt != null) {
