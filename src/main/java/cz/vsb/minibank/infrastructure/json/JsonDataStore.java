@@ -213,11 +213,20 @@ public class JsonDataStore {
         if (cache.fraudAlerts == null) cache.fraudAlerts = new ArrayList<>();
         if (cache.sequences == null) cache.sequences = new Sequences();
 
-        // If a legacy file lacks sequence values, compute safe "next" values
-        cache.sequences.customer    = Math.max(cache.sequences.customer,
+        // If a legacy file lacks sequence values, compute safe "next" values.
+        //
+        // Beneficiaries need their own helper because they are the one entity with no top-level
+        // list: they live nested inside each customer. That is why they were missed here, and
+        // being missed is not a smaller version of the same problem. The other four sequences
+        // recover; this one silently reissued live ids, and Customer.saveBeneficiary replaces a
+        // matching id in place rather than refusing it - so adding a payee overwrote an existing
+        // one, IBAN, trusted flag and all, and the trusted flag is an input to the fraud rules.
+        cache.sequences.customer     = Math.max(cache.sequences.customer,
                 nextFromList(cache.customers,       (cz.vsb.minibank.infrastructure.json.dto.JsonCustomer  c) -> c.id, 1));
-        cache.sequences.account     = Math.max(cache.sequences.account,
+        cache.sequences.account      = Math.max(cache.sequences.account,
                 nextFromList(cache.accounts,        (cz.vsb.minibank.infrastructure.json.dto.JsonAccount   a) -> a.id, 100));
+        cache.sequences.beneficiary  = Math.max(cache.sequences.beneficiary,
+                nextFromCustomersBeneficiaries(cache.customers, 10));
         cache.sequences.transfer    = Math.max(cache.sequences.transfer,
                 nextFromList(cache.transfers,       (cz.vsb.minibank.infrastructure.json.dto.JsonTransfer  t) -> t.id, 5001));
         cache.sequences.fraudAlert  = Math.max(cache.sequences.fraudAlert,
