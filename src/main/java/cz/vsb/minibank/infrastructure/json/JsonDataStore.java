@@ -8,7 +8,11 @@ import cz.vsb.minibank.infrastructure.json.dto.JsonFraudAlert;
 import cz.vsb.minibank.infrastructure.json.dto.JsonTransfer;
 
 import java.io.File;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
@@ -179,12 +183,38 @@ public class JsonDataStore {
      * structurally modifying. Inside a unit of work the lock is already held by this
      * thread and the acquisition is a reentrant no-op.
      *
+     * The write goes to a sibling temp file which then replaces the store in one move.
+     * Serializing straight over the store meant that anything interrupting the write - a crash,
+     * a full disk, a killed process - left a truncated document where the data had been, and
+     * the whole of it was gone rather than the tail: the old bytes are overwritten from the
+     * first one. {@code Bootstrap} was made to refuse to start against exactly that, so the
+     * cost was a store that had to be deleted by hand. Now the store is either the previous
+     * complete document or the new one, never a prefix of either.
+     *
+     * Three details make that true rather than nearly true. The temp file is created **in the
+     * same directory**, because {@code ATOMIC_MOVE} is only defined within one file store. The
+     * bytes are forced to the device before the move, so a power loss cannot land the rename
+     * ahead of the data it renames. And a failed write deletes its temp file rather than
+     * leaving litter beside the store for the next reader to wonder about.
+     *
      * @throws Exception when saving fails
      */
     public void save() throws Exception {
         lock.lock();
         try {
-            om.writeValue(file, cache);
+            Path target = file.toPath().toAbsolutePath();
+            Path temp = Files.createTempFile(target.getParent(), "store-", ".json.tmp");
+            try {
+                om.writeValue(temp.toFile(), cache);
+                try (FileChannel ch = FileChannel.open(temp, StandardOpenOption.WRITE)) {
+                    ch.force(true);
+                }
+                Files.move(temp, target,
+                        StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (Exception e) {
+                Files.deleteIfExists(temp);
+                throw e;
+            }
         } finally {
             lock.unlock();
         }
