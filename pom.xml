@@ -13,6 +13,9 @@
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring.boot.version>3.3.4</spring.boot.version>
+        <!-- What a bare "mvn exec:java" runs. Override it on the command line for AppSql or
+             for the demo runner. -->
+        <exec.mainClass>cz.vsb.minibank.App</exec.mainClass>
     </properties>
 
     <dependencies>
@@ -65,7 +68,12 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
                 <configuration>
-                    <mainClass>cz.vsb.minibank.App</mainClass>
+                    <!--
+                        Through a property, because a literal here wins over -Dexec.mainClass and
+                        there is more than one entry point: AppSql and DemoRunner were both
+                        unreachable through exec:java, and asking for either silently ran App.
+                    -->
+                    <mainClass>${exec.mainClass}</mainClass>
                 </configuration>
             </plugin>
             <plugin>
