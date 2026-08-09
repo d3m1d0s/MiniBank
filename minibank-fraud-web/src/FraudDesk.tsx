@@ -11,7 +11,7 @@ import {
     type ApiError,
     type FraudDecision,
 } from './api';
-import { amountRangeProblem } from './alertFilters';
+import { amountRangeProblem } from '@shared/alertFilters';
 
 /** The transfer status a withdrawn payment ends in. */
 const WITHDRAWN = 'DECLINED';

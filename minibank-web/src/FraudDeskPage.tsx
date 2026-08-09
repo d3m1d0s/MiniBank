@@ -14,7 +14,7 @@ import {
     type AlertCounters,
     type ApiError,
 } from './api';
-import { amountRangeProblem } from './alertFilters';
+import { amountRangeProblem } from '@shared/alertFilters';
 import { formatMoney } from './money';
 
 /** The transfer status a withdrawn payment ends in. */

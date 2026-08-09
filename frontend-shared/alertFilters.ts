@@ -1,4 +1,4 @@
-import type { AlertFilters } from './api';
+import type { AlertFilters } from './fraud';
 
 /**
  * Whether the browser failed to read what was typed into each amount box.

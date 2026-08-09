@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { amountRangeProblem } from './alertFilters';
+import { amountRangeProblem } from '@shared/alertFilters';
 
 /**
  * An empty queue is how the alert endpoint reports "nothing matched". So a filter that cannot

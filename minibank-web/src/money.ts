@@ -38,23 +38,11 @@ export type ParsedAmount =
     | { ok: false; reason: string };
 
 /**
- * How a money value from the API is shown: the amount the server sent, then its currency.
- *
- * The one place either is printed. The server sends the two apart on purpose - an amount is a
- * number and its currency belongs to it - and a screen that interpolates them itself is a screen
- * that can forget the second half, which is exactly what both fraud desks did to the fee and to
- * the source balance while the amount above them carried a currency.
- *
- * The digits are left as the server wrote them rather than run through {@link formatCzech}.
- * These are amounts the bank has already decided, not amounts a person is typing, and grouping
- * them here would put a second formatting rule on the same value.
- *
- * An absent value prints as a dash. Null is meaningful on this wire: a payment that has not
- * settled has been charged nothing, which is not a charge of zero.
+ * Showing an amount the server has already decided is the analyst app's problem too, so it lives
+ * in {@code frontend-shared/money.ts}. Re-exported here because this module is where this app
+ * reads and writes money, and a screen should not have to know which half is shared.
  */
-export function formatMoney(money: { amount: string; currency: string } | null | undefined): string {
-    return money ? `${money.amount} ${money.currency}` : '—';
-}
+export { formatMoney } from '@shared/money';
 
 /** Formats an amount the Czech way: `1 234,56`. */
 export function formatCzech(value: number): string {
