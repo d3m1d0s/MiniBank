@@ -390,7 +390,19 @@ public class Transfer implements RecordsDomainEvents {
         this.status = status;
         this.authMethod = authMethod;
         this.declineReason = declineReason;
-        if (createdAt != null) this.createdAt = createdAt;
+
+        // A stored row must say when it was created. Overwriting only a non-null value looks
+        // defensive and was the opposite of it: the constructor has already stamped
+        // Instant.now(), so a row with no creation time quietly became a row created at the
+        // moment it was read - an instant that moved on every reload and sorted first in a list
+        // that promises the newest. Refused instead, exactly as the constructor refuses an
+        // amount or a currency it cannot accept.
+        if (createdAt == null) {
+            throw new DataIntegrityException(
+                    "Stored transfer " + id + " has no creation instant");
+        }
+        this.createdAt = createdAt;
+
         if (authAttempts != null) this.authAttempts = authAttempts;
         this.authValidUntil = authValidUntil;
     }

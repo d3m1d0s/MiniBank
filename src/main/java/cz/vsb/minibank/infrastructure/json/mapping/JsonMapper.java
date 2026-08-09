@@ -10,6 +10,7 @@ import cz.vsb.minibank.domain.lazy.LazyRef;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
+import cz.vsb.minibank.infrastructure.StoredValue;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -232,14 +233,7 @@ public class JsonMapper {
             }
         }
 
-        // parse createdAt if present
-        Instant ts = null;
-        try {
-            if (j.createdAt != null) {
-                ts = Instant.parse(j.createdAt);
-            }
-        } catch (Exception ignored) {
-        }
+        Instant ts = StoredValue.requiredInstant(j.createdAt, "creation instant", "transfer", j.id);
 
         // parse OTP metadata
         Integer attempts = j.authAttempts;
@@ -251,20 +245,13 @@ public class JsonMapper {
         } catch (Exception ignored) {
         }
 
-        // restore status without side effects
-        try {
-            var status = TransferStatus.valueOf(j.status);
-            t.hydrateForLoad(status, payment, j.declineReason, ts, attempts, validUntil);
-        } catch (Exception ignored) {
-        }
+        TransferStatus status = StoredValue.requiredEnum(
+                TransferStatus.class, j.status, "status", "transfer", j.id);
+        t.hydrateForLoad(status, payment, j.declineReason, ts, attempts, validUntil);
 
-        // After the block above, never inside it. That catch exists to tolerate one thing - a
-        // stored status string that does not parse - and putting these calls inside it would
-        // let an unparseable status also silently discard the fee and the settlement instant,
-        // and let a bug in these lines silently reset every transfer in the file to CREATED.
-        // JsonTransferRepository.parseInstantOrNull makes the same argument about createdAt.
-        //
-        // Both values are guarded: Money.czk has a double overload that would autounbox a null
+        // Absent is a real value for both of these, unlike the status above: a transfer that has
+        // not settled was charged nothing and moved no money. Guarded rather than passed
+        // straight through, because Money.czk has a double overload that would autounbox a null
         // fee into a NullPointerException, and Instant.parse(null) throws.
         Money fee = (j.fee != null) ? Money.czk(j.fee) : null;
         Instant settledAt = null;
@@ -395,34 +382,18 @@ public class JsonMapper {
     public static FraudAlert toDomain(JsonFraudAlert j) {
         FraudAlert a = new FraudAlert(j.id, j.transferId, j.reason);
 
-        java.time.Instant ts = null;
-        try {
-            if (j.createdAt != null) {
-                ts = java.time.Instant.parse(j.createdAt);
-            }
-        } catch (Exception ignored) {
-        }
+        java.time.Instant ts =
+                StoredValue.requiredInstant(j.createdAt, "creation instant", "fraud alert", j.id);
 
         java.util.List<String> tags =
                 (j.tags != null) ? j.tags : java.util.Collections.emptyList();
 
-        try {
-            var st = FraudAlertState.valueOf(j.state);
-            a.hydrateForLoad(
-                    st,
-                    j.reason,
-                    ts,
-                    j.riskScore,
-                    j.assignee,
-                    tags,
-                    j.notes
-            );
-        } catch (Exception ignored) {
-        }
+        FraudAlertState st = StoredValue.requiredEnum(
+                FraudAlertState.class, j.state, "state", "fraud alert", j.id);
+        a.hydrateForLoad(st, j.reason, ts, j.riskScore, j.assignee, tags, j.notes);
 
-        // Outside the catch above, for the reason the transfer mapper gives: that block is
-        // there to tolerate an unparseable state string and nothing else. hydrateDecision takes
-        // all three as null, which is what every alert written before these fields existed has.
+        // hydrateDecision takes all three as null, which is what every alert written before
+        // these fields existed has. Absent is a real value here, unlike the state above.
         java.time.Instant resolvedAt = null;
         try {
             if (j.resolvedAt != null) {

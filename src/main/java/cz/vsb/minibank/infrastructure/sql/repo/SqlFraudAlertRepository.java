@@ -6,6 +6,7 @@ import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
+import cz.vsb.minibank.infrastructure.StoredValue;
 
 import java.sql.*;
 import java.time.Instant;
@@ -383,17 +384,13 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
 
         FraudAlert alert = new FraudAlert(id, transferId, reason);
 
-        try {
-            FraudAlertState st = FraudAlertState.valueOf(stateStr);
-            alert.hydrateForLoad(st, reason, createdAt, riskScore, assignee, tags, notes);
-        } catch (Exception ignored) {
-            // If persisted state is invalid, keep the default NEW state from constructor.
-        }
+        FraudAlertState st = StoredValue.requiredEnum(
+                FraudAlertState.class, stateStr, "state", "fraud alert", id);
+        alert.hydrateForLoad(st, reason, createdAt, riskScore, assignee, tags, notes);
 
-        // Outside the swallowing catch above, which exists only to tolerate an unparseable
-        // state string. All three are null on every alert written before these columns were
-        // wired up, and hydrateDecision accepts that; a loader that refused a legacy row would
-        // make every stored alert unreadable.
+        // All three are null on every alert written before these columns were wired up, and
+        // hydrateDecision accepts that; a loader that refused a legacy row would make every
+        // stored alert unreadable. Unlike the state above, absent here is a real value.
         Timestamp resolvedTs = rs.getTimestamp("resolved_at");
         alert.hydrateDecision(
                 rs.getString("decision"),

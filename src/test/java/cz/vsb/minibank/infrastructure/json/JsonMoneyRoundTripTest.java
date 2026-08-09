@@ -133,6 +133,9 @@ class JsonMoneyRoundTripTest {
         dto.amount = amount;
         dto.currency = "CZK";
         dto.status = "CREATED";
+        // A stored row must carry the instant it was created; the mapper refuses one that does
+        // not, rather than handing it the moment it was read.
+        dto.createdAt = "2026-01-01T09:00:00Z";
         return dto;
     }
 }

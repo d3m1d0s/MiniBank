@@ -5,6 +5,7 @@ import cz.vsb.minibank.domain.Address;
 import cz.vsb.minibank.domain.Beneficiary;
 import cz.vsb.minibank.domain.Customer;
 import cz.vsb.minibank.domain.Transfer;
+import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.InvalidAmountException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
@@ -264,6 +265,89 @@ class TransferAmountValidationTest {
                 assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(row));
         assertTrue(thrown.getMessage().contains("EUR"),
                 "the refusal must name the currency the row claimed");
+    }
+
+    /**
+     * The rule stated at the aggregate rather than at a loader, because both loaders pass through
+     * it and only one of them can catch this first.
+     *
+     * On the JSON side an absent creation instant is refused while the row is still a DTO. On the
+     * SQL side there is nothing to parse - a NULL column arrives as a null Instant - so this is
+     * the only thing standing between a NULL {@code created_at} and a transfer dated at the
+     * moment it was read.
+     */
+    @Test
+    void hydratingATransferWithNoCreationInstantIsRefused() {
+        Transfer t = new Transfer(910, ACCOUNT_ID, null, TARGET_IBAN, Money.czk(100));
+
+        DataIntegrityException thrown = assertThrows(DataIntegrityException.class,
+                () -> t.hydrateForLoad(TransferStatus.SENT, null, null, null));
+        assertTrue(thrown.getMessage().contains("910"));
+    }
+
+    /**
+     * A status nobody can read is refused rather than downgraded to the constructor's default.
+     *
+     * What it used to do was worse than losing the status. The parse and the hydrate call shared
+     * one swallowing catch, so an unreadable value left the transfer CREATED - a SENT payment
+     * reading as one that had not been authorized yet - and discarded the creation instant, the
+     * authorization method, the decline reason and both OTP fields along with it.
+     */
+    @Test
+    void aStoredRowWhoseStatusCannotBeReadIsRefusedRatherThanReadAsCreated() {
+        JsonTransfer row = new JsonTransfer();
+        row.id = 905;
+        row.sourceAccountId = ACCOUNT_ID;
+        row.targetIbanSnapshot = TARGET_IBAN;
+        row.amount = new BigDecimal("1000.00");
+        row.currency = "CZK";
+        row.createdAt = "2026-01-01T09:00:00Z";
+        row.status = "NOT_A_STATUS";
+
+        DataIntegrityException thrown =
+                assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(row));
+        assertTrue(thrown.getMessage().contains("NOT_A_STATUS"),
+                "the refusal must name the value, so it can be corrected");
+    }
+
+    /**
+     * Its creation instant, on the same terms, and this one was invisible rather than merely
+     * wrong: {@code Transfer}'s constructor stamps {@code Instant.now()}, and the loader used to
+     * overwrite it only when the stored value was non-null. So a row with no creation time came
+     * back created at the moment it was read - a timestamp that changed on every reload and
+     * sorted first in the ten-row panel that promises the newest.
+     */
+    @Test
+    void aStoredRowWithNoCreationInstantIsRefusedRatherThanDatedOnLoad() {
+        JsonTransfer row = new JsonTransfer();
+        row.id = 906;
+        row.sourceAccountId = ACCOUNT_ID;
+        row.targetIbanSnapshot = TARGET_IBAN;
+        row.amount = new BigDecimal("1000.00");
+        row.currency = "CZK";
+        row.status = "SENT";
+        row.createdAt = null;
+
+        DataIntegrityException thrown =
+                assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(row));
+        assertTrue(thrown.getMessage().contains("906"),
+                "the refusal must name the row, so a corrupt store can be found");
+    }
+
+    @Test
+    void aStoredRowWhoseCreationInstantCannotBeReadIsRefused() {
+        JsonTransfer row = new JsonTransfer();
+        row.id = 907;
+        row.sourceAccountId = ACCOUNT_ID;
+        row.targetIbanSnapshot = TARGET_IBAN;
+        row.amount = new BigDecimal("1000.00");
+        row.currency = "CZK";
+        row.status = "SENT";
+        row.createdAt = "yesterday afternoon";
+
+        DataIntegrityException thrown =
+                assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(row));
+        assertTrue(thrown.getMessage().contains("yesterday afternoon"));
     }
 
     /**

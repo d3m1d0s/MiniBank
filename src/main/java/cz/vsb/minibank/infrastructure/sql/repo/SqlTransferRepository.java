@@ -11,6 +11,7 @@ import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
+import cz.vsb.minibank.infrastructure.StoredValue;
 
 import java.math.BigDecimal;
 import java.sql.*;
@@ -569,17 +570,10 @@ public final class SqlTransferRepository implements TransferRepository {
             }
         }
 
-        try {
-            TransferStatus status = TransferStatus.valueOf(statusStr);
-            t.hydrateForLoad(status, payment, declineReason, createdAt, authAttempts, authValidUntil);
-        } catch (Exception ignored) {
-            // If status is invalid, keep default constructor state.
-        }
+        TransferStatus status = StoredValue.requiredEnum(
+                TransferStatus.class, statusStr, "status", "transfer", id);
+        t.hydrateForLoad(status, payment, declineReason, createdAt, authAttempts, authValidUntil);
 
-        // Outside the catch above on purpose. That block exists to tolerate one thing - a
-        // stored status string that does not parse - and widening it into a catch-all would
-        // make a mapper bug on these three columns invisible, which is the shape of defect this
-        // pass is correcting rather than one to create.
         BigDecimal feeBd = rs.getBigDecimal("fee");
         Timestamp settledTs = rs.getTimestamp("settled_at");
         t.hydrateSettlement(

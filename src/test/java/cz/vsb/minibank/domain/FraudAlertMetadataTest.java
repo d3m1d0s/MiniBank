@@ -1,5 +1,6 @@
 package cz.vsb.minibank.domain;
 
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -33,6 +34,21 @@ class FraudAlertMetadataTest {
         assertEquals("alice", alert.assignee());
         assertEquals(tags, alert.tags());
         assertEquals("Initial note", alert.notes());
+    }
+
+    @Test
+    void hydratingAnAlertWithNoCreationInstantIsRefused() {
+        // The same rule Transfer states, and stated on both or the two aggregates disagree about
+        // what a stored row must carry. The constructor has already stamped Instant.now(), so
+        // overwriting only a non-null value gave the alert the instant it was read at - which
+        // moves the createdFrom and createdTo filters the queue is searched with, differently on
+        // every read. On the SQL side, where a NULL column arrives as a null Instant with nothing
+        // to parse, this guard is the only thing in the way.
+        var alert = new FraudAlert(11, 42, "Above the alert threshold");
+
+        var thrown = assertThrows(DataIntegrityException.class,
+                () -> alert.hydrateForLoad(FraudAlertState.OK, "Above the alert threshold", null));
+        assertTrue(thrown.getMessage().contains("11"));
     }
 
     @Test

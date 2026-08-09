@@ -1,6 +1,7 @@
 package cz.vsb.minibank.domain;
 
 import cz.vsb.minibank.domain.exceptions.InvalidStateTransitionException;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -97,9 +98,18 @@ public class FraudAlert implements RecordsDomainEvents {
     ) {
         this.state = state;
         this.reason = reason;
-        if (createdAt != null) {
-            this.createdAt = createdAt;
+
+        // The same rule Transfer states, and stated here too or the two aggregates disagree about
+        // what a stored row must carry. The constructor has already stamped Instant.now(), so
+        // overwriting only a non-null value gave an alert with no stored creation time the load
+        // instant instead - which moves the createdFrom and createdTo filters the analyst's queue
+        // runs on, and moves them differently on every read.
+        if (createdAt == null) {
+            throw new DataIntegrityException(
+                    "Stored fraud alert " + id + " has no creation instant");
         }
+        this.createdAt = createdAt;
+
         this.riskScore = riskScore;
         this.assignee = assignee;
 
@@ -142,11 +152,11 @@ public class FraudAlert implements RecordsDomainEvents {
      * which is exactly what making a negative verdict recordable on a SENT transfer would
      * otherwise reintroduce.
      *
-     * The precondition is enforced against whatever the mapper produced. Both backends wrap the
-     * state parse and the hydrate call together in a swallowing catch
-     * (SqlFraudAlertRepository.mapRowToAlert, JsonMapper's alert mapping), so a stored state
-     * that does not parse arrives here as the constructor's NEW and is accepted. Making an
-     * unknown stored enum fail loudly is its own item and covers the transfer side too.
+     * The precondition is enforced against whatever the mapper produced, and what the mappers
+     * produce is now either the stored state or nothing at all. Both used to wrap the state parse
+     * and the hydrate call together in a swallowing catch, so a stored state that did not parse
+     * arrived here as the constructor's NEW - a closed alert reopened by a typo in a column - and
+     * was accepted. Both now refuse the row instead; see StoredValue.
      *
      * @param decidedBy the analyst's username, or null when the decision came from a surface
      *        with no login - the console fraud menu in legacy JSON mode, and the demo runner.

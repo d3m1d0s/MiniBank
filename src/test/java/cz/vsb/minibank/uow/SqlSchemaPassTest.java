@@ -8,6 +8,7 @@ import cz.vsb.minibank.domain.FraudAlert;
 import cz.vsb.minibank.domain.SimpleFeePolicy;
 import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.OptimisticLockException;
 import cz.vsb.minibank.domain.exceptions.TransferChangedException;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -406,6 +407,34 @@ public class SqlSchemaPassTest {
         assertEquals(1, countTransfers());
     }
 
+    /**
+     * The status column has no CHECK, deliberately, and this is what stands in its place.
+     *
+     * A CHECK on an enum column makes every future value a two-place change and would contradict
+     * what db/migrate/a8-hold-alerted-transfers.sql argues about adding one. The real defect was
+     * never that the database allowed a bad string - it was that the loader swallowed it: the
+     * parse and the hydrate call shared one catch, so an unreadable status came back as the
+     * constructor's CREATED and took the creation instant, the authorization method, the decline
+     * reason and both OTP fields down with it.
+     *
+     * So the guard is in Java and this is the test that says so, written here because this is
+     * where a writer that bypasses the domain lives.
+     */
+    @Test
+    void aStatusNobodyCanReadIsRefusedWhenTheRowIsLoaded() throws Exception {
+        int accountId = seedAccount(Money.czk(1_000), Money.czk(1_000_000), null);
+        int transferId = insertRawTransfer(accountId, "100.00", "CZK", "NOT_A_STATUS");
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            DataIntegrityException refused = assertThrows(DataIntegrityException.class,
+                    () -> infra.transfers.byId(transferId));
+            assertTrue(refused.getMessage().contains("NOT_A_STATUS"),
+                    "the refusal must name the value: " + refused.getMessage());
+            assertTrue(refused.getMessage().contains(String.valueOf(transferId)),
+                    "and the row, so a corrupt store can be found: " + refused.getMessage());
+        }
+    }
+
     // -------------------------------------------------------------------------
     // The new columns actually reach the database and come back
     // -------------------------------------------------------------------------
@@ -589,17 +618,29 @@ public class SqlSchemaPassTest {
     }
 
     private void insertRawTransfer(int accountId, String amount, String currency) throws SQLException {
+        insertRawTransfer(accountId, amount, currency, "SENT");
+    }
+
+    /** Returns the id the sequence gave the row, so a loader can be pointed at it. */
+    private int insertRawTransfer(int accountId, String amount, String currency, String status)
+            throws SQLException {
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
              PreparedStatement ps = conn.prepareStatement("""
                      INSERT INTO transfers
-                         (id, source_account_id, target_iban_snapshot, amount, currency, status)
-                     VALUES (nextval('transfers_id_seq'), ?, ?, ?::numeric, ?, 'SENT')
+                         (id, source_account_id, target_iban_snapshot, amount, currency, status,
+                          created_at)
+                     VALUES (nextval('transfers_id_seq'), ?, ?, ?::numeric, ?, ?, now())
+                     RETURNING id
                      """)) {
             ps.setInt(1, accountId);
             ps.setString(2, EXTERNAL_IBAN.value());
             ps.setString(3, amount);
             ps.setString(4, currency);
-            ps.executeUpdate();
+            ps.setString(5, status);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
         }
     }
 }
