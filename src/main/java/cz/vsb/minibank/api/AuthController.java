@@ -24,7 +24,6 @@ record LoginResponse(String sessionId, String username, String role, Integer cus
  */
 @RestController
 @RequestMapping("/api/auth")
-@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174"})
 public class AuthController {
 
     private final AuthService authService;

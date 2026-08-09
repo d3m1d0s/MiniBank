@@ -28,7 +28,6 @@ import static cz.vsb.minibank.api.AuthHelpers.requireCustomerId;
 /**
  * REST controller for transfer authorization and cancellation use cases.
  */
-@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174"})
 @RestController
 @RequestMapping("/api")
 public class AuthorizationController {

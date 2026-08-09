@@ -44,10 +44,11 @@ import java.util.Objects;
  * Turning that property on requires a trusted-proxy configuration first.
  *
  * <b>The load-bearing caveat: on this project's deployment there is one bucket for
- * everybody.</b> minibank-web posts to the absolute {@code http://localhost:8080/api} and
- * minibank-fraud-web posts through its vite proxy with {@code changeOrigin: true}, and
- * docker-compose.yml runs Postgres and nothing else, so every sign-in this project can produce
- * reaches Spring from a loopback address. Behind a reverse proxy - the ordinary way a Boot
+ * everybody.</b> Both frontends post through their own vite proxy with
+ * {@code changeOrigin: true}, and docker-compose.yml runs Postgres and nothing else, so every
+ * sign-in this project can produce reaches Spring from a loopback address. That used to be true
+ * of minibank-web for a different reason - it named {@code http://localhost:8080} outright - and
+ * the conclusion did not depend on which. Behind a reverse proxy - the ordinary way a Boot
  * application is exposed - the same collapse happens for every customer at once. So ten failed
  * sign-ins can refuse everyone for the rest of the window. That is worth stating plainly
  * rather than filing as a development-environment note, and it is the principal residual risk

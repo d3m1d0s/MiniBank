@@ -125,7 +125,12 @@ export interface AuthorizePaymentResult {
     declineReason: string | null;   // decline reason text for DECLINED, otherwise null
 }
 
-const API_BASE = 'http://localhost:8080/api';
+// Relative, so the request goes to whatever origin served the page and the dev server's own
+// proxy forwards it. vite.config.ts has always carried that proxy; naming the API's host and
+// port here meant it was never used, and the app could only ever talk to a backend on
+// localhost:8080. minibank-fraud-web was already relative, which is why only this app needed
+// the four @CrossOrigin allowlists that have gone with this change.
+const API_BASE = '/api';
 
 let currentSessionId: string | null = null;
 
