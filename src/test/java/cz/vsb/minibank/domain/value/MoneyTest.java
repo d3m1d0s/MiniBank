@@ -1,5 +1,6 @@
 package cz.vsb.minibank.domain.value;
 
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.InvalidAmountException;
 import org.junit.jupiter.api.Test;
 
@@ -156,6 +157,49 @@ class MoneyTest {
     @Test
     void aNullAmountIsRejected() {
         assertThrows(NullPointerException.class, () -> Money.of("CZK", (BigDecimal) null));
+    }
+
+    // -------------------------------------------------------------------------
+    // What counts as a currency
+    // -------------------------------------------------------------------------
+
+    /**
+     * The field used to take any string, so {@code ""} and {@code "XYZZY"} were both money this
+     * bank could hold. Three upper case letters is what ISO 4217 defines and what
+     * {@link java.util.Currency}, Joda-Money and JSR-354 all require.
+     */
+    @Test
+    void aCodeThatIsNotThreeUpperCaseLettersIsNotACurrency() {
+        for (String notACode : new String[]{"", " ", "CZ", "CZKK", "CZ1", "CZ-", "ČZK", " CZK"}) {
+            DataIntegrityException thrown = assertThrows(DataIntegrityException.class,
+                    () -> Money.of(notACode, new BigDecimal("1.00")),
+                    "'" + notACode + "' must not be accepted as a currency");
+            assertTrue(thrown.getMessage().contains(notACode),
+                    "the refusal must name what it was given");
+        }
+    }
+
+    /**
+     * Case is checked, not folded. Nothing types a currency in this application, so a stored code
+     * that is not already in its canonical form was written by hand - and folding it would be
+     * unsafe rather than lenient, because {@code JsonTransferRepository} compares the raw stored
+     * string when summing the day's outflow.
+     */
+    @Test
+    void aLowerCaseCodeIsRefusedRatherThanCorrected() {
+        assertThrows(DataIntegrityException.class,
+                () -> Money.of("czk", new BigDecimal("1.00")));
+    }
+
+    /**
+     * A foreign but well-formed code stays constructible, and that is deliberate: both loaders
+     * rebuild a stored amount in the currency its row names so that {@code Transfer}'s
+     * constructor can refuse it and say which currency it was. Making this unrepresentable would
+     * delete the guard rather than satisfy it.
+     */
+    @Test
+    void aForeignCodeIsStillConstructibleSoThatItCanBeRefusedByName() {
+        assertEquals("EUR", Money.of("EUR", new BigDecimal("1.00")).currency());
     }
 
     // -------------------------------------------------------------------------
