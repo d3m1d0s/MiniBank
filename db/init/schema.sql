@@ -18,6 +18,8 @@ CREATE SEQUENCE customers_id_seq;
 ALTER TABLE customers
     ALTER COLUMN id SET DEFAULT nextval('customers_id_seq');
 
+ALTER SEQUENCE customers_id_seq OWNED BY customers.id;
+
 ------------------------------------------------------------
 -- USERS (authentication / roles)
 ------------------------------------------------------------
@@ -34,6 +36,8 @@ CREATE TABLE users (
 CREATE SEQUENCE users_id_seq;
 ALTER TABLE users
     ALTER COLUMN id SET DEFAULT nextval('users_id_seq');
+
+ALTER SEQUENCE users_id_seq OWNED BY users.id;
 
 ------------------------------------------------------------
 -- ACCOUNTS
@@ -70,6 +74,8 @@ CREATE SEQUENCE accounts_id_seq;
 ALTER TABLE accounts
     ALTER COLUMN id SET DEFAULT nextval('accounts_id_seq');
 
+ALTER SEQUENCE accounts_id_seq OWNED BY accounts.id;
+
 CREATE INDEX idx_accounts_customer_id ON accounts(customer_id);
 
 ------------------------------------------------------------
@@ -89,6 +95,8 @@ CREATE TABLE beneficiaries (
 CREATE SEQUENCE beneficiaries_id_seq;
 ALTER TABLE beneficiaries
     ALTER COLUMN id SET DEFAULT nextval('beneficiaries_id_seq');
+
+ALTER SEQUENCE beneficiaries_id_seq OWNED BY beneficiaries.id;
 
 CREATE INDEX idx_beneficiaries_customer_id ON beneficiaries(customer_id);
 
@@ -162,8 +170,14 @@ CREATE SEQUENCE transfers_id_seq;
 ALTER TABLE transfers
     ALTER COLUMN id SET DEFAULT nextval('transfers_id_seq');
 
-CREATE INDEX idx_transfers_source_account ON transfers(source_account_id);
-CREATE INDEX idx_transfers_beneficiary ON transfers(beneficiary_id);
+ALTER SEQUENCE transfers_id_seq OWNED BY transfers.id;
+
+-- Serves the daily-total query, in both its whole-account and its per-payee form. Leads with
+-- source_account_id, so it also covers every plain lookup of one account's transfers; the
+-- single-column index that used to do that alone is subsumed. currency is left out on purpose:
+-- every row is CZK, so it would widen each entry and let the planner skip nothing.
+CREATE INDEX idx_transfers_daily_total
+    ON transfers (source_account_id, status, (COALESCE(settled_at, created_at)));
 
 ------------------------------------------------------------
 -- FRAUD ALERTS
@@ -197,5 +211,11 @@ CREATE SEQUENCE fraud_alerts_id_seq;
 ALTER TABLE fraud_alerts
     ALTER COLUMN id SET DEFAULT nextval('fraud_alerts_id_seq');
 
-CREATE INDEX idx_fraud_alerts_transfer ON fraud_alerts(transfer_id);
-CREATE INDEX idx_fraud_alerts_state ON fraud_alerts(state);
+ALTER SEQUENCE fraud_alerts_id_seq OWNED BY fraud_alerts.id;
+
+-- One alert per transfer. There are two creation sites and the second is guarded by a read
+-- rather than by a lock, so without this a race could file two - and two alerts make an
+-- approved payment permanently unconfirmable. The constraint brings its own index, so no
+-- separate one on transfer_id is needed. Nothing filters on state in SQL: the queue loads every
+-- alert and filters in Java, so an index there served nothing.
+ALTER TABLE fraud_alerts ADD CONSTRAINT fraud_alerts_one_per_transfer UNIQUE (transfer_id);
