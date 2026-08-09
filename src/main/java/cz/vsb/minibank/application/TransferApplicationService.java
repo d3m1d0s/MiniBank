@@ -124,8 +124,7 @@ public class TransferApplicationService {
         Money amount = Money.czkPayment(amountCzk);
         String reference = requireStorableMessage(message);
 
-        var uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
 
             // callerCustomerId comes from the session; the other two are caller input and are
             // resolved only against what that customer owns.
@@ -141,11 +140,8 @@ public class TransferApplicationService {
             t.attachMessage(reference);
 
             routeTransferCreation(account, t, beneficiary.trusted());
-            uow.commit();
+            scope.uow().commit();
             return id;
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
     }
 
@@ -165,8 +161,7 @@ public class TransferApplicationService {
         Money amount = Money.czkPayment(amountCzk);
         String reference = requireStorableMessage(message);
 
-        var uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
             IBAN iban = new IBAN(targetIban);
             var caller = guard.requireCaller(callerCustomerId);
             // The daily limits and the day's running total that decide this payment are read
@@ -181,11 +176,8 @@ public class TransferApplicationService {
 
             // An arbitrary IBAN is not a saved beneficiary, so it is never a trusted one.
             routeTransferCreation(account, t, false);
-            uow.commit();
+            scope.uow().commit();
             return id;
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
     }
 
@@ -436,8 +428,7 @@ public class TransferApplicationService {
         // next, which is the hole settled_at exists to close.
         Instant now = clock.instant();
 
-        var uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
             var caller = guard.requireCaller(callerCustomerId);
             var t = requireTransfer(caller, transferId);
 
@@ -475,7 +466,7 @@ public class TransferApplicationService {
             if (t.isAuthExpired()) {
                 t.decline("Authorization window expired");
                 transfers.save(t);
-                uow.commit();
+                scope.uow().commit();
                 return;
             }
 
@@ -500,7 +491,7 @@ public class TransferApplicationService {
             //
             // Raised before the OTP is looked at, so no attempt is spent on a refusal that is
             // not about the code, and before settle, so nothing has moved. The throw is inside
-            // the try, so UowScope.close and the catch both reach uow.rollback() and the
+            // the try, so UowScope.close rolls the unit of work back on the way out and the
             // transfer is left exactly as it was found: still WAITING_AUTH, so cancelPayment
             // declines it, and the expiry branch above declines it on the next call once the
             // five minute window has run out.
@@ -549,7 +540,7 @@ public class TransferApplicationService {
                             null,
                             null,
                             null));
-                    uow.commit();
+                    scope.uow().commit();
 
                     throw new TransferUnderReviewException(
                             "Transfer " + transferId + " is held for fraud review");
@@ -561,12 +552,12 @@ public class TransferApplicationService {
                 t.registerFailedOtpAttempt(MAX_OTP_ATTEMPTS);
                 transfers.save(t);
                 boolean attemptsRemain = t.status() == TransferStatus.WAITING_AUTH;
-                uow.commit();
+                scope.uow().commit();
 
                 // The attempt is spent whether or not the caller is told so, which is why the
                 // refusal is raised after the commit; rollback() is a no-op once the unit of
-                // work has completed (JsonUnitOfWork.finish, SqlUnitOfWork.rollback), and both
-                // UowScope.close() and the catch below call it on the way out. The last attempt
+                // work has completed (JsonUnitOfWork.finish, SqlUnitOfWork.rollback), and
+                // UowScope.close() calls it on the way out regardless. The last attempt
                 // declines the transfer, and that outcome is reported in the response, not as
                 // an error.
                 if (attemptsRemain) {
@@ -581,10 +572,7 @@ public class TransferApplicationService {
             transfers.save(t);
             settle(t, acc, now);
 
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
+            scope.uow().commit();
         }
     }
 
@@ -622,8 +610,7 @@ public class TransferApplicationService {
      * @throws ConflictException when the transfer has already been sent
      */
     public void cancelPayment(int callerCustomerId, int transferId) {
-        var uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
             var caller = guard.requireCaller(callerCustomerId);
             var t = requireTransfer(caller, transferId);
             // Same fact as Transfer.decline's own guard, so it must answer with the same code.
@@ -634,10 +621,7 @@ public class TransferApplicationService {
             // writes its own reason through FraudApplicationService and is not covered here.
             t.decline("Canceled by customer");
             transfers.save(t);
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
+            scope.uow().commit();
         }
     }
 }

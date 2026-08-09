@@ -108,13 +108,12 @@ class BeneficiarySequenceRecoveryTest {
 
         Bootstrap infra = new Bootstrap(store.toString());
 
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             Customer alice = infra.customers.byId(1).orElseThrow();
             alice.saveBeneficiary(new Beneficiary(infra.customers.nextBeneficiaryId(),
                     "Scammer", new IBAN(IBAN_C), false));
             infra.customers.save(alice);
-            uow.commit();
+            scope.uow().commit();
         }
 
         List<Beneficiary> after = new Bootstrap(store.toString())

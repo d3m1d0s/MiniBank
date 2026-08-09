@@ -109,8 +109,7 @@ class FraudHistoryOrderTest {
      * carrying an alert. Written through the repositories: what this observes is the read path.
      */
     private void seedHistory(int howMany) {
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             int customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "History Probe", "history@example.com",
                     new Address("Hlavni 1", "Ostrava"));
@@ -131,10 +130,7 @@ class FraudHistoryOrderTest {
                         "New beneficiary + high amount"));
             }
 
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
+            scope.uow().commit();
         }
     }
 }

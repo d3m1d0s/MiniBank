@@ -62,8 +62,8 @@ class SplitPaymentAlertTest {
         services = new BootstrapServices(
                 infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
 
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
             customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Split Probe", "split@example.com",
                     new Address("Hlavni 1", "Ostrava"));
@@ -183,15 +183,14 @@ class SplitPaymentAlertTest {
      */
     @Test
     void aDenormalizedStoredSnapshotIsStillTheSamePayee() {
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             Transfer settled = new Transfer(infra.transfers.nextId(), accountId, null,
                     "cz20 0100 0000 0000 1234 5678", Money.czk(HALF), "CZK");
             settled.send(infra.accounts.byId(accountId).orElseThrow(), null,
                     services.feePolicy, settled.createdAt());
             infra.transfers.add(settled);
             infra.accounts.save(infra.accounts.byId(accountId).orElseThrow());
-            uow.commit();
+            scope.uow().commit();
         }
 
         int second = pay(PAYEE);

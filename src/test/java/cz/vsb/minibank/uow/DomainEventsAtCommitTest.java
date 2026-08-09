@@ -99,8 +99,8 @@ class DomainEventsAtCommitTest {
         int id = inATransaction(t -> t.requestAuthorization(null), true);
         observer.heard.clear();
 
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
             Transfer t = infra.transfers.byId(id).orElseThrow();
             t.decline("second transaction");
             infra.transfers.save(t);
@@ -119,15 +119,14 @@ class DomainEventsAtCommitTest {
      *         because the sequence is drawn inside it
      */
     private int inATransaction(java.util.function.Consumer<Transfer> work, boolean commit) {
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             Transfer t = newTransfer();
             work.accept(t);
             infra.transfers.add(t);
             if (commit) {
-                uow.commit();
+                scope.uow().commit();
             } else {
-                uow.rollback();
+                scope.uow().rollback();
             }
             return t.id();
         }

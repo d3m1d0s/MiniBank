@@ -51,8 +51,8 @@ public class MinibankUowTests {
 
     @Test
     void identityMap_sameInstanceWithinUow() {
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
             int accId = infra.accounts.byCustomerId(infra.customers.byId(1).orElseThrow().id())
                     .get(0).id();
 
@@ -61,8 +61,6 @@ public class MinibankUowTests {
 
             assertSame(a1, a2, "Within a single UoW the same Account instance should be returned");
             uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback(); throw e;
         }
     }
 
@@ -70,8 +68,8 @@ public class MinibankUowTests {
     void saveBeneficiary_updatesCacheAndPersistsOnCommit() {
         int customerId = infra.customers.byId(1).orElseThrow().id();
 
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
             // load Customer into cache
             Customer cached = infra.customers.byId(customerId).orElseThrow();
             assertTrue(cached.beneficiaries().isEmpty(), "Start with no beneficiaries");
@@ -85,19 +83,14 @@ public class MinibankUowTests {
             assertEquals(1, cached.beneficiaries().size(), "Customer aggregate cache in UoW should reflect changes");
             assertEquals(bid, cached.beneficiaries().get(0).id());
             uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback(); throw e;
         }
 
         // new session/UoW -> read from persistent store
-        UnitOfWork uow2 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow2)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             Customer reloaded = infra.customers.byId(customerId).orElseThrow();
             assertEquals(1, reloaded.beneficiaries().size(), "After commit, data should be saved in JSON");
             assertEquals("Alice", reloaded.beneficiaries().get(0).name());
-            uow2.commit();
-        } catch (RuntimeException e) {
-            uow2.rollback(); throw e;
+            scope.uow().commit();
         }
     }
 
@@ -113,26 +106,24 @@ public class MinibankUowTests {
                 .get(0).id();
 
         int doomedTransferId;
-        UnitOfWork doomed = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(doomed)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             doomedTransferId = infra.transfers.nextId();
             infra.transfers.add(new Transfer(
                     doomedTransferId, accountId, null,
                     "CZ0401000000000000000000", Money.czk(1_000), "CZK"));
 
             // Fails after the transfer has already been applied to the shared data.
-            doomed.registerMutation(() -> { throw new IllegalStateException("commit fails here"); });
+            scope.uow().registerMutation(() -> { throw new IllegalStateException("commit fails here"); });
 
-            assertThrows(RuntimeException.class, doomed::commit);
+            assertThrows(RuntimeException.class, scope.uow()::commit);
         }
 
-        UnitOfWork next = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(next)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             assertTrue(infra.transfers.byId(doomedTransferId).isEmpty(),
                     "The failed transaction's transfer must not be visible to the next one");
             assertTrue(infra.transfers.bySourceAccount(accountId).isEmpty(),
                     "The failed transaction must have left the store as it found it");
-            next.commit();
+            scope.uow().commit();
         }
 
         Bootstrap reopened = new Bootstrap(dataPath);
@@ -144,8 +135,7 @@ public class MinibankUowTests {
     void byCustomerId_usesIdentityMap() {
         int customerId = infra.customers.byId(1).orElseThrow().id();
 
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             // first byId - put account into cache
             int accId = infra.accounts.byCustomerId(customerId).get(0).id();
             Account byId = infra.accounts.byId(accId).orElseThrow();
@@ -156,9 +146,7 @@ public class MinibankUowTests {
             Account fromList = list.get(0);
 
             assertSame(byId, fromList, "byCustomerId should return the same instance from the Identity Map within the UoW");
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback(); throw e;
+            scope.uow().commit();
         }
     }
 }

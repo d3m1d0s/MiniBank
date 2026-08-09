@@ -264,8 +264,8 @@ class CreditLegTest {
      */
     @Test
     void byIdAndByIbanReturnOneInstanceForOneRowInsideAUnitOfWork() {
-        UnitOfWork uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
             Account byId = accounts.byId(PAYEE_ACCOUNT_ID).orElseThrow();
             Account byIban = accounts.byIban(new IBAN(PAYEE_IBAN)).orElseThrow();
 
@@ -274,9 +274,6 @@ class CreditLegTest {
             // And in the other order, because the probe has to work whichever key arrives first.
             assertSame(byIban, accounts.byId(PAYEE_ACCOUNT_ID).orElseThrow());
             uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
     }
 
@@ -288,17 +285,14 @@ class CreditLegTest {
      */
     @Test
     void aMutationMadeBeforeAByIbanLookupSurvivesTheCommit() {
-        UnitOfWork uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
             accounts.byId(PAYEE_ACCOUNT_ID).orElseThrow().credit(Money.czk(1_000));
 
             Account resolved = accounts.byIban(new IBAN(PAYEE_IBAN)).orElseThrow();
             accounts.save(resolved);
 
             uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
 
         assertEquals(PAYEE_OPENING.plus(Money.czk(1_000)), balanceOf(PAYEE_ACCOUNT_ID),
@@ -315,8 +309,7 @@ class CreditLegTest {
     void anAccountOpenedInThisUnitOfWorkIsAlreadyInBank() {
         String freshIban = "CZ2108000000192000145415";
 
-        UnitOfWork uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
             Account opened = new Account(300, new IBAN(freshIban),
                     Money.czk(1_000), Money.czk(10_000));
             accounts.save(opened);
@@ -324,10 +317,7 @@ class CreditLegTest {
             Account found = accounts.inBankByIban(freshIban).orElseThrow(
                     () -> new AssertionError("an account this transaction just opened is ours"));
             assertSame(opened, found);
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
+            scope.uow().commit();
         }
     }
 

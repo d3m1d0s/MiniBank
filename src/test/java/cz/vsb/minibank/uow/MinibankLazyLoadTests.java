@@ -63,8 +63,8 @@ public class MinibankLazyLoadTests {
 
         // 3) create a single transfer with this account as source (through UoW)
         UnitOfWorkFactory uowFactory = infra.uowFactory;
-        UnitOfWork uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
             transferId = infra.transfers.nextId();
 
             // If your Transfer constructor differs, adjust parameters accordingly
@@ -79,9 +79,6 @@ public class MinibankLazyLoadTests {
 
             infra.transfers.add(t);
             uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
     }
 
@@ -178,9 +175,6 @@ public class MinibankLazyLoadTests {
             );
 
             uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
     }
 
@@ -210,9 +204,6 @@ public class MinibankLazyLoadTests {
             );
 
             uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
     }
 }

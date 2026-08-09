@@ -175,8 +175,7 @@ class ReadPathsRunInOneUnitOfWorkTest {
      * through the repositories: what this test observes is the read path, not how a row got there.
      */
     private int seedAlertedTransfers(int howMany) {
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             int customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Queue Probe", "queue@example.com",
                     new Address("Hlavni 1", "Ostrava"));
@@ -197,11 +196,8 @@ class ReadPathsRunInOneUnitOfWorkTest {
                         "New beneficiary + high amount"));
             }
 
-            uow.commit();
+            scope.uow().commit();
             return customerId;
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
     }
 

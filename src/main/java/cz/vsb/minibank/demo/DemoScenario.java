@@ -98,8 +98,8 @@ public final class DemoScenario {
      * Repeated calls are no-ops that return the same id.
      */
     public int seed() {
-        UnitOfWork uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
             Optional<Account> alreadySeeded = accounts.byIban(PRIMARY_IBAN);
             if (alreadySeeded.isPresent()) {
                 int ownerId = customers.byAccountId(alreadySeeded.get().id())
@@ -113,9 +113,6 @@ public final class DemoScenario {
             int customerId = create(uow);
             uow.commit();
             return customerId;
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
     }
 

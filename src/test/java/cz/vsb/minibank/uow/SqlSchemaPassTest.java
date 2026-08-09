@@ -134,8 +134,8 @@ public class SqlSchemaPassTest {
         ExecutorService pool = Executors.newFixedThreadPool(2);
 
         Callable<Throwable> debitOnce = () -> {
-            UnitOfWork uow = infra.uowFactory.begin();
-            try (UowScope __ = new UowScope(uow)) {
+            try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+                UnitOfWork uow = scope.uow();
                 Account acc = infra.accounts.byId(accountId).orElseThrow();
                 acc.debit(Money.czk(100), Money.czk(0));
                 infra.accounts.save(acc);
@@ -148,7 +148,6 @@ public class SqlSchemaPassTest {
                 uow.commit();
                 return null;
             } catch (RuntimeException e) {
-                uow.rollback();
                 return e;
             }
         };
@@ -200,8 +199,8 @@ public class SqlSchemaPassTest {
         ExecutorService pool = Executors.newFixedThreadPool(2);
 
         Callable<Throwable> creditOnce = () -> {
-            UnitOfWork uow = infra.uowFactory.begin();
-            try (UowScope __ = new UowScope(uow)) {
+            try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+                UnitOfWork uow = scope.uow();
                 Account shop = infra.accounts.byId(shopId).orElseThrow();
                 shop.credit(Money.czk(250));
                 infra.accounts.save(shop);
@@ -209,7 +208,6 @@ public class SqlSchemaPassTest {
                 uow.commit();
                 return null;
             } catch (RuntimeException e) {
-                uow.rollback();
                 return e;
             }
         };
@@ -261,8 +259,8 @@ public class SqlSchemaPassTest {
         ExecutorService pool = Executors.newFixedThreadPool(2);
 
         Callable<Throwable> writeOnce = () -> {
-            UnitOfWork uow = infra.uowFactory.begin();
-            try (UowScope __ = new UowScope(uow)) {
+            try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+                UnitOfWork uow = scope.uow();
                 Transfer t = infra.transfers.byId(transferId).orElseThrow();
 
                 // Whichever thread gets here first decides which mutation this one is. Both are
@@ -280,7 +278,6 @@ public class SqlSchemaPassTest {
                 uow.commit();
                 return null;
             } catch (RuntimeException e) {
-                uow.rollback();
                 return e;
             }
         };
@@ -333,15 +330,12 @@ public class SqlSchemaPassTest {
         assertEquals(0, loaded.version(),
                 "the aggregate must carry the version the store holds after a load");
 
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
             Transfer t = infra.transfers.byId(transferId).orElseThrow();
             t.decline("Canceled by customer");
             infra.transfers.save(t);
             uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
 
         assertEquals(1, versionOfTransfer(transferId),
@@ -404,8 +398,8 @@ public class SqlSchemaPassTest {
         int customerId;
         int accountId;
 
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
             customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Schema Probe", "schema@example.com",
                     new Address("Hlavni 1", "Ostrava"));
@@ -418,9 +412,6 @@ public class SqlSchemaPassTest {
             c.addAccountId(accountId);
             infra.customers.save(c);
             uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
 
         Account reloaded = infra.accounts.byId(accountId).orElseThrow();
@@ -472,8 +463,8 @@ public class SqlSchemaPassTest {
     // ------------------------------------------------------------------
 
     private int seedAccount(Money balance, Money dailyLimit, Money softTier) {
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
             int customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Race Probe", "race@example.com",
                     new Address("Hlavni 1", "Ostrava"));
@@ -486,9 +477,6 @@ public class SqlSchemaPassTest {
 
             uow.commit();
             return accountId;
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
     }
 
@@ -520,8 +508,7 @@ public class SqlSchemaPassTest {
         int customerId;
         int accountId;
 
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Race Probe", "race@example.com",
                     new Address("Hlavni 1", "Ostrava"));
@@ -532,10 +519,7 @@ public class SqlSchemaPassTest {
                     Money.czk(500_000), Money.czk(400_000), Money.czk(3_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
+            scope.uow().commit();
         }
 
         int transferId = services.transferService.submitPaymentToIban(

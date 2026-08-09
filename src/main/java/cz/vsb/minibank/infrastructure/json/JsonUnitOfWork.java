@@ -150,9 +150,10 @@ public final class JsonUnitOfWork implements UnitOfWork {
      * DemoScenario.seed() calls rollback() explicitly and then returns from inside its
      * try-with-resources block, so UowScope.close() calls rollback() a second time on a
      * completely ordinary run - and DemoUsersInitializer does that at startup against an
-     * already-seeded file. The services call rollback() after a failed commit() for the
-     * same reason. The invariant is: exactly one of commit()/rollback() releases the
-     * store lock, and every later completion call is a no-op.
+     * already-seeded file. TransferApplicationService's authorize path does the same thing a
+     * second way: it commits and then throws from inside the try, so close() rolls back a unit
+     * of work that has already completed. The invariant is: exactly one of commit()/rollback()
+     * releases the store lock, and every later completion call is a no-op.
      */
     private void finish() {
         active = false;

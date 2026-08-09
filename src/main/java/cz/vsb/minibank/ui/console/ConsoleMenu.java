@@ -361,8 +361,7 @@ public class ConsoleMenu {
         // the demo dataset is the only writer of `true`.
         boolean trusted = false;
 
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope ignored = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             var cust = customers.byId(cid).orElseThrow();
 
             int bid = customers.nextBeneficiaryId();
@@ -370,11 +369,8 @@ public class ConsoleMenu {
 
             customers.saveBeneficiary(cust.id(), b);
 
-            uow.commit();
+            scope.uow().commit();
             System.out.println("[OK] Beneficiary added id=" + bid);
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
     }
 

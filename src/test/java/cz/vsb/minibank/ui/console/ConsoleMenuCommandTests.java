@@ -138,8 +138,7 @@ public class ConsoleMenuCommandTests {
                 "Console should report successful beneficiary addition");
 
         // verify that data is actually persisted via UoW
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             Customer reloaded = infra.customers.byId(customerId).orElseThrow();
             assertEquals(1, reloaded.beneficiaries().size(),
                     "After addBeneficiary the customer should have one beneficiary");
@@ -148,10 +147,7 @@ public class ConsoleMenuCommandTests {
             assertEquals("CZ1301000000000098765432", b.iban().value());
             assertFalse(b.trusted(),
                     "A beneficiary the customer added must not be trusted: trust is bank-set");
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
+            scope.uow().commit();
         }
     }
 

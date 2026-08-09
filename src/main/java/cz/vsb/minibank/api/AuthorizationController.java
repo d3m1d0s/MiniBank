@@ -79,8 +79,7 @@ public class AuthorizationController {
         // lookup for the customer's accounts, then one per account for its transfers. Without a
         // unit of work each of those opens and tears down its own JDBC connection, because this
         // project has no connection pool.
-        var uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
             return waitingFor(customerId);
         }
     }
@@ -127,8 +126,7 @@ public class AuthorizationController {
 
         // Three lookups - the caller, the transfer, its account - and the same rule as the two
         // reads above: a read path in this controller runs inside one unit of work.
-        var uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
             return detailsOf(customerId, id);
         }
     }

@@ -122,8 +122,7 @@ public class FraudController {
         // On the JSON backend the unit of work holds the store lock for the whole read, so
         // payments wait while a queue is drawn. Accepted: the loop is in memory and short, and
         // the alternative is the connection storm above on the backend that actually ships.
-        var uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
             return buildQueue(state, minAmount, maxAmount, fromTs, toTs, assignee, hidden);
         }
     }
@@ -237,8 +236,7 @@ public class FraudController {
 
         // Four lookups that used to be four connections: the alert, its transfer, that
         // transfer's account, and the account's whole history. Same reasoning as the queue.
-        var uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
             FraudAlert alert = alerts.byId(id)
                     .orElseThrow(() -> new NotFoundException("Fraud alert not found: " + id));
 

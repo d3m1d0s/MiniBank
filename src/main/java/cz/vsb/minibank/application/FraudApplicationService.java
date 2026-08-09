@@ -5,6 +5,7 @@ import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
 import cz.vsb.minibank.domain.exceptions.ValidationException;
 import cz.vsb.minibank.domain.repository.*;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
 
@@ -101,8 +102,7 @@ public class FraudApplicationService {
     public void approve(int transferId) {
         Instant decidedAt = clock.instant();
 
-        var uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
             var alert = alerts.byTransferId(transferId).orElseThrow(() -> new NotFoundException("Alert not found for transfer " + transferId));
             var t = transfers.byId(transferId).orElseThrow(() -> new NotFoundException("Transfer not found: " + transferId));
 
@@ -116,10 +116,7 @@ public class FraudApplicationService {
                 t.releaseForAuthorization();
                 transfers.save(t);
             }
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
+            scope.uow().commit();
         }
     }
 
@@ -133,8 +130,7 @@ public class FraudApplicationService {
     public void decline(int transferId, String reason) {
         Instant decidedAt = clock.instant();
 
-        var uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
             var alert = alerts.byTransferId(transferId).orElseThrow(() -> new NotFoundException("Alert not found for transfer " + transferId));
             var t = transfers.byId(transferId).orElseThrow(() -> new NotFoundException("Transfer not found: " + transferId));
 
@@ -153,10 +149,7 @@ public class FraudApplicationService {
                 t.decline(reason);
                 transfers.save(t);
             }
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
+            scope.uow().commit();
         }
     }
 
@@ -198,8 +191,7 @@ public class FraudApplicationService {
             String notes,
             String decidedBy
     ) {
-        var uow = uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
 
             FraudAlert alert = alerts.byId(alertId)
                     .orElseThrow(() -> new NotFoundException("Fraud alert not found: " + alertId));
@@ -279,10 +271,7 @@ public class FraudApplicationService {
 
             alerts.save(alert);
 
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
+            scope.uow().commit();
         }
     }
 

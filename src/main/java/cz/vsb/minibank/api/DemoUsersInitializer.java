@@ -61,8 +61,7 @@ public class DemoUsersInitializer {
     private void ensureDemoUsers(int customerId) {
         UserRepository users = infra.users;
 
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             if (users.findByUsername(DEMO_CUSTOMER_LOGIN).isEmpty()) {
                 int uid = users.nextId();
                 byte[] salt = encoder.generateSalt();
@@ -77,10 +76,7 @@ public class DemoUsersInitializer {
                 users.save(new User(uid, DEMO_ANALYST_LOGIN, hash, salt, UserRole.FRAUD_ANALYST, null));
             }
 
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
+            scope.uow().commit();
         }
     }
 }

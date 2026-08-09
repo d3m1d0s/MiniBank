@@ -69,8 +69,7 @@ public class AppSql {
     private static void ensureDemoUsers(Bootstrap infra, PasswordEncoder encoder, int customerId) {
         UserRepository users = infra.users;
 
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             if (users.findByUsername("alice").isEmpty()) {
                 int uid = users.nextId();
                 byte[] salt = encoder.generateSalt();
@@ -85,10 +84,7 @@ public class AppSql {
                 users.save(new User(uid, "fraud", hash, salt, UserRole.FRAUD_ANALYST, null));
             }
 
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
+            scope.uow().commit();
         }
     }
 }

@@ -29,6 +29,21 @@ public final class UowScope implements AutoCloseable {
     }
 
     /**
+     * The unit of work this scope bound to the current thread.
+     *
+     * Exists so the unit of work can be opened inside the resource list -
+     * {@code try (UowScope scope = new UowScope(factory.begin()))} - rather than one statement
+     * before it. {@code UnitOfWork} is not {@code AutoCloseable}, so it cannot be a resource
+     * itself, and without this accessor a caller that inlined the call would have no way to
+     * commit. The point of inlining is that a unit of work can no longer exist unbound: the
+     * advice {@code JsonUnitOfWorkFactory} gives its callers becomes something they cannot
+     * forget to follow.
+     */
+    public UnitOfWork uow() {
+        return uow;
+    }
+
+    /**
      * Restores the previously active UnitOfWork and ends one that was left open.
      *
      * Leaving the block without committing or rolling back does not just lose the
