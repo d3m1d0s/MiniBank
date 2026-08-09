@@ -126,14 +126,9 @@ public class PaymentAndAuthorizationApiTest {
 
         victimWaitingTransfer = transferService.submitPaymentToIban(
                 VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, "CZ2001000000000012345678",
-                WAITING_TRANSFER_AMOUNT, "victim's own");
+                WAITING_TRANSFER_AMOUNT, "victim's own").transferId();
 
-        paymentController = new PaymentController(
-                transferService,
-                accounts,
-                transfers,
-                services.feePolicy
-        );
+        paymentController = new PaymentController(transferService, accounts);
 
         authorizationController = new AuthorizationController(
                 transferService,

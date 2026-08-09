@@ -197,7 +197,7 @@ class FraudDecisionRecordTest {
 
     private int flaggedPayment() {
         return services.transferService.submitPaymentToIban(
-                CUSTOMER_ID, ACCOUNT_ID, EXTERNAL_IBAN, FLAGGED, "over the alert threshold");
+                CUSTOMER_ID, ACCOUNT_ID, EXTERNAL_IBAN, FLAGGED, "over the alert threshold").transferId();
     }
 
     /** Read back through the repository, so every assertion is about what the store holds. */

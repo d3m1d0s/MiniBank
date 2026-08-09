@@ -208,11 +208,11 @@ class HttpErrorContractTest {
         // Created through the service as the victim, so they are ordinary rows rather than
         // hand-built ones, and 6 000 is above the authorization threshold while 100 is not.
         victimWaitingTransfer = transferService.submitPaymentToIban(
-                VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, TARGET_IBAN, 6_000.0, "victim waiting");
+                VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, TARGET_IBAN, 6_000.0, "victim waiting").transferId();
         victimSentTransfer = transferService.submitPaymentToIban(
-                VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, TARGET_IBAN, 100.0, "victim sent");
+                VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, TARGET_IBAN, 100.0, "victim sent").transferId();
 
-        paymentController = new PaymentController(transferService, accounts, transfers, services.feePolicy);
+        paymentController = new PaymentController(transferService, accounts);
         authorizationController = new AuthorizationController(transferService, accounts, transfers,
                 services.feePolicy, services.ownershipGuard, infra.uowFactory);
         FraudController fraudController = new FraudController(

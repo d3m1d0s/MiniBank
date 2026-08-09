@@ -43,9 +43,7 @@ class PaymentControllerAuthTest {
                 Money.czk(10000), Money.czk(5000));
         when(accounts.byCustomerId(42)).thenReturn(List.of(acc));
 
-        PaymentController ctrl = new PaymentController(
-                transferService, accounts, transfers, feePolicy
-        );
+        PaymentController ctrl = new PaymentController(transferService, accounts);
 
         // act
         var result = ctrl.listMyAccounts();
@@ -66,9 +64,7 @@ class PaymentControllerAuthTest {
         TransferRepository transfers = mock(TransferRepository.class);
         FeePolicy feePolicy = new ZeroFeePolicy();
 
-        PaymentController ctrl = new PaymentController(
-                transferService, accounts, transfers, feePolicy
-        );
+        PaymentController ctrl = new PaymentController(transferService, accounts);
 
         // act + assert
         assertThrows(NotAuthenticatedException.class, ctrl::listMyAccounts);

@@ -145,7 +145,7 @@ class TransferAmountValidationTest {
      */
     @Test
     void theSmallestValidAmountStillMovesMoney() {
-        int id = service.submitPaymentToIban(CUSTOMER_ID, ACCOUNT_ID, TARGET_IBAN, 0.01, "");
+        int id = service.submitPaymentToIban(CUSTOMER_ID, ACCOUNT_ID, TARGET_IBAN, 0.01, "").transferId();
 
         Transfer stored = transfers.byId(id).orElseThrow();
         assertEquals(Money.czk(0.01), stored.amount());

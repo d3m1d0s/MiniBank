@@ -82,7 +82,7 @@ class StoredFeeTest {
         Money charged = atSettlement.compute(Money.czk(AMOUNT));
 
         int id = serviceWith(atSettlement).submitPaymentByBeneficiary(
-                CUSTOMER_ID, ACCOUNT_ID, TRUSTED_BENEFICIARY_ID, AMOUNT, "under the old policy");
+                CUSTOMER_ID, ACCOUNT_ID, TRUSTED_BENEFICIARY_ID, AMOUNT, "under the old policy").transferId();
 
         Transfer settled = infra.transfers.byId(id).orElseThrow();
         assertEquals(TransferStatus.SENT, settled.status());
@@ -118,7 +118,7 @@ class StoredFeeTest {
     void anUnsettledTransferQuotesTheCurrentPolicyBecauseItHasBeenChargedNothing() {
         // 30 000 is over the bank-wide soft threshold, so it waits for the customer's code.
         int id = serviceWith(new SimpleFeePolicy()).submitPaymentByBeneficiary(
-                CUSTOMER_ID, ACCOUNT_ID, TRUSTED_BENEFICIARY_ID, 30_000, "not yet");
+                CUSTOMER_ID, ACCOUNT_ID, TRUSTED_BENEFICIARY_ID, 30_000, "not yet").transferId();
 
         Transfer waiting = infra.transfers.byId(id).orElseThrow();
         assertEquals(TransferStatus.WAITING_AUTH, waiting.status());

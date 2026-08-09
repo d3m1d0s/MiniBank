@@ -96,7 +96,7 @@ public class DemoRunner {
                     "CZ1301000000000098765432",
                     AUTH_AMOUNT,
                     "demo AUTH"
-            );
+            ).transferId();
             var tr1 = infra.transfers.byId(t1).orElseThrow();
             assertState(tr1.status() == TransferStatus.WAITING_AUTH,
                     "T1 must be WAITING_AUTH after creation");
@@ -126,7 +126,7 @@ public class DemoRunner {
                     benId,
                     FRAUD_AMOUNT,
                     "demo FRAUD"
-            );
+            ).transferId();
             var tr2 = infra.transfers.byId(t2).orElseThrow();
             assertState(tr2.status() == TransferStatus.HELD_FOR_REVIEW,
                     "T2 must be HELD_FOR_REVIEW after creation");
@@ -184,7 +184,7 @@ public class DemoRunner {
                     "CZ9608000000192000142222",
                     CANCEL_AMOUNT,
                     "demo CANCEL"
-            );
+            ).transferId();
             var tr3 = infra.transfers.byId(t3).orElseThrow();
             assertState(tr3.status() == TransferStatus.WAITING_AUTH,
                     "T3 must be WAITING_AUTH after creation");
@@ -248,7 +248,7 @@ public class DemoRunner {
                 "CZ1301000000000098765432",
                 SOFT_TIER_AMOUNT,
                 "demo SOFT TIER"
-        );
+        ).transferId();
         var tr4 = infra.transfers.byId(t4).orElseThrow();
         assertState(tr4.status() == TransferStatus.WAITING_AUTH,
                 "T4 of " + Money.czk(SOFT_TIER_AMOUNT) + " must be held by this account's own "

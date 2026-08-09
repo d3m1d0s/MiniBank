@@ -117,7 +117,7 @@ class SelfTransferTest {
      */
     @Test
     void payingTheCustomersOtherAccountIsStillAllowed() {
-        int id = service.submitPaymentToIban(CUSTOMER_ID, ACCOUNT_ID, SECOND_IBAN, 500, "");
+        int id = service.submitPaymentToIban(CUSTOMER_ID, ACCOUNT_ID, SECOND_IBAN, 500, "").transferId();
 
         assertEquals(1, transfers.bySourceAccount(ACCOUNT_ID).size());
         assertEquals(id, transfers.bySourceAccount(ACCOUNT_ID).get(0).id());

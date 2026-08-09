@@ -479,7 +479,7 @@ public class SqlSchemaPassTest {
         // 2 500 is under this account's own 3 000 tier and under every untrusted threshold, so
         // it settles at creation and carries a fee and a settlement instant.
         int settled = services.transferService.submitPaymentToIban(
-                customerId, accountId, EXTERNAL_IBAN.value(), 2_500, "invoice 2026/03");
+                customerId, accountId, EXTERNAL_IBAN.value(), 2_500, "invoice 2026/03").transferId();
 
         Transfer t = infra.transfers.byId(settled).orElseThrow();
         assertEquals(TransferStatus.SENT, t.status());
@@ -493,7 +493,7 @@ public class SqlSchemaPassTest {
         // 3 500 crosses this account's own tier, so it waits - and while it waits it has no fee
         // and no settlement instant, which must round-trip as null rather than as zero.
         int waiting = services.transferService.submitPaymentToIban(
-                customerId, accountId, EXTERNAL_IBAN.value(), 3_500, null);
+                customerId, accountId, EXTERNAL_IBAN.value(), 3_500, null).transferId();
         Transfer pending = infra.transfers.byId(waiting).orElseThrow();
         assertEquals(TransferStatus.WAITING_AUTH, pending.status());
         assertNull(pending.fee(), "an unsettled transfer has been charged nothing, not zero");
@@ -504,7 +504,7 @@ public class SqlSchemaPassTest {
 
         // And the analyst's verdict, through the fraud service.
         int flagged = services.transferService.submitPaymentToIban(
-                customerId, accountId, EXTERNAL_IBAN.value(), 12_000, "over the alert threshold");
+                customerId, accountId, EXTERNAL_IBAN.value(), 12_000, "over the alert threshold").transferId();
         services.fraudService.decideAndUpdateAlert(
                 infra.alerts.byTransferId(flagged).orElseThrow().id(),
                 "APPROVE", null, null, List.of("manual-review"), "looked fine", "anna.analyst");
@@ -581,7 +581,7 @@ public class SqlSchemaPassTest {
         }
 
         int transferId = services.transferService.submitPaymentToIban(
-                customerId, accountId, EXTERNAL_IBAN.value(), 3_500, null);
+                customerId, accountId, EXTERNAL_IBAN.value(), 3_500, null).transferId();
         assertEquals(TransferStatus.WAITING_AUTH,
                 infra.transfers.byId(transferId).orElseThrow().status(),
                 "the fixture must park the payment, or the race under test never happens");

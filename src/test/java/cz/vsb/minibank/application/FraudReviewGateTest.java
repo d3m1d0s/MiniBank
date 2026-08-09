@@ -602,7 +602,7 @@ class FraudReviewGateTest {
     // ------------------------------------------------------------------ fixture
 
     private int payExternal(double amountCzk) {
-        return service.submitPaymentToIban(CUSTOMER_ID, ACCOUNT_ID, EXTERNAL_IBAN, amountCzk, "");
+        return service.submitPaymentToIban(CUSTOMER_ID, ACCOUNT_ID, EXTERNAL_IBAN, amountCzk, "").transferId();
     }
 
     private Transfer transfer(int id) {

@@ -118,7 +118,7 @@ public class TransferApplicationService {
      * @throws DailyLimitExceededException when this amount would take today's outflow past the
      *         source account's daily ceiling
      */
-    public int submitPaymentByBeneficiary(int callerCustomerId, int sourceAccountId, int beneficiaryId, double amountCzk, String message) {
+    public PaymentOutcome submitPaymentByBeneficiary(int callerCustomerId, int sourceAccountId, int beneficiaryId, double amountCzk, String message) {
         // Validated before the unit of work opens: rejected input is caller input, not a
         // reason to start a transaction and roll it back.
         Money amount = Money.czkPayment(amountCzk);
@@ -140,8 +140,13 @@ public class TransferApplicationService {
             t.attachMessage(reference);
 
             routeTransferCreation(account, t, beneficiary.trusted());
+
+            // Built before the commit, from the aggregates this unit of work owns, so what the
+            // caller is told is what this transaction did rather than what the store happened to
+            // hold a moment later.
+            PaymentOutcome outcome = outcomeOf(t, account);
             scope.uow().commit();
-            return id;
+            return outcome;
         }
     }
 
@@ -155,7 +160,7 @@ public class TransferApplicationService {
      * @throws DailyLimitExceededException when this amount would take today's outflow past the
      *         source account's daily ceiling
      */
-    public int submitPaymentToIban(int callerCustomerId, int sourceAccountId, String targetIban, double amountCzk, String message) {
+    public PaymentOutcome submitPaymentToIban(int callerCustomerId, int sourceAccountId, String targetIban, double amountCzk, String message) {
         // Validated before the unit of work opens: rejected input is caller input, not a
         // reason to start a transaction and roll it back.
         Money amount = Money.czkPayment(amountCzk);
@@ -176,8 +181,10 @@ public class TransferApplicationService {
 
             // An arbitrary IBAN is not a saved beneficiary, so it is never a trusted one.
             routeTransferCreation(account, t, false);
+
+            PaymentOutcome outcome = outcomeOf(t, account);
             scope.uow().commit();
-            return id;
+            return outcome;
         }
     }
 
@@ -421,7 +428,7 @@ public class TransferApplicationService {
      *         writing the new one. Nothing is charged; the JDBC transaction is rolled back with
      *         the debit still inside it
      */
-    public void authorizePayment(int callerCustomerId, int transferId, String otp) {
+    public PaymentOutcome authorizePayment(int callerCustomerId, int transferId, String otp) {
         // Read once. This instant bounds the day this payment is checked against and is the
         // instant it is stamped as settling at, and they have to be the same reading: two calls
         // either side of midnight would check a payment against one day and file it under the
@@ -466,8 +473,9 @@ public class TransferApplicationService {
             if (t.isAuthExpired()) {
                 t.decline("Authorization window expired");
                 transfers.save(t);
+                PaymentOutcome outcome = outcomeOf(t, acc);
                 scope.uow().commit();
-                return;
+                return outcome;
             }
 
             // The funds check first, so the two check sites answer a payment that is both
@@ -552,6 +560,7 @@ public class TransferApplicationService {
                 t.registerFailedOtpAttempt(MAX_OTP_ATTEMPTS);
                 transfers.save(t);
                 boolean attemptsRemain = t.status() == TransferStatus.WAITING_AUTH;
+                PaymentOutcome outcome = outcomeOf(t, acc);
                 scope.uow().commit();
 
                 // The attempt is spent whether or not the caller is told so, which is why the
@@ -563,7 +572,7 @@ public class TransferApplicationService {
                 if (attemptsRemain) {
                     throw new InvalidOtpException("Wrong one-time password for transfer " + transferId);
                 }
-                return;
+                return outcome;
             }
 
             // The only other point at which a customer's money moves. Everything above is
@@ -572,8 +581,28 @@ public class TransferApplicationService {
             transfers.save(t);
             settle(t, acc, now);
 
+            PaymentOutcome outcome = outcomeOf(t, acc);
             scope.uow().commit();
+            return outcome;
         }
+    }
+
+    /**
+     * The facts about a transfer and the account behind it, as this unit of work leaves them.
+     *
+     * Called from inside the scope on purpose, and from every path that returns rather than
+     * throws. Both objects come from the identity map, so they are this transaction's own view
+     * and not a second read of the store - which is the point: a caller told what it did must be
+     * told what *it* did.
+     */
+    private PaymentOutcome outcomeOf(Transfer t, Account account) {
+        return new PaymentOutcome(
+                t.id(),
+                t.status(),
+                t.amount(),
+                t.feeFor(feePolicy),
+                account.balance(),
+                t.declineReason());
     }
 
     /**
@@ -609,7 +638,7 @@ public class TransferApplicationService {
      *         because none exists or because it debits somebody else's account
      * @throws ConflictException when the transfer has already been sent
      */
-    public void cancelPayment(int callerCustomerId, int transferId) {
+    public PaymentOutcome cancelPayment(int callerCustomerId, int transferId) {
         try (UowScope scope = new UowScope(uowFactory.begin())) {
             var caller = guard.requireCaller(callerCustomerId);
             var t = requireTransfer(caller, transferId);
@@ -621,7 +650,15 @@ public class TransferApplicationService {
             // writes its own reason through FraudApplicationService and is not covered here.
             t.decline("Canceled by customer");
             transfers.save(t);
+
+            // The one path that has to load the account rather than already holding it: nothing
+            // above this line touches it, because cancelling moves no money. One read inside the
+            // transaction, replacing the two the controller used to make outside it.
+            var account = guard.requireOwnedAccount(caller, t.sourceAccountId());
+
+            PaymentOutcome outcome = outcomeOf(t, account);
             scope.uow().commit();
+            return outcome;
         }
     }
 }

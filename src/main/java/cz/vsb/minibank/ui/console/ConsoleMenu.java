@@ -388,7 +388,7 @@ public class ConsoleMenu {
         int benId = askInt("Beneficiary id", -1);
         double amount = askDouble("Amount CZK", 1000);
 
-        int tid = services.transferService.submitPaymentByBeneficiary(cid, accId, benId, amount, "");
+        int tid = services.transferService.submitPaymentByBeneficiary(cid, accId, benId, amount, "").transferId();
         System.out.println("[OK] Transfer created id=" + tid);
     }
 
@@ -407,7 +407,7 @@ public class ConsoleMenu {
         String iban = in.nextLine().trim();
         double amount = askDouble("Amount CZK", 6000);
 
-        int tid = services.transferService.submitPaymentToIban(cid, accId, iban, amount, "");
+        int tid = services.transferService.submitPaymentToIban(cid, accId, iban, amount, "").transferId();
         System.out.println("[OK] Transfer created id=" + tid);
     }
 

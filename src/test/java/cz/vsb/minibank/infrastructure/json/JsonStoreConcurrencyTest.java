@@ -100,7 +100,7 @@ class JsonStoreConcurrencyTest {
 
         List<Integer> transferIds = runConcurrently(
                 () -> services.transferService.submitPaymentToIban(
-                        customerId, accountId, TARGET_IBAN, PAYMENT.amount().doubleValue(), ""));
+                        customerId, accountId, TARGET_IBAN, PAYMENT.amount().doubleValue(), "").transferId());
 
         Bootstrap reopened = new Bootstrap(dataFile.toString());
         List<Transfer> persisted = reopened.transfers.bySourceAccount(accountId);
@@ -158,7 +158,7 @@ class JsonStoreConcurrencyTest {
 
         List<Integer> transferIds = runConcurrently(
                 () -> services.transferService.submitPaymentToIban(
-                        customerId, accountId, TARGET_IBAN, FLAGGED_PAYMENT.amount().doubleValue(), ""));
+                        customerId, accountId, TARGET_IBAN, FLAGGED_PAYMENT.amount().doubleValue(), "").transferId());
 
         Bootstrap reopened = new Bootstrap(dataFile.toString());
         List<Transfer> persisted = reopened.transfers.bySourceAccount(accountId);
@@ -204,7 +204,7 @@ class JsonStoreConcurrencyTest {
                 futures.add(pool.submit(() -> {
                     start.await(TIMEOUT_SECONDS, TimeUnit.SECONDS);
                     return services.transferService.submitPaymentToIban(
-                            customerId, accountId, TARGET_IBAN, PAYMENT.amount().doubleValue(), "");
+                            customerId, accountId, TARGET_IBAN, PAYMENT.amount().doubleValue(), "").transferId();
                 }));
             }
             for (int i = 0; i < readers; i++) {

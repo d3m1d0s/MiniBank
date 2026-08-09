@@ -18,6 +18,7 @@ import cz.vsb.minibank.domain.FeePolicy;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
 import cz.vsb.minibank.domain.exceptions.ValidationException;
+import cz.vsb.minibank.application.PaymentOutcome;
 
 import org.springframework.web.bind.annotation.*;
 
@@ -42,9 +43,10 @@ public class AuthorizationController {
     /**
      * Opens the unit of work the two read endpoints run inside.
      *
-     * Not used by authorize or cancel: those go through the application service, which opens its
-     * own, and their re-reads afterwards are a separate problem - they run after that
-     * transaction has committed and can therefore see another one's balance.
+     * Not used by authorize or cancel, and they no longer need it: the application service opens
+     * its own and now hands back a {@link PaymentOutcome} read off the aggregates inside it. Both
+     * used to re-read the transfer and the account afterwards, from outside that transaction,
+     * which is how a customer could be shown a balance another transaction had left.
      */
     private final UnitOfWorkFactory uowFactory;
 
@@ -205,32 +207,22 @@ public class AuthorizationController {
             throw new ValidationException("Missing one-time password in the authorize request");
         }
 
-        transferService.authorizePayment(customerId, id, req.otp());
-
-        // The service resolved this id inside a committed unit of work, so a failure here
-        // means the store lost a row, not that the caller named a transfer that never existed.
-        Transfer t = transfers.byId(id)
-                .orElseThrow(() -> new DataIntegrityException(
-                        "Transfer " + id + " disappeared after authorization"));
-        Account acc = accounts.byId(t.sourceAccountId())
-                .orElseThrow(() -> new DataIntegrityException(
-                        "Transfer " + id + " points at missing account " + t.sourceAccountId()));
+        PaymentOutcome outcome = transferService.authorizePayment(customerId, id, req.otp());
 
         MoneyDto chargedAmount = null;
-        if (t.status() == TransferStatus.SENT) {
+        if (outcome.status() == TransferStatus.SENT) {
             // The stored fee, which on this branch always exists: a SENT transfer went through
             // Transfer.send, which writes it. A14 - what the customer is told they were charged
             // must be what they were charged, not what today's policy would charge.
-            var fee = t.feeFor(feePolicy);
-            chargedAmount = MoneyDto.of(t.amount().plus(fee));
+            chargedAmount = MoneyDto.of(outcome.amount().plus(outcome.fee()));
         }
 
         return new AuthorizePaymentResult(
-                t.id(),
-                t.status().name(),
+                outcome.transferId(),
+                outcome.status().name(),
                 chargedAmount,
-                MoneyDto.of(acc.balance()),
-                t.declineReason()
+                MoneyDto.of(outcome.balance()),
+                outcome.declineReason()
         );
     }
 
@@ -240,24 +232,16 @@ public class AuthorizationController {
     @PostMapping("/transfers/{id}/cancel")
     public AuthorizePaymentResult cancel(@PathVariable("id") int id) {
         int customerId = requireCustomerId();
-        transferService.cancelPayment(customerId, id);
+        PaymentOutcome outcome = transferService.cancelPayment(customerId, id);
 
-        // The re-reads below stay unscoped on purpose: the service has already proved this
-        // transfer is the caller's before either of them runs.
-        Transfer t = transfers.byId(id)
-                .orElseThrow(() -> new DataIntegrityException(
-                        "Transfer " + id + " disappeared after cancellation"));
-        // cancelPayment never loads the account, so this is the first thing to touch it.
-        Account acc = accounts.byId(t.sourceAccountId())
-                .orElseThrow(() -> new DataIntegrityException(
-                        "Transfer " + id + " points at missing account " + t.sourceAccountId()));
-
+        // Null rather than the fee this transfer would have cost: cancelling debits nothing, and
+        // a charge on a withdrawn payment is the one number this screen must not show.
         return new AuthorizePaymentResult(
-                t.id(),
-                t.status().name(),
+                outcome.transferId(),
+                outcome.status().name(),
                 null,
-                MoneyDto.of(acc.balance()),
-                t.declineReason()
+                MoneyDto.of(outcome.balance()),
+                outcome.declineReason()
         );
     }
 }

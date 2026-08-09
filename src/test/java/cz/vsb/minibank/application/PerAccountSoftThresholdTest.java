@@ -171,7 +171,7 @@ class PerAccountSoftThresholdTest {
 
     private int pay(int accountId, double amountCzk) {
         return service.submitPaymentByBeneficiary(
-                CUSTOMER_ID, accountId, TRUSTED_BENEFICIARY_ID, amountCzk, "");
+                CUSTOMER_ID, accountId, TRUSTED_BENEFICIARY_ID, amountCzk, "").transferId();
     }
 
     private TransferStatus status(int transferId) {

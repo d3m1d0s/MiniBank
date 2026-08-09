@@ -185,7 +185,7 @@ class CreditLegTest {
     @Test
     void anExternalTransferStillReachesTheGatewayAndStillLeavesTheSystem() {
         int id = service.submitPaymentToIban(
-                PAYER_CUSTOMER_ID, PAYER_ACCOUNT_ID, OUTSIDE_IBAN, SETTLES_NOW, "");
+                PAYER_CUSTOMER_ID, PAYER_ACCOUNT_ID, OUTSIDE_IBAN, SETTLES_NOW, "").transferId();
 
         Money charged = fee(SETTLES_NOW);
 
@@ -207,7 +207,7 @@ class CreditLegTest {
     @Test
     void aTransferWaitingForAuthorizationCreditsNobodyUntilItIsAuthorized() {
         int id = service.submitPaymentToIban(
-                PAYER_CUSTOMER_ID, PAYER_ACCOUNT_ID, PAYEE_IBAN, NEEDS_AUTH, "");
+                PAYER_CUSTOMER_ID, PAYER_ACCOUNT_ID, PAYEE_IBAN, NEEDS_AUTH, "").transferId();
 
         assertEquals(TransferStatus.WAITING_AUTH, transfers.byId(id).orElseThrow().status());
         assertEquals(PAYER_OPENING, balanceOf(PAYER_ACCOUNT_ID), "the sender still holds it");
@@ -229,7 +229,7 @@ class CreditLegTest {
     @Test
     void aCancelledTransferNeverCreditsAnybody() {
         int id = service.submitPaymentToIban(
-                PAYER_CUSTOMER_ID, PAYER_ACCOUNT_ID, PAYEE_IBAN, NEEDS_AUTH, "");
+                PAYER_CUSTOMER_ID, PAYER_ACCOUNT_ID, PAYEE_IBAN, NEEDS_AUTH, "").transferId();
         service.cancelPayment(PAYER_CUSTOMER_ID, id);
 
         assertEquals(TransferStatus.DECLINED, transfers.byId(id).orElseThrow().status());
@@ -242,7 +242,7 @@ class CreditLegTest {
     @Test
     void aTransferDeclinedByTheFraudDeskNeverCreditsAnybody() {
         int id = service.submitPaymentToIban(
-                PAYER_CUSTOMER_ID, PAYER_ACCOUNT_ID, PAYEE_IBAN, RAISES_ALERT, "");
+                PAYER_CUSTOMER_ID, PAYER_ACCOUNT_ID, PAYEE_IBAN, RAISES_ALERT, "").transferId();
         assertEquals(TransferStatus.HELD_FOR_REVIEW, transfers.byId(id).orElseThrow().status());
 
         fraudService.decline(id, "looks wrong");

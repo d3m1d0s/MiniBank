@@ -461,11 +461,11 @@ class DailyLimitTest {
 
     private int payTrusted(TransferApplicationService service, double amountCzk) {
         return service.submitPaymentByBeneficiary(
-                CUSTOMER_ID, ACCOUNT_ID, TRUSTED_BENEFICIARY_ID, amountCzk, "");
+                CUSTOMER_ID, ACCOUNT_ID, TRUSTED_BENEFICIARY_ID, amountCzk, "").transferId();
     }
 
     private int payExternal(TransferApplicationService service, double amountCzk) {
-        return service.submitPaymentToIban(CUSTOMER_ID, ACCOUNT_ID, EXTERNAL_IBAN, amountCzk, "");
+        return service.submitPaymentToIban(CUSTOMER_ID, ACCOUNT_ID, EXTERNAL_IBAN, amountCzk, "").transferId();
     }
 
     /**

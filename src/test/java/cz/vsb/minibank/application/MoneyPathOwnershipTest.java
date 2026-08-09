@@ -102,9 +102,9 @@ class MoneyPathOwnershipTest {
 
         // The victim's own two transfers, created by the victim, as the attacker would find them.
         victimWaitingTransfer = service.submitPaymentToIban(
-                VICTIM_ID, VICTIM_ACCOUNT, TARGET_IBAN, WAITING_AMOUNT, "victim waiting");
+                VICTIM_ID, VICTIM_ACCOUNT, TARGET_IBAN, WAITING_AMOUNT, "victim waiting").transferId();
         victimSentTransfer = service.submitPaymentToIban(
-                VICTIM_ID, VICTIM_ACCOUNT, TARGET_IBAN, SETTLED_AMOUNT, "victim sent");
+                VICTIM_ID, VICTIM_ACCOUNT, TARGET_IBAN, SETTLED_AMOUNT, "victim sent").transferId();
 
         assertEquals(TransferStatus.WAITING_AUTH, status(victimWaitingTransfer));
         assertEquals(TransferStatus.SENT, status(victimSentTransfer));
@@ -305,7 +305,7 @@ class MoneyPathOwnershipTest {
 
         // UC 04 -> UC 05: pay to an IBAN, authorize, and see the money leave.
         int authorized = service.submitPaymentToIban(
-                ATTACKER_ID, ATTACKER_ACCOUNT, TARGET_IBAN, WAITING_AMOUNT, "mine");
+                ATTACKER_ID, ATTACKER_ACCOUNT, TARGET_IBAN, WAITING_AMOUNT, "mine").transferId();
         assertEquals(TransferStatus.WAITING_AUTH, status(authorized));
 
         service.authorizePayment(ATTACKER_ID, authorized, "0000");
@@ -318,13 +318,13 @@ class MoneyPathOwnershipTest {
 
         // UC 04 by beneficiary, from the caller's own address book.
         int byBeneficiary = service.submitPaymentByBeneficiary(
-                ATTACKER_ID, ATTACKER_ACCOUNT, ATTACKER_BENEFICIARY, SETTLED_AMOUNT, "mine too");
+                ATTACKER_ID, ATTACKER_ACCOUNT, ATTACKER_BENEFICIARY, SETTLED_AMOUNT, "mine too").transferId();
         assertEquals(TransferStatus.SENT, status(byBeneficiary),
                 "A trusted beneficiary below the thresholds settles immediately");
 
         // UC 19: cancel a pending one of the caller's own.
         int toCancel = service.submitPaymentToIban(
-                ATTACKER_ID, ATTACKER_ACCOUNT, TARGET_IBAN, WAITING_AMOUNT, "cancel me");
+                ATTACKER_ID, ATTACKER_ACCOUNT, TARGET_IBAN, WAITING_AMOUNT, "cancel me").transferId();
 
         // Held, not waiting, and that is the cumulative alert rule working rather than a
         // regression: this is the second payment of WAITING_AMOUNT to TARGET_IBAN today from

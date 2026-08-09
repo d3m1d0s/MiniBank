@@ -203,7 +203,7 @@ class SplitPaymentAlertTest {
 
     private int pay(String iban) {
         return services.transferService.submitPaymentToIban(
-                customerId, accountId, iban, HALF, null);
+                customerId, accountId, iban, HALF, null).transferId();
     }
 
     private Transfer transferOf(int id) {

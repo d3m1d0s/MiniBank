@@ -652,7 +652,7 @@ public class MinibankSqlUowTests {
 
         // The owner's own path still works end to end against a real database.
         int transferId = services.transferService.submitPaymentToIban(
-                ownerId, ownedAccount, "CZ2001000000000012345678", 100.0, "mine");
+                ownerId, ownedAccount, "CZ2001000000000012345678", 100.0, "mine").transferId();
         assertEquals(TransferStatus.SENT, infra.transfers.byId(transferId).orElseThrow().status());
     }
 
@@ -713,7 +713,7 @@ public class MinibankSqlUowTests {
         assertTrue(charged.isPositive(), "this case is only interesting with a fee to lose");
 
         int transferId = services.transferService.submitPaymentToIban(
-                payerId, payerAccount, payeeIban.value(), amount, "in bank");
+                payerId, payerAccount, payeeIban.value(), amount, "in bank").transferId();
 
         assertEquals(TransferStatus.SENT, infra.transfers.byId(transferId).orElseThrow().status());
         assertEquals(0, opening.minus(Money.czk(amount)).minus(charged).amount().compareTo(

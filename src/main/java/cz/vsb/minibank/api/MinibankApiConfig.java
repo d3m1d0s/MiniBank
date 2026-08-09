@@ -116,9 +116,11 @@ public class MinibankApiConfig {
     /**
      * Exposed so a controller can scope a read path to one unit of work.
      *
-     * The write paths never needed it - they go through the application services, which open
-     * their own. The read paths did: without one, every repository call opens and tears down its
-     * own connection, and the alert queue made one per alert.
+     * The write paths still do not need it, and that is now true for a better reason than it was:
+     * they go through the application services, which open their own and hand back what they did
+     * rather than leaving a controller to read it again afterwards. The read paths do need it -
+     * without one, every repository call opens and tears down its own connection, and the alert
+     * queue made one per alert.
      */
     @Bean
     public UnitOfWorkFactory unitOfWorkFactory(Bootstrap infra) {
