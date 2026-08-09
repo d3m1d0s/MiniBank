@@ -49,7 +49,7 @@ public interface TransferRepository {
      * moved, falling back to when the order was placed for rows written before {@code settled_at}
      * existed. This paragraph used to say the range was matched against the creation time
      * "because that is the only timestamp a transfer carries - nothing records when one settled",
-     * which stopped being true when A14 added the column and both implementations moved to the
+     * which stopped being true when settled_at was added and both implementations moved to the
      * fallback. A transfer an analyst held for a week is counted against the day it settles on,
      * not the day it was ordered on.
      *

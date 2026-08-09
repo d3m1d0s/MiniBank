@@ -24,7 +24,7 @@ import java.math.BigDecimal;
  * number nothing reads and nothing compares is precisely the defect this pass is correcting in
  * fraud_alerts.decision; creating a new instance of it in the same commit would be perverse.
  */
-@JsonIgnoreProperties("transferIds")   // removed with A14/A6; stores written earlier still carry it
+@JsonIgnoreProperties("transferIds")   // removed with the schema pass; older stores still carry it
 public class JsonAccount {
     public int id;
     public String iban;

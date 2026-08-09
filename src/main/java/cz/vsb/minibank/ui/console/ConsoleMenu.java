@@ -523,7 +523,7 @@ public class ConsoleMenu {
             return;
         }
 
-        // A4: this reads an account id the operator typed straight out of the repository,
+        // This reads an account id the operator typed straight out of the repository,
         // bypassing the application services, so OwnershipGuard cannot reach it from where it
         // lives. Either restrict the prompt to accs or route this through a guarded read.
         int accId = askInt("Account id", accs.get(0).id());

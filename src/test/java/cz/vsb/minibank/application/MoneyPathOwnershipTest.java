@@ -28,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Backlog item A3: no money-moving path may act on an object the caller does not own.
+ * No money-moving path may act on an object the caller does not own.
  *
  * These go through {@link TransferApplicationService} rather than through the controllers on
  * purpose. The rule lives in the application service because the console UI and DemoRunner
@@ -36,7 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * written into a controller - which is the arrangement that produced this bug.
  *
  * Every case here is one of the escalations that was reproduced against a running API: paying
- * out of a stranger's account, paying a stranger's beneficiary (B17), and authorizing or
+ * out of a stranger's account, paying a stranger's beneficiary, and authorizing or
  * cancelling a stranger's transfer. Each asserts not only the refusal but that the victim's
  * balance, transfer status, decline reason and remaining OTP attempts are untouched, because
  * a refusal thrown after the damage is done would satisfy the exception assertion alone.
@@ -166,7 +166,7 @@ class MoneyPathOwnershipTest {
     }
 
     /**
-     * B17: beneficiaryById flat-mapped across every customer, so a beneficiary belonging to
+     * beneficiaryById flat-mapped across every customer, so a beneficiary belonging to
      * somebody else could be paid. The source account on the same call was unchecked too, so
      * both halves are asserted here.
      */
@@ -219,7 +219,7 @@ class MoneyPathOwnershipTest {
     // ---------------------------------------------------------------- the ordering property
 
     /**
-     * The single thing A3 buys that A4 could not re-derive, and the reason the check is
+     * The single thing the ownership check buys that a read rule could not re-derive, and the reason the check is
      * inside requireTransfer rather than after it.
      *
      * A stranger's SENT transfer must answer "not found", not "already sent": a 409 that a

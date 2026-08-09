@@ -304,7 +304,7 @@ public class TransferApplicationService {
      * would have asked about a day the transfer would never join. That bought a per-day
      * invariant at the price of drift: a payment created at 23:57 and authorized at 00:01
      * debited the account on day D+1 while counting against day D, so one calendar day could see
-     * two days' budgets leave. A8 made that drift unbounded by removing the authorization window
+     * two days' budgets leave. The review hold made that drift unbounded by removing the authorization window
      * from held transfers - a review can take as long as it takes, and so can the customer
      * afterwards.
      *
@@ -313,7 +313,7 @@ public class TransferApplicationService {
      * the instant that will be, or already is, the settlement instant - creation passes
      * t.createdAt(), which is the same clock reading it settles with on the immediate path, and
      * authorization passes the now it is about to stamp. One instant decides the window and the
-     * stamp, for the reason A9 gave about createdAt: two readings would let a payment be checked
+     * stamp, for the reason the daily total gives about createdAt: two readings would let a payment be checked
      * against one day and filed under the next.
      *
      * A row with no settled_at - anything written before this column - falls back to its
@@ -380,7 +380,7 @@ public class TransferApplicationService {
      * consecutive integers. A transfer belonging to somebody else is refused exactly like one
      * that exists nowhere.
      *
-     * Do not make this reusable for the read endpoints of A4 - it belongs to the unit of work
+     * Do not make this reusable for the read endpoints - it belongs to the unit of work
      * its callers opened. The reusable part is {@link OwnershipGuard}.
      */
     private Transfer requireTransfer(Customer caller, int transferId) {
@@ -451,10 +451,10 @@ public class TransferApplicationService {
             // identity map - off the debit path entirely.
             //
             // Raised in this class and not in a controller because the console and the demo
-            // runner call this method directly, which is why A3's ownership check and A9's
+            // runner call this method directly, which is why the ownership check and the
             // ceiling re-check are here too.
             //
-            // Above the generic conflict, following A5 and A9: told only that the transfer is
+            // Above the generic conflict, following the self-payment and daily-limit refusals: told only that the transfer is
             // "not waiting for authorization", a customer whose payment is under review has no
             // way to see why. Below requireTransfer, because a 409 a non-owner can reach proves
             // the id is real. Above the OTP check, so a refusal that is not about the code
@@ -511,7 +511,7 @@ public class TransferApplicationService {
             // settled yet: two payments of 6 500 to one new payee are each under the threshold
             // when they are made, and the second crosses it only once the first has gone. That
             // ordering is the one an attacker controls, so a rule asked only at creation closes
-            // the convenient half of B20 and not the other one.
+            // the convenient half of that and not the other one.
             //
             // Asked once per transfer. An alert that already exists has been seen by an analyst
             // or is waiting to be, and raising a second one would make an approved payment
@@ -623,7 +623,7 @@ public class TransferApplicationService {
      * screen. The alert is hidden from a view, not resolved - its state is still the analyst's
      * verdict, and nothing outside {@code FraudApplicationService} writes it.
      *
-     * Not covered by A6's version column, and worth naming because A6 is in this same change.
+     * Not covered by the account's version column, and worth naming because that column is in this same change.
      * This method writes only the transfers row; it never touches accounts, so accounts.version
      * cannot see it. Two tabs, one WAITING_AUTH transfer: cancel committing just before an
      * authorization means the authorization's account guard still passes and the customer is

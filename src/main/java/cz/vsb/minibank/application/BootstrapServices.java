@@ -25,7 +25,7 @@ public class BootstrapServices {
     public final FeePolicy feePolicy;
 
     /**
-     * The one ownership rule, exposed so the read endpoints of A4 answer the same way the
+     * The one ownership rule, exposed so the read endpoints answer the same way the
      * money-moving paths do instead of growing a second copy of it.
      */
     public final OwnershipGuard ownershipGuard;

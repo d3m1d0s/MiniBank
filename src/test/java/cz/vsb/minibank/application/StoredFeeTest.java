@@ -24,7 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
- * Backlog item A14: a settled transfer keeps the fee it was charged.
+ * A settled transfer keeps the fee it was charged.
  *
  * What this replaces recomputed the fee on every display from whichever FeePolicy bean happened
  * to be wired, so a settled payment's charge was a function of today's configuration. Swap the
@@ -112,7 +112,7 @@ class StoredFeeTest {
      *
      * A transfer that has not settled has been charged nothing, so there is no stored number to
      * show and a quote from the current policy is the only honest answer. Rows written before
-     * A14 are in the same position and get the same treatment.
+     * the stored fee are in the same position and get the same treatment.
      */
     @Test
     void anUnsettledTransferQuotesTheCurrentPolicyBecauseItHasBeenChargedNothing() {

@@ -66,7 +66,7 @@ public class RestExceptionHandler {
     }
 
     /**
-     * A13. The caller has spent its recent sign-in allowance. 429 rather than 401, because
+     * The caller has spent its recent sign-in allowance. 429 rather than 401, because
      * nothing about the credential was checked: calling it an authentication failure would be
      * a claim about something the server never looked at, and would hide from an honest user
      * the one thing they can act on. Added for the same reason the 503 above was - the caller
@@ -116,7 +116,7 @@ public class RestExceptionHandler {
     }
 
     /**
-     * A6. Also a subtype of ConflictException, and picked over the generic handler by the same
+     * Also a subtype of ConflictException, and picked over the generic handler by the same
      * ExceptionDepthComparator rule as the one above.
      *
      * Still a 409: the write really was refused because the row had moved on. What it must not

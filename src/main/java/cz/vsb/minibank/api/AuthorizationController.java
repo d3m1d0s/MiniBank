@@ -148,7 +148,7 @@ public class AuthorizationController {
                         "Transfer " + id + " points at missing account " + t.sourceAccountId()));
 
         // What it was charged if it has settled, and only otherwise a quote from the current
-        // policy. A14: recomputing this on every read made a settled payment's fee a function
+        // policy. Recomputing this on every read made a settled payment's fee a function
         // of whichever FeePolicy bean is wired today.
         var fee = t.feeFor(feePolicy);
 
@@ -212,7 +212,7 @@ public class AuthorizationController {
         MoneyDto chargedAmount = null;
         if (outcome.status() == TransferStatus.SENT) {
             // The stored fee, which on this branch always exists: a SENT transfer went through
-            // Transfer.send, which writes it. A14 - what the customer is told they were charged
+            // Transfer.send, which writes it. What the customer is told they were charged
             // must be what they were charged, not what today's policy would charge.
             chargedAmount = MoneyDto.of(outcome.amount().plus(outcome.fee()));
         }

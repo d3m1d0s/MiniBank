@@ -14,7 +14,7 @@ import java.util.Objects;
  * Counts recent sign-in attempts per caller and refuses further ones from a caller whose
  * allowance is spent, so that guessing a password costs more than one POST per guess.
  *
- * Backlog item A13, second half. What this replaces is nothing at all: alice signed in
+ * What this replaces is nothing at all: alice signed in
  * normally after forty consecutive failures.
  *
  * <h2>Keyed by where the attempt came from, never by the username</h2>
@@ -26,13 +26,14 @@ import java.util.Objects;
  * account for as long as they cared to keep failing. Nothing in this product does that today
  * and a throttle must not be how it arrives. Keyed by origin, a spent counter can only ever
  * reach the caller who spent it - the rule SessionStore states as "nobody may be signed out
- * because somebody else signed in", with the noun changed. It is also the A10 trap avoided:
+ * because somebody else signed in", with the noun changed. It is also the trap the session
+ * rules avoid:
  * the map is not keyed on a string an anonymous caller writes into a JSON body.
  *
  * The second is that a username is a fact about the users table. A throttle that consulted one
  * would have to decide what to do about a name that is not there, and either answer would tell
  * a caller which names are - reopening by the side door what hashing a stand-in for an unknown
- * user (A11) and answering one body for four session failures (A10) were done to close.
+ * user, and answering one body for four session failures, were done to close.
  * Nothing here takes a username, so there is nothing here to leak.
  *
  * <h2>What "origin" is, and what it is not</h2>
@@ -52,7 +53,11 @@ import java.util.Objects;
  * application is exposed - the same collapse happens for every customer at once. So ten failed
  * sign-ins can refuse everyone for the rest of the window. That is worth stating plainly
  * rather than filing as a development-environment note, and it is the principal residual risk
- * of this design; see the owner decisions in the handoff. Loopback is deliberately <i>not</i>
+ * of this design, and it is accepted rather than mitigated. The alternative was weighed and
+ * refused: keying on the username instead would bound guessing per account, and would hand
+ * any caller a way to lock a named customer out of their own account for as long as they
+ * cared to keep failing - the denial of service this class is keyed on the origin to avoid.
+ * Loopback is deliberately <i>not</i>
  * exempted, because exempting it would make the throttle inert in the only environment this
  * project actually runs in, and would also disable it entirely for any deployment whose
  * reverse proxy sits on the same host.
@@ -72,9 +77,12 @@ import java.util.Objects;
  * Also not bounded: guesses made against one account from many origins, and guesses from an
  * attacker holding more distinct addresses than {@link #MAX_TRACKED_ORIGINS}, who can recycle
  * them so that every guess lands on a freshly created window. Bounding either needs the
- * username key, which costs the denial of service above, or the address reputation the backlog
- * rules out at this scale. A single origin drops from roughly three hundred thousand guesses a
- * day to a thousand; the rest is written down rather than fixed.
+ * username key, which costs the denial of service above, or address reputation. The second is
+ * a deliberate scope boundary of this project rather than an oversight, and it sits with
+ * account lockout and CAPTCHA: all three need a data source this deployment does not have,
+ * and all three are product capabilities rather than fixes to what is here. A single origin
+ * drops from roughly three hundred thousand guesses a day to a thousand; the rest is written
+ * down rather than fixed.
  *
  * <h2>Not logged, on purpose</h2>
  *
@@ -88,9 +96,9 @@ import java.util.Objects;
  *
  * <h2>Measuring the login path after this</h2>
  *
- * A13's own repro was twenty interleaved sign-ins from one machine, which this refuses from
+ * The repro for this was twenty interleaved sign-ins from one machine, which this refuses from
  * the eleventh on. A live timing measurement of the login path must therefore drive
- * {@link AuthService} directly - which is where A11's constant-work guarantee lives and where
+ * {@link AuthService} directly - which is where the constant-work guarantee lives and where
  * AuthServiceTest already asserts it - or space its attempts across windows. There is no
  * runtime reset: only time, or restarting the process, clears a spent counter.
  */
@@ -137,8 +145,9 @@ public final class LoginThrottle {
      *
      * What it does not do is stop an attacker who holds more addresses than this. They can
      * cycle them so that every guess creates a fresh window and nothing is ever refused; at
-     * 1.1 requests per second that is not a flood, it is simply the distributed attacker the
-     * backlog declines to solve at this scale. Do not read this cap as a defence against them.
+     * 1.1 requests per second that is not a flood, it is simply the distributed attacker this
+     * project does not set out to stop, for the reasons given above. Do not read this cap as a
+     * defence against them.
      *
      * Reaching it evicts rather than refusing the login, which is the opposite of what
      * SessionStore does at its cap, because the harm is the opposite way round. Failing shut

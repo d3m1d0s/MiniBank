@@ -107,15 +107,15 @@ public final class SqlTransferRepository implements TransferRepository {
      *
      * fee, message and settled_at are in the DO UPDATE SET list and not only in the INSERT, and
      * that is load-bearing: a transfer is inserted at CREATED and settled by a later save, so
-     * an insert-only fee would never be written at all and A14 would be inert on this backend.
+     * an insert-only fee would never be written at all and the stored fee would be inert on this backend.
      *
      * The guard is the WHERE on the DO UPDATE arm, the same shape
      * {@code SqlAccountRepository.upsertAccount} carries and for the same reasons - it holds
      * under READ COMMITTED with no isolation level set anywhere, and the detection is the empty
      * RETURNING rather than a rowcount, because executeUpdate answers 1 for an insert and for an
-     * update alike. A6 explains why in full and that comment is not repeated here.
+     * update alike. SqlAccountRepository explains why in full and that comment is not repeated here.
      *
-     * What it adds over A6 is the row it covers. Every column above is assigned unconditionally,
+     * What it adds over the account's version is the row it covers. Every column above is assigned unconditionally,
      * so before this guard existed a cancel committing just after an authorization wrote
      * DECLINED over SENT and blanked fee and settled_at with it: the debit stood while the row
      * dropped out of the SENT-only day total. Three writers reach this method without ever

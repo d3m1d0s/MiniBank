@@ -224,7 +224,7 @@ public final class SqlAccountRepository implements AccountRepository {
     /**
      * Inserts or updates an account row, refusing a write built on a stale read.
      *
-     * A6. This method used to write an absolute balance with no condition, which is the
+     * This method used to write an absolute balance with no condition, which is the
      * measured leak: twenty concurrent transfers, one debit applied, 115 140 CZK overwritten.
      * The guard is the WHERE on the DO UPDATE arm. When it is false the statement changes
      * nothing and RETURNING yields no row, which is the detection - not a rowcount, because

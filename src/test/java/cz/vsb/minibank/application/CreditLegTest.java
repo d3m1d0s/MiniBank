@@ -28,7 +28,7 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * A12: a payment to an IBAN this bank holds credits that account in the same unit of work as
+ * A payment to an IBAN this bank holds credits that account in the same unit of work as
  * the debit.
  *
  * Before the credit leg the money was destroyed - one measured session took system money from
@@ -138,7 +138,7 @@ class CreditLegTest {
     // ---------------------------------------------------------------------
 
     /**
-     * The one assertion A12 exists for: an in-bank payment moves the amount instead of
+     * The one assertion the credit leg exists for: an in-bank payment moves the amount instead of
      * destroying it, and the only money that leaves the system is the fee.
      */
     @Test
@@ -179,7 +179,7 @@ class CreditLegTest {
     }
 
     /**
-     * The other half of the routing rule, unchanged by A12: a payment to an IBAN this bank
+     * The other half of the routing rule, unchanged by the credit leg: a payment to an IBAN this bank
      * does not hold still goes to the gateway, and the amount really does leave.
      */
     @Test
@@ -303,7 +303,7 @@ class CreditLegTest {
      * The other direction of the same invariant: both backends defer their writes, so an
      * account opened in this unit of work has no row to find. Answering "not ours" for it
      * would route a payment to an account of this bank out to the payment network, which is
-     * A12 all over again. Against a store-only byIban this returns empty and fails.
+     * The credit leg all over again. Against a store-only byIban this returns empty and fails.
      */
     @Test
     void anAccountOpenedInThisUnitOfWorkIsAlreadyInBank() {

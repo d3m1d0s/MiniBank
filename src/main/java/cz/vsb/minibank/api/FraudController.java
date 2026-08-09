@@ -314,7 +314,7 @@ public class FraudController {
     private TransferInfoDto mapTransferInfo(Transfer t, Account source) {
         String fromIban = source.iban().value();
 
-        // A14: what it was charged if it has settled, and only otherwise a quote from the
+        // What it was charged if it has settled, and only otherwise a quote from the
         // current policy. Recomputing this made the fraud desk restate what a customer was
         // charged last month whenever the FeePolicy bean was swapped.
         MoneyDto fee = MoneyDto.of(t.feeFor(feePolicy));

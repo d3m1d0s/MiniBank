@@ -309,7 +309,7 @@ public class PaymentAndAuthorizationApiTest {
     /**
      * A source account id the caller made up is the caller's mistake, not ours.
      *
-     * This case alone cannot show that A3 works: 999999 belongs to nobody, so it is refused
+     * This case alone cannot show that the ownership rule works: 999999 belongs to nobody, so it is refused
      * with or without the ownership guard. The "exists but is another customer's" half is
      * pinned by MoneyPathOwnershipTest and, byte for byte on the wire, by HttpErrorContractTest.
      */
@@ -342,7 +342,7 @@ public class PaymentAndAuthorizationApiTest {
         assertEquals(TransferStatus.DECLINED, after.status());
     }
 
-    // ------------------------------------------------------------------ A3: ownership
+    // --------------------------------------------------------------------- ownership
 
     /**
      * The same four escalations MoneyPathOwnershipTest pins at the service, asserted here
@@ -359,7 +359,7 @@ public class PaymentAndAuthorizationApiTest {
         assertVictimUntouched();
     }
 
-    /** B17, through the service the console and DemoRunner also call. */
+    /** Beneficiary ownership, through the service the console and DemoRunner also call. */
     @Test
     void submitPaymentByBeneficiary_withAnotherCustomersBeneficiary_isNotFound() {
         assertThrows(NotFoundException.class, () -> transferService.submitPaymentByBeneficiary(
@@ -385,7 +385,7 @@ public class PaymentAndAuthorizationApiTest {
     }
 
     /**
-     * A4: reading a stranger's transfer disclosed the source IBAN and its live balance, which
+     * Reading a stranger's transfer disclosed the source IBAN and its live balance, which
      * is the reconnaissance step that made the write-side escalation usable with no prior
      * knowledge. The refusal has to be the same as for an id that does not exist.
      */
@@ -412,7 +412,7 @@ public class PaymentAndAuthorizationApiTest {
     }
 
     /**
-     * N15: before A3 these two handlers read no identity at all, so a FRAUD_ANALYST session
+     * These two handlers used to read no identity at all, so a FRAUD_ANALYST session
      * could drive them. The refusal is a role denial, raised before the transfer id is used.
      */
     @Test

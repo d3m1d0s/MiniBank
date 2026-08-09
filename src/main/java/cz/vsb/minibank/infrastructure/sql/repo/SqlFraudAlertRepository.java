@@ -92,7 +92,7 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
      * Inserts or updates a fraud alert row, including the analyst's verdict and metadata like
      * risk score, assignee, tags (stored as comma-separated text) and notes.
      *
-     * B1's remaining half is here: decision and resolved_at have been declared in
+     * The alert lifecycle is completed here: decision and resolved_at have been declared in
      * db/init/schema.sql since the table was created and this statement wrote neither, so an
      * approved alert stored its state and nothing about who decided it or when. decided_by
      * joins them. All three are in the DO UPDATE SET list, because an alert is inserted at NEW

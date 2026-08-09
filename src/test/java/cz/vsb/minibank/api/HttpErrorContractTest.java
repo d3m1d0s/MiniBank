@@ -246,7 +246,7 @@ class HttpErrorContractTest {
                 .build();
 
         // authController is behind the interceptor here as well as in front of it above,
-        // because after B11 logout is a guarded endpoint and login is the only exempt one.
+        // because logout is a guarded endpoint now and login is the only exempt one.
         guarded = MockMvcBuilders
                 .standaloneSetup(paymentController, authorizationController, authController)
                 .setControllerAdvice(new RestExceptionHandler())
@@ -301,7 +301,7 @@ class HttpErrorContractTest {
     }
 
     /**
-     * A10. An expired session is the same answer again, and it has to be: telling it apart
+     * An expired session is the same answer again, and it has to be: telling it apart
      * from an id that was never issued would answer "is this one you have ever handed out?".
      * Before this item there was no expiry at all and a session of any age answered 200.
      */
@@ -314,7 +314,7 @@ class HttpErrorContractTest {
     }
 
     /**
-     * A10's headline case, end to end. The user this session was opened for is no longer the
+     * The headline session case, end to end. The user this session was opened for is no longer the
      * user behind that id, and the store finds that out on this request rather than never.
      * InMemoryUserRepository has no delete, so the row is replaced rather than removed - the
      * harsher half of the same check, since the id still resolves to a real user.
@@ -353,10 +353,10 @@ class HttpErrorContractTest {
         assertResponse(api, get("/api/me/accounts"), 401, BODY_AUTH_REQUIRED);
     }
 
-    // ------------------------------------------------- B11: logout is a guarded endpoint
+    // ----------------------------------------------------- logout is a guarded endpoint
 
     /**
-     * B11. The interceptor exempted the whole /api/auth/ prefix, so this endpoint
+     * The interceptor exempted the whole /api/auth/ prefix, so this endpoint
      * authenticated nobody and terminated whatever session id it was handed.
      */
     @Test
@@ -400,7 +400,7 @@ class HttpErrorContractTest {
     }
 
     /**
-     * The headline case of A11: this used to answer 400 INVALID_OTP, telling a customer who
+     * The headline case of the error contract: this used to answer 400 INVALID_OTP, telling a customer who
      * mistyped a password that their confirmation code was wrong.
      */
     @Test
@@ -420,7 +420,7 @@ class HttpErrorContractTest {
     // ---------------------------------------------------------------- 429
 
     /**
-     * A13's second half on the wire. Before it, alice signed in normally after forty
+     * The sign-in throttle on the wire. Before it, alice signed in normally after forty
      * consecutive failures.
      *
      * The first attempt is a real POST, which is what proves the wiring: the controller reads
@@ -433,7 +433,7 @@ class HttpErrorContractTest {
      * Four assertions follow, and the third is the one that matters most: an unknown username
      * is refused with the same status and the same bytes as a known one, because the throttle
      * is never told which was asked for. A throttle that fired only for names in the users
-     * table would hand back the enumeration oracle A10 and A11 were about.
+     * table would hand back the enumeration oracle the session and error rules were about.
      */
     @Test
     void theAttemptAfterTheAllowanceIsRefusedAlikeForEveryUsername() throws Exception {
@@ -505,7 +505,7 @@ class HttpErrorContractTest {
     }
 
     /**
-     * N15: authorize and cancel read no identity at all before A3, so a FRAUD_ANALYST session
+     * Authorize and cancel used to read no identity at all, so a FRAUD_ANALYST session
      * - whose customerId is null by construction - could drive them directly. The refusal is
      * a role denial rather than an ownership one, and it is raised before the path variable is
      * used for anything, so it is the same answer for every transfer id.
@@ -561,7 +561,7 @@ class HttpErrorContractTest {
     }
 
     /**
-     * A3, and the half that matters. An account that exists but belongs to somebody else has
+     * Ownership, and the half that matters. An account that exists but belongs to somebody else has
      * to produce the same status and the same body bytes as one that exists nowhere - the
      * assertion above and this one share the BODY_NOT_FOUND literal, so a refusal that grew a
      * distinguishing word fails here. Account ids are small consecutive integers, and this is
@@ -715,7 +715,8 @@ class HttpErrorContractTest {
     }
 
     /**
-     * A9, on the wire. Its own code rather than the generic one, for the reason A5 established:
+     * The daily limit, on the wire. Its own code rather than the generic one, for the reason the
+     * self-payment refusal established:
      * told only that the request was invalid, a customer has no way to see that it was the
      * day's running total that stopped them.
      */
@@ -873,7 +874,7 @@ class HttpErrorContractTest {
     // ---------------------------------------------------------------- 503
 
     /**
-     * A10's global cap, on the wire. Its own code and its own status because none of the
+     * The global session cap, on the wire. Its own code and its own status because none of the
      * neighbours would be true: the password was right, so AUTH_FAILED would send the caller
      * to change something that is not wrong, and nothing is broken, so a 500 would say the
      * request cannot succeed when the same one succeeds a few minutes later.

@@ -22,7 +22,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * A payment to the source account's own IBAN is refused.
  *
- * The reason has changed with A12 but the rule has not: the account would be debited amount
+ * The reason has changed with the credit leg but the rule has not: the account would be debited amount
  * plus fee and credited amount, so the fee would be charged for moving nothing. Refusing it at
  * creation keeps it a 400 the caller can act on.
  */

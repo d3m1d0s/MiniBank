@@ -16,7 +16,7 @@ import java.time.Instant;
  * Application service for fraud related use cases such as approving, declining and confirming suspicious transfers.
  *
  * Every way in here is role-gated, not owner-gated, and that is deliberate rather than the
- * oversight A3 fixed next door: an analyst is supposed to reach every customer's alerts, so
+ * oversight the ownership rule fixed next door: an analyst is supposed to reach every customer's alerts, so
  * there is no ownership rule to write.
  *
  * The gate is in the callers, not in this class, and that is worth stating plainly because it

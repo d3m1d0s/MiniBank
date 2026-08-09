@@ -589,7 +589,7 @@ public class MinibankSqlUowTests {
     }
 
 // -------------------------------------------------------------------------
-// 8) Ownership (A3) rests on accounts.customer_id, which only SQL mode has
+// 8) Ownership rests on accounts.customer_id, which only SQL mode has
 // -------------------------------------------------------------------------
 
     /**
@@ -657,7 +657,7 @@ public class MinibankSqlUowTests {
     }
 
 // -------------------------------------------------------------------------
-// 9) A12: the credit leg against a real database
+// 9) The credit leg against a real database
 // -------------------------------------------------------------------------
 
     /**

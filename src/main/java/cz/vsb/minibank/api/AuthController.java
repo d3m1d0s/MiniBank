@@ -30,9 +30,9 @@ public class AuthController {
     private final SessionStore sessions;
 
     /**
-     * A13. Consulted here rather than inside {@link AuthService} because it needs the origin of
+     * Consulted here rather than inside {@link AuthService} because it needs the origin of
      * the request, and AuthService is handed a username and a password and nothing else.
-     * Keeping it out of AuthService also leaves A11's constant-work guarantee and the test that
+     * Keeping it out of AuthService also leaves the constant-work guarantee and the test that
      * pins it untouched, and leaves the console's own login loop - which has no network peer to
      * key on - unchanged.
      */

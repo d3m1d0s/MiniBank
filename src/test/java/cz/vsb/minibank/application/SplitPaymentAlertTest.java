@@ -101,7 +101,7 @@ class SplitPaymentAlertTest {
      * Both halves are created before either is authorized, so when the second is made the first
      * has not settled and is in no total. The rule can only see it at the moment the second is
      * confirmed - which is why the alert is asked again there, the way the daily ceiling has
-     * been since A9.
+     * been since the daily limit landed.
      */
     @Test
     void theSecondHalfIsHeldAtAuthorizationWhenBothWereCreatedFirst() {

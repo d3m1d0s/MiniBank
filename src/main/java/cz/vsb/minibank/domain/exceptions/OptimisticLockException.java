@@ -3,7 +3,7 @@ package cz.vsb.minibank.domain.exceptions;
 /**
  * Thrown when a write is built on a read the store has since moved past.
  *
- * A6. The store refused an absolute balance computed from a figure that is no longer true,
+ * The store refused an absolute balance computed from a figure that is no longer true,
  * rather than applying it on top of another transaction's committed change and destroying it.
  *
  * A subtype of {@link ConflictException} for two reasons. It really is a state conflict and

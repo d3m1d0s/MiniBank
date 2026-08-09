@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Backlog item A13, second half. What this replaced was nothing at all: alice signed in
+ * What this replaced was nothing at all: alice signed in
  * normally after forty consecutive failures.
  *
  * Everything here is asserted against the counter rather than over HTTP, so no case costs a

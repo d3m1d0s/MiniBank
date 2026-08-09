@@ -319,12 +319,12 @@ public class JsonMapper {
                     // beneficiaries list are one hold, so saveBeneficiary cannot insert
                     // between finding the customer and finding the beneficiary.
                     //
-                    // This search is across every customer, which is why A3 deleted
+                    // This search is across every customer, which is why the ownership pass deleted
                     // CustomerRepository.beneficiaryById. Here it is navigation from a
                     // transfer the caller already holds rather than an id the caller typed,
                     // and it has no production caller today. Dereferencing this ref is only
                     // safe once that transfer has been proved to be the caller's - which is
-                    // A4's job, before TransferDetailsDto ever grows a beneficiary field.
+                    // the read-your-own-data rule, before TransferDetailsDto ever grows a beneficiary field.
                     JsonCustomer custDto = bundle.customers.stream()
                             .filter(c -> c.beneficiaries != null
                                     && c.beneficiaries.stream().anyMatch(b -> b.id == j.beneficiaryId))

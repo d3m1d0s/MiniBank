@@ -18,7 +18,7 @@ import java.util.Optional;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Backlog item A10: a session is an identity and two timestamps, not a copy of a user.
+ * A session is an identity and two timestamps, not a copy of a user.
  *
  * What it replaced was a ConcurrentHashMap from session id to the login-time User object,
  * with no recorded time of capture, no lifetime and no bound. Reproduced against PostgreSQL:
@@ -28,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * The clock is advanced, never slept on. Time has to move inside one store instance, because
  * the sessions are what is under test, which is why this needs TestClock rather than the
- * Clock.fixed that A9's tests get away with.
+ * Clock.fixed that the daily-limit tests get away with.
  */
 class SessionStoreTest {
 
@@ -95,7 +95,7 @@ class SessionStoreTest {
 
     // ------------------------------------------------------------ identity is re-read
 
-    /** A10's headline case: the deleted user still listed accounts and still moved money. */
+    /** The headline case: the deleted user still listed accounts and still moved money. */
     @Test
     void aSessionStopsResolvingWhenItsUserIsDeleted() {
         String id = signIn();
@@ -121,7 +121,7 @@ class SessionStoreTest {
         assertEquals(0, store.size());
     }
 
-    /** The gate A8 depends on: a demoted analyst kept the role until they chose to sign in again. */
+    /** The gate the fraud review depends on: a demoted analyst kept the role until they chose to sign in again. */
     @Test
     void resolvesTheCurrentRoleAndNotTheOneCapturedAtLogin() {
         String id = signIn();

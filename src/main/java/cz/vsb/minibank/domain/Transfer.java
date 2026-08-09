@@ -94,7 +94,7 @@ public class Transfer implements RecordsDomainEvents {
      * The same transfer with its creation instant supplied rather than read off the system
      * clock.
      *
-     * A9 needs this. The daily total is keyed on createdAt, so a service holding a fixed clock
+     * The daily limit needs this. The daily total is keyed on createdAt, so a service holding a fixed clock
      * that still stamped rows with Instant.now() would query one day and write another: every
      * total would come back zero and the limit would silently never fire. One clock has to
      * decide both, and this is the seam that lets the application service pass it.
@@ -216,7 +216,7 @@ public class Transfer implements RecordsDomainEvents {
      * alert rule keyed on a single amount: everything it could catch, it caught at creation. A
      * cumulative rule cannot, because the payment that pushes a payee over the threshold may be
      * created before the one it is being added to has settled. The daily ceiling has had the
-     * same shape of second check since A9 and for the same reason.
+     * same shape of second check as the daily limit, and for the same reason.
      *
      * Two things differ from {@link #holdForReview}, and both follow from where this one is
      * reached. The payment method is kept rather than captured: the customer chose it when they
@@ -337,7 +337,7 @@ public class Transfer implements RecordsDomainEvents {
      * through {@link IBAN} when a stored row is rehydrated, while {@code Account.iban().value()}
      * is always normalized. Comparing the two as text would therefore refuse a destination
      * that was resolved correctly - a snapshot written before IBAN validation existed, or one
-     * carrying the spacing a customer typed, matches the account row but not the string. A15
+     * carrying the spacing a customer typed, matches the account row but not the string. IBAN validation
      * gave IBAN equals/hashCode for exactly this comparison and requireDifferentAccount
      * already uses it.
      */
@@ -444,7 +444,7 @@ public class Transfer implements RecordsDomainEvents {
      *
      * Every display site calls this rather than {@link #feeAmount(FeePolicy)}. The fallback is
      * not a second source of truth - a transfer that has not settled has been charged nothing,
-     * so a quote is the only honest answer, and it is also what rows written before A14 have.
+     * so a quote is the only honest answer, and it is also what rows written before the fee column have.
      */
     public Money feeFor(FeePolicy policy) {
         return fee != null ? fee : feeAmount(policy);

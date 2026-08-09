@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * B1's remaining half: an analyst's verdict, their name and the moment they gave it are recorded
+ * The rest of the alert lifecycle: an analyst's verdict, their name and the moment they gave it are recorded
  * and can be read back - plus the one thing a tag may not contain.
  *
  * fraud_alerts.decision and resolved_at have been declared in db/init/schema.sql since the table

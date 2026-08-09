@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Backlog A7. Drives the JSON adapter from several threads at once and checks the store
+ * Drives the JSON adapter from several threads at once and checks the store
  * afterwards.
  *
  * Every case releases its threads from a CyclicBarrier, so they enter the application

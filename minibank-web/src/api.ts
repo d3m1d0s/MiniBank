@@ -29,7 +29,7 @@ export function mapPaymentError(error: ApiError): string[] {
             return ['The selected account is not available. Reload the page and try again.'];
         case 'FORBIDDEN':
             return ['You are not allowed to send a payment from this account.'];
-        // A6. Another transaction changed one of the accounts this payment touches between the
+        // Another transaction changed one of the accounts this payment touches between the
         // server reading a balance and writing the new one, so the write was refused. Resending
         // is the right action, which is what makes this different from CONFLICT.
         case 'CONCURRENT_MODIFICATION':
@@ -95,7 +95,7 @@ export interface TransferDetails {
     toIban: string;
     /**
      * What the transfer was charged once it has settled, and a quote from the current fee
-     * policy until then. Before A14 this was recomputed on every read, so it could restate what
+     * policy until then. This used to be recomputed on every read, so it could restate what
      * a customer was charged last month the day the fee policy changed.
      */
     amount: Money;

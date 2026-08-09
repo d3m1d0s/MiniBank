@@ -44,7 +44,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * A6, the columns bundled with it, and B19's guard on the transfers row, asserted against a real
+ * The account version, the columns bundled with it, and the transfers row's own guard,
+ * asserted against a real
  * PostgreSQL.
  *
  * Everything here needs a database, and for a reason: a version column that is compared inside a
@@ -101,7 +102,7 @@ public class SqlSchemaPassTest {
     }
 
     // -------------------------------------------------------------------------
-    // A6: a lost update is refused rather than silently applied
+    // A lost update is refused rather than silently applied
     // -------------------------------------------------------------------------
 
     /**
@@ -189,7 +190,7 @@ public class SqlSchemaPassTest {
      * The same guard on the credit leg, which is the common case rather than the rare one.
      *
      * Two unrelated customers paying one in-bank shop contend on the payee's row, not on their
-     * own. Asserted so the cost of A6 is on the record and not a surprise: the shop receives one
+     * own. Asserted so the cost of the version column is on the record and not a surprise: the shop receives one
      * payment and the other payer is refused with a 409, having raced nobody they know about.
      */
     @Test
@@ -230,13 +231,13 @@ public class SqlSchemaPassTest {
     }
 
     // -------------------------------------------------------------------------
-    // B19: the same guard on the transfers row, which A6 did not cover
+    // The same guard on the transfers row, which the account version did not cover
     // -------------------------------------------------------------------------
 
     /**
      * Two tabs on one waiting payment: the cancel and the authorization cannot both land.
      *
-     * The shape A6 left open. Both writers here touch only the transfers row - the cancel never
+     * The shape the account version left open. Both writers here touch only the transfers row - the cancel never
      * loads an account at all, and a failed OTP attempt does not either - so accounts.version
      * cannot see either of them and, before transfers got its own, the second writer simply
      * overwrote the first. Concretely: a cancel committing after an authorization wrote DECLINED

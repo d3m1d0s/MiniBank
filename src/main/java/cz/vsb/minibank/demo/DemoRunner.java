@@ -265,7 +265,7 @@ public class DemoRunner {
         assertState(after.equals(before.minus(Money.czk(SOFT_TIER_AMOUNT).plus(fee4))),
                 "Balance after T4 must be reduced by amount and fee");
         assertState(tr4.fee() != null && tr4.fee().equals(fee4),
-                "A14: the settled transfer must carry the fee it was charged, not recompute it");
+                "the settled transfer must carry the fee it was charged, not recompute it");
         assertState(tr4.settledAt() != null,
                 "The settled transfer must record when the money moved");
 

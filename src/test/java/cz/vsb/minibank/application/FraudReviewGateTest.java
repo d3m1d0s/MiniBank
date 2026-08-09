@@ -34,7 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * A8: an open fraud alert blocks the customer's confirmation, and an analyst's APPROVE clears
+ * An open fraud alert blocks the customer's confirmation, and an analyst's APPROVE clears
  * the transfer for that confirmation instead of sending it.
  *
  * What this replaced created the alert and never read one back. A 12 000 payment raised alert
@@ -44,7 +44,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * rather than through a controller, because the console and the demo runner call the service
  * directly and a check a controller can forget is not a gate.
  *
- * Two backlog items close underneath it and have their own sections: approving a suspicious
+ * Two further defects close underneath it and have their own sections: approving a suspicious
  * transaction, which was a use case with no reachable code, and recording a negative verdict on
  * a payment that has already gone, which used to answer 409 and roll the analyst's work back
  * with it.
@@ -67,7 +67,7 @@ class FraudReviewGateTest {
     private static final double SETTLES_NOW = 1_000;
     /** Over 5 000 and under 10 000: authorization, no alert. The unflagged control case. */
     private static final double NEEDS_AUTH_ONLY = 6_000;
-    /** Over the 10 000 alert threshold. The backlog item's own example. */
+    /** Over the 10 000 alert threshold, which is the example the rule was written against. */
     private static final double RAISES_ALERT = 13_000;
 
     @TempDir
@@ -111,7 +111,7 @@ class FraudReviewGateTest {
     // ------------------------------------------------------------------ the gate
 
     /**
-     * The whole of A8 in one case. A payment that raises an alert is held rather than left
+     * The whole gate in one case. A payment that raises an alert is held rather than left
      * waiting for a code, and the code - a code the validator really does accept - is refused
      * while the alert is open.
      *
@@ -144,7 +144,8 @@ class FraudReviewGateTest {
     /**
      * The refusal is a 409 and it is its own 409. A caller told only that the transfer is "not
      * waiting for authorization" - which is what the generic conflict says - has no way to see
-     * that the bank is looking at their payment, which is the precedent A5 and A9 set.
+     * that the bank is looking at their payment, which is the precedent the self-payment and
+     * daily-limit refusals set.
      */
     @Test
     void theRefusalIsAConflictWithItsOwnType() {
@@ -191,7 +192,7 @@ class FraudReviewGateTest {
     // ------------------------------------------------------------------ APPROVE
 
     /**
-     * B3. "Approve the suspicious transaction" is a use case that exists now.
+     * "Approve the suspicious transaction" is a use case that exists now.
      *
      * The branch this replaced fired only on a CREATED transfer, and no alerted transfer was
      * ever CREATED, so the analyst's approval did nothing to the transfer at all. Approval now
@@ -292,7 +293,7 @@ class FraudReviewGateTest {
     }
 
     /**
-     * B2. Confirmed fraud on money that has already left is recordable.
+     * Confirmed fraud on money that has already left is recordable.
      *
      * The realistic sequence, in order: the alert is cleared, the customer confirms, the money
      * goes, and the fraud is confirmed afterwards. Declining then used to raise a 409 from

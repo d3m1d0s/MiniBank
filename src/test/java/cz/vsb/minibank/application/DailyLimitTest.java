@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 /**
- * Backlog item A9: the daily limit is cumulative, has two tiers, and is enforced at both
+ * The daily limit is cumulative, has two tiers, and is enforced at both
  * creation and authorization.
  *
  * What it replaced compared one amount against Account.dailyLimit and, when that tripped, only
@@ -51,7 +51,7 @@ class DailyLimitTest {
     private static final int TRUSTED_BENEFICIARY_ID = 5001;
 
     private static final String ACCOUNT_IBAN = "CZ6508000000192000145399";
-    /** Trusted, so the untrusted-and-high rule is out of the way and only A9's rules can fire. */
+    /** Trusted, so the untrusted-and-high rule is out of the way and only the daily-limit rules can fire. */
     private static final String TRUSTED_IBAN = "CZ2108000000192000145415";
     /** Not a saved beneficiary and not an account of this bank, so payments to it are untrusted. */
     private static final String EXTERNAL_IBAN = "CZ2001000000000012345678";
@@ -210,7 +210,7 @@ class DailyLimitTest {
     void cancelledAndPendingPaymentsDoNotConsumeTheDaysBudget() {
         var service = serviceAt(DAY_ONE_NOON);
 
-        // Trusted, so the transfers land in WAITING_AUTH on A9's own day-total rule rather than
+        // Trusted, so the transfers land in WAITING_AUTH on the day-total rule rather than
         // being held for fraud review, which is what an untrusted 30 000 would now do. Both
         // amounts are over the 15 000 soft threshold, so the premise - a pending payment that
         // has debited nothing - is exactly the one this test was written for.
@@ -285,7 +285,7 @@ class DailyLimitTest {
      * Three untrusted 15 000 payments created at 23:57, held for fraud review, released by an
      * analyst, and authorized after midnight. Before settled_at a settled transfer carried only
      * its createdAt, so all three counted against day one however long the review took - the
-     * per-day sum was right, but a single calendar day could see two days' budgets leave, and A8
+     * per-day sum was right, but a single calendar day could see two days' budgets leave, and the review hold
      * removed the five-minute window that had bounded that gap. Now each counts against the day
      * it actually settled.
      *
@@ -296,7 +296,7 @@ class DailyLimitTest {
      * These three are untrusted 15 000 payments, so each one is over the fraud-alert threshold
      * and is held for review before it ever reaches the customer's confirmation step. Written
      * that way on purpose rather than routed round the alert with a trusted beneficiary: it is
-     * the only place A9's re-check is exercised on a transfer an analyst released, which is now
+     * the only place the re-check is exercised on a transfer an analyst released, which is now
      * a path a real payment takes.
      */
     @Test
@@ -401,7 +401,7 @@ class DailyLimitTest {
      * Guards against over-tightening, which is the way a limit usually breaks things. An
      * ordinary small payment still settles at creation and debits amount plus fee, and an
      * ordinary untrusted payment still waits for its OTP and then settles - both exactly as
-     * they did before A9, because neither goes anywhere near either tier.
+     * they did before the daily limit, because neither goes anywhere near either tier.
      */
     @Test
     void theOrdinaryPathIsUnchanged() {
@@ -470,7 +470,7 @@ class DailyLimitTest {
 
     /**
      * A payment over the soft threshold always waits, so settling one takes two calls. Trusted,
-     * so the amounts here are held on A9's day-total rule and not for fraud review - a held
+     * so the amounts here are held on the day-total rule and not for fraud review - a held
      * transfer would refuse the code rather than settle.
      */
     private int settleTrusted(TransferApplicationService service, double amountCzk) {

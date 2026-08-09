@@ -32,7 +32,7 @@ final class ApiErrors {
             "SESSION_LIMIT_REACHED",
             "Too many people are signed in right now. Please try again in a few minutes.");
 
-    // A13. The attempt was refused before the credential was looked at, so the caller is told
+    // The attempt was refused before the credential was looked at, so the caller is told
     // what to do - wait - rather than that their password is wrong. Its own code for exactly
     // the reason SESSION_LIMIT_REACHED has one: both sign-in screens render this catalogue's
     // message verbatim, and AUTH_FAILED here would send somebody to change a password that is
@@ -67,7 +67,7 @@ final class ApiErrors {
             "CONFLICT",
             "This action is no longer possible because the item has already changed state.");
 
-    // A6. Another transaction changed an account this request touches between the moment this
+    // Another transaction changed an account this request touches between the moment this
     // request read its balance and the moment it tried to write the new one, so the write was
     // refused instead of being applied on top of a figure that is no longer true.
     //
