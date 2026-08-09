@@ -80,9 +80,6 @@ export default function LoginDialog({ onLoggedIn, notice }: Props) {
                             </button>
                         </div>
                     </form>
-                    <p className="helper-text" style={{ marginTop: 8 }}>
-                        For demo: alice / alice123 (customer) or fraud / fraud123 (analyst).
-                    </p>
                 </div>
             </div>
         </div>

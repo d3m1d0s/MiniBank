@@ -6,8 +6,11 @@ export default function Login(props: {
     /** Why the analyst is looking at this screen, when they did not ask to be. */
     notice?: string | null;
 }) {
-    const [username, setUsername] = useState('fraud');
-    const [password, setPassword] = useState('fraud123');
+    // Empty, like the customer app's. A sign-in form that arrives with a password already in it
+    // is not something to demonstrate, and the demo logins are announced by the profile that
+    // creates them - see DemoUsersInitializer, which prints both at startup.
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
@@ -51,8 +54,6 @@ export default function Login(props: {
                                 {loading ? 'Signing in…' : 'Sign in'}
                             </button>
                         </div>
-
-                        <div className="hint">Demo: fraud / fraud123</div>
                     </form>
                 </div>
             </div>
