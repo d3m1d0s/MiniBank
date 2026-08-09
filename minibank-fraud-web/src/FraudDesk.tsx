@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
     fetchAlerts,
     fetchAlertDetail,
+    formatMoney,
     postFraudDecision,
     type AlertCounters,
     type AlertDetail,
@@ -320,7 +321,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                                 look exactly like one on money still held. */}
                                             <div className="li-state">{a.state} • {a.transferStatus}</div>
                                         </div>
-                                        <div className="li-mid">{a.transferCode} • {a.amount} {a.currency}</div>
+                                        <div className="li-mid">{a.transferCode} • {formatMoney(a.amount)}</div>
                                         <div className="li-bot">{a.shortReason}</div>
                                     </button>
                                 ))}
@@ -385,10 +386,10 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                         <div className="box">
                                             <div className="box-title">Facts</div>
                                             <ul className="facts">
-                                                <li><b>From:</b> {detail.transfer.fromIban} (balance {detail.transfer.fromBalance})</li>
+                                                <li><b>From:</b> {detail.transfer.fromIban} (balance {formatMoney(detail.transfer.fromBalance)})</li>
                                                 <li><b>To:</b> {detail.transfer.toIban}</li>
-                                                <li><b>Amount:</b> {detail.transfer.amount} {detail.transfer.currency}</li>
-                                                <li><b>Fee:</b> {detail.transfer.feeAmount}</li>
+                                                <li><b>Amount:</b> {formatMoney(detail.transfer.amount)}</li>
+                                                <li><b>Fee:</b> {formatMoney(detail.transfer.feeAmount)}</li>
                                                 <li><b>Time:</b> {fmt(detail.transfer.createdAt)}</li>
                                                 <li><b>Auth:</b> {detail.transfer.authMethod ?? '—'}</li>
                                                 <li><b>Reason:</b> {detail.alert.reason}</li>
@@ -401,7 +402,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                                 {detail.history.map(h => (
                                                     <div key={h.id} className="history-row">
                                                         <div>{fmt(h.createdAt)}</div>
-                                                        <div>{h.amount} {h.currency}</div>
+                                                        <div>{formatMoney(h.amount)}</div>
                                                         <div>{h.status}</div>
                                                         <div>{h.toIban}</div>
                                                     </div>

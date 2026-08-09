@@ -12,8 +12,7 @@ public record AlertQueueItemDto(
         // so a payment that had already gone looked identical to one still held for review -
         // half of why the fraud feature gated nothing.
         String transferStatus,
-        String amount,
-        String currency,
+        MoneyDto amount,
         String shortReason,
         String createdAt,
         Integer riskScore,

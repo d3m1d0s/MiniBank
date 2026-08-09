@@ -1,6 +1,7 @@
 package cz.vsb.minibank.api;
 
 import cz.vsb.minibank.api.dto.AccountSummaryDto;
+import cz.vsb.minibank.api.dto.MoneyDto;
 import cz.vsb.minibank.api.dto.NewPaymentRequest;
 import cz.vsb.minibank.api.dto.NewPaymentResultDto;
 import cz.vsb.minibank.application.TransferApplicationService;
@@ -97,9 +98,9 @@ public class PaymentController {
         NewPaymentResultDto dto = new NewPaymentResultDto(
                 t.id(),
                 t.status().name(),
-                charged.toString(),
-                fee.toString(),
-                acc.balance().toString(),
+                MoneyDto.of(charged),
+                MoneyDto.of(fee),
+                MoneyDto.of(acc.balance()),
                 authorizationRequired
         );
 
@@ -113,7 +114,7 @@ public class PaymentController {
         return new AccountSummaryDto(
                 a.id(),
                 a.iban().value(),
-                a.balance().toString()
+                MoneyDto.of(a.balance())
         );
     }
 }

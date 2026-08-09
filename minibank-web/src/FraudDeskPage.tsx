@@ -15,6 +15,7 @@ import {
     type ApiError,
 } from './api';
 import { amountRangeProblem } from './alertFilters';
+import { formatMoney } from './money';
 
 /** The transfer status a withdrawn payment ends in. */
 const WITHDRAWN = 'DECLINED';
@@ -479,10 +480,7 @@ export default function FraudDeskPage() {
                                                 <td>{a.transferCode}</td>
                                                 <td>{a.state}</td>
                                                 <td>{a.transferStatus}</td>
-                                                <td>
-                                                    {a.amount}{' '}
-                                                    {a.currency}
-                                                </td>
+                                                <td>{formatMoney(a.amount)}</td>
                                                 <td>{a.shortReason}</td>
                                                 <td>
                                                     {a.riskScore ?? '—'}
@@ -577,7 +575,7 @@ export default function FraudDeskPage() {
                                         <p>
                                             <strong>From:</strong>{' '}
                                             {detail.transfer.fromIban} (Balance:{' '}
-                                            {detail.transfer.fromBalance})
+                                            {formatMoney(detail.transfer.fromBalance)})
                                         </p>
                                         <p>
                                             <strong>To:</strong>{' '}
@@ -585,12 +583,11 @@ export default function FraudDeskPage() {
                                         </p>
                                         <p>
                                             <strong>Amount:</strong>{' '}
-                                            {detail.transfer.amount}{' '}
-                                            {detail.transfer.currency}
+                                            {formatMoney(detail.transfer.amount)}
                                         </p>
                                         <p>
                                             <strong>Fee:</strong>{' '}
-                                            {detail.transfer.feeAmount}
+                                            {formatMoney(detail.transfer.feeAmount)}
                                         </p>
                                         <p>
                                             <strong>Created:</strong>{' '}
@@ -651,10 +648,9 @@ export default function FraudDeskPage() {
                                                                     )}
                                                                 </td>
                                                                 <td>
-                                                                    {h.amount}{' '}
-                                                                    {
-                                                                        h.currency
-                                                                    }
+                                                                    {formatMoney(
+                                                                        h.amount,
+                                                                    )}
                                                                 </td>
                                                                 <td>
                                                                     {

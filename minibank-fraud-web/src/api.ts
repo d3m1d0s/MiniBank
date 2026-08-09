@@ -98,6 +98,29 @@ export function logoutSession() {
     }
 }
 
+/**
+ * A money value as the API sends it: the amount as a decimal string, and the currency it is in.
+ *
+ * Two fields rather than one formatted string, so the amount stays something this app could
+ * compute with and the currency belongs to that amount rather than to the response around it.
+ * Print it with formatMoney below - never by interpolating the fields at a call site, which is
+ * how this desk came to show a fee with no currency directly beneath an amount that had one.
+ */
+export interface Money {
+    amount: string;
+    currency: string;
+}
+
+/**
+ * How a money value is shown. The one place either field is printed.
+ *
+ * An absent value prints as a dash: null is meaningful on this wire, since a payment that has
+ * not settled has been charged nothing rather than charged zero.
+ */
+export function formatMoney(money: Money | null | undefined): string {
+    return money ? `${money.amount} ${money.currency}` : '—';
+}
+
 // --- Fraud desk ---
 export interface AlertQueueItem {
     id: number;
@@ -107,8 +130,7 @@ export interface AlertQueueItem {
     // The transfer's status, not the alert's. Without it a payment that has already gone looks
     // identical in the queue to one still held for review.
     transferStatus: string;
-    amount: string;
-    currency: string;
+    amount: Money;
     shortReason: string;
     createdAt: string | null;
     riskScore: number | null;
@@ -141,11 +163,10 @@ export interface TransferInfo {
     code: string;
     status: string;
     fromIban: string;
-    fromBalance: string;
+    fromBalance: Money;
     toIban: string;
-    amount: string;
-    feeAmount: string;
-    currency: string;
+    amount: Money;
+    feeAmount: Money;
     createdAt: string | null;
     authMethod: string | null;
 }
@@ -153,8 +174,7 @@ export interface TransferInfo {
 export interface HistoryItem {
     id: number;
     createdAt: string | null;
-    amount: string;
-    currency: string;
+    amount: Money;
     status: string;
     toIban: string;
     declineReason: string | null;

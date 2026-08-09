@@ -185,8 +185,6 @@ public class FraudController {
             if (minAmount != null && amount.compareTo(minAmount) < 0) continue;
             if (maxAmount != null && amount.compareTo(maxAmount) > 0) continue;
 
-            String amountStr = amount.toPlainString();
-            String currency = t.amount().currency();
             String createdAtStr = alert.createdAt() != null ? alert.createdAt().toString() : null;
 
             items.add(new AlertQueueItemDto(
@@ -196,8 +194,7 @@ public class FraudController {
                     alert.state().name(),
                     // From the Transfer already loaded above for its amount, so no extra lookup.
                     t.status().name(),
-                    amountStr,
-                    currency,
+                    MoneyDto.of(t.amount()),
                     alert.reason(),
                     createdAtStr,
                     alert.riskScore(),
@@ -316,14 +313,11 @@ public class FraudController {
 
     private TransferInfoDto mapTransferInfo(Transfer t, Account source) {
         String fromIban = source.iban().value();
-        String fromBalance = source.balance().amount().toPlainString();
 
-        String amountStr = t.amount().amount().toPlainString();
-        String currency = t.amount().currency();
         // A14: what it was charged if it has settled, and only otherwise a quote from the
         // current policy. Recomputing this made the fraud desk restate what a customer was
         // charged last month whenever the FeePolicy bean was swapped.
-        String feeStr = t.feeFor(feePolicy).amount().toPlainString();
+        MoneyDto fee = MoneyDto.of(t.feeFor(feePolicy));
 
         // Unguarded: a transfer always carries its creation instant. The authorization method
         // beside it genuinely may be absent, which is why only one of these two is a ternary.
@@ -335,11 +329,10 @@ public class FraudController {
                 "TR-%d".formatted(t.id()),
                 t.status().name(),
                 fromIban,
-                fromBalance,
+                MoneyDto.of(source.balance()),
                 t.targetIbanSnapshot(),
-                amountStr,
-                feeStr,
-                currency,
+                MoneyDto.of(t.amount()),
+                fee,
                 createdAtStr,
                 authMethod
         );
@@ -371,8 +364,7 @@ public class FraudController {
                 .map(t -> new HistoryItemDto(
                         t.id(),
                         t.createdAt().toString(),
-                        t.amount().amount().toPlainString(),
-                        t.amount().currency(),
+                        MoneyDto.of(t.amount()),
                         t.status().name(),
                         t.targetIbanSnapshot(),
                         t.declineReason()

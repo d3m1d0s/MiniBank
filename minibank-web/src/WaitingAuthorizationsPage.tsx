@@ -12,6 +12,7 @@ import {
     cancelTransfer,
     isUnderReview,
 } from './api';
+import { formatMoney } from './money';
 
 /**
  * The one sentence a customer whose payment is held needs, kept identical to the server's
@@ -379,7 +380,7 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                             >
                                                 <td>{it.id}</td>
                                                 <td>{it.targetIban || (it as any).beneficiaryIban}</td>
-                                                <td>{it.amount}</td>
+                                                <td>{formatMoney(it.amount)}</td>
                                                 <td>
                                                     {it.createdAt
                                                         ? new Date(it.createdAt).toLocaleString()
@@ -410,15 +411,15 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                         <p>
                                             <strong>From:</strong> {details.fromIban}{' '}
                                             {details.fromBalance &&
-                                                `(Balance: ${details.fromBalance})`}
+                                                `(Balance: ${formatMoney(details.fromBalance)})`}
                                         </p>
                                         <p>
                                             <strong>To:</strong> {details.toIban}</p>
                                         <p>
-                                            <strong>Amount:</strong> {details.amount}
+                                            <strong>Amount:</strong> {formatMoney(details.amount)}
                                         </p>
                                         <p>
-                                            <strong>Fee:</strong> {details.feeAmount}</p>
+                                            <strong>Fee:</strong> {formatMoney(details.feeAmount)}</p>
                                         <p>
                                             <strong>Created:</strong>{' '}
                                             {details.createdAt
@@ -518,13 +519,13 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
 
                                         {/* Show charged amount only if funds were actually debited */}
                                         {result.chargedAmount && (
-                                            <li>Charged: {result.chargedAmount}</li>
+                                            <li>Charged: {formatMoney(result.chargedAmount)}</li>
                                         )}
 
                                         {/* newBalance is always current; wording changes depending on status */}
                                         <li>
                                             {result.status === 'SENT' ? 'New balance: ' : 'Current balance: '}
-                                            {result.newBalance}
+                                            {formatMoney(result.newBalance)}
                                         </li>
 
                                         {/* Decline reason, if present */}

@@ -13,10 +13,10 @@ package cz.vsb.minibank.api.dto;
 public record TransferDetailsDto(
         int id,
         String fromIban,
-        String fromBalance,
+        MoneyDto fromBalance,
         String toIban,
-        String amount,
-        String feeAmount,
+        MoneyDto amount,
+        MoneyDto feeAmount,
         String status,
         String createdAt,
         String settledAt,

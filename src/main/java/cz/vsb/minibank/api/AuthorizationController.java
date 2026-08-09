@@ -2,6 +2,7 @@ package cz.vsb.minibank.api;
 
 import cz.vsb.minibank.api.dto.AuthorizePaymentRequest;
 import cz.vsb.minibank.api.dto.AuthorizePaymentResult;
+import cz.vsb.minibank.api.dto.MoneyDto;
 import cz.vsb.minibank.api.dto.TransferDetailsDto;
 import cz.vsb.minibank.api.dto.WaitingTransferItemDto;
 import cz.vsb.minibank.application.OwnershipGuard;
@@ -99,7 +100,7 @@ public class AuthorizationController {
                     result.add(new WaitingTransferItemDto(
                             t.id(),
                             t.targetIbanSnapshot(),
-                            t.amount().toString(),
+                            MoneyDto.of(t.amount()),
                             t.createdAt().toString(),
                             authMethodOf(t),
                             t.status().name()
@@ -160,10 +161,10 @@ public class AuthorizationController {
         return new TransferDetailsDto(
                 t.id(),
                 acc.iban().value(),
-                acc.balance().toString(),
+                MoneyDto.of(acc.balance()),
                 t.targetIbanSnapshot(),
-                t.amount().toString(),
-                fee.toString(),
+                MoneyDto.of(t.amount()),
+                MoneyDto.of(fee),
                 t.status().name(),
                 t.createdAt().toString(),
                 t.settledAt() != null ? t.settledAt().toString() : null,
@@ -215,21 +216,20 @@ public class AuthorizationController {
                 .orElseThrow(() -> new DataIntegrityException(
                         "Transfer " + id + " points at missing account " + t.sourceAccountId()));
 
-        String chargedAmount = null;
+        MoneyDto chargedAmount = null;
         if (t.status() == TransferStatus.SENT) {
             // The stored fee, which on this branch always exists: a SENT transfer went through
             // Transfer.send, which writes it. A14 - what the customer is told they were charged
             // must be what they were charged, not what today's policy would charge.
             var fee = t.feeFor(feePolicy);
-            var total = t.amount().plus(fee);
-            chargedAmount = total.toString();
+            chargedAmount = MoneyDto.of(t.amount().plus(fee));
         }
 
         return new AuthorizePaymentResult(
                 t.id(),
                 t.status().name(),
                 chargedAmount,
-                acc.balance().toString(),
+                MoneyDto.of(acc.balance()),
                 t.declineReason()
         );
     }
@@ -256,7 +256,7 @@ public class AuthorizationController {
                 t.id(),
                 t.status().name(),
                 null,
-                acc.balance().toString(),
+                MoneyDto.of(acc.balance()),
                 t.declineReason()
         );
     }

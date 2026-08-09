@@ -12,7 +12,7 @@ import {
     isUnderReview,
     mapPaymentError,
 } from './api';
-import { parseAmount } from './money';
+import { formatMoney, parseAmount } from './money';
 
 const MAX_MESSAGE_LENGTH = 140;
 
@@ -228,7 +228,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                         ))}
                                     </select>
                                     <div className="field-side">
-                                        Balance: {selectedAccount?.balance ?? '—'}
+                                        Balance: {formatMoney(selectedAccount?.balance)}
                                     </div>
                                 </div>
 
@@ -334,15 +334,15 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                               "Charged"; the two money screens now agree.
                                             */}
                                             <li>
-                                                Charged: {info.result.chargedAmount}
+                                                Charged: {formatMoney(info.result.chargedAmount)}
                                             </li>
                                             <li>
-                                                Fee: {info.result.feeAmount}
+                                                Fee: {formatMoney(info.result.feeAmount)}
                                             </li>
                                             <li>
                                                 {info.result.authorizationRequired
-                                                    ? <>Current balance: {info.result.newBalance}</>
-                                                    : <>New balance: {info.result.newBalance}</>}
+                                                    ? <>Current balance: {formatMoney(info.result.newBalance)}</>
+                                                    : <>New balance: {formatMoney(info.result.newBalance)}</>}
                                             </li>
                                             <li>
                                                 Authorization required:{' '}

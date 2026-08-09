@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAmount, formatCzech } from './money';
+import { parseAmount, formatCzech, formatMoney } from './money';
 
 /**
  * The amount a customer types is the one place in this application where the same string means
@@ -224,5 +224,34 @@ describe('the edges of what a payment can be', () => {
 
     it('handles an amount larger than any real balance without losing digits', () => {
         expect(value('999 999 999,99', CZ)).toBe(999999999.99);
+    });
+});
+
+describe('showing an amount the server has already decided', () => {
+    it('prints the amount and its currency together', () => {
+        expect(formatMoney({ amount: '1500.00', currency: 'CZK' })).toBe('1500.00 CZK');
+    });
+
+    it('never prints an amount without its unit, which is the defect it exists to prevent', () => {
+        // Both fraud desks used to append a separate currency field to the amount and forget it
+        // on the fee and on the source balance, so a fee appeared bare directly beneath an
+        // amount that carried one. Going through one function is what makes that unwritable.
+        const shown = formatMoney({ amount: '25.00', currency: 'CZK' });
+        expect(shown).toMatch(/\s CZK$|CZK$/);
+        expect(shown).not.toBe('25.00');
+    });
+
+    it('shows a dash for an absent value rather than an empty gap', () => {
+        // Null is meaningful here: a payment that has not settled has been charged nothing,
+        // which is a different fact from a charge of zero.
+        expect(formatMoney(null)).toBe('—');
+        expect(formatMoney(undefined)).toBe('—');
+    });
+
+    it('leaves the digits exactly as the server wrote them', () => {
+        // Not run through formatCzech: these are amounts the bank has decided, not amounts a
+        // person is typing, and regrouping them here would be a second formatting rule on one
+        // value.
+        expect(formatMoney({ amount: '999999.99', currency: 'CZK' })).toBe('999999.99 CZK');
     });
 });

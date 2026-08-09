@@ -6,7 +6,7 @@ package cz.vsb.minibank.api.dto;
 public record WaitingTransferItemDto(
         int id,
         String beneficiaryIban,
-        String amount,
+        MoneyDto amount,
         String createdAt,
         String authMethod,
         // WAITING_AUTH or HELD_FOR_REVIEW. The list carries two kinds of row now - transfers

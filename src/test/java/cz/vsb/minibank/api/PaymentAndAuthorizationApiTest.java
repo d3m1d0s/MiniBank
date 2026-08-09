@@ -209,11 +209,12 @@ public class PaymentAndAuthorizationApiTest {
 
         assertEquals(transferId, details.id());
         assertEquals("CZ2001000000000012345678", details.toIban());
-        String expectedPrefix = String.format(Locale.US, "%.2f", WAITING_TRANSFER_AMOUNT);
-        assertTrue(
-                details.amount().startsWith(expectedPrefix),
-                "Expected amount to start with " + expectedPrefix
-        );
+        // Exact on both halves now that the amount and its currency are separate fields. This
+        // was a startsWith on one formatted string, which passed whatever the currency was and
+        // whatever followed the digits.
+        assertEquals(String.format(Locale.US, "%.2f", WAITING_TRANSFER_AMOUNT),
+                details.amount().amount());
+        assertEquals("CZK", details.amount().currency());
         assertEquals("WAITING_AUTH", details.status());
         assertNotNull(details.fromIban());
         assertTrue(details.fromIban().startsWith("CZ"));

@@ -43,10 +43,23 @@ export function mapPaymentError(error: ApiError): string[] {
     }
 }
 
+/**
+ * A money value as the API sends it: the amount as a decimal string, and the currency it is in.
+ *
+ * Two fields rather than one formatted string, so the amount stays something this app could
+ * compute with and the currency belongs to that amount rather than to the response around it.
+ * Print it with formatMoney from money.ts - never by interpolating the fields at a call site,
+ * which is how a fee came to be shown with no currency beside an amount that had one.
+ */
+export interface Money {
+    amount: string;
+    currency: string;
+}
+
 export interface AccountSummary {
     id: number;
     iban: string;
-    balance: string;
+    balance: Money;
 }
 
 export interface NewPaymentRequest {
@@ -59,9 +72,9 @@ export interface NewPaymentRequest {
 export interface NewPaymentResult {
     transferId: number;
     status: string;
-    chargedAmount: string;
-    newBalance: string;
-    feeAmount: string;
+    chargedAmount: Money;
+    newBalance: Money;
+    feeAmount: Money;
     authorizationRequired: boolean;
 }
 
@@ -71,7 +84,7 @@ export interface WaitingTransferItem {
     id: number;
     sourceIban?: string;
     targetIban?: string;
-    amount?: string;
+    amount?: Money;
     createdAt?: string;
     authMethod?: string;
     // 'WAITING_AUTH' or 'HELD_FOR_REVIEW'. Left as a plain string like every other status on
@@ -88,15 +101,15 @@ export function isUnderReview(status?: string | null): boolean {
 export interface TransferDetails {
     id: number;
     fromIban: string;
-    fromBalance: string;
+    fromBalance: Money;
     toIban: string;
     /**
      * What the transfer was charged once it has settled, and a quote from the current fee
      * policy until then. Before A14 this was recomputed on every read, so it could restate what
      * a customer was charged last month the day the fee policy changed.
      */
-    amount: string;
-    feeAmount: string;
+    amount: Money;
+    feeAmount: Money;
     status: string;
     createdAt: string;
     /** When the money moved. Null on a transfer that has not settled. */
@@ -120,8 +133,8 @@ export interface AuthorizePaymentRequest {
 export interface AuthorizePaymentResult {
     transferId: number;
     status: string;
-    chargedAmount: string | null;   // null if no funds were charged yet
-    newBalance: string;             // always represents the current account balance
+    chargedAmount: Money | null;    // null if no funds were charged yet
+    newBalance: Money;              // always represents the current account balance
     declineReason: string | null;   // decline reason text for DECLINED, otherwise null
 }
 
@@ -308,8 +321,7 @@ export interface AlertQueueItem {
     // The transfer's status, not the alert's. Without it a payment that has already gone looks
     // identical in the queue to one still held for review.
     transferStatus: string;
-    amount: string;
-    currency: string;
+    amount: Money;
     shortReason: string;
     createdAt: string | null;
     riskScore: number | null;
@@ -350,11 +362,10 @@ export interface TransferInfo {
     code: string;
     status: string;
     fromIban: string;
-    fromBalance: string;
+    fromBalance: Money;
     toIban: string;
-    amount: string;
-    feeAmount: string;
-    currency: string;
+    amount: Money;
+    feeAmount: Money;
     createdAt: string | null;
     authMethod: string | null;
 }
@@ -362,8 +373,7 @@ export interface TransferInfo {
 export interface HistoryItem {
     id: number;
     createdAt: string | null;
-    amount: string;
-    currency: string;
+    amount: Money;
     status: string;
     toIban: string;
     declineReason: string | null;

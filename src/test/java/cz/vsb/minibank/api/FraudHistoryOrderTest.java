@@ -98,6 +98,27 @@ class FraudHistoryOrderTest {
                 "the oldest payment is the one that falls off the end");
     }
 
+    /**
+     * Every money value the analyst is sent carries its own currency.
+     *
+     * The desk used to be given bare numbers plus one currency field per response, and both
+     * implementations appended it to the amount and to the history rows and forgot it on the fee
+     * and on the source balance - so a fee was printed with no unit directly beneath an amount
+     * that had one. Asserting the fee and the balance specifically, because those are the two
+     * that were wrong; the amount was never the failing case.
+     */
+    @Test
+    void everyMoneyValueOnTheAnalystsScreenNamesItsCurrency() {
+        seedHistory(1);
+
+        AlertDetailDto detail = fraudController.getAlert(infra.alerts.all().get(0).id());
+
+        assertEquals("CZK", detail.transfer().feeAmount().currency());
+        assertEquals("CZK", detail.transfer().fromBalance().currency());
+        assertEquals("CZK", detail.transfer().amount().currency());
+        assertEquals("CZK", detail.history().get(0).amount().currency());
+    }
+
     private List<HistoryItemDto> historyOfTheFirstAlert() {
         int alertId = infra.alerts.all().get(0).id();
         AlertDetailDto detail = fraudController.getAlert(alertId);
