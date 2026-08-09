@@ -48,7 +48,6 @@ class PaymentNetworkIntegrationTest {
         gateway = new FakePaymentNetworkGateway();
 
         transferService = new TransferApplicationService(
-                infra.customers,
                 infra.accounts,
                 infra.transfers,
                 infra.alerts,
@@ -56,7 +55,8 @@ class PaymentNetworkIntegrationTest {
                 riskService,
                 otpValidator,
                 gateway,
-                infra.uowFactory
+                infra.uowFactory,
+                new OwnershipGuard(infra.customers, infra.accounts)
         );
 
         // Initial domain data (outside any UnitOfWork)
@@ -88,16 +88,16 @@ class PaymentNetworkIntegrationTest {
                 transferId,
                 accountId,
                 null,
-                "CZ0201000000000098765432",
-                Money.czk(1_000),
-                "CZK"
-        );
+                "CZ1301000000000098765432",
+                Money.czk(1_000));
         // Simulate payment already created and pending authorization
         t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
         infra.transfers.add(t);
 
-        a.registerTransfer(transferId);
-        infra.accounts.save(a);
+        // Account.registerTransfer and the second save that persisted its list are gone with
+        // Account.transferIds. Nothing here asserted anything about that list; the account was
+        // already saved above, and the transfer's own source_account_id is what every real
+        // "transfers of this account" query reads.
     }
 
     @AfterEach
@@ -117,7 +117,9 @@ class PaymentNetworkIntegrationTest {
     @Test
     void authorizedTransferIsDispatchedToPaymentNetwork() {
         // act: UC 05 – successful payment authorization
-        transferService.authorizePayment(transferId, "any-otp");
+        // The fixture links accountId to customerId and saves the customer afterwards, so the
+        // ownership guard passes on the data this test already sets up.
+        transferService.authorizePayment(customerId, transferId, "any-otp");
 
         // assert - gateway is called exactly once with our transfer
         assertEquals(1, gateway.sentTransfers().size(),

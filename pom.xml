@@ -13,6 +13,9 @@
         <maven.compiler.target>17</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring.boot.version>3.3.4</spring.boot.version>
+        <!-- What a bare "mvn exec:java" runs. Override it on the command line for AppSql or
+             for the demo runner. -->
+        <exec.mainClass>cz.vsb.minibank.App</exec.mainClass>
     </properties>
 
     <dependencies>
@@ -44,6 +47,18 @@
             <version>5.7.0</version>
             <scope>test</scope>
         </dependency>
+        <!--
+            MockMvc, for the one thing unit tests cannot check: the status code and the
+            body bytes an endpoint actually puts on the wire. Just spring-test, not
+            spring-boot-starter-test, so nothing here overrides the JUnit and Mockito
+            versions pinned above. The version tracks spring-web from the Boot BOM.
+        -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-test</artifactId>
+            <version>6.1.13</version>
+            <scope>test</scope>
+        </dependency>
 
     </dependencies>
     <build>
@@ -53,7 +68,12 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
                 <configuration>
-                    <mainClass>cz.vsb.minibank.App</mainClass>
+                    <!--
+                        Through a property, because a literal here wins over -Dexec.mainClass and
+                        there is more than one entry point: AppSql and DemoRunner were both
+                        unreachable through exec:java, and asking for either silently ran App.
+                    -->
+                    <mainClass>${exec.mainClass}</mainClass>
                 </configuration>
             </plugin>
             <plugin>
@@ -62,12 +82,31 @@
                 <version>3.2.5</version>
                 <configuration>
                     <useModulePath>false</useModulePath>
+                    <systemPropertyVariables>
+                        <!-- Keep audit output of the whole suite out of the working tree -->
+                        <minibank.log.file>${project.build.directory}/minibank-test.log</minibank.log.file>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <version>${spring.boot.version}</version>
+                <configuration>
+                    <mainClass>cz.vsb.minibank.ApiApplication</mainClass>
+                </configuration>
+                <executions>
+                    <!--
+                        Without spring-boot-starter-parent the repackage goal has no
+                        default binding, so mvn package would otherwise produce a plain
+                        jar with no dependencies and no Main-Class.
+                    -->
+                    <execution>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

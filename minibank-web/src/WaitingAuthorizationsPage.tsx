@@ -5,11 +5,24 @@ import {
     fetchWaitingTransfers,
     fetchTransferDetails,
     confirmAuthorization,
+    type ApiError,
     type WaitingTransferItem,
     type TransferDetails,
     type AuthorizePaymentResult,
     cancelTransfer,
+    isUnderReview,
 } from './api';
+import { formatMoney } from './money';
+
+/**
+ * The one sentence a customer whose payment is held needs, kept identical to the server's
+ * TRANSFER_UNDER_REVIEW message. It is rendered under the disabled Confirm button rather than
+ * only as an error, because the button they would have to press to see the error is the one
+ * that is disabled - so as an error alone it would be copy nobody ever reads.
+ */
+const UNDER_REVIEW_TEXT =
+    'The bank is reviewing this payment. You will be able to confirm it once the review is ' +
+    'finished, or you can cancel it below.';
 
 interface Props {
     onNavigate: (view: 'new-payment' | 'waiting-auth' | 'fraud-desk') => void;
@@ -41,6 +54,48 @@ function mapDeclineReason(reason: string): string {
     return reason;
 }
 
+/**
+ * Turns the server's error codes into one sentence for the customer. Every code below is
+ * reachable on POST /api/transfers/{id}/authorize; there is no matching on message text,
+ * which used to misfire whenever an unrelated message happened to contain "expired".
+ *
+ * The branches this replaces named WRONG_OTP, OTP_ATTEMPTS_EXCEEDED and OTP_EXPIRED -
+ * three codes the backend has never sent, and none of them spelled the way INVALID_OTP is.
+ */
+function describeAuthorizationError(err: ApiError, triesLeft?: number): string {
+    switch (err.code) {
+        case 'INVALID_OTP': {
+            const extra =
+                triesLeft !== undefined && triesLeft !== null
+                    ? ` You have ${triesLeft} attempt${triesLeft === 1 ? '' : 's'} left.`
+                    : '';
+            return 'Wrong one-time password (OTP). Please check the code and try again.' + extra;
+        }
+        case 'INSUFFICIENT_FUNDS':
+            return 'Insufficient balance – top up your account and try again or cancel this transfer.';
+        // Reachable for an API caller and for a customer whose payment was held between the
+        // page loading and their pressing Confirm. Without this case it falls to `default`,
+        // which renders the catalogue sentence but also leaves CONFLICT's "refresh the list"
+        // advice as the nearest thing on screen, and refreshing shows nothing new.
+        case 'TRANSFER_UNDER_REVIEW':
+            return UNDER_REVIEW_TEXT;
+        // A refused write, and it must sit above CONFLICT rather than fall through to `default`. The
+        // catalogue sentence would render either way, but CONFLICT's "refresh the list" advice
+        // is the nearest thing on screen and refreshing shows the transfer still waiting -
+        // whereas the right action here is simply to confirm again.
+        case 'CONCURRENT_MODIFICATION':
+            return 'Another change was applied to this account first. Nothing was charged - please confirm again.';
+        case 'CONFLICT':
+            return 'This transfer can no longer be confirmed. Refresh the list to see its current state.';
+        case 'NOT_FOUND':
+            return 'This transfer is no longer available.';
+        case 'VALIDATION_ERROR':
+            return 'Please enter the one-time password before confirming.';
+        default:
+            return err.message || 'Authorization failed.';
+    }
+}
+
 export function WaitingAuthorizationsPage({ onNavigate }: Props) {
     const [items, setItems] = useState<WaitingTransferItem[]>([]);
     const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -53,10 +108,42 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
     const [confirmError, setConfirmError] = useState<string | null>(null);
 
     const [loading, setLoading] = useState(false);
+    const [refreshing, setRefreshing] = useState(false);
 
     useEffect(() => {
         void loadList();
     }, []);
+
+    // The selected row as the list last reported it. The whole point of the status is that the
+    // customer can see why Confirm is dead, so it has to come from the row rather than from
+    // `details`, which may not have loaded yet.
+    const selectedItem = items.find((x) => x.id === selectedId) ?? null;
+    const selectedUnderReview =
+        isUnderReview(selectedItem?.status as string | undefined) ||
+        isUnderReview(details?.status);
+
+    /**
+     * Manual refresh. A held payment is released by somebody else, at a time the customer is
+     * not told about, and nothing on this page polls - loadList runs on mount and after the
+     * customer's own confirm or cancel. Without a control here the only way to notice a release
+     * is to reload the browser tab, because clicking the already-active nav link does not
+     * remount the page.
+     */
+    async function handleRefresh() {
+        try {
+            setRefreshing(true);
+            await loadList();
+            if (selectedId) {
+                try {
+                    setDetails(await fetchTransferDetails(selectedId));
+                } catch {
+                    // The transfer may no longer be readable; the list is the source of truth.
+                }
+            }
+        } finally {
+            setRefreshing(false);
+        }
+    }
 
     async function loadList() {
         try {
@@ -96,110 +183,56 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
             // Step 1: try to authorize the transfer with given OTP
             const res = await confirmAuthorization({ transferId: selectedId, otp });
             setResult(res);
-            setOtp('');
 
             // Step 2: refresh the list (transfers that are no longer WAITING_AUTH will disappear)
             await loadList();
 
             // Step 3: reload details to reflect updated triesLeft / authValidUntil
-            let freshDetails: TransferDetails | null = null;
             try {
                 const d = await fetchTransferDetails(selectedId);
                 setDetails(d);
-                freshDetails = d;
             } catch {
                 // If details are no longer available, ignore
             }
 
-            // Step 4: interpret result and set a human-readable message
-
-            if (res.status === 'SENT') {
-                // Successful authorization, nothing to report as error
-                setConfirmError(null);
-            } else if (res.status === 'DECLINED') {
-                // Final decline – show normalized decline reason if available
-                if (res.declineReason) {
-                    setConfirmError(mapDeclineReason(res.declineReason));
-                } else {
-                    setConfirmError('Authorization was declined.');
-                }
-            } else if (res.status === 'WAITING_AUTH') {
-                // Wrong OTP: status is still WAITING_AUTH but attempts counter decreased
-                const tries =
-                    freshDetails?.triesLeft ??
-                    details?.triesLeft;
-
-                const extra =
-                    tries !== undefined && tries !== null
-                        ? ` You have ${tries} attempt${tries === 1 ? '' : 's'} left.`
-                        : '';
-
+            // Step 4: interpret result and set a human-readable message.
+            // A wrong code no longer arrives here: it is a 400 and lands in the catch below,
+            // so WAITING_AUTH is not a possible outcome of a 200 any more. The third failed
+            // attempt and an expired window still arrive as 200 DECLINED, which is why that
+            // branch stays.
+            if (res.status === 'DECLINED') {
                 setConfirmError(
-                    'Wrong one-time password (OTP). Please check the code and try again.' +
-                    extra,
+                    res.declineReason
+                        ? mapDeclineReason(res.declineReason)
+                        : 'Authorization was declined.',
                 );
             } else {
-                // Fallback for other statuses
                 setConfirmError(null);
             }
         } catch (e) {
-            const err = e as Error;
-            let code: string | undefined;
-            let msg = err.message ?? '';
+            const err = e as ApiError;
 
-            // Try to parse JSON payload {"code":"...","message":"..."}
-            const trimmed = msg.trim();
-            if (trimmed.startsWith('{')) {
-                try {
-                    const parsed = JSON.parse(trimmed) as { code?: string; message?: string };
-                    code = parsed.code;
-                    msg = parsed.message || msg;
-                } catch {
-                    // Not JSON, keep original message
-                }
+            // A refused authorization still changed the transfer: a wrong code costs one of
+            // the three attempts. Refresh before reporting, so the "Tries left" readout and
+            // the count inside the message are the ones the server now holds. Without this,
+            // moving the wrong OTP off the 200 path would freeze the counter at its
+            // pre-attempt value, because the refresh above is skipped on the throw.
+            await loadList();
+            let triesLeft: number | undefined;
+            try {
+                const d = await fetchTransferDetails(selectedId);
+                setDetails(d);
+                triesLeft = d.triesLeft;
+            } catch {
+                // Details may no longer be readable; the message does not depend on them.
             }
 
-            const lower = msg.toLowerCase();
-
-            // Insufficient funds
-            if (code === 'INSUFFICIENT_FUNDS' || lower.includes('insufficient funds')) {
-                setConfirmError(
-                    'Insufficient balance – top up your account and try again or cancel this transfer.',
-                );
-            }
-            // Wrong OTP returned as error
-            else if (
-                code === 'WRONG_OTP' ||
-                lower.includes('otp failed') ||
-                lower.includes('wrong otp')
-            ) {
-                setConfirmError(
-                    'Wrong one-time password (OTP). Please check the code and try again.',
-                );
-            }
-            // Too many attempts returned as error
-            else if (
-                code === 'OTP_ATTEMPTS_EXCEEDED' ||
-                lower.includes('too many attempts') ||
-                lower.includes('attempts exceeded')
-            ) {
-                setConfirmError(
-                    'Too many incorrect OTP attempts – this transfer was declined for security reasons.',
-                );
-            }
-            // Authorization window expired returned as error
-            else if (
-                code === 'OTP_EXPIRED' ||
-                lower.includes('expired') ||
-                lower.includes('authorization window')
-            ) {
-                setConfirmError(
-                    'Authorization time window has expired – this transfer can no longer be confirmed.',
-                );
-            } else {
-                setConfirmError(msg || 'Authorization failed.');
-            }
+            setConfirmError(describeAuthorizationError(err, triesLeft));
         } finally {
+            // Cleared on every outcome, including the refusal. It used to sit in the try,
+            // so once a wrong code throws, the known-bad code would stay in the box with
+            // Confirm still enabled - two impatient clicks away from burning the transfer.
+            setOtp('');
             setLoading(false);
         }
     }
@@ -225,8 +258,14 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                 setDetails(null);
             }
         } catch (e) {
-            const err = e as Error;
-            setConfirmError(err.message || 'Failed to cancel transfer.');
+            const err = e as ApiError;
+            setConfirmError(
+                err.code === 'CONFLICT'
+                    ? 'This transfer can no longer be canceled – it has already been sent.'
+                    : err.code === 'NOT_FOUND'
+                        ? 'This transfer is no longer available.'
+                        : err.message || 'Failed to cancel transfer.',
+            );
         } finally {
             setLoading(false);
         }
@@ -291,6 +330,17 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                         <section className="section">
                             <h2 className="section-title">Waiting transfers</h2>
 
+                            <div className="section-block inline">
+                                <button
+                                    type="button"
+                                    className="btn-secondary"
+                                    onClick={handleRefresh}
+                                    disabled={refreshing}
+                                >
+                                    {refreshing ? 'Refreshing…' : 'Refresh'}
+                                </button>
+                            </div>
+
                             {/* Errors related to list/details loading */}
                             {listError && (
                                 <div
@@ -316,6 +366,7 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                             <th>Amount</th>
                                             <th>Created</th>
                                             <th>Auth</th>
+                                            <th>Status</th>
                                         </tr>
                                         </thead>
                                         <tbody>
@@ -329,13 +380,20 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                             >
                                                 <td>{it.id}</td>
                                                 <td>{it.targetIban || (it as any).beneficiaryIban}</td>
-                                                <td>{it.amount}</td>
+                                                <td>{formatMoney(it.amount)}</td>
                                                 <td>
                                                     {it.createdAt
                                                         ? new Date(it.createdAt).toLocaleString()
                                                         : ''}
                                                 </td>
                                                 <td>{it.authMethod}</td>
+                                                <td>
+                                                    {isUnderReview(
+                                                        it.status as string | undefined,
+                                                    )
+                                                        ? 'Under review'
+                                                        : 'Waiting for your code'}
+                                                </td>
                                             </tr>
                                         ))}
                                         </tbody>
@@ -353,15 +411,15 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                         <p>
                                             <strong>From:</strong> {details.fromIban}{' '}
                                             {details.fromBalance &&
-                                                `(Balance: ${details.fromBalance})`}
+                                                `(Balance: ${formatMoney(details.fromBalance)})`}
                                         </p>
                                         <p>
                                             <strong>To:</strong> {details.toIban}</p>
                                         <p>
-                                            <strong>Amount:</strong> {details.amount}
+                                            <strong>Amount:</strong> {formatMoney(details.amount)}
                                         </p>
                                         <p>
-                                            <strong>Fee:</strong> {details.feeAmount}</p>
+                                            <strong>Fee:</strong> {formatMoney(details.feeAmount)}</p>
                                         <p>
                                             <strong>Created:</strong>{' '}
                                             {details.createdAt
@@ -391,16 +449,22 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                     onChange={(e) => setOtp(e.target.value)}
                                     placeholder="Enter OTP"
                                     maxLength={10}
+                                    disabled={selectedUnderReview}
                                 />
                                 <button
                                     type="button"
                                     className="btn-primary"
                                     onClick={handleConfirm}
-                                    disabled={!selectedId || !otp || loading}
+                                    disabled={
+                                        !selectedId || !otp || loading || selectedUnderReview
+                                    }
                                 >
                                     {loading ? 'Confirming…' : 'Confirm'}
                                 </button>
 
+                                {/* Never disabled by the review: a held payment has no expiry
+                                    of its own, so this is the customer's only way out of the
+                                    queue if nobody works it. */}
                                 <button
                                     type="button"
                                     className="btn-secondary"
@@ -411,6 +475,10 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                     Cancel transfer
                                 </button>
                             </div>
+
+                            {selectedUnderReview && (
+                                <p className="helper-text">{UNDER_REVIEW_TEXT}</p>
+                            )}
 
                             <div className="helper-text">
                                 <p>
@@ -451,13 +519,13 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
 
                                         {/* Show charged amount only if funds were actually debited */}
                                         {result.chargedAmount && (
-                                            <li>Charged: {result.chargedAmount}</li>
+                                            <li>Charged: {formatMoney(result.chargedAmount)}</li>
                                         )}
 
                                         {/* newBalance is always current; wording changes depending on status */}
                                         <li>
                                             {result.status === 'SENT' ? 'New balance: ' : 'Current balance: '}
-                                            {result.newBalance}
+                                            {formatMoney(result.newBalance)}
                                         </li>
 
                                         {/* Decline reason, if present */}

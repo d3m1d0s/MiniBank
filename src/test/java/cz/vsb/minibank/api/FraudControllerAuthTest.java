@@ -3,13 +3,14 @@ package cz.vsb.minibank.api;
 import cz.vsb.minibank.application.FraudApplicationService;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.domain.*;
-import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
+import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
-import org.junit.jupiter.api.AfterEach;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -21,9 +22,18 @@ import static org.mockito.Mockito.*;
 
 class FraudControllerAuthTest {
 
-    @AfterEach
-    void tearDown() {
-        SecurityContext.clear();
+    /**
+     * A unit of work that does nothing, which is all this test needs one to do.
+     *
+     * The read endpoints open one so that a real backend answers a whole screen on a single
+     * connection. Here the repositories are mocks and have no connection, so the scope only has
+     * to exist and close cleanly - which is itself worth asserting by construction: a controller
+     * that opened a unit of work and failed to close it would wedge the JSON store.
+     */
+    private static UnitOfWorkFactory noOpUnitOfWork() {
+        UnitOfWorkFactory factory = mock(UnitOfWorkFactory.class);
+        when(factory.begin()).thenReturn(mock(UnitOfWork.class));
+        return factory;
     }
 
     private static User fraudUser() {
@@ -84,9 +94,8 @@ class FraudControllerAuthTest {
                 10,                               // id
                 100,                              // sourceAccountId
                 null,                             // beneficiaryId
-                "CZ0201000000000012345678",       // targetIbanSnapshot
-                Money.czk(1000),                  // amount
-                "CZK"                             // currency
+                "CZ2001000000000012345678",       // targetIbanSnapshot
+                Money.czk(1000)                   // amount
         );
 
         when(alerts.all()).thenReturn(List.of(alert));
@@ -97,11 +106,12 @@ class FraudControllerAuthTest {
                 transfers,
                 accounts,
                 fraudService,
-                feePolicy
+                feePolicy,
+                noOpUnitOfWork()
         );
 
         // act
-        var resp = ctrl.listAlerts(null, null, null, null, null, null);
+        var resp = ctrl.listAlerts(null, null, null, null, null, null, null);
 
         // assert: call succeeds and the alert is included in the result
         assertNotNull(resp);
@@ -125,13 +135,56 @@ class FraudControllerAuthTest {
                 transfers,
                 accounts,
                 fraudService,
-                feePolicy
+                feePolicy,
+                noOpUnitOfWork()
         );
 
         // act + assert
         assertThrows(
-                AuthorizationFailedException.class,
-                () -> ctrl.listAlerts(null, null, null, null, null, null)
+                AccessDeniedException.class,
+                () -> ctrl.listAlerts(null, null, null, null, null, null, null)
         );
+    }
+
+    /**
+     * The two endpoints the queue test did not cover.
+     *
+     * FraudApplicationService does not check the role itself - the gate is in its callers, and
+     * this controller is the only one of them reachable over HTTP. That makes these assertions
+     * the gate rather than a duplicate of it, which is why they are worth writing down: the
+     * mutating route in particular had nothing standing behind it in the suite.
+     *
+     * Refused before the body is read, so the request payload is irrelevant and passed as null.
+     */
+    @Test
+    void decidingOnAnAlertIsForbiddenForCustomer() {
+        SecurityContext.setCurrentUser(customerUser());
+
+        FraudController ctrl = new FraudController(
+                mock(FraudAlertRepository.class),
+                mock(TransferRepository.class),
+                mock(AccountRepository.class),
+                mock(FraudApplicationService.class),
+                new ZeroFeePolicy(),
+                noOpUnitOfWork()
+        );
+
+        assertThrows(AccessDeniedException.class, () -> ctrl.decide(1, null));
+    }
+
+    @Test
+    void openingOneAlertIsForbiddenForCustomer() {
+        SecurityContext.setCurrentUser(customerUser());
+
+        FraudController ctrl = new FraudController(
+                mock(FraudAlertRepository.class),
+                mock(TransferRepository.class),
+                mock(AccountRepository.class),
+                mock(FraudApplicationService.class),
+                new ZeroFeePolicy(),
+                noOpUnitOfWork()
+        );
+
+        assertThrows(AccessDeniedException.class, () -> ctrl.getAlert(1));
     }
 }

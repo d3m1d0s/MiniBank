@@ -6,6 +6,7 @@ import cz.vsb.minibank.domain.repository.UserRepository;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
+import cz.vsb.minibank.infrastructure.StoredValue;
 
 import java.sql.*;
 import java.util.Objects;
@@ -184,7 +185,13 @@ public class SqlUserRepository implements UserRepository {
         int id = rs.getInt("id");
         String username = rs.getString("username");
         String roleStr = rs.getString("role");
-        UserRole role = UserRole.valueOf(roleStr.toUpperCase());
+        // Named for the same reason the transfer and alert loaders name theirs, and this one
+        // matters most: an unreadable role decides what its holder may do. It used to raise a
+        // NullPointerException on an absent value and a bare IllegalArgumentException on an
+        // unknown one, both of which the advice answers as an unexplained 500.
+        UserRole role = StoredValue.requiredEnum(
+                UserRole.class, roleStr == null ? null : roleStr.toUpperCase(),
+                "role", "user", id);
         int customerId = rs.getInt("customer_id");
         Integer customerIdObj = rs.wasNull() ? null : customerId;
         byte[] hash = rs.getBytes("password_hash");

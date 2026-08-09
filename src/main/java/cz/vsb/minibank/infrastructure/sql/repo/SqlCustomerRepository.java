@@ -87,6 +87,36 @@ public final class SqlCustomerRepository implements CustomerRepository {
         }
     }
 
+    @Override
+    public Optional<Customer> byAccountId(int accountId) {
+        UnitOfWork uow = UowContext.current();
+        try {
+            Integer ownerId;
+            if (uow instanceof SqlUnitOfWork sqlUow) {
+                ownerId = ownerIdWithConnection(sqlUow.connection(), accountId);
+            } else {
+                try (Connection conn = DriverManager.getConnection(url, user, password)) {
+                    ownerId = ownerIdWithConnection(conn, accountId);
+                }
+            }
+            return ownerId == null ? Optional.empty() : byId(ownerId);
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to load owner of account id=" + accountId, e);
+        }
+    }
+
+    private Integer ownerIdWithConnection(Connection conn, int accountId) throws SQLException {
+        String sql = "SELECT customer_id FROM accounts WHERE id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, accountId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) return null;
+                int ownerId = rs.getInt("customer_id");
+                return rs.wasNull() ? null : ownerId;
+            }
+        }
+    }
+
     private Optional<Customer> loadByIdWithConnection(Connection conn, int id, UnitOfWork uow)
             throws SQLException {
 
@@ -200,9 +230,18 @@ public final class SqlCustomerRepository implements CustomerRepository {
         }
 
         // Keep accounts.customer_id in sync with the owning customer.
+        //
+        // This is the second writer of accounts rows, next to SqlAccountRepository's upsert,
+        // and it takes the same row locks. It writes the one column that upsert deliberately
+        // never SETs, so neither can clobber the other and neither touches version - but the
+        // lock ORDER matters, and that is why the ids are sorted here. saveBothInIdOrder takes
+        // its two account locks strictly ascending; a customer whose accountIds happened to be
+        // stored descending would take them the other way round and the two writers could
+        // deadlock. Today every accountIds list is built ascending, so the sort changes nothing
+        // and exists so that staying safe does not depend on that continuing to be true.
         String accSql = "UPDATE accounts SET customer_id = ? WHERE id = ?";
         try (PreparedStatement psAcc = conn.prepareStatement(accSql)) {
-            for (Integer accId : c.accountIds()) {
+            for (Integer accId : c.accountIds().stream().sorted().toList()) {
                 psAcc.setInt(1, c.id());
                 psAcc.setInt(2, accId);
                 psAcc.addBatch();
@@ -235,53 +274,6 @@ public final class SqlCustomerRepository implements CustomerRepository {
             throw new IllegalStateException("Failed to get next beneficiary id (no UoW)");
         } catch (SQLException e) {
             throw new RuntimeException("Failed to get next beneficiary id (no UoW)", e);
-        }
-    }
-
-    @Override
-    public Optional<Beneficiary> beneficiaryById(int beneficiaryId) {
-        UnitOfWork uow = UowContext.current();
-
-        try {
-            if (uow instanceof SqlUnitOfWork sqlUow) {
-                return loadBeneficiaryByIdWithConnection(sqlUow.connection(), beneficiaryId);
-            } else {
-                try (Connection conn = DriverManager.getConnection(url, user, password)) {
-                    return loadBeneficiaryByIdWithConnection(conn, beneficiaryId);
-                }
-            }
-        } catch (SQLException e) {
-            throw new RuntimeException("Failed to load beneficiary id=" + beneficiaryId, e);
-        }
-    }
-
-    private Optional<Beneficiary> loadBeneficiaryByIdWithConnection(Connection conn, int beneficiaryId)
-            throws SQLException {
-
-        String sql = """
-                SELECT id, name, iban, trusted
-                  FROM beneficiaries
-                 WHERE id = ?
-                """;
-
-        try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, beneficiaryId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (!rs.next()) return Optional.empty();
-
-                int bid = rs.getInt("id");
-                String name = rs.getString("name");
-                String ibanStr = rs.getString("iban");
-                boolean trusted = rs.getBoolean("trusted");
-
-                Beneficiary b = new Beneficiary(
-                        bid,
-                        name,
-                        new IBAN(ibanStr),
-                        trusted
-                );
-                return Optional.of(b);
-            }
         }
     }
 

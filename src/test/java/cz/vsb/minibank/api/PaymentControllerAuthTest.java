@@ -3,12 +3,11 @@ package cz.vsb.minibank.api;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.application.TransferApplicationService;
 import cz.vsb.minibank.domain.*;
-import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
+import cz.vsb.minibank.domain.exceptions.NotAuthenticatedException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -18,11 +17,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class PaymentControllerAuthTest {
-
-    @AfterEach
-    void tearDown() {
-        SecurityContext.clear();
-    }
 
     private static User customerUser() {
         return new User(
@@ -49,9 +43,7 @@ class PaymentControllerAuthTest {
                 Money.czk(10000), Money.czk(5000));
         when(accounts.byCustomerId(42)).thenReturn(List.of(acc));
 
-        PaymentController ctrl = new PaymentController(
-                transferService, accounts, transfers, feePolicy
-        );
+        PaymentController ctrl = new PaymentController(transferService, accounts);
 
         // act
         var result = ctrl.listMyAccounts();
@@ -63,7 +55,7 @@ class PaymentControllerAuthTest {
     }
 
     @Test
-    void listMyAccountsWithoutUserThrowsAuthorizationFailed() {
+    void listMyAccountsWithoutUserThrowsNotAuthenticated() {
         // arrange
         SecurityContext.clear();
 
@@ -72,11 +64,9 @@ class PaymentControllerAuthTest {
         TransferRepository transfers = mock(TransferRepository.class);
         FeePolicy feePolicy = new ZeroFeePolicy();
 
-        PaymentController ctrl = new PaymentController(
-                transferService, accounts, transfers, feePolicy
-        );
+        PaymentController ctrl = new PaymentController(transferService, accounts);
 
         // act + assert
-        assertThrows(AuthorizationFailedException.class, ctrl::listMyAccounts);
+        assertThrows(NotAuthenticatedException.class, ctrl::listMyAccounts);
     }
 }

@@ -8,9 +8,11 @@ interface Props {
         role: LoginResponse['role'];
         customerId: number | null;
     }) => void;
+    /** Why the user is looking at this screen, when they did not ask to be. */
+    notice?: string | null;
 }
 
-export default function LoginDialog({ onLoggedIn }: Props) {
+export default function LoginDialog({ onLoggedIn, notice }: Props) {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
@@ -42,6 +44,11 @@ export default function LoginDialog({ onLoggedIn }: Props) {
                     <h1>Sign in</h1>
                 </header>
                 <div className="card-body">
+                    {notice && !error && (
+                        <div className="summary" style={{ marginBottom: 8 }}>
+                            <ul><li>{notice}</li></ul>
+                        </div>
+                    )}
                     <form className="form" onSubmit={handleSubmit}>
                         <div className="field-row">
                             <label className="field-label">Username</label>
@@ -73,9 +80,6 @@ export default function LoginDialog({ onLoggedIn }: Props) {
                             </button>
                         </div>
                     </form>
-                    <p className="helper-text" style={{ marginTop: 8 }}>
-                        For demo: alice / alice123 (customer) or fraud / fraud123 (analyst).
-                    </p>
                 </div>
             </div>
         </div>

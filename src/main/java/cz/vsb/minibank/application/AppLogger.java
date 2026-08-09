@@ -17,9 +17,16 @@ import java.time.Instant;
  */
 public final class AppLogger {
 
-    private static final Path LOG_FILE = Paths.get("minibank.log");
-
     private AppLogger() {
+    }
+
+    /**
+     * Resolves the log file on every write so the destination can be redirected
+     * at runtime, which also keeps tests off the working directory.
+     */
+    private static Path logFile() {
+        return Paths.get(System.getProperty(
+                MinibankProperties.LOG_FILE, MinibankProperties.LOG_FILE_DEFAULT));
     }
 
     public static void log(LogLevel level, String category, String message, Throwable t) {
@@ -47,7 +54,7 @@ public final class AppLogger {
 
         // 2) log file
         try (BufferedWriter out = Files.newBufferedWriter(
-                LOG_FILE,
+                logFile(),
                 StandardOpenOption.CREATE,
                 StandardOpenOption.APPEND
         )) {

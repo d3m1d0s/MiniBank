@@ -1,268 +1,141 @@
-```pgsql
-VIS_project_minibank/
-├─ .gitignore
-├─ docker-compose.yml
-├─ minibank.log
-├─ pom.xml
-├─ transfer_audit.log
-│
-├─ data/
-│  ├─ data.json
-│  └─ demo.json
-├─ db/
-│  ├─ demo_seed.sql
-│  └─ schema.sql
-│
-├─ minibank-fraud-web/
-│  ├─ node_modules/...
-│  ├─ public/
-│  │  └─ vite.svg
-│  ├─ src/
-│  │  ├─ assets/
-│  │  │  └─ react.svg
-│  │  │  
-│  │  ├─ api.ts 
-│  │  ├─ App.css
-│  │  ├─ App.tsx
-│  │  ├─ fraud.css
-│  │  ├─ FraudDesk.tsx
-│  │  ├─ index.css
-│  │  ├─ Login.tsx
-│  │  └─ main.tsx
-│  │
-│  ├─ .gitignore
-│  ├─ eslint.config.js
-│  ├─ index.html
-│  ├─ package.json
-│  ├─ package-lock.json
-│  ├─ README.md
-│  ├─ tsconfig.app.json
-│  ├─ tsconfig.json
-│  ├─ tsconfig.node.json
-│  └─ vite.config.ts
-│
-├─ minibank-web/
-│  ├─ node_modules/...
-│  ├─ public/
-│  │  └─ vite.svg
-│  ├─ src/
-│  │  ├─ assets/
-│  │  │  └─ react.svg
-│  │  │  
-│  │  ├─ api.ts 
-│  │  ├─ App.css
-│  │  ├─ App.tsx
-│  │  ├─ FraudDeskPage.tsx
-│  │  ├─ index.css
-│  │  ├─ LoginDialog.tsx
-│  │  ├─ main.tsx
-│  │  ├─ NewPaymentPage.tsx
-│  │  └─ WaitingAuthorizationsPage.tsx
-│  │
-│  ├─ .gitignore
-│  ├─ eslint.config.js
-│  ├─ index.html
-│  ├─ package.json
-│  ├─ package-lock.json
-│  ├─ README.md
-│  ├─ tsconfig.app.json
-│  ├─ tsconfig.json
-│  ├─ tsconfig.node.json
-│  └─ vite.config.ts
-│  
-└─ src/
-   ├─ main/
-   │  └─ java/
-   │     └─ cz/vsb/minibank/
-   │        │                    
-   │        ├─ api/    
-   │        │  ├─ dto/
-   │        │  │  ├─ AccountSummaryDto.java          (record)
-   │        │  │  ├─ AlertCountersDto.java           (record)   
-   │        │  │  ├─ AlertDetailDto.java             (record) 
-   │        │  │  ├─ AlertInfoDto.java               (record)   
-   │        │  │  ├─ AlertQueueItemDto.java          (record)    
-   │        │  │  ├─ AlertQueueResponseDto.java      (record)     
-   │        │  │  ├─ AuthorizePaymentRequest.java    (record)
-   │        │  │  ├─ AuthorizePaymentResult.java     (record)
-   │        │  │  ├─ FraudDecisionRequest.java       (record)  
-   │        │  │  ├─ HistoryItemDto.java             (record)    
-   │        │  │  ├─ NewPaymentRequest.java          (record)
-   │        │  │  ├─ NewPaymentResultDto.java        (record)
-   │        │  │  ├─ TransferInfoDto.java            (record) 
-   │        │  │  ├─ TransferDetailsDto.java         (record)
-   │        │  │  └─ WaitingTransferItemDto.java     (record)   
-   │        │  │   
-   │        │  ├─ ApiError.java                   (record) 
-   │        │  ├─ AuthController.java             (class) 
-   │        │  │  ├─ AuthController               (class)
-   │        │  │  ├─ LoginRequest                 (record)
-   │        │  │  └─ LoginResponse                (record)   
-   │        │  │   
-   │        │  ├─ AuthHelpers.java                (class)    
-   │        │  ├─ AuthorizationController.java    (class)    
-   │        │  ├─ DemoUserInitializer.java        (class)   
-   │        │  ├─ FraudController.java            (class)                     
-   │        │  ├─ MinibankApiConfig.java          (class)  
-   │        │  ├─ PaymentController.java          (class)
-   │        │  ├─ RestExceptionHandler.java       (class)     
-   │        │  ├─ SessionAuthInterceptor.java     (class)   
-   │        │  └─ WebConfig.java                  (class)     
-   │        │                   
-   │        ├─ application/    
-   │        │  ├─ AppLogger.java                    (class) 
-   │        │  ├─ AuthService.java                  (class)                    
-   │        │  ├─ BootstrapServices.java            (class)  
-   │        │  ├─ FakePaymentNetworkGateway.java    (class)
-   │        │  ├─ FixedOtpValidator.java            (class)
-   │        │  ├─ FraudAlertAuditLogObserver.java   (class)
-   │        │  ├─ FraudApplicationService.java      (class)
-   │        │  ├─ HttpPaymentNetworkGateway.java    (class)
-   │        │  ├─ LogLevel.java                     (enum)   
-   │        │  ├─ OtpValidator.java                 (interface)
-   │        │  ├─ PasswordEncoder.java              (interface)   
-   │        │  ├─ PaymentNetworkGateway.java        (interface)
-   │        │  ├─ Pbkdf2PasswordEncoder.java        (class)   
-   │        │  ├─ SecurityContext.java              (class)   
-   │        │  ├─ SessionStore.java                 (class)    
-   │        │  ├─ TransferApplicationService.java   (class)   
-   │        │  └─ TransferAuditLogObserver.java     (class)
-   │        │
-   │        ├─ demo/
-   │        │  └─ DemoRunner.java       (class)
-   │        │
-   │        ├─ domain/
-   │        │  ├─ exceptions/
-   │        │  │  ├─ AuthorizationFailedException.java      (exception)
-   │        │  │  ├─ DailyLimitExceededException.java       (exception)
-   │        │  │  ├─ DomainException.java                   (exception)
-   │        │  │  ├─ InsufficientFundsException.java        (exception)
-   │        │  │  ├─ InvalidIbanException.java              (exception)
-   │        │  │  └─ InvalidStateTransitionException.java   (exception)
-   │        │  │   
-   │        │  ├─ lazy/
-   │        │  │  ├─ LazyList.java      (class)
-   │        │  │  ├─ LazyRef.java       (class)
-   │        │  │
-   │        │  ├─ repository/
-   │        │  │  ├─ AccountRepository.java     (interface)
-   │        │  │  ├─ CustomerRepository.java    (interface)
-   │        │  │  ├─ FraudAlertRepository.java  (interface)
-   │        │  │  ├─ TransferRepository.java    (interface)
-   │        │  │  └─ UserRepository.java        (interface)   
-   │        │  │
-   │        │  ├─ value/
-   │        │  │  ├─ IBAN.java      (class)
-   │        │  │  └─ Money.java     (class)
-   │        │  │
-   │        │  ├─ Account.java                  (class)
-   │        │  ├─ Address.java                  (class)
-   │        │  ├─ Beneficiary.java              (class)
-   │        │  ├─ CardPayment.java              (class)
-   │        │  ├─ Customer.java                 (class)
-   │        │  ├─ FeePolicy.java                (interface)
-   │        │  ├─ FraudAlert.java               (class)
-   │        │  ├─ FraudAlertEvents.java         (class)   
-   │        │  ├─ FraudAlertObserver.java       (class)    
-   │        │  ├─ FraudAlertState.java          (enum)
-   │        │  ├─ Payment.java                  (abstract)
-   │        │  ├─ RiskDecision.java             (final)
-   │        │  ├─ RiskService.java              (interface)
-   │        │  ├─ RuleBasedRiskService.java     (interface)
-   │        │  ├─ SimpleFeePolicy.java          (class)
-   │        │  ├─ Transfer.java                 (class)
-   │        │  ├─ TransferEvents.java           (class)
-   │        │  ├─ TransferObserver.java         (interface)       
-   │        │  ├─ TransferStatus.java           (enum)
-   │        │  ├─ User.java                     (class) 
-   │        │  ├─ UserRole.java                 (enum)  
-   │        │  └─ ZeroFeePolicy.java            (class)
-   │        │
-   │        ├─ infrastructure/
-   │        │  ├─ json/
-   │        │  │  ├─ dto/
-   │        │  │  │  ├─ JsonAccount.java        (class)
-   │        │  │  │  ├─ JsonAddress.java        (class)
-   │        │  │  │  ├─ JsonBeneficiary.java    (class)
-   │        │  │  │  ├─ JsonCustomer.java       (class)
-   │        │  │  │  ├─ JsonFraudAlert.java     (class)
-   │        │  │  │  └─ JsonTransfer.java       (class)
-   │        │  │  ├─ mapping/
-   │        │  │  │  └─ JsonMapper.java     (class)
-   │        │  │  ├─ repo/
-   │        │  │  │  ├─ JsonAccountRepository.java      (class)
-   │        │  │  │  ├─ JsonCustomerRepository.java     (class)
-   │        │  │  │  ├─ JsonFraudAlertRepository.java   (class)
-   │        │  │  │  └─ JsonTransferRepository.java     (class)
-   │        │  │  ├─ JsonDataStore.java             (class)
-   │        │  │  ├─ JsonUnitOfWork.java            (class)
-   │        │  │  └─ JsonUnitOfWorkFactory.java     (class)
-   │        │  │
-   │        │  ├─ memory/
-   │        │  │  └─ InMemoryUserRepository    (class)
-   │        │  │   
-   │        │  ├─ sql/
-   │        │  │  ├─ repo/
-   │        │  │  │  ├─ SqlAccountRepository.java      (class)
-   │        │  │  │  ├─ SqlCustomerRepository.java     (class)
-   │        │  │  │  ├─ SqlFraudAlertRepository.java   (class)
-   │        │  │  │  ├─ SqlTransferRepository.java     (class)
-   │        │  │  │  └─ SqlUserRepository.java         (class)   
-   │        │  │  ├─ SqlUnitOfWork.java            (class)
-   │        │  │  └─ SqlUnitOfWorkFactory.java     (class)
-   │        │  │
-   │        │  ├─ uow/
-   │        │  │  ├─ UnitOfWork.java                (interface)
-   │        │  │  ├─ UnitOfWorkFactory.java         (interface)
-   │        │  │  ├─ UowContext.java                (class)
-   │        │  │  └─ UowScope.java                  (class)
-   │        │  │
-   │        │  └─ Bootstrap.java   (class)
-   │        │
-   │        ├─ ui/console/
-   │        │  ├─ ConsoleCommand.java    (interface)   
-   │        │  └─ ConsoleMenu.java       (class)
-   │        │
-   │        ├─ ApiApplication.java      (class)   
-   │        ├─ App.java                 (class)
-   │        └─ AppSql.java              (class)
-   │
-   └─ test/
-      └─ java/
-         └─ cz/vsb/minibank/
-            ├─ api/
-            │  ├─ AuthHelpersTest.java                  (unit test)    
-            │  ├─ FraudControllerAuthTest.java          (unit test)
-            │  ├─ PaymentAndAuthorizationApiTest.java   (unit test)
-            │  └─ PaymentControllerApiTest.java         (unit test)                                    
-            │                   
-            ├─ application/
-            │  ├─ AppLoggerTest.java                     (unit test)            
-            │  ├─ AuthServiceTest.java                   (unit test)            
-            │  ├─ FakePaymentNetworkGatewayTest.java     (unit test)             
-            │  ├─ PaymentNetworkIntegrationTest.java     (unit test) 
-            │  ├─ Pbkdf2PasswordEncoderTest.java         (unit test)     
-            │  └─ SessionStoreTest.java                  (unit test)                     
-            │   
-            ├─ domain/
-            │  ├─ FraudAlertEventsTest.java                   (unit test)     
-            │  ├─ FraudAlertMetadataTest.java                 (unit test)            
-            │  ├─ TransferEventsTest.java                     (unit test)             
-            │  ├─ TransferStatusObserverIntegrationTest.java  (unit test) 
-            │  └─ ZeroFeePolicyTest.java                      (unit test) 
-            │   
-            ├─ infrastructure/
-            │  └─ json/  
-            │     └─ FraudAlertJsonMapperTest.java      (unit test)   
-            │                      
-            ├─ ui/
-            │  └─ console/      
-            │     ├─ ConsoleMenuCommandTests.java      (unit test)  
-            │     └─ ConsoleMenuRolesTest.java         (unit test)                                                   
-            │
-            └─ uow/
-               ├─ MinibankLazyLoadTest.java     (unit test) 
-               ├─ MinibankSqlUowTest.java       (unit test) 
-               └─ MinibankUowTests.java         (unit test) 
+# Where things are
+
+A map of the repository, written to stay true. It gives the shape of each area and names the
+files a reader has to find; it does not list all 139 classes, because a file that lists every file
+is wrong the day the next one is added - which is what happened to the version this replaces.
 
 ```
+VIS_project_minibank/
+├─ pom.xml                      Maven build; three entry points, one test phase
+├─ docker-compose.yml           PostgreSQL 14 only, published on ${MINIBANK_DB_PORT:-5432}
+├─ db/                          the schema, and the ALTERs for a database that predates it
+├─ src/main/java/               the application
+├─ src/main/resources/          application.properties
+├─ src/test/java/               54 test classes
+├─ frontend-shared/             what the two web applications both talk to the API with
+├─ minibank-web/                the customer application, which also carries the fraud desk
+└─ minibank-fraud-web/          the analyst application
+```
+
+Everything under `data/`, `storage/`, `target/` and `node_modules/` is generated or runtime state
+and is ignored by git.
+
+## db
+
+```
+db/
+├─ init/
+│  ├─ schema.sql                every table, index, constraint and sequence
+│  └─ test-database.sql         creates minibank_test and applies schema.sql to it as well
+├─ migrate/                     run BY HAND, against BOTH databases; see each file's header
+│  ├─ hold-alerted-transfers.sql
+│  ├─ stored-fee-and-account-version.sql
+│  ├─ transfer-version.sql
+│  ├─ one-alert-per-transfer.sql
+│  ├─ transfer-daily-total-index.sql
+│  ├─ sequence-ownership.sql
+│  └─ currency-is-czk.sql
+└─ reset.sql                    drops everything; never run automatically
+```
+
+`db/init/` runs only on an **empty** Docker volume, and it applies `schema.sql` to two databases:
+`minibank` for the application and `minibank_test` for the SQL tests. `db/migrate/` exists for a
+volume that already has data: each script is an online `ALTER`, is mirrored back into
+`schema.sql`, and states in its own header what it does and why. Nothing records which of them has
+been run - there is no migration tool here - so their filenames carry description and no ordering.
+
+## src/main/java/cz/vsb/minibank
+
+Four layers, and the dependencies point inwards: `api` and `ui` know `application`, `application`
+knows `domain`, `infrastructure` implements interfaces that `domain` declares. Nothing in `domain`
+imports anything below it.
+
+```
+├─ App.java                     console entry point, JSON store
+├─ AppSql.java                  console entry point, PostgreSQL
+├─ ApiApplication.java          Spring Boot entry point
+│
+├─ domain/                      25 classes: the model, and no framework anywhere in it
+│  ├─ Account, Transfer, Customer, Beneficiary, FraudAlert, User
+│  ├─ Payment, CardPayment                  how a transfer was authorized
+│  ├─ FeePolicy, SimpleFeePolicy, ZeroFeePolicy
+│  ├─ RiskService, RuleBasedRiskService, RiskDecision
+│  ├─ DomainEvent, DomainEventBus, RecordsDomainEvents, and the two events
+│  ├─ value/                    Money, IBAN
+│  ├─ repository/               5 interfaces the infrastructure implements
+│  ├─ exceptions/               20 classes, one per way a request can be refused
+│  └─ lazy/                     LazyRef, LazyList
+│
+├─ application/                 21 classes: use cases, and the rules that guard them
+│  ├─ TransferApplicationService     create, authorize, cancel; PaymentOutcome is what they answer
+│  ├─ FraudApplicationService        the analyst's three verdicts
+│  ├─ AuthService, SessionStore, LoginThrottle, SecurityContext
+│  ├─ OwnershipGuard                 the one place "is this the caller's?" is decided
+│  └─ BootstrapServices              wires the services for every entry point
+│
+├─ infrastructure/              two adapters behind one set of repository interfaces
+│  ├─ uow/                      UnitOfWork, UowScope, UowContext, IdentityMapAccounts
+│  ├─ json/                     JsonDataStore and its unit of work, dto/, mapping/, repo/
+│  ├─ sql/                      SqlUnitOfWork and repo/, five repositories
+│  ├─ memory/                   InMemoryUserRepository, for the console
+│  ├─ Bootstrap.java            picks the backend and builds the repositories
+│  └─ StoredValue.java          refuses a stored enum or instant that cannot be read
+│
+├─ api/                         12 controllers and helpers, 16 records in dto/
+│  ├─ PaymentController, AuthorizationController, FraudController, AuthController
+│  ├─ RestExceptionHandler      the one place a domain exception becomes a status and a code
+│  ├─ SessionAuthInterceptor    every /api/** call except the sign-in needs a session
+│  ├─ WebConfig, MinibankApiConfig, DemoUsersInitializer
+│  └─ dto/                      request and response records; MoneyDto is how money crosses the wire
+│
+├─ demo/                        DemoScenario builds the sample data, DemoRunner exercises it
+└─ ui/console/                  ConsoleMenu and its input helper
+```
+
+## src/test/java/cz/vsb/minibank
+
+54 classes, arranged by what they hold still rather than by what they call.
+
+```
+├─ application/    21  the money paths, ownership, the daily limit, the fraud gate, sessions
+├─ uow/             8  the unit of work, the identity map, lazy loading, and the schema itself
+├─ api/             7  the HTTP error contract, the two desks, role checks
+├─ domain/          7  Money, IBAN, the fee policy, domain events, alert metadata
+├─ infrastructure/  6  the JSON store: concurrency, atomic saves, money round trips
+├─ ui/console/      2
+├─ demo/            1
+└─ SecurityContextCleanupExtension   clears the thread-local after every test in the suite
+```
+
+**15 of them need a database** and skip when none is reachable, so a fresh clone stays green:
+`MinibankSqlUowTests` and `SqlSchemaPassTest`. Pass the URL to run them:
+
+```
+mvn -B test "-Dminibank.test.sql.url=jdbc:postgresql://localhost:55432/minibank_test"
+```
+
+The quotes matter in PowerShell; without them the argument is split on the colons.
+
+## The web applications
+
+```
+frontend-shared/           imported by both through a @shared/* path alias
+├─ http.ts                 the client, the session header, sign in and sign out
+├─ fraud.ts                the alert queue's types and its three calls
+├─ money.ts                Money on the wire, and the one function that prints it
+└─ alertFilters.ts         the amount-range rules both desks apply before asking
+
+minibank-web/              the customer application, port 5173
+└─ src/  NewPaymentPage, WaitingAuthorizationsPage, FraudDeskPage, LoginDialog,
+         money.ts (parsing what a customer types), api.ts (a barrel over the shared client),
+         and the two vitest suites - the only test runner either front end has
+
+minibank-fraud-web/        the analyst application, port 5174
+└─ src/  FraudDesk, Login, api.ts (the same barrel)
+```
+
+Both carry a fraud desk on purpose: an analyst signing into the customer application lands on one,
+and the analyst application is the same desk with its own shell. What they must not carry twice is
+the description of the wire, which is why `frontend-shared/` exists. Each application proxies
+`/api` to `http://localhost:8080` through its own vite config, so neither needs a cross-origin
+allowlist in development.

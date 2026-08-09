@@ -3,7 +3,11 @@ package cz.vsb.minibank.ui.console;
 import cz.vsb.minibank.application.AuthService;
 import cz.vsb.minibank.application.BootstrapServices;
 import cz.vsb.minibank.domain.*;
-import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
+import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
+import cz.vsb.minibank.domain.exceptions.AuthenticationFailedException;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
+import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
+import cz.vsb.minibank.domain.exceptions.TransferUnderReviewException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
@@ -91,10 +95,30 @@ public class ConsoleMenu {
             action.run();
         }
 
+        /**
+         * Whether an operator in this role may see this command and run it.
+         *
+         * Read on the dispatch path as well as the display one, so it is an access check and
+         * not a formatting rule.
+         *
+         * A command that names no role is open to anybody, an unknown role included: that is
+         * what "no restriction" means. A command that does name roles is closed to an unknown
+         * one. That second line used to return true, which is the wrong direction for a check
+         * like this - it made "we do not know who you are" mean "you may do anything",
+         * including the fraud menu.
+         *
+         * Not reachable today: {@code effectiveRole} answers null only when there is no signed
+         * in user and no positive customer id, and nothing constructs the menu that way. A
+         * default that fails open is one caller away from mattering, which is why it is the
+         * default that changed rather than the caller.
+         */
         @Override
         public boolean isVisibleFor(UserRole role) {
-            if (allowedRoles == null || role == null) {
+            if (allowedRoles == null || allowedRoles.length == 0) {
                 return true;
+            }
+            if (role == null) {
+                return false;
             }
             for (UserRole r : allowedRoles) {
                 if (r == role) return true;
@@ -182,7 +206,7 @@ public class ConsoleMenu {
                 System.out.println("Welcome, " + currentUser.username()
                         + " (" + currentUser.role() + ")");
                 break;
-            } catch (AuthorizationFailedException e) {
+            } catch (AuthenticationFailedException e) {
                 System.out.println("Invalid username or password, please try again.");
             }
         }
@@ -193,16 +217,32 @@ public class ConsoleMenu {
      * - in the new mode it is taken from currentUser.customerId()
      * - in the legacy mode it uses the customerId field.
      */
+    /**
+     * The role the menu filter is applied against.
+     *
+     * The legacy JSON mode has no login, so this used to be null and every filter became a
+     * no-op: an operator of that mode could select command 6 and decline any transfer in the
+     * store through the fraud service, which has no ownership rule to stop it. A fixed
+     * customerId is a real customer row, so that operator is a CUSTOMER and gets the customer
+     * menu. No identity is invented here - a mode with no users still has no analyst.
+     */
+    private UserRole effectiveRole() {
+        if (currentUser != null) {
+            return currentUser.role();
+        }
+        return customerId > 0 ? UserRole.CUSTOMER : null;
+    }
+
     private int resolveCustomerId() {
         if (currentUser != null) {
             Integer cid = currentUser.customerId();
             if (cid == null) {
-                throw new AuthorizationFailedException("Current user is not a customer");
+                throw AccessDeniedException.forRole("Current user is not a customer");
             }
             return cid;
         }
         if (customerId <= 0) {
-            throw new AuthorizationFailedException("No customer id available");
+            throw AccessDeniedException.forRole("No customer id available");
         }
         return customerId;
     }
@@ -213,8 +253,10 @@ public class ConsoleMenu {
         while (true) {
             System.out.println("\n=== Mini-bank (Domain Model) ===");
 
+            UserRole role = effectiveRole();
+
             for (ConsoleCommand cmd : commands) {
-                if (currentUser != null && !cmd.isVisibleFor(currentUser.role())) {
+                if (!cmd.isVisibleFor(role)) {
                     continue;
                 }
                 System.out.printf("%s) %s%n", cmd.code(), cmd.description());
@@ -230,7 +272,7 @@ public class ConsoleMenu {
 
             ConsoleCommand cmd = commands.stream()
                     .filter(c -> c.code().equals(choice))
-                    .filter(c -> currentUser == null || c.isVisibleFor(currentUser.role()))
+                    .filter(c -> c.isVisibleFor(role))
                     .findFirst()
                     .orElse(null);
 
@@ -241,6 +283,17 @@ public class ConsoleMenu {
 
             try {
                 cmd.execute();
+            } catch (DataIntegrityException e) {
+                // Ahead of the DomainException clause on purpose. Inconsistent stored data is
+                // our fault, not the operator's: it must keep the ERROR severity and the
+                // generic wording it had while these sites threw bare RuntimeExceptions,
+                // rather than printing internal ids at WARN like an expected domain refusal.
+                AppLogger.error(
+                        "ui.console",
+                        "Inconsistent stored data in command " + cmd.code(),
+                        e
+                );
+                System.out.println("[Error] Operation could not be completed. Please try again.");
             } catch (DomainException e) {
                 AppLogger.warn(
                         "ui.console",
@@ -288,29 +341,36 @@ public class ConsoleMenu {
         int cid = resolveCustomerId();
         CustomerRepository customers = infra.customers;
 
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope ignored = new UowScope(uow)) {
+        // Reject an unknown customer before prompting, so the operator is not asked for
+        // three answers that are then thrown away.
+        customers.byId(cid).orElseThrow();
+
+        // Read the console input before opening the unit of work. A JSON unit of work
+        // holds the store lock for its whole life, and blocking on stdin while holding it
+        // would freeze every other thread that touches the store.
+        System.out.print("Beneficiary name: ");
+        String name = in.nextLine().trim();
+
+        System.out.print("IBAN (e.g., CZ2001000000000012345678): ");
+        String iban = in.nextLine().trim();
+
+        // Never prompted for. Beneficiary.trusted is the input the fraud rules key on, so a
+        // customer who could set it could opt out of both the authorization threshold and the
+        // alert - and now that an alert is what stops money, that would be a customer-settable
+        // authorization bypass rather than merely a skipped OTP. It is a bank-set attribute;
+        // the demo dataset is the only writer of `true`.
+        boolean trusted = false;
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             var cust = customers.byId(cid).orElseThrow();
-
-            System.out.print("Beneficiary name: ");
-            String name = in.nextLine().trim();
-
-            System.out.print("IBAN (e.g., CZ0201000000000012345678): ");
-            String iban = in.nextLine().trim();
-
-            System.out.print("Trusted? (y/N): ");
-            boolean trusted = in.nextLine().trim().equalsIgnoreCase("y");
 
             int bid = customers.nextBeneficiaryId();
             Beneficiary b = new Beneficiary(bid, name, new IBAN(iban), trusted);
 
             customers.saveBeneficiary(cust.id(), b);
 
-            uow.commit();
+            scope.uow().commit();
             System.out.println("[OK] Beneficiary added id=" + bid);
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
     }
 
@@ -328,7 +388,7 @@ public class ConsoleMenu {
         int benId = askInt("Beneficiary id", -1);
         double amount = askDouble("Amount CZK", 1000);
 
-        int tid = services.transferService.submitPaymentByBeneficiary(cid, accId, benId, amount, "");
+        int tid = services.transferService.submitPaymentByBeneficiary(cid, accId, benId, amount, "").transferId();
         System.out.println("[OK] Transfer created id=" + tid);
     }
 
@@ -347,16 +407,33 @@ public class ConsoleMenu {
         String iban = in.nextLine().trim();
         double amount = askDouble("Amount CZK", 6000);
 
-        int tid = services.transferService.submitPaymentToIban(cid, accId, iban, amount, "");
+        int tid = services.transferService.submitPaymentToIban(cid, accId, iban, amount, "").transferId();
         System.out.println("[OK] Transfer created id=" + tid);
     }
 
     private void authorizePayment() {
+        // Asked first, like commands 3 and 4, so a user with no customer id is refused by a
+        // server-side rule before being prompted for a transfer id.
+        int cid = resolveCustomerId();
         int tid = askInt("Transfer id", -1);
         System.out.print("OTP (0000/123456): ");
         String otp = in.nextLine().trim();
 
-        services.transferService.authorizePayment(tid, otp);
+        // A wrong code is now a refusal rather than a quiet return. Caught here so that all
+        // three attempts read the same way: without this the first two would print only an
+        // error and the third - which declines the transfer and returns normally - would
+        // still print the status and balance below.
+        try {
+            services.transferService.authorizePayment(cid, tid, otp);
+        } catch (InvalidOtpException e) {
+            System.out.println("[Error] Wrong one-time password.");
+        } catch (TransferUnderReviewException e) {
+            // Caught here rather than left to the menu's DomainException clause so the operator
+            // still gets the status and balance readout below. Nothing was spent and nothing
+            // moved; the transfer is simply waiting on an analyst.
+            System.out.println("[Error] This payment is being reviewed by the bank."
+                    + " It can be confirmed once the review is finished, or cancelled.");
+        }
 
         TransferRepository transfers = infra.transfers;
         AccountRepository accounts = infra.accounts;
@@ -378,8 +455,16 @@ public class ConsoleMenu {
 
         System.out.println("Alerts:");
         for (FraudAlert a : list) {
+            // The transfer's status, not only the alert's: an operator deciding an alert has to
+            // be able to see whether the money is still held or has already gone. '?' rather
+            // than an exception because a dangling alert is possible on the JSON backend and a
+            // listing must not fail on one.
+            String transferStatus = infra.transfers.byId(a.transferId())
+                    .map(t -> t.status().name())
+                    .orElse("?");
             System.out.println("  - id=" + a.id()
                     + ", transfer=" + a.transferId()
+                    + " (" + transferStatus + ")"
                     + ", state=" + a.state()
                     + ", reason=" + a.reason());
         }
@@ -389,20 +474,38 @@ public class ConsoleMenu {
         int tid = askInt("Transfer id", -1);
 
         switch (act.toLowerCase()) {
-            case "approve" -> services.fraudService.approve(tid);
+            case "approve" -> {
+                services.fraudService.approve(tid);
+                System.out.println("[OK] Alert cleared. Transfer " + tid
+                        + " is released for the customer to confirm; no money has moved.");
+            }
             case "decline" -> {
                 System.out.print("Reason: ");
                 String reason = in.nextLine().trim();
                 services.fraudService.decline(tid, reason.isEmpty() ? "Declined" : reason);
+                var t = infra.transfers.byId(tid).orElseThrow();
+                System.out.println("[OK] Alert marked suspicious. Transfer " + tid
+                        + " has status " + t.status()
+                        + (t.status() == TransferStatus.SENT
+                        ? " - the payment had already been sent and was not reversed."
+                        : "."));
             }
-            case "request" -> services.fraudService.requestCustomerConfirmation(tid);
+            // Prints a line because the call is now a no-op on both aggregates: without one the
+            // operator would see a menu redraw and no evidence that anything happened.
+            case "request" -> {
+                services.fraudService.requestCustomerConfirmation(tid);
+                System.out.println("[OK] Alert left open and the transfer left as it was."
+                        + " The customer's confirmation step is what 'approve' unlocks,"
+                        + " and the console carries no notes to record.");
+            }
             default -> System.out.println("Unknown action");
         }
     }
 
     private void cancelPayment() {
+        int cid = resolveCustomerId();
         int tid = askInt("Transfer id", -1);
-        services.transferService.cancelPayment(tid);
+        services.transferService.cancelPayment(cid, tid);
 
         TransferRepository transfers = infra.transfers;
         var t = transfers.byId(tid).orElseThrow();
@@ -420,6 +523,9 @@ public class ConsoleMenu {
             return;
         }
 
+        // This reads an account id the operator typed straight out of the repository,
+        // bypassing the application services, so OwnershipGuard cannot reach it from where it
+        // lives. Either restrict the prompt to accs or route this through a guarded read.
         int accId = askInt("Account id", accs.get(0).id());
         var list = transfers.bySourceAccount(accId);
         if (list.isEmpty()) {

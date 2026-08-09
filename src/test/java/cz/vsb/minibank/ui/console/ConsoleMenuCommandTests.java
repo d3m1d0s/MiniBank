@@ -111,12 +111,12 @@ public class ConsoleMenuCommandTests {
 
     @Test
     void addBeneficiary_createsAndPersistsBeneficiary() throws Exception {
-        // prepare console input:
-        // name, IBAN, trusted = "y"
+        // prepare console input: name, IBAN. There is no third prompt any more - trust is the
+        // input the fraud rules key on, and now that an open alert is what stops money, a
+        // customer who could set it could opt out of the review entirely.
         String consoleInput = String.join("\n",
                 "Alice",
-                "CZ0201000000000098765432",
-                "y"
+                "CZ1301000000000098765432"
         ) + "\n";
 
         ByteArrayInputStream in = new ByteArrayInputStream(
@@ -138,19 +138,16 @@ public class ConsoleMenuCommandTests {
                 "Console should report successful beneficiary addition");
 
         // verify that data is actually persisted via UoW
-        UnitOfWork uow = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             Customer reloaded = infra.customers.byId(customerId).orElseThrow();
             assertEquals(1, reloaded.beneficiaries().size(),
                     "After addBeneficiary the customer should have one beneficiary");
             Beneficiary b = reloaded.beneficiaries().get(0);
             assertEquals("Alice", b.name());
-            assertEquals("CZ0201000000000098765432", b.iban().value());
-            assertTrue(b.trusted(), "Trusted flag should be true");
-            uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
+            assertEquals("CZ1301000000000098765432", b.iban().value());
+            assertFalse(b.trusted(),
+                    "A beneficiary the customer added must not be trusted: trust is bank-set");
+            scope.uow().commit();
         }
     }
 

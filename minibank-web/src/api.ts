@@ -1,27 +1,15 @@
 // src/api.ts
 
-export type ApiError = Error & { code?: string };
+export type { ApiError, LoginRequest, LoginResponse } from '@shared/http';
+export { isApiError, setSessionId, setSessionExpiredHandler, login, logoutSession } from '@shared/http';
 
-export function isApiError(e: unknown): e is ApiError {
-    return e instanceof Error;
-}
+import type { ApiError } from '@shared/http';
+import { API_BASE, apiFetch, handle } from '@shared/http';
 
 export function mapPaymentError(error: ApiError): string[] {
-    let code = error.code;
-    let message = error.message || '';
-
-    // If there is no explicit error code but the message looks like JSON, try to parse it
-    if (!code && message && message.trim().startsWith('{')) {
-        try {
-            const parsed = JSON.parse(message) as { code?: string; message?: string };
-            if (parsed.code) code = parsed.code;
-            if (parsed.message) message = parsed.message;
-        } catch {
-            // Not JSON, keep original message
-        }
-    }
-
-    switch (code) {
+    // No JSON re-parse of the message any more: that only existed to dig the code back out
+    // of a string that handle() had mangled, and handle() no longer mangles it.
+    switch (error.code) {
         case 'INVALID_IBAN':
             return [
                 'The IBAN is not valid.',
@@ -32,21 +20,36 @@ export function mapPaymentError(error: ApiError): string[] {
                 'There are not enough funds on the selected account.',
                 'Try lowering the amount or use a different account.',
             ];
-        case 'DAILY_LIMIT_EXCEEDED':
+        case 'VALIDATION_ERROR':
             return [
-                'Daily limit for this account has been exceeded.',
-                'You can try a lower amount or wait until tomorrow.',
+                'Some of the payment details are not valid.',
+                'Check the amount and the beneficiary IBAN.',
+            ];
+        case 'NOT_FOUND':
+            return ['The selected account is not available. Reload the page and try again.'];
+        case 'FORBIDDEN':
+            return ['You are not allowed to send a payment from this account.'];
+        // Another transaction changed one of the accounts this payment touches between the
+        // server reading a balance and writing the new one, so the write was refused. Resending
+        // is the right action, which is what makes this different from CONFLICT.
+        case 'CONCURRENT_MODIFICATION':
+            return [
+                'Another change was applied to this payment first.',
+                'Nothing was charged. Please send the payment again.',
             ];
         default:
-            // Fallback – use cleaned message, or a generic one if message is empty
-            return [message || 'Unexpected error while creating payment.'];
+            return [error.message || 'Unexpected error while creating payment.'];
     }
 }
+
+/** Shared with the analyst app. Re-exported so call sites in this app import from one place. */
+export type { Money } from '@shared/money';
+import type { Money } from '@shared/money';
 
 export interface AccountSummary {
     id: number;
     iban: string;
-    balance: string;
+    balance: Money;
 }
 
 export interface NewPaymentRequest {
@@ -59,9 +62,9 @@ export interface NewPaymentRequest {
 export interface NewPaymentResult {
     transferId: number;
     status: string;
-    chargedAmount: string;
-    newBalance: string;
-    feeAmount: string;
+    chargedAmount: Money;
+    newBalance: Money;
+    feeAmount: Money;
     authorizationRequired: boolean;
 }
 
@@ -71,21 +74,42 @@ export interface WaitingTransferItem {
     id: number;
     sourceIban?: string;
     targetIban?: string;
-    amount?: string;
+    amount?: Money;
     createdAt?: string;
     authMethod?: string;
+    // 'WAITING_AUTH' or 'HELD_FOR_REVIEW'. Left as a plain string like every other status on
+    // this wire, so an unrecognised value renders rather than failing to parse.
+    status?: string;
     [key: string]: unknown;
+}
+
+/** True when the bank is still reviewing this payment, so the customer cannot confirm it yet. */
+export function isUnderReview(status?: string | null): boolean {
+    return status === 'HELD_FOR_REVIEW';
 }
 
 export interface TransferDetails {
     id: number;
     fromIban: string;
-    fromBalance: string;
+    fromBalance: Money;
     toIban: string;
-    amount: string;
-    feeAmount: string;
+    /**
+     * What the transfer was charged once it has settled, and a quote from the current fee
+     * policy until then. This used to be recomputed on every read, so it could restate what
+     * a customer was charged last month the day the fee policy changed.
+     */
+    amount: Money;
+    feeAmount: Money;
     status: string;
     createdAt: string;
+    /** When the money moved. Null on a transfer that has not settled. */
+    settledAt?: string | null;
+    /**
+     * The customer's own reference. Optional because a payment created before this was stored,
+     * or created without one, has none. NewPaymentPage has sent this in the request body all
+     * along; this is the first time it can be read back.
+     */
+    message?: string | null;
     authMethod?: string;
     triesLeft?: number;
     authValidUntil?: string;
@@ -99,84 +123,9 @@ export interface AuthorizePaymentRequest {
 export interface AuthorizePaymentResult {
     transferId: number;
     status: string;
-    chargedAmount: string | null;   // null if no funds were charged yet
-    newBalance: string;             // always represents the current account balance
+    chargedAmount: Money | null;    // null if no funds were charged yet
+    newBalance: Money;              // always represents the current account balance
     declineReason: string | null;   // decline reason text for DECLINED, otherwise null
-}
-
-const API_BASE = 'http://localhost:8080/api';
-
-let currentSessionId: string | null = null;
-
-export function setSessionId(id: string | null) {
-    currentSessionId = id;
-}
-
-/**
- * Low-level fetch wrapper that automatically attaches the current session header.
- */
-async function apiFetch(input: RequestInfo, init: RequestInit = {}): Promise<Response> {
-    const headers = new Headers(init.headers || {});
-    if (currentSessionId) {
-        headers.set('X-Session-Id', currentSessionId);
-    }
-    return fetch(input, { ...init, headers });
-}
-
-export async function login(payload: LoginRequest): Promise<LoginResponse> {
-    const res = await fetch(`${API_BASE}/auth/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-    });
-    const data = await handle<LoginResponse>(res);
-    setSessionId(data.sessionId);
-    return data;
-}
-
-export function logoutSession() {
-    setSessionId(null);
-}
-
-/**
- * Common response handler:
- * - throws an Error for non-2xx responses, preferring JSON { code, message }
- * - parses JSON on success, or returns plain text as a fallback
- */
-async function handle<T>(res: Response): Promise<T> {
-    const text = await res.text();
-
-    if (!res.ok) {
-        if (text) {
-            // Try to parse AppError payload { code, message }
-            try {
-                const parsed = JSON.parse(text) as { code?: string; message?: string };
-                const error = new Error(parsed.message || parsed.code || res.statusText);
-                if (parsed.code) {
-                    (error as any).code = parsed.code;
-                }
-                throw error;
-            } catch {
-                // Response is not JSON, throw raw text
-                throw new Error(text || res.statusText);
-            }
-        }
-
-        throw new Error(res.statusText);
-    }
-
-    // Successful response
-    if (!text) {
-        // For empty body (for example 204 No Content)
-        return {} as T;
-    }
-
-    try {
-        return JSON.parse(text) as T;
-    } catch {
-        // Backend returned non-JSON payload, return it as text
-        return text as unknown as T;
-    }
 }
 
 // === UC04 ===
@@ -236,137 +185,22 @@ export async function cancelTransfer(
 }
 
 // === DESK-1: Fraud Desk (alerts) ===
+//
+// The analyst's own application carries the same desk against the same three endpoints, so the
+// shapes and the calls live in one place. Re-exported rather than imported directly by the
+// screens, so a component keeps importing everything it needs from './api'.
 
-export interface AlertQueueItem {
-    id: number;
-    alertCode: string;
-    transferCode: string;
-    state: string;
-    amount: string;
-    currency: string;
-    shortReason: string;
-    createdAt: string | null;
-    riskScore: number | null;
-    assignee: string | null;
-}
+export type {
+    AlertQueueItem,
+    AlertCounters,
+    AlertQueueResponse,
+    AlertInfo,
+    TransferInfo,
+    HistoryItem,
+    AlertDetail,
+    FraudDecision,
+    FraudDecisionRequest,
+    AlertFilters,
+} from '@shared/fraud';
 
-export interface AlertCounters {
-    newCount: number;
-    suspiciousCount: number;
-    okCount: number;
-}
-
-export interface AlertQueueResponse {
-    items: AlertQueueItem[];
-    counters: AlertCounters;
-}
-
-export interface AlertInfo {
-    id: number;
-    state: string;
-    reason: string;
-    riskScore: number | null;
-    createdAt: string | null;
-    assignee: string | null;
-    tags: string[];
-    notes: string | null;
-}
-
-export interface TransferInfo {
-    id: number;
-    code: string;
-    status: string;
-    fromIban: string;
-    fromBalance: string;
-    toIban: string;
-    amount: string;
-    feeAmount: string;
-    currency: string;
-    createdAt: string | null;
-    authMethod: string | null;
-}
-
-export interface HistoryItem {
-    id: number;
-    createdAt: string | null;
-    amount: string;
-    currency: string;
-    status: string;
-    toIban: string;
-    declineReason: string | null;
-}
-
-export interface AlertDetail {
-    alert: AlertInfo;
-    transfer: TransferInfo;
-    history: HistoryItem[];
-}
-
-export type FraudDecision = 'APPROVE' | 'DECLINE' | 'REQUEST_CONFIRMATION';
-
-export interface FraudDecisionRequest {
-    decision: FraudDecision;
-    reason?: string;
-    assignee?: string;
-    tags?: string[];
-    notes?: string;
-}
-
-export interface AlertFilters {
-    state?: string;
-    minAmount?: string;
-    maxAmount?: string;
-    createdFrom?: string;
-    createdTo?: string;
-    assignee?: string;
-}
-
-export interface LoginRequest {
-    username: string;
-    password: string;
-}
-
-export interface LoginResponse {
-    sessionId: string;
-    username: string;
-    role: 'CUSTOMER' | 'FRAUD_ANALYST' | 'OPERATIONS' | 'MANAGEMENT';
-    customerId: number | null;
-}
-
-export async function fetchAlerts(
-    filters: AlertFilters = {},
-): Promise<AlertQueueResponse> {
-    const params = new URLSearchParams();
-
-    if (filters.state) params.set('state', filters.state);
-    if (filters.minAmount) params.set('minAmount', filters.minAmount);
-    if (filters.maxAmount) params.set('maxAmount', filters.maxAmount);
-    if (filters.createdFrom) params.set('createdFrom', filters.createdFrom);
-    if (filters.createdTo) params.set('createdTo', filters.createdTo);
-    if (filters.assignee) params.set('assignee', filters.assignee);
-
-    const qs = params.toString();
-    const url = qs
-        ? `${API_BASE}/fraud/alerts?${qs}`
-        : `${API_BASE}/fraud/alerts`;
-
-    const res = await apiFetch(url);
-    return handle<AlertQueueResponse>(res);
-}
-
-export async function fetchAlertDetail(id: number): Promise<AlertDetail> {
-    const res = await apiFetch(`${API_BASE}/fraud/alerts/${id}`);
-    return handle<AlertDetail>(res);
-}
-
-export async function postFraudDecision(
-    id: number,
-    payload: FraudDecisionRequest,
-): Promise<AlertDetail> {
-    const res = await apiFetch(`${API_BASE}/fraud/alerts/${id}/decision`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-    });
-    return handle<AlertDetail>(res);
-}
+export { fetchAlerts, fetchAlertDetail, postFraudDecision } from '@shared/fraud';

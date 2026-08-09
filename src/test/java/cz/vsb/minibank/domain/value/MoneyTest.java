@@ -1,0 +1,226 @@
+package cz.vsb.minibank.domain.value;
+
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
+import cz.vsb.minibank.domain.exceptions.InvalidAmountException;
+import org.junit.jupiter.api.Test;
+
+import java.math.BigDecimal;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.*;
+
+/**
+ * Unit tests for the Money value object: equality, scale normalization,
+ * rounding and rejection of non-finite amounts.
+ */
+class MoneyTest {
+
+    // -------------------------------------------------------------------------
+    // Equality
+    // -------------------------------------------------------------------------
+
+    @Test
+    void equalAmountsInSameCurrencyAreEqual() {
+        assertEquals(Money.czk(100), Money.czk(100));
+        assertEquals(Money.czk(100).hashCode(), Money.czk(100).hashCode());
+    }
+
+    @Test
+    void equalityIgnoresTheScaleOfTheInputAmount() {
+        Money fromDouble = Money.czk(100);
+        Money fromScaledDecimal = Money.of("CZK", new BigDecimal("100.000"));
+
+        assertEquals(fromDouble, fromScaledDecimal);
+        assertEquals(fromDouble.hashCode(), fromScaledDecimal.hashCode());
+        assertEquals(0, fromDouble.compareTo(fromScaledDecimal));
+    }
+
+    @Test
+    void equalValuesCollapseInAHashSet() {
+        Set<Money> set = new HashSet<>(List.of(
+                Money.czk(5),
+                Money.czk(5),
+                Money.of("CZK", new BigDecimal("5.00"))
+        ));
+
+        assertEquals(1, set.size());
+    }
+
+    @Test
+    void differentAmountsAndCurrenciesAreNotEqual() {
+        assertNotEquals(Money.czk(100), Money.czk(101));
+        assertNotEquals(Money.czk(100), Money.of("EUR", 100));
+        assertNotEquals(Money.czk(100), null);
+        assertNotEquals(Money.czk(100), "100.00 CZK");
+    }
+
+    // -------------------------------------------------------------------------
+    // Scale and rounding
+    // -------------------------------------------------------------------------
+
+    @Test
+    void amountIsAlwaysNormalizedToTwoDecimalPlaces() {
+        assertEquals(2, Money.czk(5).amount().scale());
+        assertEquals(2, Money.of("CZK", new BigDecimal("5.123456")).amount().scale());
+        assertEquals("5.00 CZK", Money.czk(5).toString());
+    }
+
+    @Test
+    void roundingIsHalfUp() {
+        assertEquals(new BigDecimal("0.01"), Money.of("CZK", new BigDecimal("0.005")).amount());
+        assertEquals(new BigDecimal("2.68"), Money.of("CZK", new BigDecimal("2.675")).amount());
+        assertEquals(new BigDecimal("2.67"), Money.of("CZK", new BigDecimal("2.674")).amount());
+    }
+
+    // -------------------------------------------------------------------------
+    // Sign predicates
+    // -------------------------------------------------------------------------
+
+    @Test
+    void signPredicatesReportTheAmountSign() {
+        assertTrue(Money.czk(0.01).isPositive());
+        assertFalse(Money.czk(0.01).isZero());
+        assertFalse(Money.czk(0.01).isNegative());
+
+        assertFalse(Money.czk(0).isPositive());
+        assertTrue(Money.czk(0).isZero());
+        assertFalse(Money.czk(0).isNegative());
+
+        assertFalse(Money.czk(-1).isPositive());
+        assertFalse(Money.czk(-1).isZero());
+        assertTrue(Money.czk(-1).isNegative());
+    }
+
+    @Test
+    void anAmountBelowHalfAUnitRoundsToZeroAndIsNotPositive() {
+        assertTrue(Money.czk(0.004).isZero());
+        assertFalse(Money.czk(0.004).isPositive());
+    }
+
+    // -------------------------------------------------------------------------
+    // Payment amounts
+    // -------------------------------------------------------------------------
+
+    @Test
+    void czkPaymentAcceptsWholeHellerAmounts() {
+        assertEquals(Money.czk(0.01), Money.czkPayment(0.01));
+        assertEquals(Money.czk(1000), Money.czkPayment(1000));
+        assertEquals(Money.czk(1234.56), Money.czkPayment(1234.56));
+    }
+
+    @Test
+    void czkPaymentRejectsNonPositiveAmounts() {
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(0));
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(-0.01));
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(-1000));
+    }
+
+    @Test
+    void czkPaymentRejectsAmountsFinerThanOneHeller() {
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(0.001));
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(0.005));
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(1.234));
+    }
+
+    @Test
+    void czkPaymentRejectsNonFiniteAmounts() {
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(Double.NaN));
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(Double.POSITIVE_INFINITY));
+        assertThrows(InvalidAmountException.class, () -> Money.czkPayment(Double.NEGATIVE_INFINITY));
+    }
+
+    /**
+     * Only the payment factory is strict. The plain factory stays permissive because the
+     * persistence load path and {@link Money#minus} both need to build non-positive values.
+     */
+    @Test
+    void thePlainFactoryStaysPermissive() {
+        assertEquals(Money.czk(0.01), Money.czk(0.005));
+        assertTrue(Money.czk(-1).isNegative());
+        assertTrue(Money.czk(0).isZero());
+    }
+
+    // -------------------------------------------------------------------------
+    // Non-finite amounts
+    // -------------------------------------------------------------------------
+
+    @Test
+    void nonFiniteAmountsAreRejectedAsDomainErrors() {
+        assertThrows(InvalidAmountException.class, () -> Money.czk(Double.NaN));
+        assertThrows(InvalidAmountException.class, () -> Money.czk(Double.POSITIVE_INFINITY));
+        assertThrows(InvalidAmountException.class, () -> Money.czk(Double.NEGATIVE_INFINITY));
+        assertThrows(InvalidAmountException.class, () -> Money.of("CZK", Double.NaN));
+    }
+
+    @Test
+    void aNullAmountIsRejected() {
+        assertThrows(NullPointerException.class, () -> Money.of("CZK", (BigDecimal) null));
+    }
+
+    // -------------------------------------------------------------------------
+    // What counts as a currency
+    // -------------------------------------------------------------------------
+
+    /**
+     * The field used to take any string, so {@code ""} and {@code "XYZZY"} were both money this
+     * bank could hold. Three upper case letters is what ISO 4217 defines and what
+     * {@link java.util.Currency}, Joda-Money and JSR-354 all require.
+     */
+    @Test
+    void aCodeThatIsNotThreeUpperCaseLettersIsNotACurrency() {
+        for (String notACode : new String[]{"", " ", "CZ", "CZKK", "CZ1", "CZ-", "ČZK", " CZK"}) {
+            DataIntegrityException thrown = assertThrows(DataIntegrityException.class,
+                    () -> Money.of(notACode, new BigDecimal("1.00")),
+                    "'" + notACode + "' must not be accepted as a currency");
+            assertTrue(thrown.getMessage().contains(notACode),
+                    "the refusal must name what it was given");
+        }
+    }
+
+    /**
+     * Case is checked, not folded. Nothing types a currency in this application, so a stored code
+     * that is not already in its canonical form was written by hand - and folding it would be
+     * unsafe rather than lenient, because {@code JsonTransferRepository} compares the raw stored
+     * string when summing the day's outflow.
+     */
+    @Test
+    void aLowerCaseCodeIsRefusedRatherThanCorrected() {
+        assertThrows(DataIntegrityException.class,
+                () -> Money.of("czk", new BigDecimal("1.00")));
+    }
+
+    /**
+     * A foreign but well-formed code stays constructible, and that is deliberate: both loaders
+     * rebuild a stored amount in the currency its row names so that {@code Transfer}'s
+     * constructor can refuse it and say which currency it was. Making this unrepresentable would
+     * delete the guard rather than satisfy it.
+     */
+    @Test
+    void aForeignCodeIsStillConstructibleSoThatItCanBeRefusedByName() {
+        assertEquals("EUR", Money.of("EUR", new BigDecimal("1.00")).currency());
+    }
+
+    // -------------------------------------------------------------------------
+    // Arithmetic keeps the currency guard
+    // -------------------------------------------------------------------------
+
+    @Test
+    void arithmeticRequiresMatchingCurrencies() {
+        Money czk = Money.czk(100);
+        Money eur = Money.of("EUR", 100);
+
+        assertThrows(IllegalArgumentException.class, () -> czk.plus(eur));
+        assertThrows(IllegalArgumentException.class, () -> czk.minus(eur));
+        assertThrows(IllegalArgumentException.class, () -> czk.gte(eur));
+        assertThrows(IllegalArgumentException.class, () -> czk.compareTo(eur));
+    }
+
+    @Test
+    void arithmeticProducesNormalizedResults() {
+        assertEquals(Money.czk(150.50), Money.czk(100.25).plus(Money.czk(50.25)));
+        assertEquals(Money.czk(50), Money.czk(100).minus(Money.czk(50)));
+        assertEquals(Money.czk(10), Money.czk(1000).percent(1.0));
+    }
+}

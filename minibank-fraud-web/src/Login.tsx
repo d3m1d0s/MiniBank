@@ -1,9 +1,16 @@
 import { useState } from 'react';
 import { login, type LoginResponse } from './api';
 
-export default function Login(props: { onLoggedIn: (info: { username: string; role: LoginResponse['role']; customerId: number | null }) => void }) {
-    const [username, setUsername] = useState('fraud');
-    const [password, setPassword] = useState('fraud123');
+export default function Login(props: {
+    onLoggedIn: (info: { username: string; role: LoginResponse['role']; customerId: number | null }) => void;
+    /** Why the analyst is looking at this screen, when they did not ask to be. */
+    notice?: string | null;
+}) {
+    // Empty, like the customer app's. A sign-in form that arrives with a password already in it
+    // is not something to demonstrate, and the demo logins are announced by the profile that
+    // creates them - see DemoUsersInitializer, which prints both at startup.
+    const [username, setUsername] = useState('');
+    const [password, setPassword] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
 
@@ -30,6 +37,7 @@ export default function Login(props: { onLoggedIn: (info: { username: string; ro
 
                 <div className="content">
                     <form className="panel form" onSubmit={submit}>
+                        {props.notice && !error && <div className="hint">{props.notice}</div>}
                         <div className="row">
                             <label>Username</label>
                             <input value={username} onChange={(e) => setUsername(e.target.value)} />
@@ -46,8 +54,6 @@ export default function Login(props: { onLoggedIn: (info: { username: string; ro
                                 {loading ? 'Signing in…' : 'Sign in'}
                             </button>
                         </div>
-
-                        <div className="hint">Demo: fraud / fraud123</div>
                     </form>
                 </div>
             </div>

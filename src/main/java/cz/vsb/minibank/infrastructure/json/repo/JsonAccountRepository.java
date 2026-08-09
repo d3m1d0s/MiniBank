@@ -1,12 +1,14 @@
 package cz.vsb.minibank.infrastructure.json.repo;
 
 import cz.vsb.minibank.domain.Account;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.dto.JsonAccount;
 import cz.vsb.minibank.infrastructure.json.mapping.JsonMapper;
+import cz.vsb.minibank.infrastructure.uow.IdentityMapAccounts;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
@@ -40,29 +42,68 @@ public class JsonAccountRepository implements AccountRepository {
                 return Optional.of(cached);
             }
         }
-        var f = store.data().accounts.stream().filter(a -> a.id == id).findFirst();
-        if (f.isEmpty()) {
-            return Optional.empty();
-        }
-        Account d = JsonMapper.toDomain(f.get());
-        if (uow != null) {
-            uow.put(Account.class, d.id(), d);
-        }
-        return Optional.of(d);
+        // Mapping happens inside the read: toDomain reads several fields off the DTO, and a
+        // concurrent commit replacing that DTO between two of them would build a torn Account.
+        return store.read(bundle -> {
+            var f = bundle.accounts.stream().filter(a -> a.id == id).findFirst();
+            if (f.isEmpty()) {
+                return Optional.<Account>empty();
+            }
+            Account d = JsonMapper.toDomain(f.get());
+            if (uow != null) {
+                uow.put(Account.class, d.id(), d);
+            }
+            return Optional.of(d);
+        });
     }
 
     @Override
     public Optional<Account> byIban(IBAN iban) {
         UnitOfWork uow = UowContext.current();
-        var f = store.data().accounts.stream().filter(a -> a.iban.equalsIgnoreCase(iban.value())).findFirst();
-        if (f.isEmpty()) {
-            return Optional.empty();
+
+        // What this transaction already holds comes first, including accounts it has created
+        // whose rows are still buffered and therefore invisible to the scan below.
+        Optional<Account> inFlight = IdentityMapAccounts.byIban(uow, iban);
+        if (inFlight.isPresent()) {
+            return inFlight;
         }
-        Account d = JsonMapper.toDomain(f.get());
-        if (uow != null) {
-            uow.put(Account.class, d.id(), d);
-        }
-        return Optional.of(d);
+
+        return store.read(bundle -> {
+            var matches = bundle.accounts.stream()
+                    .filter(a -> a.iban.equalsIgnoreCase(iban.value()))
+                    .toList();
+            if (matches.isEmpty()) {
+                return Optional.<Account>empty();
+            }
+            // accounts.iban is UNIQUE in the SQL schema and this line is the whole of that
+            // constraint on the JSON side. Taking the first of several was harmless while the
+            // answer only decided whether the demo was already seeded; it now decides who
+            // receives money, so an ambiguous store is refused rather than resolved by
+            // whichever row happens to come first.
+            if (matches.size() > 1) {
+                throw new DataIntegrityException("IBAN " + iban.value() + " is held by "
+                        + matches.size() + " accounts: "
+                        + matches.stream().map(a -> String.valueOf(a.id)).toList());
+            }
+            JsonAccount row = matches.get(0);
+            // The row identifies the account, the unit of work owns the instance. The probe
+            // cannot come before the query, because the row is what supplies the id. Without
+            // it this lookup builds a second Account for a row the transaction may already
+            // hold, and the put below makes that second instance the one every later byId
+            // returns. byId, byCustomerId and both JsonMapper lazy loaders already probe;
+            // this was the only lookup on either backend that did not.
+            if (uow != null) {
+                Account cached = uow.get(Account.class, row.id);
+                if (cached != null) {
+                    return Optional.of(cached);
+                }
+            }
+            Account d = JsonMapper.toDomain(row);
+            if (uow != null) {
+                uow.put(Account.class, d.id(), d);
+            }
+            return Optional.of(d);
+        });
     }
 
     @Override
@@ -88,12 +129,9 @@ public class JsonAccountRepository implements AccountRepository {
             uow.registerMutation(mutate);
             uow.put(Account.class, account.id(), account);
         } else {
-            mutate.run();
-            try {
-                store.save();
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            // No unit of work: the mutation and the persist are one lock hold, so no
+            // other thread can save a half-applied list.
+            store.mutateAndSave(mutate);
         }
     }
 
@@ -101,28 +139,33 @@ public class JsonAccountRepository implements AccountRepository {
     public List<Account> byCustomerId(int customerId) {
         UnitOfWork uow = UowContext.current();
 
-        var cust = store.data().customers.stream().filter(c -> c.id == customerId).findFirst();
-        if (cust.isEmpty()) {
-            return List.of();
-        }
-        var ids = cust.get().accountIds;
+        // One hold for all three reads: the customer lookup, its nested accountIds and
+        // the accounts scan must see the same state. accountIds is read once per element
+        // of the outer stream, so it must not escape the lock.
+        return store.read(bundle -> {
+            var cust = bundle.customers.stream().filter(c -> c.id == customerId).findFirst();
+            if (cust.isEmpty()) {
+                return List.<Account>of();
+            }
+            var ids = cust.get().accountIds;
 
-        return store.data().accounts.stream()
-                .filter(a -> ids.contains(a.id))
-                .map(dto -> {
-                    if (uow != null) {
-                        Account cached = uow.get(Account.class, dto.id);
-                        if (cached != null) {
-                            return cached;
+            return bundle.accounts.stream()
+                    .filter(a -> ids.contains(a.id))
+                    .map(dto -> {
+                        if (uow != null) {
+                            Account cached = uow.get(Account.class, dto.id);
+                            if (cached != null) {
+                                return cached;
+                            }
                         }
-                    }
-                    Account d = JsonMapper.toDomain(dto);
-                    if (uow != null) {
-                        uow.put(Account.class, d.id(), d);
-                    }
-                    return d;
-                })
-                .collect(Collectors.toList());
+                        Account d = JsonMapper.toDomain(dto);
+                        if (uow != null) {
+                            uow.put(Account.class, d.id(), d);
+                        }
+                        return d;
+                    })
+                    .collect(Collectors.toList());
+        });
     }
 
 }

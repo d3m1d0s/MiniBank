@@ -8,8 +8,11 @@ public record AlertQueueItemDto(
         String alertCode,
         String transferCode,
         String state,
-        String amount,
-        String currency,
+        // The transfer's status, not the alert's. The queue used to show only the alert state,
+        // so a payment that had already gone looked identical to one still held for review -
+        // half of why the fraud feature gated nothing.
+        String transferStatus,
+        MoneyDto amount,
         String shortReason,
         String createdAt,
         Integer riskScore,

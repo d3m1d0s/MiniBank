@@ -1,6 +1,5 @@
 package cz.vsb.minibank.api;
 
-import cz.vsb.minibank.api.ApiError;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.application.SessionStore;
 import cz.vsb.minibank.domain.User;
@@ -39,21 +38,35 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
 
         String path = request.getRequestURI();
 
-        if (path.startsWith("/api/auth/")) {
+        // Exactly one path is reachable without a session, and it is matched exactly. The
+        // prefix this replaces exempted everything under /api/auth/, which is how logout came
+        // to terminate any session id supplied by any caller, and would have silently exempted
+        // whatever endpoint was added there next.
+        if ("/api/auth/login".equals(path)) {
             return true;
         }
 
+        // Neither refusal below is logged, and the second one used to be. A request with no
+        // session header is what an unauthenticated browser does routinely; a rejected id is
+        // now equally routine, because sessions expire and every request after that carries a
+        // dead one. Either would let any caller drive an unbounded, unrotated log file at
+        // request rate, and neither carries a signal worth that. SessionStore writes the one
+        // line that does mean something - a live session whose user has been deleted or
+        // replaced - once per session, and never with the session id in it.
         String sessionId = request.getHeader("X-Session-Id");
         if (sessionId == null || sessionId.isBlank()) {
-            writeUnauthorized(response, "Missing session id");
+            writeUnauthorized(response);
             return false;
         }
 
-        User user = sessions.findUser(sessionId)
+        // Resolves against the users table, not against a login-time snapshot: a deleted user
+        // fails here, and a role or customer id changed since login is the one this request is
+        // authorized with.
+        User user = sessions.resolve(sessionId)
                 .orElse(null);
 
         if (user == null) {
-            writeUnauthorized(response, "Invalid session id");
+            writeUnauthorized(response);
             return false;
         }
 
@@ -71,11 +84,17 @@ public class SessionAuthInterceptor implements HandlerInterceptor {
         SecurityContext.clear();
     }
 
-    private void writeUnauthorized(HttpServletResponse response, String message) throws IOException {
+    /**
+     * preHandle returns false instead of throwing, so this response never reaches the
+     * handler advice. The payload comes from the shared catalogue for that reason.
+     *
+     * A missing header, an unknown session id, an expired one and one whose user is gone all
+     * produce the identical body: telling any of them apart would answer "is this session id
+     * one you have ever issued?".
+     */
+    private void writeUnauthorized(HttpServletResponse response) throws IOException {
         response.setStatus(HttpStatus.UNAUTHORIZED.value());
         response.setContentType("application/json");
-
-        ApiError body = new ApiError("AUTH_REQUIRED", message);
-        objectMapper.writeValue(response.getOutputStream(), body);
+        objectMapper.writeValue(response.getOutputStream(), ApiErrors.AUTH_REQUIRED);
     }
 }

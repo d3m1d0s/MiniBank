@@ -1,6 +1,9 @@
 package cz.vsb.minibank.uow;
 
+import cz.vsb.minibank.application.BootstrapServices;
+import cz.vsb.minibank.demo.DemoScenario;
 import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.exceptions.NotFoundException;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -20,19 +23,10 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * SQL-backed integration tests for UnitOfWork + repositories (PostgreSQL).
- *
- * Requires running PostgreSQL instance with schema.sql applied.
- *
- * Example Docker command:
- *
- *   docker run --name minibank-pg ^
- *     -e POSTGRES_USER=minibank ^
- *     -e POSTGRES_PASSWORD=minibank ^
- *     -e POSTGRES_DB=minibank ^
- *     -p 5432:5432 ^
- *     -d postgres:16
- *
- * And then apply schema.sql to database "minibank".
+ * <p>
+ * These need a live PostgreSQL with {@code db/init/schema.sql} applied. Without one the whole
+ * class is reported as skipped, so a plain {@code mvn test} on a fresh clone stays green.
+ * See {@link TestDatabase} for the connection keys and how to create the database.
  */
 public class MinibankSqlUowTests {
 
@@ -42,12 +36,24 @@ public class MinibankSqlUowTests {
 
     private Bootstrap infra;
 
+    /** Probed once for the class; the assumption itself is per test so the skips are reported. */
+    private static boolean databaseReachable;
+
+    @BeforeAll
+    static void probeTestDatabase() {
+        TestDatabase.requireSeparateFromApplicationDatabase();
+        databaseReachable = TestDatabase.isReachable();
+    }
+
     @BeforeEach
     void setUp() throws Exception {
-        // Allow overriding via system properties, fallback to Docker defaults
-        jdbcUrl = System.getProperty("minibank.jdbcUrl", "jdbc:postgresql://localhost:5432/minibank");
-        dbUser  = System.getProperty("minibank.dbUser",  "minibank");
-        dbPass  = System.getProperty("minibank.dbPass",  "minibank");
+        // Aborting here rather than in @BeforeAll: a class-level assumption cancels the whole
+        // container, and surefire then reports zero tests, which reads as "there are none".
+        Assumptions.assumeTrue(databaseReachable, TestDatabase::unreachableMessage);
+
+        jdbcUrl = TestDatabase.url();
+        dbUser  = TestDatabase.user();
+        dbPass  = TestDatabase.password();
 
         // Clean database state before each test (but keep schema & sequences)
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
@@ -107,22 +113,16 @@ public class MinibankSqlUowTests {
             );
 
             uow.commit();
-        } catch (RuntimeException e) {
-            uow.rollback();
-            throw e;
         }
 
         // New UoW: load persisted data from DB
-        UnitOfWork uow2 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow2)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow2 = scope.uow();
             Account reloaded = infra.accounts.byId(accountId).orElseThrow();
             assertEquals(accountId, reloaded.id());
             assertEquals("CZ6508000000192000145399", reloaded.iban().value());
             assertEquals(0, Money.czk(20_000).amount().compareTo(reloaded.balance().amount()));
             uow2.commit();
-        } catch (RuntimeException e) {
-            uow2.rollback();
-            throw e;
         }
     }
 
@@ -135,8 +135,8 @@ public class MinibankSqlUowTests {
         int customerId;
 
         // First UoW: create a customer without beneficiaries
-        UnitOfWork uow1 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow1)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow1 = scope.uow();
             customerId = infra.customers.nextId();
             Customer c = new Customer(
                     customerId,
@@ -146,14 +146,11 @@ public class MinibankSqlUowTests {
             );
             infra.customers.save(c);
             uow1.commit();
-        } catch (RuntimeException e) {
-            uow1.rollback();
-            throw e;
         }
 
         // Second UoW: load customer, add beneficiary via repository, commit
-        UnitOfWork uow2 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow2)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow2 = scope.uow();
             Customer c = infra.customers.byId(customerId)
                     .orElseThrow(() -> new AssertionError("Customer must exist"));
 
@@ -166,7 +163,7 @@ public class MinibankSqlUowTests {
             Beneficiary b = new Beneficiary(
                     beneficiaryId,
                     "Alice SQL",
-                    new IBAN("CZ0201000000000098765432"),
+                    new IBAN("CZ1301000000000098765432"),
                     false
             );
 
@@ -182,14 +179,11 @@ public class MinibankSqlUowTests {
             assertEquals("Alice SQL", c.beneficiaries().get(0).name());
 
             uow2.commit();
-        } catch (RuntimeException e) {
-            uow2.rollback();
-            throw e;
         }
 
         // Third UoW: verify persistence in DB
-        UnitOfWork uow3 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow3)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow3 = scope.uow();
             Customer reloaded = infra.customers.byId(customerId)
                     .orElseThrow(() -> new AssertionError("Customer must exist after commit"));
 
@@ -200,12 +194,9 @@ public class MinibankSqlUowTests {
             );
             Beneficiary b2 = reloaded.beneficiaries().get(0);
             assertEquals("Alice SQL", b2.name());
-            assertEquals("CZ0201000000000098765432", b2.iban().value());
+            assertEquals("CZ1301000000000098765432", b2.iban().value());
 
             uow3.commit();
-        } catch (RuntimeException e) {
-            uow3.rollback();
-            throw e;
         }
     }
 
@@ -220,8 +211,7 @@ public class MinibankSqlUowTests {
         int transferId;
 
         // UoW #1: create one customer + one account
-        UnitOfWork uow1 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow1)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             customerId = infra.customers.nextId();
             Customer c = new Customer(
                     customerId,
@@ -243,15 +233,11 @@ public class MinibankSqlUowTests {
             c.addAccountId(accountId);
             infra.customers.save(c);
 
-            uow1.commit();
-        } catch (RuntimeException e) {
-            uow1.rollback();
-            throw e;
+            scope.uow().commit();
         }
 
         // UoW #2: create transfer and check IdentityMap via byId() twice
-        UnitOfWork uow2 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow2)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             TransferRepository transfers = infra.transfers;
 
             transferId = transfers.nextId();
@@ -259,10 +245,8 @@ public class MinibankSqlUowTests {
                     transferId,
                     accountId,
                     null,
-                    "CZ0201000000000000000000",
-                    Money.czk(1_000),
-                    "CZK"
-            );
+                    "CZ0401000000000000000000",
+                    Money.czk(1_000));
 
             transfers.add(t);
 
@@ -278,15 +262,11 @@ public class MinibankSqlUowTests {
                     "Within a single SQL UoW, byId() must return the same Transfer instance from IdentityMap"
             );
 
-            uow2.commit();
-        } catch (RuntimeException e) {
-            uow2.rollback();
-            throw e;
+            scope.uow().commit();
         }
 
         // UoW #3: after commit, verify persistence and IdentityMap across byId + bySourceAccount
-        UnitOfWork uow3 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow3)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             // First, load by id -> goes to DB and populates IdentityMap
             Transfer fromId = infra.transfers.byId(transferId)
                     .orElseThrow(() -> new AssertionError("Transfer must be persisted in DB after commit"));
@@ -312,10 +292,7 @@ public class MinibankSqlUowTests {
                     "In a single SQL UoW, Transfer from byId() and bySourceAccount() must be the same instance (IdentityMap)"
             );
 
-            uow3.commit();
-        } catch (RuntimeException e) {
-            uow3.rollback();
-            throw e;
+            scope.uow().commit();
         }
     }
 
@@ -332,8 +309,7 @@ public class MinibankSqlUowTests {
         int alertId;
 
         // UoW #1: prepare minimal transfer to attach the alert to
-        UnitOfWork uow1 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow1)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             customerId = infra.customers.nextId();
             Customer c = new Customer(
                     customerId,
@@ -360,21 +336,15 @@ public class MinibankSqlUowTests {
                     transferId,
                     accountId,
                     null,
-                    "CZ0201000000000000000000",
-                    Money.czk(500),
-                    "CZK"
-            );
+                    "CZ0401000000000000000000",
+                    Money.czk(500));
             infra.transfers.add(t);
 
-            uow1.commit();
-        } catch (RuntimeException e) {
-            uow1.rollback();
-            throw e;
+            scope.uow().commit();
         }
 
         // UoW #2: create FraudAlert with metadata and test IdentityMap via byId() twice
-        UnitOfWork uow2 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow2)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             FraudAlertRepository alerts = infra.alerts;
 
             alertId = alerts.nextId();
@@ -407,15 +377,11 @@ public class MinibankSqlUowTests {
             assertEquals(List.of("HIGH_AMOUNT", "NEW_BENEFICIARY"), a1.tags());
             assertEquals("Initial note from SQL test", a1.notes());
 
-            uow2.commit();
-        } catch (RuntimeException e) {
-            uow2.rollback();
-            throw e;
+            scope.uow().commit();
         }
 
         // UoW #3: after commit, verify persistence + IdentityMap across byId() and byTransferId()
-        UnitOfWork uow3 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow3)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             FraudAlertRepository alerts = infra.alerts;
 
             // Load by id -> populates IdentityMap
@@ -445,10 +411,7 @@ public class MinibankSqlUowTests {
             assertEquals(List.of("HIGH_AMOUNT", "NEW_BENEFICIARY"), byId.tags());
             assertEquals("Initial note from SQL test", byId.notes());
 
-            uow3.commit();
-        } catch (RuntimeException e) {
-            uow3.rollback();
-            throw e;
+            scope.uow().commit();
         }
     }
 
@@ -463,8 +426,8 @@ public class MinibankSqlUowTests {
         int accountId;
 
         // UoW #1: create customer + account
-        UnitOfWork uow1 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow1)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow1 = scope.uow();
             customerId = infra.customers.nextId();
             Customer c = new Customer(
                     customerId,
@@ -487,14 +450,11 @@ public class MinibankSqlUowTests {
             infra.customers.save(c);
 
             uow1.commit();
-        } catch (RuntimeException e) {
-            uow1.rollback();
-            throw e;
         }
 
         // UoW #2: first load byId, then byCustomerId -> must reuse same instance from IdentityMap
-        UnitOfWork uow2 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow2)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow2 = scope.uow();
             Account byId = infra.accounts.byId(accountId)
                     .orElseThrow(() -> new AssertionError("Account must exist"));
 
@@ -509,9 +469,6 @@ public class MinibankSqlUowTests {
             );
 
             uow2.commit();
-        } catch (RuntimeException e) {
-            uow2.rollback();
-            throw e;
         }
     }
 
@@ -525,8 +482,8 @@ public class MinibankSqlUowTests {
         int accountId;
 
         // UoW #1: create customer + account, but rollback instead of commit
-        UnitOfWork uow1 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow1)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow1 = scope.uow();
             customerId = infra.customers.nextId();
             Customer c = new Customer(
                     customerId,
@@ -548,16 +505,15 @@ public class MinibankSqlUowTests {
             c.addAccountId(accountId);
             infra.customers.save(c);
 
-            // explicit rollback: nothing from this UoW should hit the database
+            // explicit rollback: nothing from this UoW should hit the database. Kept although
+            // close() would roll back anyway, because this is the subject of the test rather
+            // than its cleanup.
             uow1.rollback();
-        } catch (RuntimeException e) {
-            // rollback already called, just rethrow to see the failure
-            throw e;
         }
 
         // UoW #2: verify that there is no such customer/account in DB
-        UnitOfWork uow2 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow2)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow2 = scope.uow();
             assertTrue(
                     infra.customers.byId(customerId).isEmpty(),
                     "Customer must not be persisted if UoW was rolled back"
@@ -569,9 +525,6 @@ public class MinibankSqlUowTests {
             );
 
             uow2.commit();
-        } catch (RuntimeException e) {
-            uow2.rollback();
-            throw e;
         }
     }
 
@@ -588,8 +541,7 @@ public class MinibankSqlUowTests {
         Money initialLimit   = Money.czk(  890.12);
 
         // UoW #1: create customer + account with non-trivial monetary values
-        UnitOfWork uow1 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow1)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             customerId = infra.customers.nextId();
             Customer c = new Customer(
                     customerId,
@@ -611,15 +563,12 @@ public class MinibankSqlUowTests {
             c.addAccountId(accountId);
             infra.customers.save(c);
 
-            uow1.commit();
-        } catch (RuntimeException e) {
-            uow1.rollback();
-            throw e;
+            scope.uow().commit();
         }
 
         // UoW #2: reload account and compare monetary values
-        UnitOfWork uow2 = infra.uowFactory.begin();
-        try (UowScope __ = new UowScope(uow2)) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow2 = scope.uow();
             Account reloaded = infra.accounts.byId(accountId)
                     .orElseThrow(() -> new AssertionError("Account must be persisted in DB"));
 
@@ -636,9 +585,157 @@ public class MinibankSqlUowTests {
             );
 
             uow2.commit();
-        } catch (RuntimeException e) {
-            uow2.rollback();
-            throw e;
+        }
+    }
+
+// -------------------------------------------------------------------------
+// 8) Ownership rests on accounts.customer_id, which only SQL mode has
+// -------------------------------------------------------------------------
+
+    /**
+     * In SQL mode {@code Customer.accountIds()} is {@code SELECT id FROM accounts WHERE
+     * customer_id = ?}, so that one column is the sole record of ownership and the only thing
+     * OwnershipGuard can read. Nothing else in the suite exercises the guard against a real
+     * database: the JSON tests cannot see this column, and SqlAccountRepository deliberately
+     * writes it NULL, leaving SqlCustomerRepository.upsertCustomer as the only writer.
+     */
+    @Test
+    void ownershipIsAnsweredFromAccountsCustomerIdInSqlMode() {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+
+        int ownerId = new DemoScenario(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts,
+                infra.uowFactory, services.feePolicy).seed();
+
+        int ownedAccount;
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
+            Customer owner = infra.customers.byId(ownerId).orElseThrow();
+
+            assertFalse(owner.accountIds().isEmpty(),
+                    "Seeding must have assigned accounts.customer_id, or every money path 404s");
+            assertEquals(
+                    owner.accountIds().stream().sorted().toList(),
+                    infra.accounts.byCustomerId(ownerId).stream().map(Account::id).sorted().toList(),
+                    "The guard's view of ownership and byCustomerId must be the same set");
+
+            ownedAccount = infra.accounts.byIban(DemoScenario.PRIMARY_IBAN).orElseThrow().id();
+            uow.commit();
+        }
+
+        // A stranger: a real customer row with an account of its own, so the refusal below is
+        // the ownership rule and not a missing caller.
+        int strangerId;
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            strangerId = infra.customers.nextId();
+            Customer stranger = new Customer(strangerId, "Stranger", "stranger@example.com",
+                    new Address("Elsewhere 1", "Brno"));
+            infra.customers.save(stranger);
+
+            int strangerAccount = infra.accounts.nextId();
+            infra.accounts.save(new Account(strangerAccount, new IBAN("CZ7408000000192000145431"),
+                    Money.czk(20_000), Money.czk(5_000)));
+            stranger.addAccountId(strangerAccount);
+            infra.customers.save(stranger);
+
+            scope.uow().commit();
+        }
+
+        Money victimBefore = infra.accounts.byId(ownedAccount).orElseThrow().balance();
+
+        assertThrows(NotFoundException.class, () -> services.transferService.submitPaymentToIban(
+                strangerId, ownedAccount, "CZ2001000000000012345678", 900.0, "not my account"));
+        assertEquals(0, victimBefore.amount().compareTo(
+                        infra.accounts.byId(ownedAccount).orElseThrow().balance().amount()),
+                "The refused payment must not have debited the owner");
+
+        // The owner's own path still works end to end against a real database.
+        int transferId = services.transferService.submitPaymentToIban(
+                ownerId, ownedAccount, "CZ2001000000000012345678", 100.0, "mine").transferId();
+        assertEquals(TransferStatus.SENT, infra.transfers.byId(transferId).orElseThrow().status());
+    }
+
+// -------------------------------------------------------------------------
+// 9) The credit leg against a real database
+// -------------------------------------------------------------------------
+
+    /**
+     * Both legs of an in-bank payment are written by one JDBC transaction.
+     *
+     * The JSON tests cannot show this: there the two upserts are closures over a shared
+     * Bundle, while here they are two INSERT ... ON CONFLICT statements followed by one
+     * connection.commit(). It is also the only place the SQL byIban probe is exercised on the
+     * money path, since the destination is resolved by IBAN after the source has been loaded
+     * by id - the order that used to put two instances of one row into the identity map.
+     */
+    @Test
+    void anInBankTransferCreditsTheDestinationInOneSqlTransaction() {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+
+        final IBAN payerIban = new IBAN("CZ6508000000192000145399");
+        final IBAN payeeIban = new IBAN("CZ4308000000192000145407");
+        final Money opening = Money.czk(20_000);
+
+        int payerId;
+        int payerAccount;
+        int payeeAccount;
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            payerId = infra.customers.nextId();
+            Customer payer = new Customer(payerId, "Payer", "payer@example.com",
+                    new Address("Street 1", "City"));
+            infra.customers.save(payer);
+            payerAccount = infra.accounts.nextId();
+            infra.accounts.save(new Account(payerAccount, payerIban, opening, Money.czk(20_000)));
+            payer.addAccountId(payerAccount);
+            // The second save is what writes accounts.customer_id; see DemoScenario.create.
+            infra.customers.save(payer);
+
+            int payeeId = infra.customers.nextId();
+            Customer payee = new Customer(payeeId, "Payee", "payee@example.com",
+                    new Address("Street 2", "City"));
+            infra.customers.save(payee);
+            payeeAccount = infra.accounts.nextId();
+            infra.accounts.save(new Account(payeeAccount, payeeIban, opening, Money.czk(20_000)));
+            payee.addAccountId(payeeAccount);
+            infra.customers.save(payee);
+
+            scope.uow().commit();
+        }
+
+        Money before = totalAccountMoney();
+        assertEquals(0, opening.plus(opening).amount().compareTo(before.amount()));
+
+        double amount = 5_000;
+        Money charged = services.feePolicy.compute(Money.czk(amount));
+        assertTrue(charged.isPositive(), "this case is only interesting with a fee to lose");
+
+        int transferId = services.transferService.submitPaymentToIban(
+                payerId, payerAccount, payeeIban.value(), amount, "in bank").transferId();
+
+        assertEquals(TransferStatus.SENT, infra.transfers.byId(transferId).orElseThrow().status());
+        assertEquals(0, opening.minus(Money.czk(amount)).minus(charged).amount().compareTo(
+                        infra.accounts.byId(payerAccount).orElseThrow().balance().amount()),
+                "the sender pays amount plus fee");
+        assertEquals(0, opening.plus(Money.czk(amount)).amount().compareTo(
+                        infra.accounts.byId(payeeAccount).orElseThrow().balance().amount()),
+                "and the destination row really was updated, not just the sender's");
+        assertEquals(0, before.minus(charged).amount().compareTo(totalAccountMoney().amount()),
+                "the fee is the only money that may leave the system");
+    }
+
+    /** Sums balance_czk over every account row, so nothing can hide outside the fixture. */
+    private Money totalAccountMoney() {
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
+             Statement st = conn.createStatement();
+             java.sql.ResultSet rs = st.executeQuery(
+                     "SELECT COALESCE(SUM(balance_czk), 0) AS total FROM accounts")) {
+            rs.next();
+            return Money.czk(rs.getBigDecimal("total"));
+        } catch (java.sql.SQLException e) {
+            throw new RuntimeException("Failed to total account balances", e);
         }
     }
 

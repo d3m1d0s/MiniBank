@@ -3,8 +3,8 @@ package cz.vsb.minibank.api;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.UserRole;
-import cz.vsb.minibank.domain.exceptions.AuthorizationFailedException;
-import org.junit.jupiter.api.AfterEach;
+import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
+import cz.vsb.minibank.domain.exceptions.NotAuthenticatedException;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -33,15 +33,10 @@ class AuthHelpersTest {
         );
     }
 
-    @AfterEach
-    void tearDown() {
-        SecurityContext.clear();
-    }
-
     @Test
     void requireUserThrowsWhenNotLoggedIn() {
         SecurityContext.clear();
-        assertThrows(AuthorizationFailedException.class, AuthHelpers::requireUser);
+        assertThrows(NotAuthenticatedException.class, AuthHelpers::requireUser);
     }
 
     @Test
@@ -56,7 +51,7 @@ class AuthHelpersTest {
     void requireCustomerIdThrowsForNonCustomer() {
         SecurityContext.setCurrentUser(fraudUser());
 
-        assertThrows(AuthorizationFailedException.class, AuthHelpers::requireCustomerId);
+        assertThrows(AccessDeniedException.class, AuthHelpers::requireCustomerId);
     }
 
     @Test
@@ -70,7 +65,7 @@ class AuthHelpersTest {
     void requireRoleThrowsForWrongRole() {
         SecurityContext.setCurrentUser(customerUser());
 
-        assertThrows(AuthorizationFailedException.class,
+        assertThrows(AccessDeniedException.class,
                 () -> AuthHelpers.requireRole(UserRole.FRAUD_ANALYST));
     }
 }

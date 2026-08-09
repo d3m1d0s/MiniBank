@@ -2,15 +2,23 @@ package cz.vsb.minibank.api;
 
 import cz.vsb.minibank.api.dto.AuthorizePaymentRequest;
 import cz.vsb.minibank.api.dto.AuthorizePaymentResult;
+import cz.vsb.minibank.api.dto.MoneyDto;
 import cz.vsb.minibank.api.dto.TransferDetailsDto;
 import cz.vsb.minibank.api.dto.WaitingTransferItemDto;
+import cz.vsb.minibank.application.OwnershipGuard;
 import cz.vsb.minibank.application.TransferApplicationService;
 import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
+import cz.vsb.minibank.infrastructure.uow.UowScope;
 import cz.vsb.minibank.domain.FeePolicy;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
+import cz.vsb.minibank.domain.exceptions.NotFoundException;
+import cz.vsb.minibank.domain.exceptions.ValidationException;
+import cz.vsb.minibank.application.PaymentOutcome;
 
 import org.springframework.web.bind.annotation.*;
 
@@ -22,7 +30,6 @@ import static cz.vsb.minibank.api.AuthHelpers.requireCustomerId;
 /**
  * REST controller for transfer authorization and cancellation use cases.
  */
-@CrossOrigin(origins = {"http://localhost:5173", "http://localhost:5174"})
 @RestController
 @RequestMapping("/api")
 public class AuthorizationController {
@@ -31,35 +38,74 @@ public class AuthorizationController {
     private final AccountRepository accounts;
     private final TransferRepository transfers;
     private final FeePolicy feePolicy;
+    private final OwnershipGuard ownershipGuard;
+
+    /**
+     * Opens the unit of work the two read endpoints run inside.
+     *
+     * Not used by authorize or cancel, and they no longer need it: the application service opens
+     * its own and now hands back a {@link PaymentOutcome} read off the aggregates inside it. Both
+     * used to re-read the transfer and the account afterwards, from outside that transaction,
+     * which is how a customer could be shown a balance another transaction had left.
+     */
+    private final UnitOfWorkFactory uowFactory;
 
     public AuthorizationController(TransferApplicationService transferService,
                                    AccountRepository accounts,
                                    TransferRepository transfers,
-                                   FeePolicy feePolicy) {
+                                   FeePolicy feePolicy,
+                                   OwnershipGuard ownershipGuard,
+                                   UnitOfWorkFactory uowFactory) {
         this.transferService = transferService;
         this.accounts = accounts;
         this.transfers = transfers;
         this.feePolicy = feePolicy;
+        this.ownershipGuard = ownershipGuard;
+        this.uowFactory = uowFactory;
     }
 
     /**
-     * Lists all transfers in WAITING_AUTH state for the specified customer.
+     * Lists the current customer's transfers that have not settled and have not been stopped:
+     * the ones waiting for their code, and the ones the bank is still reviewing.
+     *
+     * There is no route that takes a customer id. This one reads its subject from the
+     * session, so a caller has no way to name somebody else. The twin that took the id in
+     * the path was removed rather than guarded: it handed out a stranger's transfer ids for
+     * free, which is exactly the disclosure the 404s elsewhere exist to prevent.
      */
-    @GetMapping("/customers/{customerId}/waiting-transfers")
-    public List<WaitingTransferItemDto> listWaiting(@PathVariable("customerId") int customerId) {
+    @GetMapping("/me/waiting-transfers")
+    public List<WaitingTransferItemDto> listMyWaiting() {
+        int customerId = requireCustomerId();
+
+        // The same N+1 the alert queue had, on a screen that is polled far more often: one
+        // lookup for the customer's accounts, then one per account for its transfers. Without a
+        // unit of work each of those opens and tears down its own JDBC connection, because this
+        // project has no connection pool.
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
+            return waitingFor(customerId);
+        }
+    }
+
+    /**
+     * Called only from {@link #listMyWaiting}, inside its unit of work.
+     */
+    private List<WaitingTransferItemDto> waitingFor(int customerId) {
         List<WaitingTransferItemDto> result = new ArrayList<>();
 
         for (Account acc : accounts.byCustomerId(customerId)) {
             for (Transfer t : transfers.bySourceAccount(acc.id())) {
-                if (t.status() == TransferStatus.WAITING_AUTH) {
+                // Held transfers belong in this list. Filtering them out would make a
+                // customer's payment disappear from the only screen that mentions it, with
+                // nothing on any screen to say where it went.
+                if (t.status() == TransferStatus.WAITING_AUTH
+                        || t.status() == TransferStatus.HELD_FOR_REVIEW) {
                     result.add(new WaitingTransferItemDto(
                             t.id(),
                             t.targetIbanSnapshot(),
-                            t.amount().toString(),
+                            MoneyDto.of(t.amount()),
                             t.createdAt().toString(),
-                            t.authMethod() != null
-                                    ? t.authMethod().toString()
-                                    : ""
+                            authMethodOf(t),
+                            t.status().name()
                     ));
                 }
             }
@@ -68,25 +114,43 @@ public class AuthorizationController {
     }
 
     /**
-     * Shortcut endpoint that lists waiting transfers for the current authenticated customer.
-     */
-    @GetMapping("/me/waiting-transfers")
-    public List<WaitingTransferItemDto> listMyWaiting() {
-        int customerId = requireCustomerId();
-        return listWaiting(customerId);
-    }
-
-    /**
      * Returns detailed information for a transfer including fee, status and authorization metadata.
+     *
+     * A transfer that belongs to somebody else is refused as not found, with the same type
+     * and message {@code TransferApplicationService.requireTransfer} throws, so a read and a
+     * write can never disagree about whether a transfer exists for the caller. Reading a
+     * stranger's row disclosed the source IBAN and its live balance, which is the
+     * reconnaissance the write-side 404s were meant to deny.
      */
     @GetMapping("/transfers/{id}")
     public TransferDetailsDto transferDetails(@PathVariable("id") int id) {
-        Transfer t = transfers.byId(id)
-                .orElseThrow(() -> new RuntimeException("Transfer not found"));
-        Account acc = accounts.byId(t.sourceAccountId())
-                .orElseThrow(() -> new RuntimeException("Account not found"));
+        int customerId = requireCustomerId();
 
-        var fee = t.feeAmount(feePolicy);
+        // Three lookups - the caller, the transfer, its account - and the same rule as the two
+        // reads above: a read path in this controller runs inside one unit of work.
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
+            return detailsOf(customerId, id);
+        }
+    }
+
+    /**
+     * Called only from {@link #transferDetails}, inside its unit of work.
+     */
+    private TransferDetailsDto detailsOf(int customerId, int id) {
+        var caller = ownershipGuard.requireCaller(customerId);
+        Transfer t = transfers.byId(id)
+                .orElseThrow(() -> new NotFoundException("Transfer not found: " + id));
+        ownershipGuard.requireOwnedTransfer(caller, t);
+
+        // The id came from the store, not from the caller, so a missing account is our fault.
+        Account acc = accounts.byId(t.sourceAccountId())
+                .orElseThrow(() -> new DataIntegrityException(
+                        "Transfer " + id + " points at missing account " + t.sourceAccountId()));
+
+        // What it was charged if it has settled, and only otherwise a quote from the current
+        // policy. Recomputing this on every read made a settled payment's fee a function
+        // of whichever FeePolicy bean is wired today.
+        var fee = t.feeFor(feePolicy);
 
         int maxAttempts = TransferApplicationService.MAX_OTP_ATTEMPTS;
         int triesLeft = Math.max(0, maxAttempts - t.authAttempts());
@@ -99,18 +163,31 @@ public class AuthorizationController {
         return new TransferDetailsDto(
                 t.id(),
                 acc.iban().value(),
-                acc.balance().toString(),
+                MoneyDto.of(acc.balance()),
                 t.targetIbanSnapshot(),
-                t.amount().toString(),
-                fee.toString(),
+                MoneyDto.of(t.amount()),
+                MoneyDto.of(fee),
                 t.status().name(),
                 t.createdAt().toString(),
-                t.authMethod() != null
-                        ? t.authMethod().toString()
-                        : "",
+                t.settledAt() != null ? t.settledAt().toString() : null,
+                t.message(),
+                authMethodOf(t),
                 triesLeft,
                 authValidUntilStr
         );
+    }
+
+    /**
+     * The name of the method that authorized a transfer, or an empty string when it has none.
+     *
+     * {@code Payment} is an abstract base class with no {@code toString}, so asking it for one
+     * yields {@code Object}'s identity string: both of these screens used to show the customer
+     * something of the shape {@code cz.vsb.minibank.domain.CardPayment@13e69db6}. The field it
+     * should read is {@code method()}, which is what the two persistence mappers and the fraud
+     * desk already store and return.
+     */
+    private static String authMethodOf(Transfer t) {
+        return t.authMethod() != null ? t.authMethod().method() : "";
     }
 
     /**
@@ -119,26 +196,33 @@ public class AuthorizationController {
     @PostMapping("/transfers/{id}/authorize")
     public AuthorizePaymentResult authorize(@PathVariable("id") int id,
                                             @RequestBody AuthorizePaymentRequest req) {
-        transferService.authorizePayment(id, req.otp());
+        // Settled before the body is read: who the caller is decides whether this transfer
+        // exists for them at all. A user with no customer id is refused here with the same
+        // answer for every transfer id, including ones that do not exist.
+        int customerId = requireCustomerId();
 
-        Transfer t = transfers.byId(id)
-                .orElseThrow(() -> new RuntimeException("Transfer not found"));
-        Account acc = accounts.byId(t.sourceAccountId())
-                .orElseThrow(() -> new RuntimeException("Account not found"));
+        // Checked here so an omitted field is not silently treated as a wrong code and
+        // charged against the three attempts.
+        if (req.otp() == null || req.otp().isBlank()) {
+            throw new ValidationException("Missing one-time password in the authorize request");
+        }
 
-        String chargedAmount = null;
-        if (t.status() == TransferStatus.SENT) {
-            var fee = t.feeAmount(feePolicy);
-            var total = t.amount().plus(fee);
-            chargedAmount = total.toString();
+        PaymentOutcome outcome = transferService.authorizePayment(customerId, id, req.otp());
+
+        MoneyDto chargedAmount = null;
+        if (outcome.status() == TransferStatus.SENT) {
+            // The stored fee, which on this branch always exists: a SENT transfer went through
+            // Transfer.send, which writes it. What the customer is told they were charged
+            // must be what they were charged, not what today's policy would charge.
+            chargedAmount = MoneyDto.of(outcome.amount().plus(outcome.fee()));
         }
 
         return new AuthorizePaymentResult(
-                t.id(),
-                t.status().name(),
+                outcome.transferId(),
+                outcome.status().name(),
                 chargedAmount,
-                acc.balance().toString(),
-                t.declineReason()
+                MoneyDto.of(outcome.balance()),
+                outcome.declineReason()
         );
     }
 
@@ -147,19 +231,17 @@ public class AuthorizationController {
      */
     @PostMapping("/transfers/{id}/cancel")
     public AuthorizePaymentResult cancel(@PathVariable("id") int id) {
-        transferService.cancelPayment(id);
+        int customerId = requireCustomerId();
+        PaymentOutcome outcome = transferService.cancelPayment(customerId, id);
 
-        Transfer t = transfers.byId(id)
-                .orElseThrow(() -> new RuntimeException("Transfer not found"));
-        Account acc = accounts.byId(t.sourceAccountId())
-                .orElseThrow(() -> new RuntimeException("Account not found"));
-
+        // Null rather than the fee this transfer would have cost: cancelling debits nothing, and
+        // a charge on a withdrawn payment is the one number this screen must not show.
         return new AuthorizePaymentResult(
-                t.id(),
-                t.status().name(),
+                outcome.transferId(),
+                outcome.status().name(),
                 null,
-                acc.balance().toString(),
-                t.declineReason()
+                MoneyDto.of(outcome.balance()),
+                outcome.declineReason()
         );
     }
 }

@@ -8,11 +8,10 @@ public record TransferInfoDto(
         String code,
         String status,
         String fromIban,
-        String fromBalance,
+        MoneyDto fromBalance,
         String toIban,
-        String amount,
-        String feeAmount,
-        String currency,
+        MoneyDto amount,
+        MoneyDto feeAmount,
         String createdAt,
         String authMethod
 ) {

@@ -39,15 +39,29 @@ public class JsonCustomerRepository implements CustomerRepository {
                 return Optional.of(cached);
             }
         }
-        var f = store.data().customers.stream().filter(c -> c.id == id).findFirst();
-        if (f.isEmpty()) {
-            return Optional.empty();
-        }
-        Customer d = JsonMapper.toDomain(f.get(), store);
-        if (uow != null) {
-            uow.put(Customer.class, d.id(), d);
-        }
-        return Optional.of(d);
+        return store.read(bundle -> {
+            var f = bundle.customers.stream().filter(c -> c.id == id).findFirst();
+            if (f.isEmpty()) {
+                return Optional.<Customer>empty();
+            }
+            // toDomain also walks the nested accountIds and beneficiaries lists, and the
+            // LazyList it attaches captures this DTO - that closure locks for itself.
+            Customer d = JsonMapper.toDomain(f.get(), store);
+            if (uow != null) {
+                uow.put(Customer.class, d.id(), d);
+            }
+            return Optional.of(d);
+        });
+    }
+
+    @Override
+    public Optional<Customer> byAccountId(int accountId) {
+        // byId re-enters the store lock, so the search and the load are one hold and
+        // cannot straddle another thread's commit.
+        return store.read(bundle -> bundle.customers.stream()
+                .filter(c -> c.accountIds != null && c.accountIds.contains(accountId))
+                .findFirst()
+                .flatMap(c -> byId(c.id)));
     }
 
     @Override
@@ -73,33 +87,13 @@ public class JsonCustomerRepository implements CustomerRepository {
             uow.registerMutation(mutate);
             uow.put(Customer.class, c.id(), c);
         } else {
-            mutate.run();
-            try {
-                store.save();
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            store.mutateAndSave(mutate);
         }
     }
 
     @Override
     public int nextBeneficiaryId() {
         return store.nextBeneficiaryId();
-    }
-
-    @Override
-    public Optional<Beneficiary> beneficiaryById(int beneficiaryId) {
-        var uow = UowContext.current();
-        var f = store.data().customers.stream()
-                .flatMap(c -> c.beneficiaries.stream())
-                .filter(b -> b.id == beneficiaryId)
-                .findFirst();
-        if (f.isEmpty()) {
-            return Optional.empty();
-        }
-        Beneficiary d = JsonMapper.toDomain(f.get());
-        // do not cache beneficiary globally in the Identity Map - it is aggregated inside Customer
-        return Optional.of(d);
     }
 
     @Override
@@ -133,12 +127,9 @@ public class JsonCustomerRepository implements CustomerRepository {
                 cached.upsertBeneficiary(b);
             }
         } else {
-            mutate.run();
-            try {
-                store.save();
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            // The mutation scans the customers list and structurally modifies a nested
+            // beneficiaries list; that plus the persist must be one hold.
+            store.mutateAndSave(mutate);
         }
     }
 

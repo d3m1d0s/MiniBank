@@ -16,6 +16,11 @@
     "noEmit": true,
     "jsx": "react-jsx",
 
+    /* The two front ends share their fraud DTOs, their HTTP client and the alert filters.
+       See frontend-shared/. */
+    "baseUrl": ".",
+    "paths": { "@shared/*": ["../frontend-shared/*"] },
+
     /* Linting */
     "strict": true,
     "noUnusedLocals": true,
@@ -24,5 +29,5 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src"]
+  "include": ["src", "../frontend-shared"]
 }

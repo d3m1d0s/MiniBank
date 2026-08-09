@@ -21,6 +21,12 @@ public interface CustomerRepository {
     Optional<Customer> byId(int id);
 
     /**
+     * Finds the customer owning the given account.
+     * Inverse of {@link AccountRepository#byCustomerId(int)}.
+     */
+    Optional<Customer> byAccountId(int accountId);
+
+    /**
      * Inserts or updates the given customer aggregate.
      */
     void save(Customer c);
@@ -31,12 +37,13 @@ public interface CustomerRepository {
     int nextBeneficiaryId();
 
     /**
-     * Finds a beneficiary by its identifier.
-     */
-    Optional<Beneficiary> beneficiaryById(int beneficiaryId);
-
-    /**
      * Inserts or updates a beneficiary and associates it with the given customer.
+     *
+     * There is deliberately no beneficiaryById(int). It took a caller-supplied id and
+     * returned an object that cannot report its owner, so no caller could make it safe.
+     * Beneficiaries are resolved from {@link Customer#beneficiaries()}, which both backends
+     * already load scoped to the customer. A per-beneficiary read, if one is ever needed,
+     * takes the customer id as its first parameter.
      */
     void saveBeneficiary(int customerId, Beneficiary b);
 }

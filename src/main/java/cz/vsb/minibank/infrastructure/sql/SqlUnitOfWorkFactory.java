@@ -1,5 +1,6 @@
 package cz.vsb.minibank.infrastructure.sql;
 
+import cz.vsb.minibank.domain.DomainEventBus;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 
@@ -16,6 +17,7 @@ public final class SqlUnitOfWorkFactory implements UnitOfWorkFactory {
     private final String url;
     private final String user;
     private final String password;
+    private final DomainEventBus events;
 
     static {
         try {
@@ -26,10 +28,11 @@ public final class SqlUnitOfWorkFactory implements UnitOfWorkFactory {
         }
     }
 
-    public SqlUnitOfWorkFactory(String url, String user, String password) {
+    public SqlUnitOfWorkFactory(String url, String user, String password, DomainEventBus events) {
         this.url = Objects.requireNonNull(url, "url");
         this.user = Objects.requireNonNull(user, "user");
         this.password = Objects.requireNonNull(password, "password");
+        this.events = Objects.requireNonNull(events, "events");
     }
 
     @Override
@@ -37,7 +40,7 @@ public final class SqlUnitOfWorkFactory implements UnitOfWorkFactory {
         try {
             Connection conn = DriverManager.getConnection(url, user, password);
             conn.setAutoCommit(false);
-            return new SqlUnitOfWork(conn);
+            return new SqlUnitOfWork(conn, events);
         } catch (SQLException e) {
             throw new RuntimeException("Failed to open SQL UnitOfWork", e);
         }

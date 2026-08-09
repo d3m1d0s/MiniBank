@@ -6,6 +6,7 @@ import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
+import cz.vsb.minibank.infrastructure.StoredValue;
 
 import java.sql.*;
 import java.time.Instant;
@@ -88,56 +89,82 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
     }
 
     /**
-     * Inserts or updates a fraud alert row, including metadata like risk score,
-     * assignee, tags (stored as comma-separated text) and notes.
+     * Inserts or updates a fraud alert row, including the analyst's verdict and metadata like
+     * risk score, assignee, tags (stored as comma-separated text) and notes.
+     *
+     * The alert lifecycle is completed here: decision and resolved_at have been declared in
+     * db/init/schema.sql since the table was created and this statement wrote neither, so an
+     * approved alert stored its state and nothing about who decided it or when. decided_by
+     * joins them. All three are in the DO UPDATE SET list, because an alert is inserted at NEW
+     * and decided by a later save.
+     *
+     * Tags are joined with commas here and split on commas coming back, which is why
+     * FraudApplicationService refuses a comma inside a tag: this column cannot represent one.
      */
     private void upsertAlert(Connection conn, FraudAlert a) throws SQLException {
         String sql = """
             INSERT INTO fraud_alerts
-                (id, transfer_id, state, reason, risk_score, assignee, tags, notes, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, transfer_id, state, decision, decided_by, reason, risk_score,
+                 assignee, tags, notes, created_at, resolved_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
                 transfer_id = EXCLUDED.transfer_id,
                 state       = EXCLUDED.state,
+                decision    = EXCLUDED.decision,
+                decided_by  = EXCLUDED.decided_by,
                 reason      = EXCLUDED.reason,
                 risk_score  = EXCLUDED.risk_score,
                 assignee    = EXCLUDED.assignee,
                 tags        = EXCLUDED.tags,
                 notes       = EXCLUDED.notes,
-                created_at  = EXCLUDED.created_at
+                created_at  = EXCLUDED.created_at,
+                resolved_at = EXCLUDED.resolved_at
             """;
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, a.id());
             ps.setInt(2, a.transferId());
             ps.setString(3, a.state().name());
-            ps.setString(4, a.reason());
+
+            // Null while the alert is open, and decided_by is null for a verdict recorded from
+            // the console, which has no login to take an analyst's name from.
+            ps.setString(4, a.decision());
+            ps.setString(5, a.decidedBy());
+
+            ps.setString(6, a.reason());
 
             if (a.riskScore() != null) {
-                ps.setInt(5, a.riskScore());
+                ps.setInt(7, a.riskScore());
             } else {
-                ps.setNull(5, Types.INTEGER);
+                ps.setNull(7, Types.INTEGER);
             }
 
-            ps.setString(6, a.assignee());
+            ps.setString(8, a.assignee());
 
             String tagsJoined = null;
             if (a.tags() != null && !a.tags().isEmpty()) {
                 tagsJoined = String.join(",", a.tags());
             }
             if (tagsJoined != null) {
-                ps.setString(7, tagsJoined);
+                ps.setString(9, tagsJoined);
             } else {
-                ps.setNull(7, Types.VARCHAR);
+                ps.setNull(9, Types.VARCHAR);
             }
 
-            ps.setString(8, a.notes());
+            ps.setString(10, a.notes());
 
             Instant createdAt = a.createdAt();
             if (createdAt != null) {
-                ps.setTimestamp(9, Timestamp.from(createdAt));
+                ps.setTimestamp(11, Timestamp.from(createdAt));
             } else {
-                ps.setNull(9, Types.TIMESTAMP_WITH_TIMEZONE);
+                ps.setNull(11, Types.TIMESTAMP_WITH_TIMEZONE);
+            }
+
+            Instant resolvedAt = a.resolvedAt();
+            if (resolvedAt != null) {
+                ps.setTimestamp(12, Timestamp.from(resolvedAt));
+            } else {
+                ps.setNull(12, Types.TIMESTAMP_WITH_TIMEZONE);
             }
 
             ps.executeUpdate();
@@ -176,12 +203,15 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
         SELECT id,
                transfer_id,
                state,
+               decision,
+               decided_by,
                reason,
                risk_score,
                assignee,
                tags,
                notes,
-               created_at
+               created_at,
+               resolved_at
           FROM fraud_alerts
          WHERE id = ?
         """;
@@ -223,12 +253,15 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
         SELECT id,
                transfer_id,
                state,
+               decision,
+               decided_by,
                reason,
                risk_score,
                assignee,
                tags,
                notes,
-               created_at
+               created_at,
+               resolved_at
           FROM fraud_alerts
          WHERE transfer_id = ?
          ORDER BY id ASC
@@ -285,12 +318,15 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
         SELECT id,
                transfer_id,
                state,
+               decision,
+               decided_by,
                reason,
                risk_score,
                assignee,
                tags,
                notes,
-               created_at
+               created_at,
+               resolved_at
           FROM fraud_alerts
         """;
 
@@ -348,12 +384,18 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
 
         FraudAlert alert = new FraudAlert(id, transferId, reason);
 
-        try {
-            FraudAlertState st = FraudAlertState.valueOf(stateStr);
-            alert.hydrateForLoad(st, reason, createdAt, riskScore, assignee, tags, notes);
-        } catch (Exception ignored) {
-            // If persisted state is invalid, keep the default NEW state from constructor.
-        }
+        FraudAlertState st = StoredValue.requiredEnum(
+                FraudAlertState.class, stateStr, "state", "fraud alert", id);
+        alert.hydrateForLoad(st, reason, createdAt, riskScore, assignee, tags, notes);
+
+        // All three are null on every alert written before these columns were wired up, and
+        // hydrateDecision accepts that; a loader that refused a legacy row would make every
+        // stored alert unreadable. Unlike the state above, absent here is a real value.
+        Timestamp resolvedTs = rs.getTimestamp("resolved_at");
+        alert.hydrateDecision(
+                rs.getString("decision"),
+                rs.getString("decided_by"),
+                resolvedTs != null ? resolvedTs.toInstant() : null);
 
         return alert;
     }
