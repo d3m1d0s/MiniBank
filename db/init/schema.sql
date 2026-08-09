@@ -119,8 +119,8 @@ CREATE INDEX idx_beneficiaries_customer_id ON beneficiaries(customer_id);
 --
 -- fee is the fee actually charged, written once by Transfer.send. NULL until the transfer
 -- settles, and NULL forever on one that never did. Not recomputed on display, which is the
--- whole point of A14: swapping the FeePolicy bean must not silently restate what a customer
--- was charged last month.
+-- whole point of storing it: swapping the FeePolicy bean must not silently restate what a
+-- customer was charged last month.
 --
 -- settled_at is when the money moved; created_at is when the order was placed. The daily
 -- total is keyed on settled_at, falling back to created_at for rows written before this
@@ -151,10 +151,10 @@ CREATE TABLE transfers (
                            auth_valid_until     TIMESTAMPTZ,
 
                            -- Bumped by every guarded write, exactly as accounts.version is.
-                           -- A6 gave the column to accounts alone because the measured leak was
-                           -- on the balance; this row needs its own, because cancelPayment and
-                           -- the two authorization failure paths write the transfer and never
-                           -- touch accounts, so accounts.version cannot see them.
+                           -- The version went to accounts alone at first, because that is
+                           -- where the measured leak was. This row needs its own: cancelPayment
+                           -- and the two authorization failure paths write the transfer and
+                           -- never touch accounts, so accounts.version cannot see them.
                            version              INTEGER NOT NULL DEFAULT 0,
 
                            -- The same invariant Transfer's constructor enforces, now also
@@ -193,8 +193,8 @@ CREATE INDEX idx_transfers_daily_total
 --
 -- decision / decided_by / resolved_at are written together by FraudAlert.approve and
 -- FraudAlert.markSuspicious. decision and resolved_at have been declared here since the
--- table was created and were written by nothing and read by nothing; B1's remaining half is
--- wiring them up, which is why decided_by joins them rather than arriving alone.
+-- table was created and were written by nothing and read by nothing; wiring them up is what
+-- decided_by arrives with, rather than arriving alone.
 -- decided_by is NULL for a decision made from the console, which has no login.
 ------------------------------------------------------------
 

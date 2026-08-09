@@ -1,10 +1,11 @@
--- A8. Run once against any database seeded before the fraud review gate existed.
+-- Hold every transfer that has an open alert. Run once against any database seeded before the
+-- fraud review gate existed.
 --
 -- Deliberately NOT in db/init/, which docker compose runs automatically on a fresh volume:
 -- a fresh database has no rows to move. Same reasoning as db/reset.sql - this one only ever
 -- runs when a person names it.
 --
---   docker compose exec -T db psql -U minibank -d minibank < db/migrate/a8-hold-alerted-transfers.sql
+--   docker compose exec -T db psql -U minibank -d minibank < db/migrate/hold-alerted-transfers.sql
 --
 -- Before this change an alerted transfer was stored WAITING_AUTH, so the customer could confirm
 -- it while its alert sat NEW in the analyst's queue. The gate is a write-time invariant on the

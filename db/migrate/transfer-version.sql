@@ -6,12 +6,12 @@
 -- existing volume has two databases at the old shape and both need this:
 --
 --   Git Bash / sh:
---     docker compose exec -T db psql -U minibank -d minibank      < db/migrate/b19-transfer-version.sql
---     docker compose exec -T db psql -U minibank -d minibank_test < db/migrate/b19-transfer-version.sql
+--     docker compose exec -T db psql -U minibank -d minibank      < db/migrate/transfer-version.sql
+--     docker compose exec -T db psql -U minibank -d minibank_test < db/migrate/transfer-version.sql
 --
 --   PowerShell, where "<" is a reserved operator and the line above is a parse error:
---     Get-Content db/migrate/b19-transfer-version.sql | docker compose exec -T db psql -U minibank -d minibank
---     Get-Content db/migrate/b19-transfer-version.sql | docker compose exec -T db psql -U minibank -d minibank_test
+--     Get-Content db/migrate/transfer-version.sql | docker compose exec -T db psql -U minibank -d minibank
+--     Get-Content db/migrate/transfer-version.sql | docker compose exec -T db psql -U minibank -d minibank_test
 --
 -- Skipping minibank_test leaves the SQL integration tests failing on a missing column while the
 -- application runs, which reads as a code bug rather than a missed step.
@@ -19,7 +19,7 @@
 -- Deliberately NOT in db/init/, which docker compose runs unattended on a fresh volume: that
 -- directory must describe the schema, not patch it.
 --
--- Why the column exists. A6 put a version on accounts because that is where the measured leak
+-- Why the column exists. Accounts got a version first, because that is where the measured leak
 -- was: twenty concurrent transfers, one debit applied, 115 140 CZK overwritten. It does not
 -- cover the transfers row, and three paths write that row without ever calling accounts.save -
 -- TransferApplicationService.cancelPayment, the wrong-OTP branch and the expired-window branch -

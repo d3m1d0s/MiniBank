@@ -411,7 +411,7 @@ public class SqlSchemaPassTest {
      * The status column has no CHECK, deliberately, and this is what stands in its place.
      *
      * A CHECK on an enum column makes every future value a two-place change and would contradict
-     * what db/migrate/a8-hold-alerted-transfers.sql argues about adding one. The real defect was
+     * what db/migrate/hold-alerted-transfers.sql argues about adding one. The real defect was
      * never that the database allowed a bad string - it was that the loader swallowed it: the
      * parse and the hydrate call shared one catch, so an unreadable status came back as the
      * constructor's CREATED and took the creation instant, the authorization method, the decline

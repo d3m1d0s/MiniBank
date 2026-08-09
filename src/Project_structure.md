@@ -14,8 +14,8 @@ VIS_project_minibank/
 │  │  ├─ schema.sql
 │  │  └─ test-database.sql
 │  ├─ migrate/                       <- run by hand, against BOTH minibank and minibank_test
-│  │  ├─ a8-hold-alerted-transfers.sql
-│  │  └─ a14-a6-schema-pass.sql
+│  │  ├─ hold-alerted-transfers.sql
+│  │  └─ stored-fee-and-account-version.sql
 │  └─ reset.sql
 │
 ├─ minibank-fraud-web/

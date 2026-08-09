@@ -1,17 +1,17 @@
--- A14, A6 and five columns bundled with them. Run once against any database created before
--- this change.
+-- The fee a transfer was actually charged, the version that guards an account write, and five
+-- columns bundled with them. Run once against any database created before this change.
 --
 -- MUST BE RUN AGAINST BOTH DATABASES. db/init/ runs only on an empty volume, and
 -- db/init/test-database.sql applies schema.sql to minibank_test as well as minibank, so an
 -- existing volume has two databases at the old shape and both need this:
 --
 --   Git Bash / sh:
---     docker compose exec -T db psql -U minibank -d minibank      < db/migrate/a14-a6-schema-pass.sql
---     docker compose exec -T db psql -U minibank -d minibank_test < db/migrate/a14-a6-schema-pass.sql
+--     docker compose exec -T db psql -U minibank -d minibank      < db/migrate/stored-fee-and-account-version.sql
+--     docker compose exec -T db psql -U minibank -d minibank_test < db/migrate/stored-fee-and-account-version.sql
 --
 --   PowerShell, where "<" is a reserved operator and the line above is a parse error:
---     Get-Content db/migrate/a14-a6-schema-pass.sql | docker compose exec -T db psql -U minibank -d minibank
---     Get-Content db/migrate/a14-a6-schema-pass.sql | docker compose exec -T db psql -U minibank -d minibank_test
+--     Get-Content db/migrate/stored-fee-and-account-version.sql | docker compose exec -T db psql -U minibank -d minibank
+--     Get-Content db/migrate/stored-fee-and-account-version.sql | docker compose exec -T db psql -U minibank -d minibank_test
 --
 -- Skipping minibank_test leaves the SQL integration tests failing on a missing column while
 -- the application runs, which reads as a code bug rather than a missed step. Nothing in this
@@ -19,7 +19,7 @@
 --
 -- Deliberately NOT in db/init/, which docker compose runs unattended on a fresh volume: a
 -- fresh database is created at the final shape by schema.sql and has nothing to alter. Same
--- reasoning as db/reset.sql and db/migrate/a8-hold-alerted-transfers.sql. This script and the
+-- reasoning as db/reset.sql and db/migrate/hold-alerted-transfers.sql. This script and the
 -- a8 one are independent of each other and may be run in either order; the filenames carry no
 -- ordering.
 --
@@ -35,8 +35,9 @@
 --
 --   transfers.fee stays NULL on every existing row. The fee those transfers were charged is
 --   not recorded anywhere, so computing one now from today's FeePolicy would invent the exact
---   number A14 exists to stop inventing. A NULL fee reads as "not known", and Transfer.feeFor
---   falls back to a quote from the current policy, which is what every screen already showed.
+--   number this column exists to stop inventing. A NULL fee reads as "not known", and
+--   Transfer.feeFor falls back to a quote from the current policy, which is what every screen
+--   already showed.
 --
 --   transfers.settled_at stays NULL on every existing row, including SENT ones. Writing
 --   created_at into it would claim those payments settled the instant they were ordered, which

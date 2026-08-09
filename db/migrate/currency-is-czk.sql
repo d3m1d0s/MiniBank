@@ -20,8 +20,9 @@
 --
 -- Deliberately not NOT VALID. A CHECK added this way validates the rows already in the table, so
 -- an existing foreign row fails the migration loudly instead of surviving under a constraint
--- that claims it cannot exist. db/migrate/a14-a6-schema-pass.sql refuses NOT VALID for the same
--- reason and says so. If this fails, the row it names is the finding, not the obstacle.
+-- that claims it cannot exist. db/migrate/stored-fee-and-account-version.sql refuses NOT VALID
+-- for the same reason and says so. If this fails, the row it names is the finding, not the
+-- obstacle.
 
 \set ON_ERROR_STOP on
 
