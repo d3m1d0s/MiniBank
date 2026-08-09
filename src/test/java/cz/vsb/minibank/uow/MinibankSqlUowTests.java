@@ -246,9 +246,7 @@ public class MinibankSqlUowTests {
                     accountId,
                     null,
                     "CZ0401000000000000000000",
-                    Money.czk(1_000),
-                    "CZK"
-            );
+                    Money.czk(1_000));
 
             transfers.add(t);
 
@@ -339,9 +337,7 @@ public class MinibankSqlUowTests {
                     accountId,
                     null,
                     "CZ0401000000000000000000",
-                    Money.czk(500),
-                    "CZK"
-            );
+                    Money.czk(500));
             infra.transfers.add(t);
 
             scope.uow().commit();

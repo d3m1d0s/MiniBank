@@ -134,6 +134,6 @@ class DomainEventsAtCommitTest {
 
     private Transfer newTransfer() {
         return new Transfer(infra.transfers.nextId(), 1, null,
-                "CZ6508000000192000145399", Money.czk(100), "CZK");
+                "CZ6508000000192000145399", Money.czk(100));
     }
 }

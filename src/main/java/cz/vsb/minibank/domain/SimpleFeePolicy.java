@@ -34,8 +34,11 @@ public class SimpleFeePolicy implements FeePolicy {
         // IllegalArgumentException("Currency mismatch") on a foreign amount. That is an accidental
         // RuntimeException for what is really a data-shape problem, and the API can only answer it
         // as an unhandled 500. Refusing here names it, and names it as what it is rather than as
-        // the caller's mistake: both creation paths stamp the literal "CZK" and no wire contract
-        // carries a currency, so a foreign amount can only have come from a hand-written row.
+        // the caller's mistake: every amount a caller can submit is built by Money.czkPayment and
+        // no request contract carries a currency, so a foreign one can only have come from stored
+        // data. Kept although a Transfer can no longer carry one here - its constructor refuses a
+        // foreign amount now - because an implementation states what it requires of every caller,
+        // and DemoRunner calls compute directly without one.
         //
         // This also has to sit ahead of the account guard. Both money paths compute the fee before
         // comparing it against a balance, so without this the first thing to fail would be

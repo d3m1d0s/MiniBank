@@ -73,9 +73,7 @@ public class MinibankLazyLoadTests {
                     accountId,
                     null,
                     "CZ0401000000000000000000",
-                    Money.czk(1_000),
-                    "CZK"
-            );
+                    Money.czk(1_000));
 
             infra.transfers.add(t);
             uow.commit();

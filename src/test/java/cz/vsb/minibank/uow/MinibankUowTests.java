@@ -110,7 +110,7 @@ public class MinibankUowTests {
             doomedTransferId = infra.transfers.nextId();
             infra.transfers.add(new Transfer(
                     doomedTransferId, accountId, null,
-                    "CZ0401000000000000000000", Money.czk(1_000), "CZK"));
+                    "CZ0401000000000000000000", Money.czk(1_000)));
 
             // Fails after the transfer has already been applied to the shared data.
             scope.uow().registerMutation(() -> { throw new IllegalStateException("commit fails here"); });

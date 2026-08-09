@@ -188,7 +188,7 @@ public final class SqlTransferRepository implements TransferRepository {
             }
             ps.setString(4, t.targetIbanSnapshot());
             ps.setBigDecimal(5, t.amount().amount());
-            ps.setString(6, t.currency());
+            ps.setString(6, t.amount().currency());
 
             // NULL rather than zero on a transfer that has not settled. A stored 0.00 would be
             // a claim that this payment was charged nothing, which is a different fact from
@@ -484,7 +484,9 @@ public final class SqlTransferRepository implements TransferRepository {
      * the migration changes no historical total. A row with neither timestamp counts toward no
      * day at all, because NULL fails both range comparisons - the same rule the JSON backend
      * applies to a timestamp it cannot parse. The currency predicate is there so a row in
-     * another currency cannot be summed into a CZK ceiling; today no writer produces one.
+     * another currency cannot be summed into a CZK ceiling. It used to be the only thing saying
+     * so; transfers_currency_czk now refuses such a row outright, and this stays because the
+     * aggregate reads the column without building a Transfer out of any row it counts.
      *
      * idx_transfers_source_account serves the equality predicate and the rest is a sequential
      * filter over that account's own rows, exactly as before - the COALESCE costs nothing in
@@ -539,8 +541,7 @@ public final class SqlTransferRepository implements TransferRepository {
                 sourceAccountId,
                 beneficiaryId,
                 targetIban,
-                amount,
-                currency
+                amount
         );
 
         String statusStr = rs.getString("status");

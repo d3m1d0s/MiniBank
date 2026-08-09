@@ -216,7 +216,6 @@ public final class DemoScenario {
                 source.id(),
                 target.id(),
                 target.iban().value(),
-                amount,
-                "CZK");
+                amount);
     }
 }

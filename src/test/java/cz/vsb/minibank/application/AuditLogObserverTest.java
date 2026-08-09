@@ -56,7 +56,7 @@ class AuditLogObserverTest {
     @Test
     void theTransferWriterNamesTheTransferItsMoveAndItsAccount() throws IOException {
         Transfer transfer = new Transfer(42, 7, null,
-                "CZ2001000000000012345678", Money.czk(1500), "CZK");
+                "CZ2001000000000012345678", Money.czk(1500));
 
         new TransferAuditLogObserver().onStatusChanged(
                 transfer, TransferStatus.CREATED, TransferStatus.WAITING_AUTH);

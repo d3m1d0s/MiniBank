@@ -136,7 +136,7 @@ public class TransferApplicationService {
 
             int id = transfers.nextId();
             Transfer t = new Transfer(id, account.id(), beneficiary.id(), beneficiary.iban().value(),
-                    amount, "CZK", clock.instant());
+                    amount, clock.instant());
             t.attachMessage(reference);
 
             routeTransferCreation(account, t, beneficiary.trusted());
@@ -171,7 +171,7 @@ public class TransferApplicationService {
             requireDifferentAccount(account, iban);
 
             int id = transfers.nextId();
-            Transfer t = new Transfer(id, account.id(), null, iban.value(), amount, "CZK", clock.instant());
+            Transfer t = new Transfer(id, account.id(), null, iban.value(), amount, clock.instant());
             t.attachMessage(reference);
 
             // An arbitrary IBAN is not a saved beneficiary, so it is never a trusted one.

@@ -123,7 +123,7 @@ class FraudHistoryOrderTest {
 
             for (int i = 0; i < howMany; i++) {
                 Transfer t = new Transfer(infra.transfers.nextId(), accountId, null,
-                        TARGET_IBAN, Money.czk(12_000), "CZK", BASE.plusSeconds(i * 60L));
+                        TARGET_IBAN, Money.czk(12_000), BASE.plusSeconds(i * 60L));
                 t.holdForReview(null);
                 infra.transfers.add(t);
                 infra.alerts.add(new FraudAlert(infra.alerts.nextId(), t.id(),

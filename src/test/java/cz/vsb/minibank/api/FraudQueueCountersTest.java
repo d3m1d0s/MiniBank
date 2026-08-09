@@ -157,7 +157,7 @@ class FraudQueueCountersTest {
     }
 
     private static Transfer transferOf(int id) {
-        return new Transfer(id, 1, null, "CZ2001000000000012345678", Money.czk(1000), "CZK");
+        return new Transfer(id, 1, null, "CZ2001000000000012345678", Money.czk(1000));
     }
 
     /** A payment the customer withdrew: the alert on it survives, the payment does not. */

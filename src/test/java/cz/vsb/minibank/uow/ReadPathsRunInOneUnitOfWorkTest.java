@@ -189,7 +189,7 @@ class ReadPathsRunInOneUnitOfWorkTest {
 
             for (int i = 0; i < howMany; i++) {
                 Transfer t = new Transfer(infra.transfers.nextId(), accountId, null,
-                        TARGET_IBAN, Money.czk(12_000), "CZK");
+                        TARGET_IBAN, Money.czk(12_000));
                 t.holdForReview(null);
                 infra.transfers.add(t);
                 infra.alerts.add(new FraudAlert(infra.alerts.nextId(), t.id(),

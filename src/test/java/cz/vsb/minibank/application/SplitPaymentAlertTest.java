@@ -185,7 +185,7 @@ class SplitPaymentAlertTest {
     void aDenormalizedStoredSnapshotIsStillTheSamePayee() {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             Transfer settled = new Transfer(infra.transfers.nextId(), accountId, null,
-                    "cz20 0100 0000 0000 1234 5678", Money.czk(HALF), "CZK");
+                    "cz20 0100 0000 0000 1234 5678", Money.czk(HALF));
             settled.send(infra.accounts.byId(accountId).orElseThrow(), null,
                     services.feePolicy, settled.createdAt());
             infra.transfers.add(settled);

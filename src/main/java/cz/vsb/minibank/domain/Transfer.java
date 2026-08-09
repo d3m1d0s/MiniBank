@@ -45,7 +45,6 @@ public class Transfer implements RecordsDomainEvents {
     private String targetIbanSnapshot; // IBAN captured at creation time
 
     private Money amount;
-    private String currency; // for example CZK
 
     /** What this transfer was actually charged, written once by {@link #send}. Null until then. */
     private Money fee;
@@ -87,8 +86,8 @@ public class Transfer implements RecordsDomainEvents {
     private LazyRef<Beneficiary> beneficiaryRef;
 
     public Transfer(int id, int sourceAccountId, Integer beneficiaryId, String targetIbanSnapshot,
-                    Money amount, String currency) {
-        this(id, sourceAccountId, beneficiaryId, targetIbanSnapshot, amount, currency, Instant.now());
+                    Money amount) {
+        this(id, sourceAccountId, beneficiaryId, targetIbanSnapshot, amount, Instant.now());
     }
 
     /**
@@ -103,7 +102,7 @@ public class Transfer implements RecordsDomainEvents {
      * @param createdAt when this transfer was created; must not be null
      */
     public Transfer(int id, int sourceAccountId, Integer beneficiaryId, String targetIbanSnapshot,
-                    Money amount, String currency, Instant createdAt) {
+                    Money amount, Instant createdAt) {
         // Class invariant: a transfer always moves a strictly positive amount. This also runs
         // when a stored row is rehydrated, so a row that breaks it is refused as corrupt
         // instead of being loaded back into the domain.
@@ -116,8 +115,24 @@ public class Transfer implements RecordsDomainEvents {
             throw new DataIntegrityException("Transfer amount must be greater than zero: " + amount);
         }
 
+        // The second half of the same invariant: this bank keeps one currency, and here is where
+        // that stops being a convention. Both loaders rebuild the amount from the currency the
+        // row was stored with, so a row written by hand in anything else is refused on the way
+        // in rather than loaded and then meeting a CZK balance further down as a bare
+        // "Currency mismatch" from Money. Same exception type as above and for the same reason:
+        // both creation paths build the amount through Money.czkPayment, so no caller can
+        // produce a foreign one and this only ever fires on a stored row.
+        //
+        // The amount is the only place a transfer records its currency now. It used to be here
+        // twice - a Money that carries one and a String beside it - and nothing reconciled them,
+        // so a stored row could load with the two disagreeing.
+        if (!"CZK".equals(amount.currency())) {
+            throw new DataIntegrityException(
+                    "Transfers are kept in CZK, but this amount is " + amount.currency());
+        }
+
         this.id = id; this.sourceAccountId = sourceAccountId; this.beneficiaryId = beneficiaryId;
-        this.targetIbanSnapshot = targetIbanSnapshot; this.amount = amount; this.currency = currency;
+        this.targetIbanSnapshot = targetIbanSnapshot; this.amount = amount;
         this.status = TransferStatus.CREATED;
         this.createdAt = java.util.Objects.requireNonNull(createdAt, "createdAt");
 
@@ -434,7 +449,6 @@ public class Transfer implements RecordsDomainEvents {
     public Integer beneficiaryId() { return beneficiaryId; }
     public String targetIbanSnapshot() { return targetIbanSnapshot; }
     public Money amount() { return amount; }
-    public String currency() { return currency; }
     public TransferStatus status() { return status; }
     public Instant createdAt() { return createdAt; }
     public Payment authMethod() { return authMethod; }

@@ -377,6 +377,35 @@ public class SqlSchemaPassTest {
         assertEquals(1, countTransfers());
     }
 
+    /**
+     * The same shape for the currency, and this one closes the route the foreign row actually
+     * came in by.
+     *
+     * The column has always been VARCHAR(3) and would take any three characters, so a psql
+     * session was all it took to put a transfer denominated in something this bank does not keep
+     * into the table. That row then came back out as a genuine foreign amount beside a fee that
+     * is always rebuilt as crowns, and adding the two raised a bare "Currency mismatch" on the
+     * customer's own payment screen. Transfer's constructor now refuses such a row on load; this
+     * stops it being writable in the first place.
+     */
+    @Test
+    void aTransferInAnotherCurrencyCannotBeInsertedEvenBehindTheDomainsBack() throws Exception {
+        int accountId = seedAccount(Money.czk(1_000), Money.czk(1_000_000), null);
+
+        for (String currency : new String[]{"EUR", "USD", "czk", ""}) {
+            SQLException refused = assertThrows(SQLException.class,
+                    () -> insertRawTransfer(accountId, "100.00", currency),
+                    "a currency of '" + currency + "' must be refused by the database");
+            assertTrue(String.valueOf(refused.getMessage()).contains("transfers_currency_czk"),
+                    "refused by the named CHECK rather than by something else: " + refused.getMessage());
+        }
+
+        assertEquals(0, countTransfers(), "no row may survive a refused insert");
+
+        insertRawTransfer(accountId, "100.00", "CZK");
+        assertEquals(1, countTransfers());
+    }
+
     // -------------------------------------------------------------------------
     // The new columns actually reach the database and come back
     // -------------------------------------------------------------------------
@@ -556,15 +585,20 @@ public class SqlSchemaPassTest {
 
     /** Bypasses the domain entirely; the constraint is the only thing standing here. */
     private void insertRawTransfer(int accountId, String amount) throws SQLException {
+        insertRawTransfer(accountId, amount, "CZK");
+    }
+
+    private void insertRawTransfer(int accountId, String amount, String currency) throws SQLException {
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
              PreparedStatement ps = conn.prepareStatement("""
                      INSERT INTO transfers
                          (id, source_account_id, target_iban_snapshot, amount, currency, status)
-                     VALUES (nextval('transfers_id_seq'), ?, ?, ?::numeric, 'CZK', 'SENT')
+                     VALUES (nextval('transfers_id_seq'), ?, ?, ?::numeric, ?, 'SENT')
                      """)) {
             ps.setInt(1, accountId);
             ps.setString(2, EXTERNAL_IBAN.value());
             ps.setString(3, amount);
+            ps.setString(4, currency);
             ps.executeUpdate();
         }
     }

@@ -149,11 +149,31 @@ public class JsonMapper {
      * same reason - a corrupt store must be refused rather than loaded into the domain.
      */
     private static Money requiredMoney(BigDecimal stored, String field, String kind, int id) {
+        return requiredMoney(stored, "CZK", field, kind, id);
+    }
+
+    /**
+     * The same, for a field whose currency the row stores beside it rather than implies.
+     *
+     * Only a transfer does. An account's money answers to columns named balance_czk and
+     * daily_limit_czk on the other backend, so its currency is in the name and there is nothing
+     * stored to read. A transfer's is a stored value, and it is read back here rather than forced
+     * to crowns so that a row written in anything else arrives at {@code Transfer}'s constructor
+     * as what it claims to be and is refused there. Forcing it is how this backend used to load a
+     * foreign row as real crowns while the SQL one rebuilt it faithfully - one row answering
+     * differently depending on which adapter read it.
+     */
+    private static Money requiredMoney(BigDecimal stored, String currency,
+                                       String field, String kind, int id) {
         if (stored == null) {
             throw new DataIntegrityException(
                     "Stored " + kind + " " + id + " has no " + field);
         }
-        return Money.czk(stored);
+        if (currency == null) {
+            throw new DataIntegrityException(
+                    "Stored " + kind + " " + id + " has no currency");
+        }
+        return Money.of(currency, stored);
     }
 
     // Transfer
@@ -165,7 +185,7 @@ public class JsonMapper {
         j.beneficiaryId = t.beneficiaryId();
         j.targetIbanSnapshot = t.targetIbanSnapshot();
         j.amount = t.amount().amount();
-        j.currency = t.currency();
+        j.currency = t.amount().currency();
         // Absent rather than 0.00 on a transfer that has not settled, so "charged nothing" and
         // "not charged yet" survive the round trip as different values.
         if (t.fee() != null) {
@@ -193,11 +213,11 @@ public class JsonMapper {
     }
 
     public static Transfer toDomain(JsonTransfer j) {
-        Money amount = requiredMoney(j.amount, "amount", "transfer", j.id);
+        Money amount = requiredMoney(j.amount, j.currency, "amount", "transfer", j.id);
 
         Transfer t = new Transfer(
                 j.id, j.sourceAccountId, j.beneficiaryId, j.targetIbanSnapshot,
-                amount, j.currency
+                amount
         );
 
         // restore authMethod if it was present

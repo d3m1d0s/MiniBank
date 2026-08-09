@@ -89,9 +89,7 @@ class PaymentNetworkIntegrationTest {
                 accountId,
                 null,
                 "CZ1301000000000098765432",
-                Money.czk(1_000),
-                "CZK"
-        );
+                Money.czk(1_000));
         // Simulate payment already created and pending authorization
         t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
         infra.transfers.add(t);

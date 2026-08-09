@@ -103,6 +103,6 @@ class AggregateDomainEventTest {
     }
 
     private static Transfer aTransfer() {
-        return new Transfer(1, 1, null, "CZ6508000000192000145399", Money.czk(100), "CZK");
+        return new Transfer(1, 1, null, "CZ6508000000192000145399", Money.czk(100));
     }
 }

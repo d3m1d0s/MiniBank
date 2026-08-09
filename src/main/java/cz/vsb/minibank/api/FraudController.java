@@ -186,7 +186,7 @@ public class FraudController {
             if (maxAmount != null && amount.compareTo(maxAmount) > 0) continue;
 
             String amountStr = amount.toPlainString();
-            String currency = t.currency();
+            String currency = t.amount().currency();
             String createdAtStr = alert.createdAt() != null ? alert.createdAt().toString() : null;
 
             items.add(new AlertQueueItemDto(
@@ -319,7 +319,7 @@ public class FraudController {
         String fromBalance = source.balance().amount().toPlainString();
 
         String amountStr = t.amount().amount().toPlainString();
-        String currency = t.currency();
+        String currency = t.amount().currency();
         // A14: what it was charged if it has settled, and only otherwise a quote from the
         // current policy. Recomputing this made the fraud desk restate what a customer was
         // charged last month whenever the FeePolicy bean was swapped.
@@ -372,7 +372,7 @@ public class FraudController {
                         t.id(),
                         t.createdAt().toString(),
                         t.amount().amount().toPlainString(),
-                        t.currency(),
+                        t.amount().currency(),
                         t.status().name(),
                         t.targetIbanSnapshot(),
                         t.declineReason()

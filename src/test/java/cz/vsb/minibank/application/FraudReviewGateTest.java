@@ -635,6 +635,6 @@ class FraudReviewGateTest {
     /** The same transfer before anything has happened to it. */
     private Transfer createdTransfer() {
         return new Transfer(9_000, ACCOUNT_ID, null, EXTERNAL_IBAN,
-                Money.czk(RAISES_ALERT), "CZK");
+                Money.czk(RAISES_ALERT));
     }
 }

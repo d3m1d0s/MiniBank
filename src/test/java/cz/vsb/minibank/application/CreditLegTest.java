@@ -340,7 +340,7 @@ class CreditLegTest {
     @Test
     void sendRefusesToCreditItsOwnSourceAccount() {
         Account source = accounts.byId(PAYER_ACCOUNT_ID).orElseThrow();
-        Transfer t = new Transfer(900, PAYER_ACCOUNT_ID, null, PAYER_IBAN, Money.czk(100), "CZK");
+        Transfer t = new Transfer(900, PAYER_ACCOUNT_ID, null, PAYER_IBAN, Money.czk(100));
 
         assertThrows(DataIntegrityException.class, () -> t.send(source, source, feePolicy, t.createdAt()));
         assertEquals(PAYER_OPENING, source.balance(), "the refusal must come before the debit");
@@ -350,7 +350,7 @@ class CreditLegTest {
     void sendRefusesAnAccountThatIsNotTheOneTheTransferNames() {
         Account source = accounts.byId(PAYER_ACCOUNT_ID).orElseThrow();
         Account wrong = accounts.byId(PAYEE_ACCOUNT_ID).orElseThrow();
-        Transfer t = new Transfer(901, PAYER_ACCOUNT_ID, null, OUTSIDE_IBAN, Money.czk(100), "CZK");
+        Transfer t = new Transfer(901, PAYER_ACCOUNT_ID, null, OUTSIDE_IBAN, Money.czk(100));
 
         assertThrows(DataIntegrityException.class, () -> t.send(source, wrong, feePolicy, t.createdAt()));
         assertEquals(PAYER_OPENING, source.balance());
@@ -360,7 +360,7 @@ class CreditLegTest {
     @Test
     void sendRefusesASourceThatIsNotTheAccountTheTransferDebits() {
         Account notTheSource = accounts.byId(PAYEE_ACCOUNT_ID).orElseThrow();
-        Transfer t = new Transfer(902, PAYER_ACCOUNT_ID, null, OUTSIDE_IBAN, Money.czk(100), "CZK");
+        Transfer t = new Transfer(902, PAYER_ACCOUNT_ID, null, OUTSIDE_IBAN, Money.czk(100));
 
         assertThrows(DataIntegrityException.class, () -> t.send(notTheSource, null, feePolicy, t.createdAt()));
         assertEquals(PAYEE_OPENING, notTheSource.balance());
@@ -377,7 +377,7 @@ class CreditLegTest {
         Account source = accounts.byId(PAYER_ACCOUNT_ID).orElseThrow();
         Account destination = accounts.byId(PAYEE_ACCOUNT_ID).orElseThrow();
         Transfer t = new Transfer(903, PAYER_ACCOUNT_ID, null,
-                "cz43 0800 0000 1920 0014 5407", Money.czk(100), "CZK");
+                "cz43 0800 0000 1920 0014 5407", Money.czk(100));
 
         assertDoesNotThrow(() -> t.send(source, destination, feePolicy, t.createdAt()));
         assertEquals(PAYEE_OPENING.plus(Money.czk(100)), destination.balance());

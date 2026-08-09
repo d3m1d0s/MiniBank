@@ -109,7 +109,6 @@ CREATE INDEX idx_beneficiaries_customer_id ON beneficiaries(customer_id);
 --   targetIbanSnapshot,
 --   Money amount,
 --   Money fee,
---   String currency,
 --   String message,
 --   TransferStatus status,
 --   Instant createdAt,
@@ -163,7 +162,15 @@ CREATE TABLE transfers (
                            -- through the domain: psql, a future report job, a bad migration.
                            -- Named explicitly so a migrated database and a fresh one carry the
                            -- same constraint name.
-                           CONSTRAINT transfers_amount_positive CHECK (amount > 0)
+                           CONSTRAINT transfers_amount_positive CHECK (amount > 0),
+
+                           -- One currency, and here it stops being a convention. The domain
+                           -- states it in Transfer's constructor, both loaders rebuild the
+                           -- amount from this column, and this refuses a row that names any
+                           -- other. Without it the constraint lives only in Java and psql is a
+                           -- way around it - which is precisely how a foreign row could be
+                           -- written at all.
+                           CONSTRAINT transfers_currency_czk CHECK (currency = 'CZK')
 );
 
 CREATE SEQUENCE transfers_id_seq;

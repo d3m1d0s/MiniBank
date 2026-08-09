@@ -95,8 +95,7 @@ class FraudControllerAuthTest {
                 100,                              // sourceAccountId
                 null,                             // beneficiaryId
                 "CZ2001000000000012345678",       // targetIbanSnapshot
-                Money.czk(1000),                  // amount
-                "CZK"                             // currency
+                Money.czk(1000)                   // amount
         );
 
         when(alerts.all()).thenReturn(List.of(alert));

@@ -162,9 +162,9 @@ class TransferAmountValidationTest {
     @Test
     void aNonPositiveAmountIsRefusedByTheConstructorAsCorruptData() {
         assertThrows(DataIntegrityException.class,
-                () -> new Transfer(1, ACCOUNT_ID, null, TARGET_IBAN, Money.czk(-1), "CZK"));
+                () -> new Transfer(1, ACCOUNT_ID, null, TARGET_IBAN, Money.czk(-1)));
         assertThrows(DataIntegrityException.class,
-                () -> new Transfer(1, ACCOUNT_ID, null, TARGET_IBAN, Money.czk(0), "CZK"));
+                () -> new Transfer(1, ACCOUNT_ID, null, TARGET_IBAN, Money.czk(0)));
     }
 
     @Test
@@ -218,6 +218,72 @@ class TransferAmountValidationTest {
         DataIntegrityException thrown =
                 assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(row));
         assertTrue(thrown.getMessage().contains("901"),
+                "the refusal must name the row, so a corrupt store can be found");
+    }
+
+    /**
+     * The same invariant on the currency. This bank keeps crowns, and a transfer records that in
+     * one place now - the currency its {@code Money} carries - rather than in a Money and a
+     * String beside it that nothing reconciled.
+     *
+     * Unreachable from a request for the same reason as the amount guard: both creation paths
+     * build the amount through {@code Money.czkPayment}. So it is a corrupt-data guard and a 500,
+     * not a 400.
+     */
+    @Test
+    void aForeignAmountIsRefusedByTheConstructorAsCorruptData() {
+        DataIntegrityException thrown = assertThrows(DataIntegrityException.class,
+                () -> new Transfer(1, ACCOUNT_ID, null, TARGET_IBAN,
+                        Money.of("EUR", new BigDecimal("100.00"))));
+
+        assertTrue(thrown.getMessage().contains("EUR"),
+                "the refusal must name what the amount actually was");
+    }
+
+    /**
+     * The half of it that was a real divergence between the two backends rather than a
+     * hypothetical.
+     *
+     * The SQL adapter has always rebuilt a stored row's amount in the currency the row names.
+     * This one forced every stored amount to crowns, so a row saying EUR loaded as that many
+     * real CZK and was debited as such, while the identical row on PostgreSQL came back as EUR.
+     * One row, two answers, decided by which adapter read it. Now both rebuild it faithfully and
+     * the constructor refuses what comes out.
+     */
+    @Test
+    void aStoredRowInAnotherCurrencyIsRefusedRatherThanReadAsCrowns() {
+        JsonTransfer row = new JsonTransfer();
+        row.id = 902;
+        row.sourceAccountId = ACCOUNT_ID;
+        row.targetIbanSnapshot = TARGET_IBAN;
+        row.amount = new BigDecimal("1000.00");
+        row.currency = "EUR";
+        row.status = "SENT";
+
+        DataIntegrityException thrown =
+                assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(row));
+        assertTrue(thrown.getMessage().contains("EUR"),
+                "the refusal must name the currency the row claimed");
+    }
+
+    /**
+     * A stored row with no currency at all is refused for that, rather than being assumed into
+     * crowns. Same argument as the missing amount above: the store is a file people open, and a
+     * key can be absent from it.
+     */
+    @Test
+    void aStoredRowWithNoCurrencyIsRefusedRatherThanAssumedToBeCrowns() {
+        JsonTransfer row = new JsonTransfer();
+        row.id = 903;
+        row.sourceAccountId = ACCOUNT_ID;
+        row.targetIbanSnapshot = TARGET_IBAN;
+        row.amount = new BigDecimal("1000.00");
+        row.currency = null;
+        row.status = "SENT";
+
+        DataIntegrityException thrown =
+                assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(row));
+        assertTrue(thrown.getMessage().contains("903"),
                 "the refusal must name the row, so a corrupt store can be found");
     }
 }

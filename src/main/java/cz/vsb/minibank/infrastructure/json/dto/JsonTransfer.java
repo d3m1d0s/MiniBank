@@ -14,6 +14,17 @@ public class JsonTransfer {
     /** Held as the domain holds it. See {@link JsonAccount#balance} for why it is not a double. */
     public BigDecimal amount;
 
+    /**
+     * The currency the amount above was stored in.
+     *
+     * Load-bearing rather than decorative, and it stays here although the domain field beside
+     * {@code Transfer.amount} went: this is the persistence record, and the SQL backend keeps the
+     * same fact in its own {@code currency} column, now under a CHECK. Dropping it here would
+     * leave one adapter recording what a stored amount is denominated in and the other not, which
+     * is the divergence this change exists to close rather than one to open. It is read back into
+     * the {@code Money} on load, so a row written by hand in anything but crowns is refused by
+     * {@code Transfer}'s constructor instead of quietly becoming that many crowns.
+     */
     public String currency;
 
     /**

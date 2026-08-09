@@ -60,7 +60,10 @@ public interface TransferRepository {
      * any currency but CZK.
      *
      * @return the total in CZK; both stores hold one currency and every transfer is created
-     *         with it, and the currency predicate is what keeps that assumption checked
+     *         with it. The currency predicate was once the only thing keeping that assumption
+     *         checked; it is now the last of three, behind Transfer's constructor and the
+     *         transfers_currency_czk constraint, and is kept because this aggregate reads rows
+     *         without building a Transfer out of any of them
      */
     Money sentTotalBetween(int accountId, Instant fromInclusive, Instant toExclusive);
 

@@ -16,9 +16,7 @@ class FakePaymentNetworkGatewayTest {
                 10,
                 null,
                 "CZ0401000000000000000000",
-                Money.czk(1_000),
-                "CZK"
-        );
+                Money.czk(1_000));
 
         gateway.send(t);
 
@@ -34,9 +32,7 @@ class FakePaymentNetworkGatewayTest {
                 10,
                 null,
                 "CZ0401000000000000000000",
-                Money.czk(500),
-                "CZK"
-        );
+                Money.czk(500));
         gateway.send(t);
         assertFalse(gateway.sentTransfers().isEmpty());
 
