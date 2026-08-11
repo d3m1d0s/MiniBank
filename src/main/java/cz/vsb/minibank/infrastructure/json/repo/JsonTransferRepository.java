@@ -7,6 +7,7 @@ import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
+import cz.vsb.minibank.infrastructure.StoredValue;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.dto.JsonTransfer;
 import cz.vsb.minibank.infrastructure.json.mapping.JsonMapper;
@@ -134,9 +135,18 @@ public class JsonTransferRepository implements TransferRepository {
         // Money before it is added, so the total rounds exactly as the amounts themselves do -
         // summing the stored values first and rounding once would not.
         //
-        // A SENT row with no amount is refused rather than skipped. Skipping it would answer a
-        // daily total that is quietly short by one payment, which is the shape of defect this
-        // ceiling exists to prevent.
+        // A SENT row this application would refuse to load is refused here too, rather than
+        // skipped or summed as it stands. Skipping answers a daily total that is quietly short by
+        // one payment, which is the shape of defect this ceiling exists to prevent; summing a row
+        // the loader rejects is the same defect wearing the other sign, because a negative stored
+        // amount does not merely fail to add, it subtracts, and buys headroom under the ceiling
+        // for the next real payment. The rule is one rule and it is applied once, in amountOf and
+        // dayKeyOf below, over exactly the rows Transfer's constructor and JsonMapper refuse and
+        // no others - a sum that refused more than the loader does would be a second opinion about
+        // what a valid row is, which is how the two backends drift apart.
+        //
+        // Only this backend can reach any of it. On SQL the CHECK constraints on amount and
+        // currency make such a row unrepresentable and the sum runs in the database.
         //
         // store.read holds the store lock, which a JsonUnitOfWork on this thread already holds,
         // so the re-acquisition is reentrant and costs nothing.
@@ -145,7 +155,6 @@ public class JsonTransferRepository implements TransferRepository {
             for (JsonTransfer dto : bundle.transfers) {
                 if (dto.sourceAccountId != accountId) continue;
                 if (!TransferStatus.SENT.name().equals(dto.status)) continue;
-                if (!"CZK".equals(dto.currency)) continue;
                 Instant countedOn = dayKeyOf(dto);
                 if (countedOn == null) continue;
                 if (countedOn.isBefore(fromInclusive) || !countedOn.isBefore(toExclusive)) continue;
@@ -175,7 +184,6 @@ public class JsonTransferRepository implements TransferRepository {
             for (JsonTransfer dto : bundle.transfers) {
                 if (dto.sourceAccountId != accountId) continue;
                 if (!TransferStatus.SENT.name().equals(dto.status)) continue;
-                if (!"CZK".equals(dto.currency)) continue;
                 if (!Objects.equals(wanted, IBAN.normalize(dto.targetIbanSnapshot))) continue;
                 Instant countedOn = dayKeyOf(dto);
                 if (countedOn == null) continue;
@@ -187,18 +195,46 @@ public class JsonTransferRepository implements TransferRepository {
     }
 
     /**
-     * The amount of a row being counted towards a total, refusing a row that carries none.
+     * The money a row being counted towards a total carries, refusing a row whose money this
+     * application would refuse to load.
      *
-     * The field is a {@link java.math.BigDecimal} rather than a primitive, so "absent" is now a
-     * value it can hold. That is the point of the type - a primitive answered 0.00 for a missing
-     * amount and no total ever noticed - but it means the reading side has to say what absent
-     * means, and here it means the store is corrupt.
+     * Three ways a stored row fails that, and only the first of them used to arrive here.
+     *
+     * Absent is a value the amount field can hold at all only because it is a
+     * {@link java.math.BigDecimal} rather than a primitive. That is the point of the type - a
+     * primitive answered 0.00 for a missing amount and no total ever noticed - but it means the
+     * reading side has to say what absent means, and here it means the store is corrupt.
+     *
+     * Non-positive was added to the total exactly as stored. {@link Money} fixes a scale and a
+     * currency and promises nothing about sign, deliberately, since it also has to express a
+     * balance going the other way; the rule that a transfer moves a strictly positive amount is
+     * Transfer's constructor's, and this sum is the one place a stored amount is read without a
+     * Transfer being built around it, so the rule was not reaching it. The row is therefore one
+     * this very repository will not hand out of {@link #byId}, counted here with a minus sign.
+     *
+     * A currency that is not CZK was skipped, absent and foreign alike, since one exact-match
+     * test caught both, and the skip was the whole of the defence. Both other readers of the
+     * field refuse such a row - {@link Money}'s constructor a code that is not canonical,
+     * Transfer's a well-formed foreign one - so a total that silently omits it is a total nobody
+     * can reconcile against the statement it was computed from.
      */
     private static Money amountOf(JsonTransfer dto) {
         if (dto.amount == null) {
             throw new DataIntegrityException("Stored transfer " + dto.id + " has no amount");
         }
-        return Money.czk(dto.amount);
+        if (dto.currency == null) {
+            throw new DataIntegrityException("Stored transfer " + dto.id + " has no currency");
+        }
+        if (!"CZK".equals(dto.currency)) {
+            throw new DataIntegrityException("Stored transfer " + dto.id
+                    + " has an unusable currency: " + dto.currency);
+        }
+        Money amount = Money.czk(dto.amount);
+        if (!amount.isPositive()) {
+            throw new DataIntegrityException("Stored transfer " + dto.id
+                    + " has an amount that is not greater than zero: " + amount);
+        }
+        return amount;
     }
 
     /**
@@ -208,26 +244,22 @@ public class JsonTransferRepository implements TransferRepository {
      * once per backend so the daily limit cannot mean different things depending on where the
      * data lives. The fallback is what makes the migration change no historical total: a row
      * written before settledAt existed keeps counting under its creation day, exactly as it did.
-     * A row with neither parseable counts toward no day at all.
+     * A row carrying neither timestamp counts toward no day at all, which is the NULL that fails
+     * both range comparisons on the other backend, and it stays that way here.
+     *
+     * Absent and unreadable part company, and that distinction is the whole of this. An absent
+     * settlement instant is what every transfer that has not settled carries: a fact this store
+     * is meant to hold, and the reason the fallback exists. A timestamp that is present and will
+     * not parse is a row no loader would accept, and there is no day it can honestly be filed
+     * under - so it is refused rather than dropped, and refused whether or not the window would
+     * have contained it, because the window is exactly what an unreadable timestamp makes
+     * unanswerable.
      */
     private static Instant dayKeyOf(JsonTransfer dto) {
-        Instant settledAt = parseInstantOrNull(dto.settledAt);
-        return settledAt != null ? settledAt : parseInstantOrNull(dto.createdAt);
-    }
-
-    /**
-     * A row whose timestamp is missing or unreadable counts toward no day at all.
-     *
-     * Parsed here rather than by going through JsonMapper, because Transfer.hydrateForLoad only
-     * assigns createdAt when it is non-null: a row the mapper cannot parse keeps the moment it
-     * was constructed, which would put it in today's total on every call, forever.
-     */
-    private static Instant parseInstantOrNull(String value) {
-        if (value == null) return null;
-        try {
-            return Instant.parse(value);
-        } catch (Exception e) {
-            return null;
-        }
+        Instant settledAt =
+                StoredValue.presentInstantOrNull(dto.settledAt, "settlement instant", "transfer", dto.id);
+        return settledAt != null
+                ? settledAt
+                : StoredValue.presentInstantOrNull(dto.createdAt, "creation instant", "transfer", dto.id);
     }
 }
