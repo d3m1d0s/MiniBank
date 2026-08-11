@@ -3,6 +3,7 @@ package cz.vsb.minibank.uow;
 import cz.vsb.minibank.application.BootstrapServices;
 import cz.vsb.minibank.demo.DemoScenario;
 import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
@@ -724,6 +725,109 @@ public class MinibankSqlUowTests {
                 "and the destination row really was updated, not just the sender's");
         assertEquals(0, before.minus(charged).amount().compareTo(totalAccountMoney().amount()),
                 "the fee is the only money that may leave the system");
+    }
+
+// -------------------------------------------------------------------------
+// 10) An ownership claim that matches no row must fail the commit
+// -------------------------------------------------------------------------
+
+    /**
+     * accounts.customer_id is written by exactly one statement, SqlCustomerRepository's
+     * {@code UPDATE accounts SET customer_id = ? WHERE id = ?}, and it is the only record of
+     * ownership SQL mode has. A customer naming an account id with no row behind it makes that
+     * statement match nothing, which JDBC does not consider an error, so the commit used to
+     * succeed and leave an account owned by nobody, a customer that reloads with no accounts,
+     * and every money path on it answering 404 without anything having reported a problem.
+     */
+    @Test
+    void claimingAnAccountThatHasNoRowFailsTheCommit() {
+        int customerId;
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
+
+            customerId = infra.customers.nextId();
+            Customer c = new Customer(customerId, "Claims Too Much", "claims@example.com",
+                    new Address("Street 1", "City"));
+
+            // A genuine id off the accounts sequence that no row is ever written for, which is
+            // the shape a stale or simply wrong entry in accountIds has. The first id off that
+            // sequence is discarded so this one cannot equal the customer's own: both sequences
+            // restart with the truncate in setUp, and an assertion about a message naming "1"
+            // would be answered by either of them.
+            infra.accounts.nextId();
+            int missingAccountId = infra.accounts.nextId();
+            c.addAccountId(missingAccountId);
+            infra.customers.save(c);
+
+            DataIntegrityException refused = assertThrows(DataIntegrityException.class, uow::commit,
+                    "A claim on an account with no row must fail the commit, not pass unnoticed");
+            assertTrue(
+                    refused.getMessage().contains(String.valueOf(missingAccountId)),
+                    "The refusal must name the account it could not claim: " + refused.getMessage()
+            );
+        }
+
+        // The customers row was written by the same method, one statement earlier, so a refusal
+        // that did not take the whole transaction with it would be its own kind of half-write.
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            assertTrue(
+                    infra.customers.byId(customerId).isEmpty(),
+                    "The failed commit must have rolled the customer row back as well"
+            );
+            scope.uow().commit();
+        }
+    }
+
+// -------------------------------------------------------------------------
+// 11) The ordering the demo depends on still assigns ownership
+// -------------------------------------------------------------------------
+
+    /**
+     * The counterpart to the case above, and the reason it has to be careful about what it
+     * refuses. Every caller here saves a customer once before its accounts exist and again
+     * afterwards, and it is that second save which writes accounts.customer_id - DemoScenario
+     * says so, and says the money paths 404 without it. Checking the rows an ownership claim
+     * touched must let this through untouched.
+     */
+    @Test
+    void theSecondSaveStillAssignsOwnershipInTheDemoOrdering() {
+        int customerId;
+        int accountId;
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            customerId = infra.customers.nextId();
+            Customer c = new Customer(customerId, "Ordinary Owner", "ordinary@example.com",
+                    new Address("Street 1", "City"));
+            infra.customers.save(c);
+
+            accountId = infra.accounts.nextId();
+            infra.accounts.save(new Account(accountId, new IBAN("CZ6508000000192000145399"),
+                    Money.czk(9_000), Money.czk(3_000)));
+
+            c.addAccountId(accountId);
+            infra.customers.save(c);
+
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            Customer reloaded = infra.customers.byId(customerId)
+                    .orElseThrow(() -> new AssertionError("Customer must exist after commit"));
+
+            assertEquals(
+                    List.of(accountId),
+                    reloaded.accountIds(),
+                    "The second save must have written accounts.customer_id"
+            );
+            assertEquals(
+                    List.of(accountId),
+                    infra.accounts.byCustomerId(customerId).stream().map(Account::id).toList(),
+                    "and the account must answer to that owner from the other side"
+            );
+
+            scope.uow().commit();
+        }
     }
 
     /** Sums balance_czk over every account row, so nothing can hide outside the fixture. */
