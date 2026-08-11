@@ -152,9 +152,12 @@ public class TransferApplicationService {
 
     /**
      * UC 04 - Submit Payment Order to an arbitrary IBAN.
-     * The IBAN is validated by the value object and invalid input results in an exception.
+     * The IBAN is validated by the value object, before any transaction opens - see
+     * {@link #requireTargetIban} - and invalid input results in an exception.
      *
      * @return identifier of the created transfer
+     * @throws cz.vsb.minibank.domain.exceptions.ValidationException when no target IBAN was
+     *         given, or when the message is longer than the store can hold
      * @throws NotFoundException when this caller has no such account, whether because none
      *         exists or because it is somebody else's
      * @throws DailyLimitExceededException when this amount would take today's outflow past the
@@ -162,12 +165,16 @@ public class TransferApplicationService {
      */
     public PaymentOutcome submitPaymentToIban(int callerCustomerId, int sourceAccountId, String targetIban, double amountCzk, String message) {
         // Validated before the unit of work opens: rejected input is caller input, not a
-        // reason to start a transaction and roll it back.
+        // reason to start a transaction and roll it back. The destination belongs above this
+        // line for that same reason and used to sit below it, which made the rule the comment
+        // states untrue for the one field a customer types by hand: a mistyped IBAN is a plain
+        // 400, and it was taking the JSON store's global lock, or opening a DriverManager
+        // connection with no pool behind it, purely to be torn down again.
         Money amount = Money.czkPayment(amountCzk);
         String reference = requireStorableMessage(message);
+        IBAN iban = requireTargetIban(targetIban);
 
         try (UowScope scope = new UowScope(uowFactory.begin())) {
-            IBAN iban = new IBAN(targetIban);
             var caller = guard.requireCaller(callerCustomerId);
             // The daily limits and the day's running total that decide this payment are read
             // off an account the caller owns, so a victim's limits cannot settle an attacker's
@@ -259,6 +266,35 @@ public class TransferApplicationService {
             transfers.add(t);
             accounts.save(account);
         }
+    }
+
+    /**
+     * Turns the caller's destination into a value object, or refuses the request.
+     *
+     * An omitted destination and a mistyped one are not the same complaint, and the difference
+     * was worth a guard because the value object cannot make it. {@link IBAN}'s constructor
+     * opens with a bare requireNonNull, so a request that simply left the field out arrived at
+     * the HTTP edge as a NullPointerException; no handler in RestExceptionHandler claims that
+     * type, so it fell to the catch-all and was answered 500 with an error-level stack trace.
+     * That tells the customer the bank is broken and tells the log the same, over a request
+     * that was merely incomplete.
+     *
+     * Refused as a missing value rather than as a malformed IBAN, following the login screen's
+     * refusal of an absent password. INVALID_IBAN reads "The IBAN you entered is not valid",
+     * which is a sentence about something the customer never entered; VALIDATION_ERROR is the
+     * catalogue entry that already says "invalid or missing values", and it needs nothing new
+     * added to the contract. Anything actually present, blank included, keeps INVALID_IBAN,
+     * because then there is a value to look at and correct.
+     *
+     * @throws cz.vsb.minibank.domain.exceptions.ValidationException when no destination was given
+     * @throws cz.vsb.minibank.domain.exceptions.InvalidIbanException when the destination given
+     *         is not a well-formed Czech IBAN
+     */
+    private static IBAN requireTargetIban(String targetIban) {
+        if (targetIban == null) {
+            throw new cz.vsb.minibank.domain.exceptions.ValidationException("Target IBAN is required");
+        }
+        return new IBAN(targetIban);
     }
 
     /**

@@ -22,6 +22,8 @@ import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.infrastructure.memory.InMemoryUserRepository;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -142,6 +144,31 @@ class HttpErrorContractTest {
         }
     }
 
+    /**
+     * Counts the transactions the payment path opens.
+     *
+     * The one fact asserted in this file that has no wire signature. A payment refused for a
+     * mistyped destination answers 400 INVALID_IBAN whether that destination is parsed before
+     * the unit of work or inside it, so nothing about the response tells the two apart and only
+     * this count does. It wraps the real factory rather than replacing it, so every other case
+     * in this file still runs against the ordinary store.
+     */
+    private static final class CountingUowFactory implements UnitOfWorkFactory {
+
+        private final UnitOfWorkFactory delegate;
+        private int begun;
+
+        CountingUowFactory(UnitOfWorkFactory delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public UnitOfWork begin() {
+            begun++;
+            return delegate.begin();
+        }
+    }
+
     @TempDir
     Path tempDir;
 
@@ -159,6 +186,9 @@ class HttpErrorContractTest {
     private InMemoryUserRepository users;
     private TestClock sessionClock;
     private LoginThrottle throttle;
+
+    /** The factory behind the transfer service, so a refusal can be asked what it opened. */
+    private CountingUowFactory uowFactory;
 
     /**
      * The throttle gets a clock of its own rather than sharing the session store's. Their two
@@ -201,8 +231,9 @@ class HttpErrorContractTest {
         accounts.save(new Account(VICTIM_ACCOUNT_ID, new IBAN(VICTIM_IBAN),
                 Money.czk(20_000), Money.czk(40_000)));
 
+        uowFactory = new CountingUowFactory(infra.uowFactory);
         BootstrapServices services = new BootstrapServices(
-                infra.customers, accounts, transfers, infra.alerts, infra.uowFactory);
+                infra.customers, accounts, transfers, infra.alerts, uowFactory);
         TransferApplicationService transferService = services.transferService;
 
         // Created through the service as the victim, so they are ordinary rows rather than
@@ -692,6 +723,56 @@ class HttpErrorContractTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"sourceAccountId\":" + ACCOUNT_ID
                                 + ",\"targetIban\":\"XX12\",\"amountCzk\":100.0,\"message\":\"x\"}"), 400, BODY_INVALID_IBAN);
+    }
+
+    /**
+     * The neighbour above with the field left out altogether, which used to be a 500.
+     *
+     * A record component binds null happily, so an omitted targetIban travelled all the way to
+     * IBAN's constructor, which opens with a bare requireNonNull. The resulting
+     * NullPointerException is a type the advice claims no handler for, so it fell to the
+     * catch-all: the customer was told the bank was broken and the log got a stack trace at
+     * error level, over a request that was merely incomplete.
+     *
+     * VALIDATION_ERROR rather than the INVALID_IBAN of the case above, which is the same
+     * distinction the login screen draws when it refuses an absent password: "The IBAN you
+     * entered is not valid" is a sentence about something the customer never entered.
+     */
+    @Test
+    void aPaymentWithNoTargetIbanIs400ValidationErrorAndNotA500() throws Exception {
+        assertResponse(api, post("/api/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceAccountId\":" + ACCOUNT_ID
+                                + ",\"amountCzk\":100.0,\"message\":\"x\"}"), 400, BODY_VALIDATION_ERROR);
+
+        // The same request said out loud. Both shapes are "no destination given" and neither
+        // may reach a different row of the contract from the other.
+        assertResponse(api, post("/api/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceAccountId\":" + ACCOUNT_ID
+                                + ",\"targetIban\":null,\"amountCzk\":100.0,\"message\":\"x\"}"),
+                400, BODY_VALIDATION_ERROR);
+    }
+
+    /**
+     * The half of aMalformedIbanIs400InvalidIban that the status and the body cannot show.
+     *
+     * The destination is the one field on this form a customer types by hand, and it used to be
+     * parsed inside the unit of work, so a plain 400 took the JSON store's global lock - or
+     * opened a JDBC connection with no pool behind it - purely to tear it down again. The
+     * response bytes are the same either way, which is why the assertion is on the factory.
+     */
+    @Test
+    void aMalformedIbanIsRefusedBeforeAnyTransactionOpens() throws Exception {
+        int begunBefore = uowFactory.begun;
+
+        assertResponse(api, post("/api/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceAccountId\":" + ACCOUNT_ID
+                                + ",\"targetIban\":\"XX12\",\"amountCzk\":100.0,\"message\":\"x\"}"), 400, BODY_INVALID_IBAN);
+
+        assertEquals(begunBefore, uowFactory.begun,
+                "Refused caller input must not open a transaction only to roll it back");
     }
 
     /**
