@@ -517,6 +517,90 @@ public class SqlSchemaPassTest {
         assertNotNull(decided.resolvedAt());
     }
 
+    // -------------------------------------------------------------------------
+    // Only a payment that moves money writes the account row
+    // -------------------------------------------------------------------------
+
+    /**
+     * Submitting a payment that settles nothing must leave the account row alone.
+     *
+     * accounts.version is the serialization point on a balance: every guarded write bumps it and
+     * every writer that read the older number is refused with a 409. Two of the three creation
+     * branches move no money - the payment is held for an analyst, or it waits for the customer's
+     * code - and both used to call accounts.save regardless. On SQL that is a real upsert, which
+     * rewrites identical values and bumps the column, so submitting a payment raced every
+     * authorization of every older transfer from the same account and could lose to one over an
+     * operation that never touched the balance.
+     *
+     * Asserted against the column rather than against a mock of the repository, because the claim
+     * is about what reaches the store: verifying that save was not called would pin the call site
+     * and say nothing about whether the row moved. The settling case is in the same test on
+     * purpose - a change that simply stopped saving accounts would satisfy the first two
+     * assertions and fail the last one.
+     */
+    @Test
+    void onlyAPaymentThatMovesMoneyBumpsTheAccountVersion() throws Exception {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+
+        int customerId;
+        int accountId;
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
+            customerId = infra.customers.nextId();
+            Customer c = new Customer(customerId, "Version Probe", "version@example.com",
+                    new Address("Hlavni 1", "Ostrava"));
+            infra.customers.save(c);
+
+            accountId = infra.accounts.nextId();
+            // A soft tier far below the ceiling, so an amount can cross the tier without coming
+            // anywhere near the daily limit and no second rule can be what routed the payment.
+            infra.accounts.save(new Account(accountId, PAYER_IBAN,
+                    Money.czk(500_000), Money.czk(400_000), Money.czk(3_000)));
+            c.addAccountId(accountId);
+            infra.customers.save(c);
+            uow.commit();
+        }
+
+        // The insert takes the column default, and SqlCustomerRepository's ownership UPDATE after
+        // it writes customer_id, which the guarded upsert never touches. So the row arrives here
+        // having been guarded against nothing, and every later number is a write this test caused.
+        int afterSeeding = versionOf(accountId);
+        assertEquals(0, afterSeeding, "seeding an account is one insert and no guarded write");
+
+        // 3 500 crosses this account's own 3 000 tier and nothing else: below the untrusted
+        // single-amount threshold, below the alert threshold, far below the ceiling.
+        int waiting = services.transferService.submitPaymentToIban(
+                customerId, accountId, EXTERNAL_IBAN.value(), 3_500, null).transferId();
+        assertEquals(TransferStatus.WAITING_AUTH,
+                infra.transfers.byId(waiting).orElseThrow().status(),
+                "the fixture must park the payment, or the case under test never happens");
+        assertEquals(afterSeeding, versionOf(accountId),
+                "a payment waiting for a code has moved no money, so the account row must be"
+                        + " untouched: a bump here makes submitting a payment contend with every"
+                        + " authorization on the same account, for a write with nothing in it");
+
+        // 12 000 passes the cumulative alert threshold for an untrusted payee, so it is held.
+        int held = services.transferService.submitPaymentToIban(
+                customerId, accountId, EXTERNAL_IBAN.value(), 12_000, null).transferId();
+        assertEquals(TransferStatus.HELD_FOR_REVIEW,
+                infra.transfers.byId(held).orElseThrow().status(),
+                "the fixture must raise an alert, or the case under test never happens");
+        assertEquals(afterSeeding, versionOf(accountId),
+                "and neither has a payment an analyst has still to look at");
+
+        // 2 500 stays under the tier, so it settles at creation - and that one really does write.
+        int settled = services.transferService.submitPaymentToIban(
+                customerId, accountId, EXTERNAL_IBAN.value(), 2_500, null).transferId();
+        assertEquals(TransferStatus.SENT,
+                infra.transfers.byId(settled).orElseThrow().status(),
+                "the fixture must settle this one, or the last assertion proves nothing");
+        assertEquals(afterSeeding + 1, versionOf(accountId),
+                "the debit is still a guarded write: dropping the two saves that persisted nothing"
+                        + " must not drop the one that persists a balance");
+    }
+
     // ------------------------------------------------------------------
     // fixture and plumbing
     // ------------------------------------------------------------------

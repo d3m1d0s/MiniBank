@@ -203,6 +203,18 @@ public class TransferApplicationService {
      * request, because an alerted transfer must not be confirmable by its owner while the alert
      * is open; the customer's confirmation step is what an analyst's APPROVE unlocks.
      *
+     * Only the settling branch writes an account, and the two that do not are deliberate rather
+     * than forgetful. Nothing on them changes the aggregate: canDebit and the risk evaluation
+     * only read it, holdForReview and requestAuthorization change the transfer alone, and the
+     * account carries no list of its transfers for a new one to join - see {@link Account}, which
+     * says why that field is gone. Both branches used to call accounts.save anyway, and on SQL
+     * that is not a no-op: the upsert rewrites identical values and bumps accounts.version, so
+     * merely submitting a payment took a serialization point on the account row. A submission
+     * that only parks a transfer at WAITING_AUTH could then be answered 409
+     * CONCURRENT_MODIFICATION because it raced an authorization of some older transfer from the
+     * same account, over an operation that moved no money. Anything a future branch here does
+     * change on the account has to save it; nothing on these two does.
+     *
      * @throws DailyLimitExceededException when the day's outflow plus this amount would pass
      *         the account's ceiling
      */
@@ -248,7 +260,6 @@ public class TransferApplicationService {
             // transfer is now HELD_FOR_REVIEW at the instant its alert does.
             t.holdForReview(new CardPayment(t.amount(), "****0000"));
             transfers.add(t);
-            accounts.save(account);
 
             FraudAlert a = new FraudAlert(
                     alerts.nextId(),
@@ -264,7 +275,6 @@ public class TransferApplicationService {
         } else {
             t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
             transfers.add(t);
-            accounts.save(account);
         }
     }
 
