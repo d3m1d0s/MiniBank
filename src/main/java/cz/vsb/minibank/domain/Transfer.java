@@ -243,13 +243,16 @@ public class Transfer implements RecordsDomainEvents {
         if (status != TransferStatus.HELD_FOR_REVIEW)
             throw new InvalidStateTransitionException("Release allowed only from HELD_FOR_REVIEW");
 
+        // authAttempts is deliberately left where it stands, for the reason
+        // holdForReviewOnAuthorization gives for not clearing it there: a transfer held at
+        // confirmation time can arrive here with guesses already spent, and handing them back
+        // would make the three-attempt cap something an analyst's approval refills. Zeroing it
+        // used to be defended as a no-op, and that argument was true only while the creation
+        // hold was the single edge into HELD_FOR_REVIEW. The creation path still reaches this
+        // method with the counter at zero, which is holdForReview's doing and not this one's.
+
         TransferStatus old = this.status;
         this.status = TransferStatus.WAITING_AUTH;
-
-        // Necessarily already zero - registerFailedOtpAttempt refuses anything but WAITING_AUTH,
-        // so a held transfer cannot have spent one - and written anyway so the invariant does
-        // not depend on that argument staying true.
-        this.authAttempts = 0;
         this.authValidUntil = null;
 
         raise(new TransferStatusChanged(this, old, this.status));

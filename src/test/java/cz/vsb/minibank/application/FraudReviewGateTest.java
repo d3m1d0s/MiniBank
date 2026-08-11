@@ -11,6 +11,7 @@ import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.ZeroFeePolicy;
 import cz.vsb.minibank.domain.exceptions.ConflictException;
+import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.exceptions.InvalidStateTransitionException;
 import cz.vsb.minibank.domain.exceptions.TransferUnderReviewException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
@@ -233,6 +234,51 @@ class FraudReviewGateTest {
                 "a released transfer must not carry a window the customer did not start");
         assertEquals(0, transfer(id).authAttempts());
         assertEquals(TransferStatus.WAITING_AUTH, status(id));
+    }
+
+    /**
+     * The counter above is zero because that payment was held before its owner was ever offered
+     * a code. This is the other release, and it must not hand attempts back.
+     *
+     * A payment held at confirmation time has already been through the OTP step, so the customer
+     * can arrive at the review with guesses spent. Releasing it used to reset the counter, which
+     * turned the three-attempt cap into something an analyst's approval refills: guess twice,
+     * get held, get approved, and guess three more times. Nothing about the hold is evidence
+     * that the earlier guesses were the account holder's.
+     *
+     * Reached the only way it can be reached: both halves are created before either settles, so
+     * the payee total crosses the alert threshold only at the moment the second is confirmed.
+     */
+    @Test
+    void anApprovedHoldDoesNotRefillTheOtpAttemptsTheCustomerSpent() {
+        int first = payExternal(NEEDS_AUTH_ONLY);
+        int second = payExternal(NEEDS_AUTH_ONLY);
+
+        assertThrows(InvalidOtpException.class,
+                () -> service.authorizePayment(CUSTOMER_ID, second, "999999"));
+        assertThrows(InvalidOtpException.class,
+                () -> service.authorizePayment(CUSTOMER_ID, second, "999999"));
+        assertEquals(2, transfer(second).authAttempts(), "two of the three are gone");
+
+        service.authorizePayment(CUSTOMER_ID, first, FixedOtpValidator.DEMO_OTP);
+        assertThrows(TransferUnderReviewException.class,
+                () -> service.authorizePayment(CUSTOMER_ID, second, FixedOtpValidator.DEMO_OTP),
+                "6 000 already gone to this payee plus 6 000 more is over the threshold");
+        assertEquals(TransferStatus.HELD_FOR_REVIEW, status(second));
+
+        fraudService.approve(second);
+
+        assertEquals(TransferStatus.WAITING_AUTH, status(second));
+        assertEquals(2, transfer(second).authAttempts(),
+                "the review gave the customer no guesses back");
+
+        service.authorizePayment(CUSTOMER_ID, second, "999999");
+
+        assertEquals(TransferStatus.DECLINED, status(second),
+                "the third wrong code is the third, not the first of a fresh three");
+        assertEquals("Too many invalid OTP attempts", transfer(second).declineReason());
+        assertEquals(OPENING.minus(Money.czk(NEEDS_AUTH_ONLY)), balance(),
+                "only the half that was confirmed may have moved");
     }
 
     /**
@@ -517,6 +563,45 @@ class FraudReviewGateTest {
         declined.decline("Canceled by customer");
         assertThrows(InvalidStateTransitionException.class,
                 declined::holdForReviewOnAuthorization);
+    }
+
+    /**
+     * The attempt counter across a hold and its release, on the aggregate itself, because this
+     * is where the rule lives and the service-level case above can only reach it through a
+     * particular arithmetic of thresholds.
+     *
+     * holdForReviewOnAuthorization keeps the spent attempts on purpose. Release then zeroed
+     * them, so the pair cancelled out and the cap was refillable by whoever could get a payment
+     * reviewed. The creation-time hold is the other half of the invariant and is asserted with
+     * it: a transfer that was never offered for confirmation has a counter belonging to no
+     * confirmation step, so that one is cleared and must stay cleared.
+     */
+    @Test
+    void releasingATransferKeepsTheAttemptsSpentBeforeItWasHeld() {
+        Transfer t = createdTransfer();
+        t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
+        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS);
+        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS);
+        assertEquals(TransferStatus.WAITING_AUTH, t.status(), "two of three leaves one");
+        assertEquals(2, t.authAttempts());
+
+        t.holdForReviewOnAuthorization();
+        assertEquals(2, t.authAttempts(), "a hold does not spend or return an attempt");
+
+        t.releaseForAuthorization();
+        assertEquals(TransferStatus.WAITING_AUTH, t.status());
+        assertEquals(2, t.authAttempts(),
+                "a released transfer keeps what its owner spent; otherwise the three-attempt cap"
+                        + " is refillable by getting the payment reviewed");
+
+        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS);
+        assertEquals(TransferStatus.DECLINED, t.status(),
+                "the next wrong code is the third and must exhaust it");
+
+        // And the creation-time hold, which is reached before any code was asked for.
+        Transfer neverConfirmed = heldTransfer();
+        neverConfirmed.releaseForAuthorization();
+        assertEquals(0, neverConfirmed.authAttempts());
     }
 
     /**
