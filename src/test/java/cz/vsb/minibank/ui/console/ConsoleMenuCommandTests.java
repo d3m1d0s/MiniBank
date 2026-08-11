@@ -2,6 +2,7 @@ package cz.vsb.minibank.ui.console;
 
 import cz.vsb.minibank.application.AuthService;
 import cz.vsb.minibank.application.BootstrapServices;
+import cz.vsb.minibank.application.MinibankProperties;
 import cz.vsb.minibank.application.Pbkdf2PasswordEncoder;
 import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -323,5 +324,137 @@ public class ConsoleMenuCommandTests {
                         + output);
         assertFalse(output.contains("Welcome,"),
                 "no password was ever given, so nobody signed in: " + output);
+    }
+
+    /**
+     * A mistyped number used to end the command. NumberFormatException is neither of the two
+     * exceptions the menu names, so it reached the generic clause: the operator's typo was
+     * recorded at ERROR with a stack trace and the whole command was abandoned. The value is
+     * asked for again instead.
+     */
+    @Test
+    void askInt_reAsksAfterATypoInsteadOfAbandoningTheCommand() throws Exception {
+        final String ownTargetIban = "CZ2001000000000012345678";
+        int ownAccId = infra.accounts.byCustomerId(customerId).get(0).id();
+
+        infra.transfers.add(new Transfer(
+                infra.transfers.nextId(),
+                ownAccId,
+                null,
+                ownTargetIban,
+                Money.czk(4242)
+        ));
+
+        // A typo, then the answer meant all along. Both lines are consumed only if the prompt
+        // comes back; without the loop the first one throws out of the command and the second
+        // is never read.
+        ByteArrayInputStream in = new ByteArrayInputStream(
+                ("twelve\n" + ownAccId + "\n").getBytes(StandardCharsets.UTF_8));
+        System.setIn(in);
+
+        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(outContent, true, StandardCharsets.UTF_8));
+
+        ConsoleMenu menu = new ConsoleMenu(app, infra, customerId);
+
+        var m = ConsoleMenu.class.getDeclaredMethod("listTransfersByAccount");
+        m.setAccessible(true);
+        assertDoesNotThrow(() -> { m.invoke(menu); },
+                "a mistyped number must be asked again, not thrown out of the command");
+
+        String output = outContent.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains("twelve"),
+                "the rejected answer should be quoted back so the operator sees what was read: "
+                        + output);
+        assertTrue(output.contains(ownTargetIban),
+                "the number typed after the typo should be the one the command used: " + output);
+    }
+
+    /**
+     * The prompts with no default are the ones an operator has no other way out of, and until
+     * now the way out was an accident: Enter produced parseInt("") and the resulting
+     * NumberFormatException aborted the command. That escape has to survive the re-asking loop,
+     * and it has to stop being reported as a fault of the bank's - it was written into
+     * minibank.log at ERROR, with a stack trace, beside the AUDIT records.
+     */
+    @Test
+    void run_blankLineAtAPromptWithNoDefaultCancelsTheCommandQuietly() throws IOException {
+        Path logPath = tempDir.resolve("minibank.log");
+        String previousLogFile = System.getProperty(MinibankProperties.LOG_FILE);
+        // Surefire points the whole suite at target/; this test needs a file only it writes to.
+        System.setProperty(MinibankProperties.LOG_FILE, logPath.toString());
+
+        // Command 7 asks for a transfer id and nothing else, the blank line cancels it, and 9
+        // ends the session: the script never runs out, which now would end the session by
+        // itself and prove nothing.
+        String consoleInput = "7\n\n9\n";
+        ByteArrayInputStream in = new ByteArrayInputStream(
+                consoleInput.getBytes(StandardCharsets.UTF_8));
+        System.setIn(in);
+
+        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(outContent, true, StandardCharsets.UTF_8));
+
+        try {
+            ConsoleMenu menu = new ConsoleMenu(app, infra, customerId);
+            menu.run();
+        } finally {
+            if (previousLogFile == null) {
+                System.clearProperty(MinibankProperties.LOG_FILE);
+            } else {
+                System.setProperty(MinibankProperties.LOG_FILE, previousLogFile);
+            }
+        }
+
+        String output = outContent.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains("Cancelled."),
+                "a blank line should abandon the command and say so: " + output);
+        assertFalse(output.contains("Operation could not be completed"),
+                "cancelling is not a failed operation and must not be announced as one: "
+                        + output);
+        assertTrue(output.contains("Bye!"),
+                "the menu should have come back and taken the exit choice: " + output);
+
+        String log = Files.exists(logPath) ? Files.readString(logPath) : "";
+        assertFalse(log.contains("ERROR"),
+                "an operator cancelling a command is not an error worth logging: " + log);
+        assertFalse(log.contains("NumberFormatException"),
+                "no stack trace belongs in the file that carries the audit records: " + log);
+    }
+
+    /**
+     * The other half of the same prompt behaviour: where a default is offered, Enter still
+     * takes it. The re-asking loop must not have turned an empty line into a cancel everywhere.
+     */
+    @Test
+    void askInt_emptyLineStillTakesTheOfferedDefault() throws Exception {
+        final String ownTargetIban = "CZ1301000000000098765432";
+        int ownAccId = infra.accounts.byCustomerId(customerId).get(0).id();
+
+        infra.transfers.add(new Transfer(
+                infra.transfers.nextId(),
+                ownAccId,
+                null,
+                ownTargetIban,
+                Money.czk(1234)
+        ));
+
+        // "Account id" defaults to the customer's first account, which is the only one there is.
+        ByteArrayInputStream in = new ByteArrayInputStream(
+                "\n".getBytes(StandardCharsets.UTF_8));
+        System.setIn(in);
+
+        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(outContent, true, StandardCharsets.UTF_8));
+
+        ConsoleMenu menu = new ConsoleMenu(app, infra, customerId);
+
+        var m = ConsoleMenu.class.getDeclaredMethod("listTransfersByAccount");
+        m.setAccessible(true);
+        m.invoke(menu);
+
+        String output = outContent.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains(ownTargetIban),
+                "Enter at a prompt that offers a default should answer with it: " + output);
     }
 }
