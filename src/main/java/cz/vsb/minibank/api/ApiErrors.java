@@ -102,6 +102,18 @@ final class ApiErrors {
             "TRANSFER_CHANGED",
             "This payment changed while you were working on it, so nothing in this request was applied. Open the payment again to see where it stands.");
 
+    // The fraud_alerts row lost the same kind of race, and it reuses neither message above
+    // because both of those are written to a customer about their own payment. This one answers
+    // an analyst, and the one thing it must not do is invite them to send the decision again:
+    // the write that beat theirs may well have been the opposite verdict on the same alert, so
+    // the only safe instruction is to read the alert as it now stands first.
+    //
+    // It names no verdict and no colleague. Which decision landed, and who recorded it, are on
+    // the alert - which is where this sends them.
+    static final ApiError ALERT_CHANGED = new ApiError(
+            "ALERT_CHANGED",
+            "This alert was decided or updated by someone else while you were working on it, so nothing in this request was applied. Open the alert again to see where it stands.");
+
     // Says that the bank is checking the payment and nothing else. No amount, no threshold, no
     // beneficiary, no risk score: the customer learns that it is under review and that it is
     // not lost, which is everything they can act on, and it names the one action they still

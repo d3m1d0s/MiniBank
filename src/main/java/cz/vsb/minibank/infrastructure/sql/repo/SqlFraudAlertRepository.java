@@ -2,6 +2,7 @@ package cz.vsb.minibank.infrastructure.sql.repo;
 
 import cz.vsb.minibank.domain.FraudAlert;
 import cz.vsb.minibank.domain.FraudAlertState;
+import cz.vsb.minibank.domain.exceptions.FraudAlertChangedException;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
@@ -79,6 +80,10 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
 
         uow.registerMutation(() -> {
             try {
+                // Only a driver failure is wrapped. FraudAlertChangedException is unchecked and
+                // deliberately passes through untouched: it is a domain outcome, and wrapping it
+                // would have it reported as INTERNAL_ERROR instead of as the 409 that sends the
+                // analyst back to the alert.
                 upsertAlert(sqlUow.connection(), a);
             } catch (SQLException e) {
                 throw new RuntimeException("Failed to save fraud alert id=" + a.id(), e);
@@ -90,13 +95,33 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
 
     /**
      * Inserts or updates a fraud alert row, including the analyst's verdict and metadata like
-     * risk score, assignee, tags (stored as comma-separated text) and notes.
+     * risk score, assignee, tags (stored as comma-separated text) and notes, refusing a write
+     * built on a stale read.
      *
      * The alert lifecycle is completed here: decision and resolved_at have been declared in
      * db/init/schema.sql since the table was created and this statement wrote neither, so an
      * approved alert stored its state and nothing about who decided it or when. decided_by
      * joins them. All three are in the DO UPDATE SET list, because an alert is inserted at NEW
      * and decided by a later save.
+     *
+     * The guard is the WHERE on the DO UPDATE arm, the same shape
+     * {@code SqlAccountRepository.upsertAccount} and {@code SqlTransferRepository.upsertTransfer}
+     * carry and for the same reasons - it holds under READ COMMITTED with no isolation level set
+     * anywhere, and the detection is the empty RETURNING rather than a rowcount, because
+     * executeUpdate answers 1 for an insert and for an update alike. SqlAccountRepository explains
+     * why in full and that comment is not repeated here.
+     *
+     * What it adds over the transfers version is the case where the transfers row is never
+     * written. Every column above is assigned unconditionally, so before this guard existed the
+     * last analyst to commit simply won: FraudApplicationService skips the transfer write when the
+     * payment is already SENT or DECLINED, and its annotate route touches neither aggregate yet
+     * still saves the alert. On those paths an APPROVE overwrote a DECLINE, and an annotation that
+     * had read the alert as NEW wrote NEW, no decision and no resolved_at back over a verdict -
+     * reopening a decided alert, which authorizePayment then lets through because it gates on the
+     * transfer's status and skips the risk re-check once any alert row exists.
+     *
+     * A version rather than a state token, deliberately, and here that is not a refinement but the
+     * whole point: the write that reopens a decided alert is the one that changes no state at all.
      *
      * Tags are joined with commas here and split on commas coming back, which is why
      * FraudApplicationService refuses a comma inside a tag: this column cannot represent one.
@@ -118,7 +143,10 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
                 tags        = EXCLUDED.tags,
                 notes       = EXCLUDED.notes,
                 created_at  = EXCLUDED.created_at,
-                resolved_at = EXCLUDED.resolved_at
+                resolved_at = EXCLUDED.resolved_at,
+                version     = fraud_alerts.version + 1
+            WHERE fraud_alerts.version = ?
+            RETURNING version
             """;
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -167,7 +195,19 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
                 ps.setNull(12, Types.TIMESTAMP_WITH_TIMEZONE);
             }
 
-            ps.executeUpdate();
+            ps.setInt(13, a.version());
+
+            // version is absent from the INSERT column list on purpose: a new row takes the
+            // column default 0, so no code path ever chooses an insert version, and the WHERE
+            // above qualifies the DO UPDATE arm alone and cannot refuse a first insert.
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    throw new FraudAlertChangedException(
+                            "Fraud alert " + a.id() + " was changed by another transaction"
+                                    + " (this transaction read version " + a.version() + ")");
+                }
+                a.hydrateVersion(rs.getInt(1));
+            }
         }
     }
 
@@ -211,7 +251,8 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
                tags,
                notes,
                created_at,
-               resolved_at
+               resolved_at,
+               version
           FROM fraud_alerts
          WHERE id = ?
         """;
@@ -261,7 +302,8 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
                tags,
                notes,
                created_at,
-               resolved_at
+               resolved_at,
+               version
           FROM fraud_alerts
          WHERE transfer_id = ?
          ORDER BY id ASC
@@ -343,7 +385,8 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
                tags,
                notes,
                created_at,
-               resolved_at
+               resolved_at,
+               version
           FROM fraud_alerts
          ORDER BY id ASC
         """;
@@ -414,6 +457,10 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
                 rs.getString("decision"),
                 rs.getString("decided_by"),
                 resolvedTs != null ? resolvedTs.toInstant() : null);
+
+        // An alert that arrived here without its version would carry 0, and the next guarded
+        // write would be compared against the version of a row nobody has written yet.
+        alert.hydrateVersion(rs.getInt("version"));
 
         return alert;
     }

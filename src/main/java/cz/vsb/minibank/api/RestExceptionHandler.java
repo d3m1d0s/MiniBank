@@ -8,6 +8,7 @@ import cz.vsb.minibank.domain.exceptions.ConflictException;
 import cz.vsb.minibank.domain.exceptions.DailyLimitExceededException;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.DomainException;
+import cz.vsb.minibank.domain.exceptions.FraudAlertChangedException;
 import cz.vsb.minibank.domain.exceptions.InsufficientFundsException;
 import cz.vsb.minibank.domain.exceptions.InvalidAmountException;
 import cz.vsb.minibank.domain.exceptions.InvalidIbanException;
@@ -144,6 +145,20 @@ public class RestExceptionHandler {
     public ResponseEntity<ApiError> handleTransferChanged(TransferChangedException ex) {
         AppLogger.warn("api", "Refused a stale transfer write: " + ex.getMessage());
         return error(HttpStatus.CONFLICT, ApiErrors.TRANSFER_CHANGED);
+    }
+
+    /**
+     * The fraud_alerts row lost a race.
+     *
+     * A third sibling under the same supertype, declared separately for the reason the transfer
+     * one is: the answers differ. This is the only one of the three addressed to an analyst
+     * rather than to a customer, and the action it names is to reopen the alert, because the
+     * write that beat this one may have been the opposite verdict. See {@link ApiErrors#ALERT_CHANGED}.
+     */
+    @ExceptionHandler(FraudAlertChangedException.class)
+    public ResponseEntity<ApiError> handleFraudAlertChanged(FraudAlertChangedException ex) {
+        AppLogger.warn("api", "Refused a stale fraud alert write: " + ex.getMessage());
+        return error(HttpStatus.CONFLICT, ApiErrors.ALERT_CHANGED);
     }
 
     @ExceptionHandler(InvalidOtpException.class)

@@ -196,6 +196,10 @@ CREATE INDEX idx_transfers_daily_total
 -- table was created and were written by nothing and read by nothing; wiring them up is what
 -- decided_by arrives with, rather than arriving alone.
 -- decided_by is NULL for a decision made from the console, which has no login.
+--
+-- version is not a domain field either, exactly as it is not one on accounts and transfers: it
+-- is the optimistic-lock token, see SqlFraudAlertRepository.upsertAlert. The JSON backend has
+-- none and needs none.
 ------------------------------------------------------------
 
 CREATE TABLE fraud_alerts (
@@ -210,7 +214,18 @@ CREATE TABLE fraud_alerts (
                               tags        TEXT,
                               notes       TEXT,
                               created_at  TIMESTAMPTZ,
-                              resolved_at TIMESTAMPTZ
+                              resolved_at TIMESTAMPTZ,
+
+                              -- Bumped by every guarded write, exactly as accounts.version and
+                              -- transfers.version are. This row needs its own because FraudAlert's
+                              -- state guards are checked against each transaction's own snapshot
+                              -- and the write is deferred to commit: on every analyst action that
+                              -- does not also write the transfers row - a verdict on a payment
+                              -- already SENT or DECLINED, and the annotate route, which changes no
+                              -- state at all - transfers.version sees nothing and the last commit
+                              -- simply won, which is how an APPROVE could bury a DECLINE and an
+                              -- annotation could write NEW back over a verdict.
+                              version     INTEGER NOT NULL DEFAULT 0
 );
 
 

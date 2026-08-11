@@ -5,10 +5,12 @@ import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.Address;
 import cz.vsb.minibank.domain.Customer;
 import cz.vsb.minibank.domain.FraudAlert;
+import cz.vsb.minibank.domain.FraudAlertState;
 import cz.vsb.minibank.domain.SimpleFeePolicy;
 import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
+import cz.vsb.minibank.domain.exceptions.FraudAlertChangedException;
 import cz.vsb.minibank.domain.exceptions.OptimisticLockException;
 import cz.vsb.minibank.domain.exceptions.TransferChangedException;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -27,6 +29,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.Callable;
@@ -44,9 +47,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The account version, the columns bundled with it, and the transfers row's own guard,
- * asserted against a real
- * PostgreSQL.
+ * The account version, the columns bundled with it, and the guards the transfers and
+ * fraud_alerts rows carry of their own, asserted against a real PostgreSQL.
  *
  * Everything here needs a database, and for a reason: a version column that is compared inside a
  * statement cannot be tested against a fake, a CHECK constraint is not a Java rule, and a column
@@ -72,6 +74,9 @@ public class SqlSchemaPassTest {
      * both threads run the same Callable and neither may be told which one it is in advance.
      */
     private final AtomicBoolean cancelTaken = new AtomicBoolean(false);
+
+    /** The same arrangement for the two analysts: which of them records the verdict. */
+    private final AtomicBoolean verdictTaken = new AtomicBoolean(false);
 
     private static final IBAN PAYER_IBAN = new IBAN("CZ6508000000192000145399");
     private static final IBAN EXTERNAL_IBAN = new IBAN("CZ2001000000000012345678");
@@ -345,6 +350,153 @@ public class SqlSchemaPassTest {
         assertEquals(1, infra.transfers.byId(transferId).orElseThrow().version(),
                 "and the load brings the new one back, which is what lets the write after it"
                         + " be guarded in turn");
+    }
+
+    // -------------------------------------------------------------------------
+    // And the same guard on the fraud_alerts row, which neither of the other two covered
+    // -------------------------------------------------------------------------
+
+    /**
+     * Two analysts on one alert, on the paths where the transfers row is never written.
+     *
+     * The shape both versions above left open. FraudAlert's own guards - approve refuses anything
+     * but NEW, markSuspicious refuses an alert already SUSPICIOUS - are checked against each
+     * transaction's own snapshot and the write is deferred to commit under READ COMMITTED, so
+     * between two transactions they see nothing. What was catching these races was
+     * transfers.version, and only when both analysts happened to write that row as well.
+     *
+     * So the fixture takes that away, and takes it away the way the application does rather than
+     * by contrivance: the customer cancels the held payment, which leaves the transfer DECLINED
+     * with its alert still open in the queue. From there
+     * {@code FraudApplicationService.decline} records the verdict on the alert alone - its guard
+     * excludes SENT and DECLINED so an analyst's wording cannot overwrite the customer's own - and
+     * the REQUEST_CONFIRMATION route writes no transfer on any status. Neither racer below touches
+     * the transfers row, so before fraud_alerts had a version of its own nothing looked at all and
+     * the second commit simply won.
+     *
+     * The two mutations are deliberately different, and the annotation is the one a state token
+     * would have missed: it changes no state, which is exactly why it was able to write NEW, no
+     * decision and no resolved_at back over a verdict and reopen a decided alert.
+     *
+     * Both orderings are covered by the one run, exactly as the two cases above cover them: the
+     * loser either finds version 1 where it read 0, or blocks on the row lock and is evaluated
+     * against the winner's committed row when it is released.
+     */
+    @Test
+    void twoAnalystsWritingOneAlertWithoutTouchingItsTransferLeaveOneOutcomeAndRefuseTheOther()
+            throws Exception {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+        HeldPayment held = seedHeldPaymentWithAlert(services);
+
+        services.transferService.cancelPayment(held.customerId(), held.transferId());
+        assertEquals(TransferStatus.DECLINED,
+                infra.transfers.byId(held.transferId()).orElseThrow().status(),
+                "the fixture must put the payment beyond the fraud desk's reach, or one of the two"
+                        + " writers below would touch the transfers row and that row's own version"
+                        + " would be what refused the race");
+        assertEquals(FraudAlertState.NEW, infra.alerts.byId(held.alertId()).orElseThrow().state(),
+                "and must leave the alert open, or there is no decision left to race over");
+
+        CyclicBarrier atTheSameMoment = new CyclicBarrier(2);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+
+        Callable<Throwable> writeOnce = () -> {
+            try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+                UnitOfWork uow = scope.uow();
+                FraudAlert alert = infra.alerts.byId(held.alertId()).orElseThrow();
+
+                // Whichever thread gets here first decides which analyst this one is. Both are
+                // real: the first is what decline() does once the transfer is out of reach, the
+                // second what the REQUEST_CONFIRMATION arm does, and neither writes a transfer.
+                if (!verdictTaken.getAndSet(true)) {
+                    alert.markSuspicious("Confirmed by the card scheme", "anna.analyst",
+                            Instant.now());
+                } else {
+                    alert.updateNotes("Called the customer back");
+                }
+                infra.alerts.save(alert);
+
+                atTheSameMoment.await(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+
+                uow.commit();
+                return null;
+            } catch (RuntimeException e) {
+                return e;
+            }
+        };
+
+        try {
+            List<Future<Throwable>> futures = List.of(pool.submit(writeOnce), pool.submit(writeOnce));
+            List<Throwable> outcomes = new ArrayList<>();
+            for (Future<Throwable> f : futures) {
+                outcomes.add(f.get(TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            }
+
+            assertEquals(1, outcomes.stream().filter(java.util.Objects::isNull).count(),
+                    "exactly one of the two writers may win; outcomes were " + outcomes);
+
+            Throwable refused = outcomes.stream()
+                    .filter(java.util.Objects::nonNull).findFirst().orElseThrow();
+            assertTrue(refused instanceof FraudAlertChangedException,
+                    "the loser must be refused as a stale alert write, not as an internal error"
+                            + " and not as the account or the transfer conflict: " + refused);
+            assertTrue(refused.getMessage().contains(String.valueOf(held.alertId())),
+                    "the refusal must name the alert, for the log: " + refused.getMessage());
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertEquals(1, versionOfAlert(held.alertId()),
+                "exactly one guarded write reached the row; two would mean one of them was"
+                        + " silently overwritten - either a verdict buried by an annotation that"
+                        + " reopens the alert, or the reverse");
+    }
+
+    /**
+     * The token survives a round trip, and one analyst deciding alone is untouched.
+     *
+     * Both halves matter and the second is not padding. A decision writes the alert TWICE in one
+     * unit of work - {@code decideAndUpdateAlert} saves in the verdict arm and again after the
+     * assignee, tags and notes block - so a guard whose write-back was missing would refuse every
+     * decision this application makes, on the second save, with nobody racing anybody. The load
+     * path fails the other way and just as silently: an alert that came back without its version
+     * would carry 0, and the next update would be compared against the version of a row nobody has
+     * written yet.
+     */
+    @Test
+    void theAlertVersionComesBackFromTheStoreAndAnUncontendedDecisionStillLands() throws Exception {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+        HeldPayment held = seedHeldPaymentWithAlert(services);
+
+        // Raising an alert is a single write, and an insert takes the column default: the
+        // DO UPDATE arm is the only thing that bumps. So an alert that has been written once has
+        // never yet been guarded against anything.
+        assertEquals(0, versionOfAlert(held.alertId()),
+                "an insert must leave the default rather than choosing a version of its own");
+        assertEquals(0, infra.alerts.byId(held.alertId()).orElseThrow().version(),
+                "the aggregate must carry the version the store holds after a load");
+
+        services.fraudService.decideAndUpdateAlert(
+                held.alertId(), "APPROVE", null, "anna.analyst", List.of("manual-review"),
+                "looked fine", "anna.analyst");
+
+        assertEquals(2, versionOfAlert(held.alertId()),
+                "the verdict and the metadata are two guarded writes in one unit of work, and the"
+                        + " second is only possible because the first handed back the version it"
+                        + " left behind");
+
+        FraudAlert decided = infra.alerts.byId(held.alertId()).orElseThrow();
+        assertEquals(FraudAlertState.OK, decided.state());
+        assertEquals(FraudAlert.DECISION_APPROVE, decided.decision());
+        assertEquals("looked fine", decided.notes());
+        assertEquals(2, decided.version(),
+                "and the load brings the new one back, which is what lets the write after it be"
+                        + " guarded in turn");
+        assertEquals(TransferStatus.WAITING_AUTH,
+                infra.transfers.byId(held.transferId()).orElseThrow().status(),
+                "and the payment really was released for the customer's own confirmation step");
     }
 
     // -------------------------------------------------------------------------
@@ -635,6 +787,50 @@ public class SqlSchemaPassTest {
 
     private int versionOfTransfer(int transferId) throws SQLException {
         return readOne("SELECT version FROM transfers WHERE id = ?", transferId, rs -> rs.getInt(1));
+    }
+
+    private int versionOfAlert(int alertId) throws SQLException {
+        return readOne("SELECT version FROM fraud_alerts WHERE id = ?", alertId, rs -> rs.getInt(1));
+    }
+
+    /** The customer, the payment an analyst still has to look at, and the alert holding it. */
+    private record HeldPayment(int customerId, int transferId, int alertId) { }
+
+    /**
+     * A payment held for review, with the alert the rules themselves raised on it.
+     *
+     * 12 000 passes the cumulative alert threshold for an untrusted payee, which is the same
+     * amount {@link #onlyAPaymentThatMovesMoneyBumpsTheAccountVersion} relies on for the same
+     * reason: the alert has to be the rules' own, not one written behind the domain's back, or
+     * the fixture would not be the case under test.
+     */
+    private HeldPayment seedHeldPaymentWithAlert(BootstrapServices services) {
+        int customerId;
+        int accountId;
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            customerId = infra.customers.nextId();
+            Customer c = new Customer(customerId, "Alert Probe", "alert@example.com",
+                    new Address("Hlavni 1", "Ostrava"));
+            infra.customers.save(c);
+
+            accountId = infra.accounts.nextId();
+            infra.accounts.save(new Account(accountId, PAYER_IBAN,
+                    Money.czk(500_000), Money.czk(400_000), Money.czk(3_000)));
+            c.addAccountId(accountId);
+            infra.customers.save(c);
+            scope.uow().commit();
+        }
+
+        int transferId = services.transferService.submitPaymentToIban(
+                customerId, accountId, EXTERNAL_IBAN.value(), 12_000, null).transferId();
+        assertEquals(TransferStatus.HELD_FOR_REVIEW,
+                infra.transfers.byId(transferId).orElseThrow().status(),
+                "the fixture must hold the payment, or there is no alert to write");
+
+        int alertId = infra.alerts.byTransferId(transferId)
+                .orElseThrow(() -> new AssertionError("a held payment must carry an alert")).id();
+        return new HeldPayment(customerId, transferId, alertId);
     }
 
     /**
