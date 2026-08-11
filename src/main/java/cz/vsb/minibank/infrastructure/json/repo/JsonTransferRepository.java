@@ -15,6 +15,7 @@ import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -165,8 +166,15 @@ public class JsonTransferRepository implements TransferRepository {
     }
 
     /**
-     * The same total, narrowed to one destination. See the interface for why it is its own
-     * method and not a parameter on the one above.
+     * The same total, narrowed to one destination and totalled over several accounts at once.
+     * See the interface for why it is its own method rather than a parameter on the one above,
+     * and why its scope is the customer's accounts while the day total above stays on one.
+     *
+     * The account test is a membership test over the ids the caller passed, so a row belonging
+     * to none of them is left out exactly as a row belonging to another account used to be. The
+     * ids arrive as a Collection and are not copied into a Set: this runs under the store lock
+     * with a caller's own handful of accounts, and a hash set per call would cost more than the
+     * scan it saves.
      *
      * Both sides of the destination comparison are normalized, and the stored one is allowed to
      * be null. Neither is paranoia: JsonTransfer.targetIbanSnapshot is a bare field with no
@@ -175,14 +183,14 @@ public class JsonTransferRepository implements TransferRepository {
      * reachable through the public domain API and CreditLegTest pins that it must still resolve.
      */
     @Override
-    public Money sentTotalToIbanBetween(int accountId, String targetIban,
+    public Money sentTotalToIbanBetween(Collection<Integer> accountIds, String targetIban,
                                         Instant fromInclusive, Instant toExclusive) {
         String wanted = IBAN.normalize(targetIban);
 
         return store.read(bundle -> {
             Money total = Money.czk(0.0);
             for (JsonTransfer dto : bundle.transfers) {
-                if (dto.sourceAccountId != accountId) continue;
+                if (!accountIds.contains(dto.sourceAccountId)) continue;
                 if (!TransferStatus.SENT.name().equals(dto.status)) continue;
                 if (!Objects.equals(wanted, IBAN.normalize(dto.targetIbanSnapshot))) continue;
                 Instant countedOn = dayKeyOf(dto);

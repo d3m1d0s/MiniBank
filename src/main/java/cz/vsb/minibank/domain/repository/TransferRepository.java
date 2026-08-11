@@ -4,6 +4,7 @@ import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.value.Money;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -68,8 +69,8 @@ public interface TransferRepository {
     Money sentTotalBetween(int accountId, Instant fromInclusive, Instant toExclusive);
 
     /**
-     * The same total, narrowed to one destination: what has left this account for this IBAN in
-     * the range.
+     * The same total, narrowed to one destination and widened to a set of accounts: what has
+     * left any of these accounts for this IBAN in the range.
      *
      * A sibling rather than a parameter on the method above, because the two answer different
      * questions and only one of them may ever widen. That one bounds what a customer may spend
@@ -77,17 +78,43 @@ public interface TransferRepository {
      * an amount is being split across several payments to one new payee. Sharing an aggregate
      * would mean a change made for the alert could move the ceiling.
      *
+     * The set the caller passes is the accounts one CUSTOMER holds, and saying so is the whole
+     * of what this parameter is for. Keyed on the paying account alone - which is what it
+     * inherited from the day total above, never argued for - the rule was optional for anybody
+     * with a second account: 6 500 from each of two of their own accounts to one untrusted IBAN
+     * is 13 000 in a day that no evaluation ever saw more than half of. The day total keeps the
+     * narrower scope deliberately, because the ceiling it is compared against is a column on one
+     * account and a total over another account's rows could not be measured against it.
+     *
      * The stored snapshot is compared in its normalized form - see {@link
      * cz.vsb.minibank.domain.value.IBAN#normalize} - because {@code Transfer} takes the snapshot
      * as a plain String and a denormalized one is reachable through the public constructor. A
      * row whose snapshot is missing is left out rather than matched: the column is NOT NULL in
      * SQL only, and the JSON store has no such guarantee.
      *
+     * @param accountIds the accounts to total across, in any order; a repeated id changes
+     *                   nothing, because this is a membership test and not a join, and an empty
+     *                   set totals to zero
      * @param targetIban the destination, in any form; normalized before comparison
      * @return the total in CZK, on the same terms as {@link #sentTotalBetween}
      */
-    Money sentTotalToIbanBetween(int accountId,
+    Money sentTotalToIbanBetween(Collection<Integer> accountIds,
                                  String targetIban,
                                  Instant fromInclusive,
                                  Instant toExclusive);
+
+    /**
+     * The same total over a single account.
+     *
+     * Not the form the fraud rule asks for - that one is above and spans a customer - but the
+     * form a caller holding one account id means, and the one the per-backend tests state the
+     * row-level rules in, where there is no customer to hang them on. A default rather than a
+     * second query on each backend, so the two shapes cannot come to disagree.
+     */
+    default Money sentTotalToIbanBetween(int accountId,
+                                         String targetIban,
+                                         Instant fromInclusive,
+                                         Instant toExclusive) {
+        return sentTotalToIbanBetween(List.of(accountId), targetIban, fromInclusive, toExclusive);
+    }
 }

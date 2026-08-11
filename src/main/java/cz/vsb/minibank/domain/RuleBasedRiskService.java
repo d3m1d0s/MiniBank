@@ -57,8 +57,18 @@ public class RuleBasedRiskService implements RiskService {
         // and TransferApplicationService then refuses the owner's own valid code. Keyed on the
         // payee, the reason is true whenever the rule fires.
         //
+        // Totalled across every account the customer holds, which the caller decides and this
+        // service only receives. The KEY was argued at length above; the SCOPE never was, and it
+        // was simply the day total's, taken because that is what the mechanism beside it used.
+        // It cost the same defect one size up: 13 000 split as 6 500 from each of two of the
+        // customer's own accounts defeated the cumulative rule as completely as two payments
+        // once defeated the single-amount one. sentSoFar keeps the account scope, because it is
+        // measured against dailyLimit and softDailyThreshold and those are columns on one
+        // account - see RiskService.evaluate for the seam that leaves in the model.
+        //
         // What it costs, stated rather than discovered: once 10 000 has gone to one untrusted
-        // payee in a day, every later payment to THAT payee is held, however small. That is
+        // payee in a day, every later payment to THAT payee is held, however small and out of
+        // whichever of the customer's accounts it is paid. That is
         // inherent to a cumulative threshold and is not what the destination key avoids - it
         // narrows which payments are affected, not the shape of the rule.
         //

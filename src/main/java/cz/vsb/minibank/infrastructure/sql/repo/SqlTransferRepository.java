@@ -17,6 +17,7 @@ import java.math.BigDecimal;
 import java.sql.*;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -422,30 +423,41 @@ public final class SqlTransferRepository implements TransferRepository {
     }
 
     @Override
-    public Money sentTotalToIbanBetween(int accountId, String targetIban,
+    public Money sentTotalToIbanBetween(Collection<Integer> accountIds, String targetIban,
                                         Instant fromInclusive, Instant toExclusive) {
         UnitOfWork uow = UowContext.current();
 
         try {
             if (uow instanceof SqlUnitOfWork sqlUow) {
                 return sumSentToIbanWithConnection(
-                        sqlUow.connection(), accountId, targetIban, fromInclusive, toExclusive);
+                        sqlUow.connection(), accountIds, targetIban, fromInclusive, toExclusive);
             } else {
                 try (Connection conn = DriverManager.getConnection(url, user, password)) {
                     return sumSentToIbanWithConnection(
-                            conn, accountId, targetIban, fromInclusive, toExclusive);
+                            conn, accountIds, targetIban, fromInclusive, toExclusive);
                 }
             }
         } catch (SQLException e) {
             throw new RuntimeException(
-                    "Failed to total sent transfers for accountId=" + accountId + " to one payee", e);
+                    "Failed to total sent transfers for accountIds=" + accountIds + " to one payee", e);
         }
     }
 
     /**
-     * The same aggregate as {@link #sumSentWithConnection}, narrowed to one destination.
+     * The same aggregate as {@link #sumSentWithConnection}, narrowed to one destination and
+     * widened to the several accounts one customer holds.
      *
-     * The destination predicate is the only interesting line. It compares NORMALIZED snapshots:
+     * The account predicate is {@code = ANY (?)} over a single bound array, and it is written
+     * that way rather than as an IN list because of what the alternatives cost. Assembling
+     * {@code IN (4, 7)} from the ids would put values in the statement text, and every query in
+     * this project binds its parameters - the README says so - so even integers concatenated in
+     * would make that claim false where a reader cannot see it. Generating a run of placeholders
+     * keeps the binding but gives the statement a different text for every number of accounts,
+     * which is a fresh parse and plan the first time a customer opens an account. One array
+     * parameter has neither problem, and the driver knows the element type from the name given
+     * here. The array is created on the connection the statement runs on and freed once it has.
+     *
+     * The destination predicate is the other interesting line. It compares NORMALIZED snapshots:
      * whitespace removed, upper case, which is what {@code IBAN.normalize} does in Java and what
      * the two expressions here do in SQL. A plain {@code =} would be wrong rather than merely
      * strict - {@code Transfer} takes its snapshot as a plain String and validates only the
@@ -453,18 +465,20 @@ public final class SqlTransferRepository implements TransferRepository {
      * constructor, CreditLegTest pins that such a row must still resolve, and an unnormalized
      * comparison would drop it from the total silently instead of failing.
      *
-     * It cannot use an index, and that changes nothing: idx_transfers_source_account serves the
-     * account equality and everything after it was already a sequential filter over that one
-     * account's rows.
+     * It cannot use an index, and that changes nothing: idx_transfers_daily_total still serves
+     * the account membership, because the planner reads {@code = ANY} on the leading column as
+     * the set of index scans it is, and the destination has always been a filter applied to
+     * whatever rows that index leaves - over several accounts now instead of over one.
      */
-    private Money sumSentToIbanWithConnection(Connection conn, int accountId, String targetIban,
-                                              Instant fromInclusive, Instant toExclusive)
+    private Money sumSentToIbanWithConnection(Connection conn, Collection<Integer> accountIds,
+                                              String targetIban, Instant fromInclusive,
+                                              Instant toExclusive)
             throws SQLException {
 
         String sql = """
         SELECT COALESCE(SUM(amount), 0)
           FROM transfers
-         WHERE source_account_id = ?
+         WHERE source_account_id = ANY (?)
            AND status = ?
            AND currency = ?
            AND UPPER(REGEXP_REPLACE(target_iban_snapshot, '\\s', '', 'g')) = ?
@@ -472,8 +486,9 @@ public final class SqlTransferRepository implements TransferRepository {
            AND COALESCE(settled_at, created_at) <  ?
         """;
 
+        Array sources = conn.createArrayOf("integer", accountIds.toArray(new Integer[0]));
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, accountId);
+            ps.setArray(1, sources);
             ps.setString(2, TransferStatus.SENT.name());
             ps.setString(3, "CZK");
             ps.setString(4, IBAN.normalize(targetIban));
@@ -483,6 +498,8 @@ public final class SqlTransferRepository implements TransferRepository {
                 rs.next();
                 return Money.czk(rs.getBigDecimal(1));
             }
+        } finally {
+            sources.free();
         }
     }
 
@@ -500,9 +517,13 @@ public final class SqlTransferRepository implements TransferRepository {
      * so; transfers_currency_czk now refuses such a row outright, and this stays because the
      * aggregate reads the column without building a Transfer out of any row it counts.
      *
-     * idx_transfers_source_account serves the equality predicate and the rest is a sequential
-     * filter over that account's own rows, exactly as before - the COALESCE costs nothing in
-     * plan terms because the time predicate was never index-served here anyway.
+     * idx_transfers_daily_total serves every predicate above bar the currency, which is left out
+     * of it deliberately: source_account_id and status lead the index and
+     * COALESCE(settled_at, created_at) is its third key, written there as the same expression
+     * this query writes or the planner would not match it. This paragraph named
+     * idx_transfers_source_account and said the time predicate was never index-served; the
+     * composite index subsumed the one and answered the other, and db/init/schema.sql no longer
+     * creates the index it named.
      */
     private Money sumSentWithConnection(Connection conn, int accountId,
                                         Instant fromInclusive, Instant toExclusive) throws SQLException {

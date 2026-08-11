@@ -11,17 +11,28 @@ public interface RiskService {
     /**
      * Evaluates risk for a potential transfer.
      *
+     * Two of the totals below are measured over different sets of rows, and the inconsistency is
+     * chosen rather than overlooked. sentSoFar is one ACCOUNT's day, because the two limits it is
+     * compared against - dailyLimit and softDailyThreshold - are columns on that account, and a
+     * total that included another account's payments could not be measured against either.
+     * sentToPayeeSoFar is one CUSTOMER's day, because the thing it exists to catch is a payment
+     * a customer split, and a customer holding two accounts defeats an account-keyed version of
+     * it completely by sending half from each. Keeping the two scopes the same would mean
+     * choosing which of those to give up; this way the model carries one seam that a reader meets
+     * here, at the point where the six values sit side by side.
+     *
      * @param beneficiaryTrusted whether the beneficiary is trusted
      * @param amount             amount of the transfer being attempted. It is not part of
      *                           sentSoFar and is added by this service
      * @param sentSoFar          what has already left the source account on the day this
      *                           transfer belongs to, fees excluded
-     * @param sentToPayeeSoFar   what has already left the source account FOR THIS DESTINATION on
-     *                           the same day, fees excluded, and on the same terms as sentSoFar:
-     *                           the amount being attempted is not part of it. Separate from
-     *                           sentSoFar because the two rules ask different questions - one is
-     *                           about how much a customer may move, the other about whether one
-     *                           payment has been split into several to one new payee
+     * @param sentToPayeeSoFar   what has already left ANY account this customer holds FOR THIS
+     *                           DESTINATION on the same day, fees excluded, and on the same terms
+     *                           as sentSoFar: the amount being attempted is not part of it.
+     *                           Separate from sentSoFar because the two rules ask different
+     *                           questions - one is about how much a customer may move out of one
+     *                           account, the other about whether one payment has been split into
+     *                           several to one new payee, from wherever the customer keeps money
      * @param dailyLimit         the source account's hard ceiling on one day's outflow
      * @param softDailyThreshold the source account's own soft authorization tier, or null to
      *                           apply the bank-wide default. A per-account value is what makes

@@ -20,6 +20,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Collection;
 import java.util.Objects;
 
 /**
@@ -139,7 +140,7 @@ public class TransferApplicationService {
                     amount, clock.instant());
             t.attachMessage(reference);
 
-            routeTransferCreation(account, t, beneficiary.trusted());
+            routeTransferCreation(caller, account, t, beneficiary.trusted());
 
             // Built before the commit, from the aggregates this unit of work owns, so what the
             // caller is told is what this transaction did rather than what the store happened to
@@ -178,7 +179,9 @@ public class TransferApplicationService {
             var caller = guard.requireCaller(callerCustomerId);
             // The daily limits and the day's running total that decide this payment are read
             // off an account the caller owns, so a victim's limits cannot settle an attacker's
-            // payment and a victim's history cannot pay for it either.
+            // payment and a victim's history cannot pay for it either. The payee total the alert
+            // rule works from now spans this caller's other accounts as well, and stops there:
+            // it is still only their own history, resolved from their own customer row.
             var account = guard.requireOwnedAccount(caller, sourceAccountId);
             requireDifferentAccount(account, iban);
 
@@ -187,7 +190,7 @@ public class TransferApplicationService {
             t.attachMessage(reference);
 
             // An arbitrary IBAN is not a saved beneficiary, so it is never a trusted one.
-            routeTransferCreation(account, t, false);
+            routeTransferCreation(caller, account, t, false);
 
             PaymentOutcome outcome = outcomeOf(t, account);
             scope.uow().commit();
@@ -215,10 +218,18 @@ public class TransferApplicationService {
      * same account, over an operation that moved no money. Anything a future branch here does
      * change on the account has to save it; nothing on these two does.
      *
+     * Takes the caller as well as the account because the two totals it computes have two
+     * scopes: the ceiling and the soft tier are measured over this account alone, being columns
+     * on it, and the payee total over every account this customer holds. {@link RiskService}
+     * states that seam in full. The caller is the aggregate {@link OwnershipGuard} already
+     * resolved and the account is one it has already proved belongs to that caller, so widening
+     * the total reaches nothing new.
+     *
      * @throws DailyLimitExceededException when the day's outflow plus this amount would pass
      *         the account's ceiling
      */
-    private void routeTransferCreation(Account account, Transfer t, boolean beneficiaryTrusted) {
+    private void routeTransferCreation(Customer caller, Account account, Transfer t,
+                                       boolean beneficiaryTrusted) {
 
         Money fee = t.feeAmount(feePolicy);
         if (!account.canDebit(t.amount(), fee)) {
@@ -237,7 +248,7 @@ public class TransferApplicationService {
                 beneficiaryTrusted,
                 t.amount(),
                 sentOnTheDayOf(account.id(), t.createdAt()),
-                sentToPayeeOnTheDayOf(account.id(), t.targetIbanSnapshot(), t.createdAt()),
+                sentToPayeeOnTheDayOf(caller.accountIds(), t.targetIbanSnapshot(), t.createdAt()),
                 account.dailyLimit(),
                 account.softDailyThreshold());
 
@@ -379,13 +390,26 @@ public class TransferApplicationService {
     }
 
     /**
-     * The same day window, narrowed to one payee. Feeds the alert rule and nothing else.
+     * The same day window, narrowed to one payee and widened to every account the customer
+     * holds. Feeds the alert rule and nothing else.
+     *
+     * The asymmetry with {@link #sentOnTheDayOf} is deliberate, and {@link RiskService#evaluate}
+     * states it where a reader meets both totals at once: the ceiling and the soft tier are
+     * columns on one account and have to be measured over that account's rows, while the payee
+     * total is a fact about a customer and was defeated outright by anyone splitting a payment
+     * across two accounts of their own.
+     *
+     * The ids are the caller's own, off the {@link Customer} that {@link OwnershipGuard} already
+     * resolved. Reading them from there rather than querying accounts by customer is what keeps
+     * this to no extra lookup and to exactly the scope ownership is decided by everywhere else
+     * in this class.
      */
-    private Money sentToPayeeOnTheDayOf(int accountId, String targetIban, Instant when) {
+    private Money sentToPayeeOnTheDayOf(Collection<Integer> accountIds, String targetIban,
+                                        Instant when) {
         ZoneId zone = clock.getZone();
         LocalDate day = LocalDate.ofInstant(when, zone);
         return transfers.sentTotalToIbanBetween(
-                accountId,
+                accountIds,
                 targetIban,
                 day.atStartOfDay(zone).toInstant(),
                 day.plusDays(1).atStartOfDay(zone).toInstant());
@@ -557,7 +581,8 @@ public class TransferApplicationService {
             // settled yet: two payments of 6 500 to one new payee are each under the threshold
             // when they are made, and the second crosses it only once the first has gone. That
             // ordering is the one an attacker controls, so a rule asked only at creation closes
-            // the convenient half of that and not the other one.
+            // the convenient half of that and not the other one. The two halves need not leave
+            // the same account either, which is why this site widened with the other one.
             //
             // Asked once per transfer. An alert that already exists has been seen by an analyst
             // or is waiting to be, and raising a second one would make an approved payment
@@ -579,7 +604,7 @@ public class TransferApplicationService {
                         trustedNow,
                         t.amount(),
                         sentOnTheDayOf(acc.id(), now),
-                        sentToPayeeOnTheDayOf(acc.id(), t.targetIbanSnapshot(), now),
+                        sentToPayeeOnTheDayOf(caller.accountIds(), t.targetIbanSnapshot(), now),
                         acc.dailyLimit(),
                         acc.softDailyThreshold());
 
