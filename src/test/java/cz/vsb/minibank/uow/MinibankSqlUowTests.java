@@ -18,6 +18,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -824,6 +825,125 @@ public class MinibankSqlUowTests {
                     List.of(accountId),
                     infra.accounts.byCustomerId(customerId).stream().map(Account::id).toList(),
                     "and the account must answer to that owner from the other side"
+            );
+
+            scope.uow().commit();
+        }
+    }
+
+// -------------------------------------------------------------------------
+// 12) Collection reads answer in a defined order, not in the heap's
+// -------------------------------------------------------------------------
+
+    /** One account with some transfers on it, ids as the sequences handed them out. */
+    private record OrderingFixture(int accountId, List<Integer> transferIds) { }
+
+    private OrderingFixture seedAccountWithTransfers(int count) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            int customerId = infra.customers.nextId();
+            Customer c = new Customer(customerId, "Ordering User", "ordering@example.com",
+                    new Address("Street 1", "City"));
+            infra.customers.save(c);
+
+            int accountId = infra.accounts.nextId();
+            infra.accounts.save(new Account(accountId, new IBAN("CZ6508000000192000145399"),
+                    Money.czk(50_000), Money.czk(50_000)));
+            c.addAccountId(accountId);
+            infra.customers.save(c);
+
+            List<Integer> transferIds = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                int transferId = infra.transfers.nextId();
+                infra.transfers.add(new Transfer(
+                        transferId, accountId, null, "CZ0401000000000000000000", Money.czk(100 + i)));
+                transferIds.add(transferId);
+            }
+
+            scope.uow().commit();
+            return new OrderingFixture(accountId, List.copyOf(transferIds));
+        }
+    }
+
+    /**
+     * A rewritten transfer must not move in the customer's list.
+     *
+     * The rewrite in the middle is what makes this discriminate. Rows read straight back off a
+     * freshly truncated table come out in insertion order on either backend, so an insert-and-read
+     * case passes whether or not the statement is ordered; an UPDATE writes a new tuple version
+     * wherever the page has room, which here is behind every other row, and an unordered SELECT
+     * then answers with that transfer last. One wrong OTP attempt on a waiting payment is enough
+     * to cause it, and AuthorizationController.waitingFor renders repository order as it stands.
+     */
+    @Test
+    void transfersOfOneAccountStayInIdOrderWhenOneIsRewritten() {
+        OrderingFixture fixture = seedAccountWithTransfers(5);
+
+        // The earliest row, so its new tuple version lands behind all four others.
+        int rewritten = fixture.transferIds().get(0);
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            Transfer t = infra.transfers.byId(rewritten)
+                    .orElseThrow(() -> new AssertionError("Seeded transfer must exist"));
+            t.requestAuthorization(new CardPayment(t.amount(), "**** **** **** 4242"));
+            t.registerFailedOtpAttempt(3);
+            infra.transfers.save(t);
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            List<Integer> ids = infra.transfers.bySourceAccount(fixture.accountId())
+                    .stream().map(Transfer::id).toList();
+
+            assertEquals(
+                    fixture.transferIds().stream().sorted().toList(),
+                    ids,
+                    "bySourceAccount must answer in ascending id order, not in whatever order the"
+                            + " heap holds once a row has been rewritten"
+            );
+
+            scope.uow().commit();
+        }
+    }
+
+    /**
+     * An annotated alert must not move in the analyst's queue.
+     *
+     * The same rule as the case above, on the statement behind FraudController.buildQueue, and it
+     * needs a case of its own because the two live in different repositories. updateNotes is the
+     * cheapest rewrite an analyst can cause - no state transition, no verdict - and the tuple
+     * relocates all the same.
+     */
+    @Test
+    void fraudAlertQueueStaysInIdOrderWhenAnAlertIsRewritten() {
+        OrderingFixture fixture = seedAccountWithTransfers(5);
+
+        // One alert per transfer: fraud_alerts_one_per_transfer refuses a second on the same one.
+        List<Integer> alertIds = new ArrayList<>();
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            for (int transferId : fixture.transferIds()) {
+                int alertId = infra.alerts.nextId();
+                infra.alerts.add(new FraudAlert(alertId, transferId, "Seeded for the queue"));
+                alertIds.add(alertId);
+            }
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            FraudAlert first = infra.alerts.byId(alertIds.get(0))
+                    .orElseThrow(() -> new AssertionError("Seeded alert must exist"));
+            first.updateNotes("Called the customer back");
+            infra.alerts.save(first);
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            List<Integer> ids = infra.alerts.all().stream().map(FraudAlert::id).toList();
+
+            assertEquals(
+                    alertIds.stream().sorted().toList(),
+                    ids,
+                    "all() must answer in ascending id order, not in whatever order the heap holds"
+                            + " once an alert has been annotated"
             );
 
             scope.uow().commit();

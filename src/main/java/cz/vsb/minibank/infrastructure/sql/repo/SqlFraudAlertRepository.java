@@ -311,6 +311,23 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
         }
     }
 
+    /**
+     * The whole analyst queue, in an order this application chooses rather than one the heap
+     * happens to hold.
+     *
+     * The ORDER BY is the only interesting line and it is not decoration. Without it PostgreSQL
+     * answers in physical order, and an UPDATE writes a new tuple version wherever there is room,
+     * which on a table this size is behind every other row: one annotation on an alert moves it
+     * to the end of the queue between two refreshes of the same screen, because
+     * FraudController.buildQueue renders what this method returns and sorts nothing itself.
+     *
+     * id ASC, and not a friendlier order for someone reading the queue, deliberately. It is what
+     * the JSON adapter already answers - its list is appended to in id-allocation order and a
+     * save replaces the row in place instead of moving it - and the defect being fixed is the two
+     * backends listing the same data differently. How the queue ought to be sorted for a human is
+     * a presentation question and belongs with the front end, where
+     * FraudController.mapHistoryForAccount already keeps its own newest-first Comparator.
+     */
     private List<FraudAlert> loadAllWithConnection(Connection conn, UnitOfWork uow)
             throws SQLException {
 
@@ -328,6 +345,7 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
                created_at,
                resolved_at
           FROM fraud_alerts
+         ORDER BY id ASC
         """;
 
         List<FraudAlert> result = new ArrayList<>();

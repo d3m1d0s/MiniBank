@@ -343,6 +343,16 @@ public final class SqlTransferRepository implements TransferRepository {
         }
     }
 
+    /**
+     * Every transfer this account sent, in an order this application chooses.
+     *
+     * ORDER BY id ASC for the reason SqlFraudAlertRepository.loadAllWithConnection gives in full,
+     * and not repeated here: unordered, PostgreSQL answers in physical order, and one wrong OTP
+     * attempt rewrites a waiting transfer and moves it behind every other row.
+     * AuthorizationController.waitingFor renders this order as it stands, so the payment the
+     * customer is looking at drops to the bottom of the list between two reads of the same
+     * screen. ASC because it is what the JSON adapter already answers.
+     */
     private List<Transfer> loadBySourceAccountWithConnection(Connection conn, int accountId, UnitOfWork uow)
             throws SQLException {
 
@@ -366,6 +376,7 @@ public final class SqlTransferRepository implements TransferRepository {
                version
           FROM transfers
          WHERE source_account_id = ?
+         ORDER BY id ASC
         """;
 
         List<Transfer> result = new ArrayList<>();
