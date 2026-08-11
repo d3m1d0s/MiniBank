@@ -25,6 +25,7 @@ import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.infrastructure.memory.InMemoryUserRepository;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -200,6 +201,28 @@ class HttpErrorContractTest {
         }
     }
 
+    /**
+     * Alice's stored credential, hashed once for the whole class.
+     *
+     * A salt and the hash taken over it are a value, not state: nothing writes to either array,
+     * and only the three cases that check a password against this row read them at all. Built in
+     * setUp it was recomputed for every test method in the class, so a hash deliberately made
+     * expensive - PBKDF2 at 120 000 iterations, and that count is meant to rise - was paid dozens
+     * of times over for the sake of those three.
+     *
+     * The row itself stays per test, because
+     * aSessionWhoseUserWasReplacedIs401AuthRequiredWithTheSameBody overwrites it.
+     */
+    private static final Pbkdf2PasswordEncoder ENCODER = new Pbkdf2PasswordEncoder();
+    private static byte[] aliceSalt;
+    private static byte[] aliceHash;
+
+    @BeforeAll
+    static void hashAlicesPasswordOnce() {
+        aliceSalt = ENCODER.generateSalt();
+        aliceHash = ENCODER.hash("alice123".toCharArray(), aliceSalt);
+    }
+
     @TempDir
     Path tempDir;
 
@@ -281,11 +304,8 @@ class HttpErrorContractTest {
                 infra.alerts, transfers, accounts, services.fraudService, services.feePolicy,
                 infra.uowFactory);
 
-        var encoder = new Pbkdf2PasswordEncoder();
         users = new InMemoryUserRepository();
-        byte[] salt = encoder.generateSalt();
-        users.save(new User(1, "alice", encoder.hash("alice123".toCharArray(), salt), salt,
-                UserRole.CUSTOMER, CUSTOMER_ID));
+        users.save(new User(1, "alice", aliceHash, aliceSalt, UserRole.CUSTOMER, CUSTOMER_ID));
 
         // The store revalidates against the same repository the login path authenticates
         // against, and its clock is one the test moves by hand, so the expiry case below costs
@@ -299,7 +319,7 @@ class HttpErrorContractTest {
         throttleClock = new TestClock(Instant.parse("2026-01-01T09:00:00Z"));
         throttle = new LoginThrottle(throttleClock);
         AuthController authController =
-                new AuthController(new AuthService(users, encoder), sessions, throttle);
+                new AuthController(new AuthService(users, ENCODER), sessions, throttle);
 
         api = MockMvcBuilders
                 .standaloneSetup(paymentController, authorizationController, fraudController,
