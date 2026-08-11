@@ -18,6 +18,7 @@ import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.TooManySessionsException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
+import cz.vsb.minibank.domain.repository.UserRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
@@ -38,6 +39,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Optional;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -166,6 +168,35 @@ class HttpErrorContractTest {
         public UnitOfWork begin() {
             begun++;
             return delegate.begin();
+        }
+    }
+
+    /**
+     * A user store that is down. The cheapest way to reach the login path's other kind of
+     * failure: in sql mode SqlUserRepository wraps the SQLException a closed database gives it
+     * into a plain RuntimeException, so the advice's catch-all answers 500 and no credential
+     * was ever looked at.
+     */
+    private static final class UnreachableUserRepository implements UserRepository {
+
+        @Override
+        public Optional<User> byId(int id) {
+            throw new IllegalStateException("user store is unreachable");
+        }
+
+        @Override
+        public Optional<User> findByUsername(String username) {
+            throw new IllegalStateException("user store is unreachable");
+        }
+
+        @Override
+        public void save(User user) {
+            throw new IllegalStateException("user store is unreachable");
+        }
+
+        @Override
+        public int nextId() {
+            throw new IllegalStateException("user store is unreachable");
         }
     }
 
@@ -519,6 +550,86 @@ class HttpErrorContractTest {
         assertFalse(body.contains("alice"), "no username may come back: " + body);
         assertTrue(body.contains("No account has been locked"),
                 "the honest user must be told their account is fine: " + body);
+    }
+
+    /**
+     * A failure that is not a guess must not spend anybody's allowance.
+     *
+     * The counter is the one LoginThrottle describes: every caller on this deployment arrives
+     * from one loopback address, so there is a single bucket for the whole bank, and nothing
+     * but time empties it. A database that is down makes the user store throw before any
+     * password is compared and the caller is answered 500. Counted, ten of those during a
+     * momentary outage refused every customer's sign-in for a quarter of an hour after the
+     * database had come back - a lockout produced entirely by requests in which nobody guessed
+     * at anything, and the one shape of denial of service the whole design is arranged to
+     * avoid.
+     *
+     * The second half is what stops this being a throttle that simply stopped counting: the
+     * same number of genuinely wrong passwords still exhausts the allowance.
+     */
+    @Test
+    void aRunOfServerSideFailuresDoesNotSpendTheAllowanceThatWrongPasswordsDo() throws Exception {
+        MockMvc broken = apiWithAnUnreachableUserStore();
+
+        for (int i = 0; i < LoginThrottle.MAX_FAILURES; i++) {
+            assertResponse(broken, aWrongPasswordForAlice(), 500, BODY_INTERNAL_ERROR);
+        }
+
+        // A full allowance's worth of 500s, and the next caller still gets the ordinary answer.
+        assertResponse(api, aWrongPasswordForAlice(), 401, BODY_AUTH_FAILED);
+
+        // And that one was counted. The rest of the allowance is taken straight from the
+        // counter, as theAttemptAfterTheAllowanceIsRefusedAlikeForEveryUsername does, rather
+        // than paying for nine more 120 000-iteration hashes.
+        for (int i = 1; i < LoginThrottle.MAX_FAILURES; i++) {
+            throttle.requireAttemptAllowed(MockHttpServletRequest.DEFAULT_REMOTE_ADDR);
+        }
+
+        assertResponse(api, aWrongPasswordForAlice(), 429, BODY_TOO_MANY_ATTEMPTS);
+    }
+
+    /**
+     * The line the release must not cross. An unknown username and a wrong password raise one
+     * exception type on purpose, and AuthService hashes a stand-in for the first so that the
+     * two cost the same wall-clock time as well. Handing the unit back for a name that is not
+     * in the users table would put the answer in the counter instead: attempts at names that
+     * do not exist would never run out, attempts at a name that does would, and a caller with
+     * a stopwatch would be replaced by one that can count to eleven.
+     */
+    @Test
+    void anUnknownUsernameSpendsTheAllowanceExactlyAsAKnownOneDoes() throws Exception {
+        for (int i = 1; i < LoginThrottle.MAX_FAILURES; i++) {
+            throttle.requireAttemptAllowed(MockHttpServletRequest.DEFAULT_REMOTE_ADDR);
+        }
+
+        assertResponse(api, post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"nobody\",\"password\":\"whatever\"}"), 401, BODY_AUTH_FAILED);
+
+        assertResponse(api, aWrongPasswordForAlice(), 429, BODY_TOO_MANY_ATTEMPTS);
+    }
+
+    /**
+     * The same login endpoint over a store that cannot be reached, sharing this test's throttle
+     * so that both instances address one bucket - MockMvc gives every request the same remote
+     * address, which is what the throttle keys on.
+     */
+    private MockMvc apiWithAnUnreachableUserStore() {
+        AuthController broken = new AuthController(
+                new AuthService(new UnreachableUserRepository(), new Pbkdf2PasswordEncoder()),
+                sessions, throttle);
+
+        return MockMvcBuilders
+                .standaloneSetup(broken)
+                .setControllerAdvice(new RestExceptionHandler())
+                .build();
+    }
+
+    /** A fresh builder each call: MockMvc consumes the one it is handed. */
+    private static RequestBuilder aWrongPasswordForAlice() {
+        return post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"username\":\"alice\",\"password\":\"not-my-password\"}");
     }
 
     // ---------------------------------------------------------------- 403

@@ -5,6 +5,7 @@ import cz.vsb.minibank.application.LoginThrottle;
 import cz.vsb.minibank.application.SessionStore;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.domain.User;
+import cz.vsb.minibank.domain.exceptions.AuthenticationFailedException;
 import cz.vsb.minibank.domain.exceptions.ValidationException;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
@@ -66,12 +67,26 @@ public class AuthController {
 
         // Before the credential check, so a refused attempt costs a map lookup rather than
         // 120 000 PBKDF2 iterations, five megabytes of garbage and, in sql mode, a database
-        // connection. The allowance is taken here rather than given back on failure, so that
-        // requests already in flight cannot all pass a gate that has been spent; see
-        // LoginThrottle.requireAttemptAllowed.
+        // connection. The allowance is taken here rather than counted after the outcome is
+        // known, so that requests already in flight cannot all pass a gate that has been
+        // spent; see LoginThrottle.requireAttemptAllowed. The two releases below both run
+        // after the attempt has finished, so neither of them widens that window.
         throttle.requireAttemptAllowed(origin);
 
-        User u = authService.login(req.username(), req.password().toCharArray());
+        User u;
+        try {
+            u = authService.login(req.username(), req.password().toCharArray());
+        } catch (AuthenticationFailedException guessed) {
+            // The one failure this allowance exists to count, so its unit stays spent. Both
+            // halves of it land here - a wrong password and a username that is not in the
+            // table raise the same type, which is why AuthService hashes a stand-in for the
+            // second - so the counter moves by exactly one either way and cannot be read to
+            // tell which usernames exist.
+            throw guessed;
+        } catch (RuntimeException notAGuess) {
+            throttle.releaseAttemptThatWasNotAGuess(origin);
+            throw notAGuess;
+        }
 
         // The password was right, so the unit this attempt took is returned - and only that
         // one. Earlier failures at this origin are still counted, because the alternative

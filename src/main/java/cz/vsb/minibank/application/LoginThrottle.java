@@ -74,6 +74,9 @@ import java.util.Objects;
  * Not bounded, deliberately: the cost of repeated <i>successful</i> sign-ins. Counting
  * attempts rather than failures would throttle the legitimate repeated logins a page reload
  * produces, so a caller holding any valid password can still spend CPU one hash at a time.
+ * Nor are sign-ins that failed on this application's own side, for the reason
+ * {@link #releaseAttemptThatWasNotAGuess} sets out; the condition that makes them repeatable
+ * is one in which nothing else works either.
  * Also not bounded: guesses made against one account from many origins, and guesses from an
  * attacker holding more distinct addresses than {@link #MAX_TRACKED_ORIGINS}, who can recycle
  * them so that every guess lands on a freshly created window. Bounding either needs the
@@ -255,6 +258,35 @@ public final class LoginThrottle {
      * inside a single hash, and the quantity being bounded is a rate.
      */
     public synchronized void releaseSuccessfulAttempt(String origin) {
+        giveBack(origin);
+    }
+
+    /**
+     * Gives back the unit an attempt took when that attempt never became a guess.
+     *
+     * The quantity this class bounds is failed sign-ins, and a request that never reached the
+     * password comparison has not failed one. On the SQL backend a database that is down makes
+     * SqlUserRepository throw before any credential is looked at, and the caller is answered
+     * 500; that is a report about this application, not about anybody's password. Counting it
+     * turns a short outage into a much longer one: with the single bucket described above,
+     * ten such attempts refuse every customer's sign-in for the rest of the window, which only
+     * time clears, so the refusals outlive the outage that produced them by up to a quarter of
+     * an hour. The design notes above settle the take-at-gate ordering and the shared origin
+     * and are silent on this case, so it is recorded here rather than inferred from them.
+     *
+     * Deliberately identical to {@link #releaseSuccessfulAttempt} and deliberately incapable
+     * of telling the two apart: only the caller knows which happened, and it is a separate
+     * method purely so that neither call site has to be read against the other's name.
+     *
+     * The caller must not reach this for an authentication failure. Releasing an unknown
+     * username but not a wrong password - or the other way round - would let anyone read the
+     * users table off the counter, which is the leak AuthService hashes a stand-in to close.
+     */
+    public synchronized void releaseAttemptThatWasNotAGuess(String origin) {
+        giveBack(origin);
+    }
+
+    private void giveBack(String origin) {
         String key = key(origin);
         Window window = windows.get(key);
         if (window == null) return;
