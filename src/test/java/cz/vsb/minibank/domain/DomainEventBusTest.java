@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
@@ -105,6 +106,62 @@ class DomainEventBusTest {
         bus.publishAll(List.of(new DomainEvent() { }));
 
         assertEquals(0, bus.observerCount());
+    }
+
+    @Test
+    void anObserverThatThrowsDoesNotStarveTheOnesRegisteredBehindIt() {
+        DomainEventBus bus = new DomainEventBus();
+        RecordingTransferObserver behindTheBrokenOne = new RecordingTransferObserver();
+        bus.register((TransferObserver) (t, from, to) -> {
+            throw new IllegalStateException("this transfer observer is broken");
+        });
+        bus.register(behindTheBrokenOne);
+
+        Transfer transfer = aTransfer();
+        bus.publish(new TransferStatusChanged(transfer, TransferStatus.WAITING_AUTH, TransferStatus.SENT));
+
+        assertEquals(1, behindTheBrokenOne.callCount,
+                "one broken listener must not decide what the rest of them hear about");
+        assertSame(transfer, behindTheBrokenOne.lastTransfer);
+        assertEquals(TransferStatus.SENT, behindTheBrokenOne.lastNew);
+    }
+
+    @Test
+    void anAlertObserverThatThrowsDoesNotStarveTheOnesRegisteredBehindIt() {
+        DomainEventBus bus = new DomainEventBus();
+        RecordingAlertObserver behindTheBrokenOne = new RecordingAlertObserver();
+        bus.register((FraudAlertObserver) (a, from, to) -> {
+            throw new IllegalStateException("this alert observer is broken");
+        });
+        bus.register(behindTheBrokenOne);
+
+        bus.publish(new FraudAlertStateChanged(
+                new FraudAlert(1, 2, "reason"), FraudAlertState.NEW, FraudAlertState.SUSPICIOUS));
+
+        assertEquals(1, behindTheBrokenOne.callCount);
+        assertEquals(FraudAlertState.SUSPICIOUS, behindTheBrokenOne.lastNew);
+    }
+
+    @Test
+    void anObserverFailureIsNotReportedToTheCallerWhoseTransactionSucceeded() {
+        DomainEventBus bus = new DomainEventBus();
+        bus.register((TransferObserver) (t, from, to) -> {
+            throw new IllegalStateException("this transfer observer is broken");
+        });
+        bus.register((FraudAlertObserver) (a, from, to) -> {
+            throw new IllegalStateException("this alert observer is broken");
+        });
+
+        TransferStatusChanged sent = new TransferStatusChanged(
+                aTransfer(), TransferStatus.WAITING_AUTH, TransferStatus.SENT);
+        FraudAlertStateChanged flagged = new FraudAlertStateChanged(
+                new FraudAlert(1, 2, "reason"), FraudAlertState.NEW, FraudAlertState.SUSPICIOUS);
+
+        // Both units of work publish after their commit, so anything that escapes these three
+        // calls is a failure reported for a payment whose debit is already durable.
+        assertDoesNotThrow(() -> bus.publish(sent));
+        assertDoesNotThrow(() -> bus.publish(flagged));
+        assertDoesNotThrow(() -> bus.publishAll(List.of(sent, flagged)));
     }
 
     private static Transfer aTransfer() {
