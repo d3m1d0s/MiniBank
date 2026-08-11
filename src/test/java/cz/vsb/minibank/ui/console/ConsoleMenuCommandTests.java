@@ -1,6 +1,8 @@
 package cz.vsb.minibank.ui.console;
 
+import cz.vsb.minibank.application.AuthService;
 import cz.vsb.minibank.application.BootstrapServices;
+import cz.vsb.minibank.application.Pbkdf2PasswordEncoder;
 import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
@@ -231,5 +233,95 @@ public class ConsoleMenuCommandTests {
                 "Invalid choice should be handled with 'Invalid choice' message");
         assertTrue(output.contains("Bye!"),
                 "When selecting 9 the menu should exit correctly");
+    }
+
+    /**
+     * A script that stops before choosing 9, or a terminal where the operator presses Ctrl+D,
+     * leaves the menu prompt with nothing to read. The read is outside the try that wraps the
+     * commands, so an unguarded one throws NoSuchElementException out of run() and out of main
+     * as a stack trace. Ending the session is the only sensible answer, and it has to be an
+     * exit rather than another pass, since the input that ended never comes back.
+     */
+    @Test
+    void run_returnsWhenInputRunsOutBeforeTheExitChoice() {
+        // No 9. The invalid option forces one full pass through the loop, so the end of input
+        // is met at the menu prompt itself and not before the loop was ever entered.
+        String consoleInput = "42\n";
+        ByteArrayInputStream in = new ByteArrayInputStream(
+                consoleInput.getBytes(StandardCharsets.UTF_8));
+        System.setIn(in);
+
+        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(outContent, true, StandardCharsets.UTF_8));
+
+        ConsoleMenu menu = new ConsoleMenu(app, infra, customerId);
+
+        assertDoesNotThrow(() -> menu.run(),
+                "input that runs out at the menu prompt must end the session, not throw");
+
+        String output = outContent.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains("Invalid choice"),
+                "the loop should have run one full pass before the input ended: " + output);
+        assertFalse(output.contains("[Error]"),
+                "a finished script is not an error and must not be reported as one: " + output);
+    }
+
+    /**
+     * Same end of input one loop earlier. The login prompts run before the menu loop and so
+     * before any handler at all, which makes an unguarded read there the first thing an empty
+     * pipe hits in SQL mode.
+     */
+    @Test
+    void run_returnsWhenInputRunsOutAtTheLoginPrompt() {
+        AuthService authService = new AuthService(infra.users, new Pbkdf2PasswordEncoder());
+
+        // Empty: the operator is asked for a username and the input is already over. No user
+        // row is needed, because no login is ever attempted.
+        ByteArrayInputStream in = new ByteArrayInputStream(new byte[0]);
+        System.setIn(in);
+
+        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(outContent, true, StandardCharsets.UTF_8));
+
+        ConsoleMenu menu = new ConsoleMenu(app, infra, authService);
+
+        assertDoesNotThrow(() -> menu.run(),
+                "input that runs out at the login prompt must end the session, not throw");
+
+        String output = outContent.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains("=== Login ==="),
+                "the login loop should have been entered and then abandoned: " + output);
+        assertFalse(output.contains("Welcome,"),
+                "nobody signed in, so no session should be announced: " + output);
+    }
+
+    /**
+     * The username prompt is not the only read the login loop makes before any handler exists.
+     * A script that names a user and stops ends one line later, at the password prompt.
+     */
+    @Test
+    void run_returnsWhenInputRunsOutAtThePasswordPrompt() {
+        AuthService authService = new AuthService(infra.users, new Pbkdf2PasswordEncoder());
+
+        // A username and nothing after it. No login is attempted, so no user row is needed
+        // and the test pays no hashing cost.
+        ByteArrayInputStream in = new ByteArrayInputStream(
+                "alice\n".getBytes(StandardCharsets.UTF_8));
+        System.setIn(in);
+
+        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(outContent, true, StandardCharsets.UTF_8));
+
+        ConsoleMenu menu = new ConsoleMenu(app, infra, authService);
+
+        assertDoesNotThrow(() -> menu.run(),
+                "input that runs out at the password prompt must end the session, not throw");
+
+        String output = outContent.toString(StandardCharsets.UTF_8);
+        assertTrue(output.contains("Password: "),
+                "the username was consumed, so the password prompt should have been reached: "
+                        + output);
+        assertFalse(output.contains("Welcome,"),
+                "no password was ever given, so nobody signed in: " + output);
     }
 }

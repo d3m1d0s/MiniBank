@@ -196,9 +196,27 @@ public class ConsoleMenu {
         while (true) {
             System.out.println("=== Login ===");
             System.out.print("Username: ");
+            // End of input is an end of session, not a failure. This loop runs before the
+            // menu's try block and there is no handler anywhere above it, so an unguarded
+            // read here turns Ctrl+D, or piped input that simply stops, into a stack trace
+            // out of main. Giving up on the login is the whole answer: run() then reaches the
+            // menu loop, whose own guard ends it on the same exhausted input, and an operator
+            // who never signed in has no role, so that menu offers nothing but Exit.
+            //
+            // Returning and not continuing. The input that ended does not come back, so a
+            // second pass would redraw this header forever.
+            if (!in.hasNextLine()) {
+                return;
+            }
             String username = in.nextLine().trim();
 
             System.out.print("Password: ");
+            // The same end of session one read later, and the likelier half of it: a script
+            // that names a user and stops. Guarding only the read above would move the stack
+            // trace down a line rather than remove it.
+            if (!in.hasNextLine()) {
+                return;
+            }
             String password = in.nextLine();
 
             try {
@@ -263,6 +281,17 @@ public class ConsoleMenu {
             }
             System.out.println("9) Exit");
             System.out.print("Choice: ");
+            // Input that runs out without choosing 9 leaves the menu with nothing to read.
+            // This read sits outside the try below, so the NoSuchElementException Scanner
+            // answers with would leave run() and main() as a stack trace; worse, when the
+            // end of input first lands inside a command the generic clause prints "could not
+            // be completed" and logs at ERROR, and then this line crashes anyway, so the
+            // operator gets a misleading message and a trace for what is only a finished
+            // script. Returning is the exit the missing 9 would have caused, and it has to be
+            // a return: nothing more will ever arrive, so continuing would spin on the menu.
+            if (!in.hasNextLine()) {
+                return;
+            }
             String choice = in.nextLine().trim();
 
             if ("9".equals(choice)) {
