@@ -14,6 +14,7 @@ import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
+import cz.vsb.minibank.infrastructure.json.dto.JsonCustomer;
 import cz.vsb.minibank.infrastructure.json.dto.JsonTransfer;
 import cz.vsb.minibank.infrastructure.json.mapping.JsonMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -348,6 +349,115 @@ class TransferAmountValidationTest {
         DataIntegrityException thrown =
                 assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(row));
         assertTrue(thrown.getMessage().contains("yesterday afternoon"));
+    }
+
+    /**
+     * The authorization deadline, on the same terms, and this is the timestamp where swallowing
+     * the parse had a live consequence rather than a reporting one.
+     *
+     * A null deadline means no deadline, deliberately: it is what lets a transfer released from
+     * review wait for its owner instead of expiring on them. So an unreadable string quietly
+     * becoming null did not weaken the five-minute OTP window on a row still waiting for a code,
+     * it removed it, and {@code isAuthExpired} then answered false forever.
+     */
+    @Test
+    void aStoredRowWhoseAuthorizationDeadlineCannotBeReadIsRefused() {
+        JsonTransfer row = new JsonTransfer();
+        row.id = 908;
+        row.sourceAccountId = ACCOUNT_ID;
+        row.targetIbanSnapshot = TARGET_IBAN;
+        row.amount = new BigDecimal("1000.00");
+        row.currency = "CZK";
+        row.status = "WAITING_AUTH";
+        row.createdAt = "2026-01-01T09:00:00Z";
+        row.authValidUntil = "in about five minutes";
+
+        DataIntegrityException thrown =
+                assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(row));
+        assertTrue(thrown.getMessage().contains("908"),
+                "the refusal must name the row, so a corrupt store can be found");
+        assertTrue(thrown.getMessage().contains("in about five minutes"),
+                "and name the value, so it can be corrected");
+    }
+
+    /**
+     * The settlement instant, on the same terms, and this one used to destroy its own evidence:
+     * toDto writes settledAt only when it is non-null, so the next save of a row loaded this way
+     * replaced the unreadable string with nothing and the day the money left was gone from the
+     * store for good.
+     */
+    @Test
+    void aStoredRowWhoseSettlementInstantCannotBeReadIsRefused() {
+        JsonTransfer row = new JsonTransfer();
+        row.id = 909;
+        row.sourceAccountId = ACCOUNT_ID;
+        row.targetIbanSnapshot = TARGET_IBAN;
+        row.amount = new BigDecimal("1000.00");
+        row.currency = "CZK";
+        row.status = "SENT";
+        row.createdAt = "2026-01-01T09:00:00Z";
+        row.settledAt = "some time on Friday";
+
+        DataIntegrityException thrown =
+                assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(row));
+        assertTrue(thrown.getMessage().contains("some time on Friday"));
+    }
+
+    /**
+     * Guards against over-tightening, and the reason both fields above are read with a helper of
+     * their own rather than with the one the creation instant uses. Absent is legal on both: a
+     * transfer waiting after a review release has no deadline, and one that has not settled has no
+     * settlement instant.
+     */
+    @Test
+    void aStoredRowWithNeitherOptionalInstantStillLoads() {
+        JsonTransfer row = new JsonTransfer();
+        row.id = 911;
+        row.sourceAccountId = ACCOUNT_ID;
+        row.targetIbanSnapshot = TARGET_IBAN;
+        row.amount = new BigDecimal("1000.00");
+        row.currency = "CZK";
+        row.status = "WAITING_AUTH";
+        row.createdAt = "2026-01-01T09:00:00Z";
+        row.authValidUntil = null;
+        row.settledAt = null;
+
+        Transfer loaded = JsonMapper.toDomain(row);
+
+        assertEquals(TransferStatus.WAITING_AUTH, loaded.status());
+        assertNull(loaded.authValidUntil());
+        assertFalse(loaded.isAuthExpired(),
+                "no deadline is no deadline, not one that has already elapsed");
+        assertNull(loaded.settledAt());
+    }
+
+    /**
+     * A customer row whose lists and address are explicitly null loads as a customer with none of
+     * them.
+     *
+     * Jackson replaces the field initializer with null on {@code "accountIds": null}, and the rest
+     * of this backend already expects that shape - JsonCustomerRepository and JsonDataStore both
+     * guard for it. Only the loader did not, so a row every other reader steps over came out of it
+     * as a NullPointerException naming neither the row nor the field: an unexplained 500 where
+     * every other unreadable shape in this store gets a refusal that says what is wrong.
+     */
+    @Test
+    void aStoredCustomerRowWithNullCollectionsLoadsAsOneWithNone() {
+        JsonCustomer row = new JsonCustomer();
+        row.id = 950;
+        row.name = "Null Collections";
+        row.email = "null@example.com";
+        row.address = null;
+        row.accountIds = null;
+        row.beneficiaries = null;
+
+        Customer loaded = JsonMapper.toDomain(row);
+
+        assertEquals(950, loaded.id());
+        assertTrue(loaded.accountIds().isEmpty());
+        assertTrue(loaded.beneficiaries().isEmpty());
+        assertNotNull(loaded.address(),
+                "every reader of address() dereferences it without checking");
     }
 
     /**

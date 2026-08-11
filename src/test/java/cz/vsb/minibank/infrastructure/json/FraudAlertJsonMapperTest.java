@@ -90,6 +90,43 @@ class FraudAlertJsonMapperTest {
         assertTrue(thrown.getMessage().contains("last Tuesday"));
     }
 
+    /**
+     * The instant the alert was resolved, on the same terms - but this one is legitimately absent
+     * on an open alert, and that is what made swallowing it worse rather than milder. An
+     * unreadable string used to land on exactly the value a legal row has, so a decided alert came
+     * back carrying a decision and a decidedBy with nothing saying when, and nothing anywhere
+     * complained.
+     */
+    @Test
+    void aStoredAlertWhoseResolutionInstantCannotBeReadIsRefused() {
+        JsonFraudAlert dto = row();
+        dto.decision = "APPROVE";
+        dto.decidedBy = "alice";
+        dto.resolvedAt = "last Tuesday";
+
+        DataIntegrityException thrown =
+                assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(dto));
+        assertTrue(thrown.getMessage().contains("7"),
+                "the refusal must name the row, so a corrupt store can be found");
+        assertTrue(thrown.getMessage().contains("last Tuesday"),
+                "and name the value, so it can be corrected");
+    }
+
+    /**
+     * Guards against over-tightening: no resolution instant is what every open alert carries, and
+     * what every alert written before the field existed carries.
+     */
+    @Test
+    void aStoredAlertWithNoResolutionInstantStillLoads() {
+        JsonFraudAlert dto = row();
+        dto.resolvedAt = null;
+
+        FraudAlert restored = JsonMapper.toDomain(dto);
+
+        assertNull(restored.resolvedAt());
+        assertEquals(Instant.parse("2025-01-01T10:15:30Z"), restored.createdAt());
+    }
+
     private static JsonFraudAlert row() {
         JsonFraudAlert dto = new JsonFraudAlert();
         dto.id = 7;

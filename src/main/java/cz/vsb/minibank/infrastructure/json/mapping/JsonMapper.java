@@ -63,13 +63,35 @@ public class JsonMapper {
         return j;
     }
 
+    /**
+     * The nulls guarded here are not hypothetical, and the field initializers on
+     * {@link JsonCustomer} do not stop them: Jackson replaces an initialized list with null on an
+     * explicit {@code "accountIds": null}, and this store is a file people open and edit.
+     *
+     * Absent reads as empty rather than as corrupt because that is already how the rest of the
+     * codebase reads it - JsonCustomerRepository skips such a customer when searching by account
+     * id, and JsonDataStore skips it when handing out the next beneficiary id. What neither of
+     * them does is answer with a bare NullPointerException, which is what this loader did: an
+     * unexplained 500 for a row every one of its neighbours can read.
+     *
+     * A missing address becomes an empty one for the reason the other backend has no choice about:
+     * a customer whose street and city are NULL still arrives from SQL as an Address holding
+     * nulls, never as a null Address, and every reader of {@code Customer.address()} dereferences
+     * it without checking.
+     */
     public static Customer toDomain(JsonCustomer j) {
-        Customer c = new Customer(j.id, j.name, j.email, toDomain(j.address));
-        for (Integer id : j.accountIds) {
-            c.addAccountId(id);
+        Address address = (j.address != null) ? toDomain(j.address) : new Address(null, null);
+
+        Customer c = new Customer(j.id, j.name, j.email, address);
+        if (j.accountIds != null) {
+            for (Integer id : j.accountIds) {
+                c.addAccountId(id);
+            }
         }
-        for (JsonBeneficiary jb : j.beneficiaries) {
-            c.addBeneficiary(toDomain(jb));
+        if (j.beneficiaries != null) {
+            for (JsonBeneficiary jb : j.beneficiaries) {
+                c.addBeneficiary(toDomain(jb));
+            }
         }
         return c;
     }
@@ -91,7 +113,7 @@ public class JsonMapper {
                 // therefore takes the store lock itself; inside an open unit of work the
                 // acquisition is reentrant and free.
                 return store.read(bundle -> bundle.accounts.stream()
-                        .filter(a -> j.accountIds.contains(a.id))
+                        .filter(a -> j.accountIds != null && j.accountIds.contains(a.id))
                         .map(dto -> {
                             if (uow != null) {
                                 Account cached = uow.get(Account.class, dto.id);
@@ -235,32 +257,30 @@ public class JsonMapper {
 
         Instant ts = StoredValue.requiredInstant(j.createdAt, "creation instant", "transfer", j.id);
 
-        // parse OTP metadata
         Integer attempts = j.authAttempts;
-        Instant validUntil = null;
-        try {
-            if (j.authValidUntil != null) {
-                validUntil = Instant.parse(j.authValidUntil);
-            }
-        } catch (Exception ignored) {
-        }
+
+        // An absent deadline is a real value and stays one: a transfer released from review waits
+        // with no clock running, and Transfer.isAuthExpired reads null as exactly that. Which is
+        // why an unreadable deadline must not also arrive as null. On a row still WAITING_AUTH it
+        // would silently turn the customer's five minutes into an unlimited window, and the next
+        // save would write the null over the string that caused it.
+        Instant validUntil = StoredValue.presentInstantOrNull(
+                j.authValidUntil, "authorization deadline", "transfer", j.id);
 
         TransferStatus status = StoredValue.requiredEnum(
                 TransferStatus.class, j.status, "status", "transfer", j.id);
         t.hydrateForLoad(status, payment, j.declineReason, ts, attempts, validUntil);
 
         // Absent is a real value for both of these, unlike the status above: a transfer that has
-        // not settled was charged nothing and moved no money. Guarded rather than passed
-        // straight through, because Money.czk has a double overload that would autounbox a null
-        // fee into a NullPointerException, and Instant.parse(null) throws.
+        // not settled was charged nothing and moved no money. The fee is guarded rather than
+        // passed straight through because Money.czk has a double overload that would autounbox a
+        // null into a NullPointerException. Absent is all that is tolerated, though: an unreadable
+        // settlement instant used to become null here and then be written back as null by toDto,
+        // so the day the money actually left was lost from the store and not only from the object,
+        // and a row with no settlement instant is counted against its creation day instead.
         Money fee = (j.fee != null) ? Money.czk(j.fee) : null;
-        Instant settledAt = null;
-        try {
-            if (j.settledAt != null) {
-                settledAt = Instant.parse(j.settledAt);
-            }
-        } catch (Exception ignored) {
-        }
+        Instant settledAt = StoredValue.presentInstantOrNull(
+                j.settledAt, "settlement instant", "transfer", j.id);
         t.hydrateSettlement(fee, settledAt);
         t.attachMessage(j.message);
 
@@ -393,14 +413,12 @@ public class JsonMapper {
         a.hydrateForLoad(st, j.reason, ts, j.riskScore, j.assignee, tags, j.notes);
 
         // hydrateDecision takes all three as null, which is what every alert written before
-        // these fields existed has. Absent is a real value here, unlike the state above.
-        java.time.Instant resolvedAt = null;
-        try {
-            if (j.resolvedAt != null) {
-                resolvedAt = java.time.Instant.parse(j.resolvedAt);
-            }
-        } catch (Exception ignored) {
-        }
+        // these fields existed has. Absent is a real value here, unlike the state above; a
+        // resolution instant that is present and cannot be read is not, because it used to land
+        // on exactly the value a legal row carries and nothing downstream could tell the two
+        // apart.
+        java.time.Instant resolvedAt = StoredValue.presentInstantOrNull(
+                j.resolvedAt, "resolution instant", "fraud alert", j.id);
         a.hydrateDecision(j.decision, j.decidedBy, resolvedAt);
 
         return a;
