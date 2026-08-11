@@ -105,6 +105,14 @@ public class JsonDataStore {
      * The mutation's own exceptions propagate unchanged; only the checked exception from
      * save() is wrapped. Callers rely on that: a DomainException raised inside a mutation
      * has to reach RestExceptionHandler as itself, not as a generic RuntimeException.
+     *
+     * A save that fails has already left the mutation in the shared Bundle, so the failure is
+     * reported only once the store has been put back to the last state that reached disk, exactly
+     * as a failed commit does. Otherwise the next write publishes the change that was just
+     * refused, and that write need not be a deliberate one: every nextXxxId() saves the whole
+     * cache in order to bump one sequence, so allocating an id is enough to persist it. The
+     * revert re-enters the lock this hold already owns and releases only its own acquisition, so
+     * the mutation and its undo remain a single hold.
      */
     public void mutateAndSave(Runnable mutation) {
         lock.lock();
@@ -113,6 +121,7 @@ public class JsonDataStore {
             try {
                 save();
             } catch (Exception e) {
+                discardChanges(e);
                 throw new RuntimeException(e);
             }
         } finally {
@@ -123,11 +132,13 @@ public class JsonDataStore {
     /**
      * Throws away in-memory changes by re-reading the file.
      *
-     * Called when a commit fails after its buffered mutations have already been applied
-     * to the shared Bundle. Leaving them there would hand a failed transaction's changes
-     * to the next transaction, which - now that transactions are serialised - starts
-     * immediately afterwards and would persist them. Ids are not reused, because every
-     * nextXxxId() persisted its bumped sequence before the transaction reached commit.
+     * Called when a commit fails after its mutations have already been applied to the
+     * shared Bundle: a unit of work's commit, or the one-mutation commit that
+     * mutateAndSave performs for callers with no unit of work bound. Leaving them there
+     * would hand a failed transaction's changes to the next transaction, which - now that
+     * transactions are serialised - starts immediately afterwards and would persist them.
+     * Ids are not reused, because every nextXxxId() persisted its bumped sequence before
+     * the transaction reached commit.
      *
      * @param cause the commit failure, rethrown by the caller
      */
