@@ -30,6 +30,14 @@
 -- Existing rows start at 0, which is what a fresh row gets too, so a migrated database and a
 -- fresh one behave identically from the first write onward. Nothing is backfilled and nothing
 -- needs to be: the column carries no history, only the token for the next write.
+--
+-- Idempotent, which is what makes the exit code below worth reading. ADD COLUMN IF NOT EXISTS
+-- skips a column that is already there without touching the versions in it, so a second run
+-- over a migrated database exits zero because it succeeded, not because an error went unseen.
+
+-- Without this psql reports success after the ALTER below fails, and the two-database run above
+-- ends in two successful-looking invocations over a schema that still has no version column.
+\set ON_ERROR_STOP on
 
 ALTER TABLE transfers
     ADD COLUMN IF NOT EXISTS version INTEGER NOT NULL DEFAULT 0;
