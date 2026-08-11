@@ -356,13 +356,28 @@ public class Transfer implements RecordsDomainEvents {
     /**
      * Declines the transfer with the given reason.
      *
-     * Only SENT is refused, so a HELD_FOR_REVIEW transfer is always cancellable by its owner.
-     * That is what keeps a customer from being trapped behind a queue nobody is working: the
-     * hold has no expiry of its own, so the customer's own Cancel is their way out of it.
+     * DECLINED is refused as firmly as SENT, because the reason recorded here is the record of
+     * why this payment stopped and a second decline writes over it. That ran in both directions:
+     * an analyst's wording over the customer's own "Canceled by customer", and a customer's
+     * Cancel over "Too many invalid OTP attempts" or "Authorization window expired" on a payment
+     * they were never given the chance to complete. It also raised a DECLINED to DECLINED status
+     * change, so the audit trail carried a transition that never happened.
+     * {@code FraudApplicationService} already excludes DECLINED before both of its calls to this
+     * method, for exactly that reason; the rule belongs here, where the state machine is, so that
+     * no caller can be the one that forgets it.
+     *
+     * HELD_FOR_REVIEW is deliberately not refused, so a transfer under review is always
+     * cancellable by its owner. That is what keeps a customer from being trapped behind a queue
+     * nobody is working: the hold has no expiry of its own, so the customer's own Cancel is their
+     * way out of it.
      */
     public void decline(String reason) {
         if (status == TransferStatus.SENT)
             throw new InvalidStateTransitionException("Cannot decline already SENT transfer");
+
+        if (status == TransferStatus.DECLINED)
+            throw new InvalidStateTransitionException(
+                    "Transfer " + id + " has already been declined");
 
         TransferStatus old = this.status;
         this.status = TransferStatus.DECLINED;

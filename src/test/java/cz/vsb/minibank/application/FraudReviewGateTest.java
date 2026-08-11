@@ -438,6 +438,59 @@ class FraudReviewGateTest {
                 "the customer cancelled this payment; the record must still say so");
     }
 
+    /**
+     * The same rule the other way round, which nothing enforced. A payment the fraud desk has
+     * already stopped is over, so a cancel arriving afterwards is refused rather than answered
+     * with a 200 that rewrites why it stopped.
+     *
+     * The asymmetry was the whole defect: the decline path checked for DECLINED and the cancel
+     * path did not, so the analyst could not overwrite the customer's reason but the customer
+     * could overwrite the analyst's - and the audit log took a DECLINED to DECLINED transition
+     * with it.
+     */
+    @Test
+    void cancellingAPaymentTheFraudDeskAlreadyDeclinedIsRefused() {
+        int id = payExternal(RAISES_ALERT);
+        fraudService.decline(id, "confirmed mule account");
+        assertEquals("confirmed mule account", transfer(id).declineReason());
+
+        assertThrows(ConflictException.class, () -> service.cancelPayment(CUSTOMER_ID, id),
+                "a payment that has already been declined cannot be declined again");
+
+        assertEquals("confirmed mule account", transfer(id).declineReason(),
+                "the desk stopped this payment; the record must still say why");
+        assertEquals(TransferStatus.DECLINED, status(id));
+        assertEquals(FraudAlertState.SUSPICIOUS, alertFor(id).state(), "and the verdict stands");
+        assertEquals(OPENING, balance());
+    }
+
+    /**
+     * The auto-declines are the same fact and the worse case, because the customer has a reason
+     * to press Cancel on one: their payment has just failed in front of them. Overwriting it left
+     * no record anywhere that the three OTP attempts were what stopped the money.
+     */
+    @Test
+    void cancellingAPaymentThatExhaustedItsOtpAttemptsKeepsWhyItReallyStopped() {
+        int id = payExternal(NEEDS_AUTH_ONLY);
+
+        for (int i = 0; i < TransferApplicationService.MAX_OTP_ATTEMPTS; i++) {
+            try {
+                service.authorizePayment(CUSTOMER_ID, id, "999999");
+            } catch (InvalidOtpException expected) {
+                // Only the first two throw. The third declines the transfer and reports that
+                // as an outcome rather than as an error.
+            }
+        }
+        assertEquals(TransferStatus.DECLINED, status(id));
+        assertEquals("Too many invalid OTP attempts", transfer(id).declineReason());
+
+        assertThrows(ConflictException.class, () -> service.cancelPayment(CUSTOMER_ID, id));
+
+        assertEquals("Too many invalid OTP attempts", transfer(id).declineReason(),
+                "a cancel must not restate a payment the bank itself refused");
+        assertEquals(OPENING, balance());
+    }
+
     // ------------------------------------------------------------------ nothing else changed
 
     /**
@@ -525,6 +578,17 @@ class FraudReviewGateTest {
         cancelled.decline("Canceled by customer");
         assertThrows(InvalidStateTransitionException.class, cancelled::releaseForAuthorization,
                 "an approval must not resurrect a payment its owner withdrew");
+
+        // And out of reach of a second decline. Nothing leaves DECLINED either: the reason is
+        // the record of why this payment stopped, so whoever declines it second rewrites it.
+        cancelled.drainDomainEvents();
+        assertThrows(InvalidStateTransitionException.class,
+                () -> cancelled.decline("Declined by fraud analyst"));
+        assertEquals("Canceled by customer", cancelled.declineReason(),
+                "a refused decline must not rewrite the reason that stands");
+        assertTrue(cancelled.drainDomainEvents().isEmpty(),
+                "DECLINED to DECLINED is not a transition, and the audit log must not be told"
+                        + " it was one");
     }
 
     /**
