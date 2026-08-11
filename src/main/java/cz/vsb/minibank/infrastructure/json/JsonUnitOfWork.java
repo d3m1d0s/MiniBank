@@ -115,10 +115,43 @@ public final class JsonUnitOfWork implements UnitOfWork {
             // them, so put the store back to the last state that reached disk.
             store.discardChanges(e);
             throw new RuntimeException(e);
+        } catch (Throwable failure) {
+            // The same revert, for what an Exception does not cover.
+            discardAfterFailure(failure);
+            throw failure;
         } finally {
             finish();
         }
         events.publishAll(happened);
+    }
+
+    /**
+     * Reverts a commit that failed with something no catch of {@code Exception} sees, without
+     * losing what it failed with.
+     *
+     * An Error is not an Exception, and the finally above completes the unit of work whatever
+     * escapes. A StackOverflowError out of Jackson part way through a save, an OutOfMemoryError,
+     * an assertion inside a mutation: each one released the store lock with this transaction's
+     * changes still sitting in the shared Bundle. The next transaction reads them as if they were
+     * real and its own commit writes them to disk, so the payment this caller was told had failed
+     * is persisted by whoever came next. {@code SqlUnitOfWork.commit} catches no more than this
+     * one did and needs no equivalent: its cleanup closes the connection and the server discards
+     * the uncommitted transaction itself. Its safety comes from the database. The JSON store has
+     * no such backstop, because the cache is the only copy.
+     *
+     * What escaped is then rethrown untouched, because only the caller can judge what it means
+     * for the process it is running in. So a revert that fails is attached as suppressed rather
+     * than thrown in its place, the same way {@code SqlUnitOfWorkFactory} keeps the reason a
+     * connection is being abandoned. {@code discardChanges} reports on an Exception, which is
+     * precisely what this path does not have; it is handed a stand-in naming the real failure,
+     * and the real failure is the one that propagates.
+     */
+    private void discardAfterFailure(Throwable failure) {
+        try {
+            store.discardChanges(new IllegalStateException("A commit failed with " + failure));
+        } catch (Throwable revertFailure) {
+            failure.addSuppressed(revertFailure);
+        }
     }
 
     /**
