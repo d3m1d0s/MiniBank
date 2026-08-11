@@ -523,10 +523,18 @@ public class ConsoleMenu {
             return;
         }
 
-        // This reads an account id the operator typed straight out of the repository,
-        // bypassing the application services, so OwnershipGuard cannot reach it from where it
-        // lives. Either restrict the prompt to accs or route this through a guarded read.
         int accId = askInt("Account id", accs.get(0).id());
+
+        // The typed id has to be one of this customer's own accounts. This read goes straight to
+        // the repository rather than through the application services, so OwnershipGuard is not
+        // on the path and there is nowhere else for the rule to live. Somebody else's account and
+        // one that does not exist get the same answer: account ids are small consecutive
+        // integers, and any difference between those two replies enumerates the bank.
+        if (accs.stream().noneMatch(a -> a.id() == accId)) {
+            System.out.println("[Error] You have no account with id " + accId + ".");
+            return;
+        }
+
         var list = transfers.bySourceAccount(accId);
         if (list.isEmpty()) {
             System.out.println("No transfers");

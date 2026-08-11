@@ -151,6 +151,66 @@ public class ConsoleMenuCommandTests {
         }
     }
 
+    /**
+     * Command 8 answers about whichever account id is typed, and account ids are small
+     * consecutive integers starting at 100. Without the ownership check the signed-in customer
+     * reads a stranger's payment history - id, status, amount and target IBAN - by counting up.
+     */
+    @Test
+    void listTransfersByAccount_refusesAnAccountTheCustomerDoesNotOwn() throws Exception {
+        final String strangerTargetIban = "CZ2001000000000012345678";
+
+        int strangerId = infra.customers.nextId();
+        Customer stranger = new Customer(
+                strangerId,
+                "Other User",
+                "other@example.com",
+                new Address("Street 2", "City")
+        );
+        infra.customers.save(stranger);
+
+        int strangerAccId = infra.accounts.nextId();
+        infra.accounts.save(new Account(
+                strangerAccId,
+                new IBAN("CZ1301000000000098765432"),
+                Money.czk(50000),
+                Money.czk(5000)
+        ));
+        stranger.addAccountId(strangerAccId);
+        infra.customers.save(stranger);
+
+        infra.transfers.add(new Transfer(
+                infra.transfers.nextId(),
+                strangerAccId,
+                null,
+                strangerTargetIban,
+                Money.czk(7777)
+        ));
+
+        // The menu builds its Scanner over System.in in a field initializer, so the input has
+        // to be in place before the menu is constructed.
+        ByteArrayInputStream in = new ByteArrayInputStream(
+                (strangerAccId + "\n").getBytes(StandardCharsets.UTF_8));
+        System.setIn(in);
+
+        ByteArrayOutputStream outContent = new ByteArrayOutputStream();
+        System.setOut(new PrintStream(outContent, true, StandardCharsets.UTF_8));
+
+        ConsoleMenu menu = new ConsoleMenu(app, infra, customerId);
+
+        var m = ConsoleMenu.class.getDeclaredMethod("listTransfersByAccount");
+        m.setAccessible(true);
+        m.invoke(menu);
+
+        String output = outContent.toString(StandardCharsets.UTF_8);
+        assertFalse(output.contains(strangerTargetIban),
+                "another customer's target IBAN must not be printed: " + output);
+        assertFalse(output.contains("7777"),
+                "another customer's transfer amount must not be printed: " + output);
+        assertTrue(output.contains("[Error]"),
+                "an account the customer does not own should be refused: " + output);
+    }
+
     @Test
     void run_invalidChoiceThenExit() {
         // first enter an invalid menu option, then 9 (exit)
