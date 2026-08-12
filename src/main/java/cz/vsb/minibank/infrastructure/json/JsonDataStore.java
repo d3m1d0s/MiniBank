@@ -10,6 +10,7 @@ import cz.vsb.minibank.infrastructure.json.dto.JsonTransfer;
 import java.io.File;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
+import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
@@ -189,6 +190,14 @@ public class JsonDataStore {
     }
 
     /**
+     * The two halves of the name a publish gives its working file. They are constants because
+     * the writer below and the sweep further down have to agree on them exactly: a sweep that
+     * has drifted from the writer either deletes the wrong file or collects nothing.
+     */
+    private static final String TEMP_PREFIX = "store-";
+    private static final String TEMP_SUFFIX = ".json.tmp";
+
+    /**
      * Writes the current in-memory data to disk.
      * Takes the store lock so Jackson cannot iterate a list that another thread is
      * structurally modifying. Inside a unit of work the lock is already held by this
@@ -206,7 +215,8 @@ public class JsonDataStore {
      * same directory**, because {@code ATOMIC_MOVE} is only defined within one file store. The
      * bytes are forced to the device before the move, so a power loss cannot land the rename
      * ahead of the data it renames. And a failed write deletes its temp file rather than
-     * leaving litter beside the store for the next reader to wonder about.
+     * leaving litter beside the store for the next reader to wonder about. A run that is killed
+     * outright never reaches that last part, so what it abandoned is collected at the next load.
      *
      * @throws Exception when saving fails
      */
@@ -214,7 +224,7 @@ public class JsonDataStore {
         lock.lock();
         try {
             Path target = file.toPath().toAbsolutePath();
-            Path temp = Files.createTempFile(target.getParent(), "store-", ".json.tmp");
+            Path temp = Files.createTempFile(target.getParent(), TEMP_PREFIX, TEMP_SUFFIX);
             try {
                 om.writeValue(temp.toFile(), cache);
                 try (FileChannel ch = FileChannel.open(temp, StandardOpenOption.WRITE)) {
@@ -236,9 +246,110 @@ public class JsonDataStore {
         lock.lock();
         try {
             loadUnderLock();
+            // Once per opened store, inside the hold the load already has. Deliberately not in
+            // loadUnderLock, which discardChanges also runs, after every failed commit. It runs
+            // after the read rather than before it, so a store that cannot be parsed is left
+            // with its directory exactly as whoever has to diagnose it will find it.
+            sweepAbandonedTempFiles();
         } finally {
             lock.unlock();
         }
+    }
+
+    /**
+     * Collects temp files that an earlier run abandoned beside the store.
+     *
+     * save() deletes its own working file when a publish fails, but a run killed between
+     * creating that file and completing the move never reaches that catch, and nothing collected
+     * the orphan afterwards: the next publish creates a temp file under a fresh name and moves
+     * that one instead. They accumulate, in a directory whose whole content is meant to be one
+     * document.
+     *
+     * The match is deliberately narrow - the prefix and suffix a publish uses, the digits
+     * createTempFile puts between them, a regular file, and never the store itself. Deleting one
+     * file somebody meant to keep is far worse than the litter this removes. That is also why
+     * the digits are checked although their shape is not part of createTempFile's contract: a
+     * JDK that changed it would leave the litter in place, which is the direction to fail in.
+     * And the names are compared rather than globbed because the default glob matcher ignores
+     * case on Windows, and a sweep must not be wider on one platform than on another.
+     *
+     * Nothing is left to age first, and it is worth being exact about what that costs. A working
+     * file this store has in flight is unreachable, because save() and the sweep run under the
+     * same lock and it is this instance's lock. What that lock does not cover is a publish by
+     * someone else in the same directory, and the default layout has one: the console app and the
+     * API write storage/data.json while the demo writes storage/demo.json, two legitimate writers
+     * of two different documents whose working files are named alike. A second process over the
+     * same document could collide too, though that pair is already ruining each other's work
+     * without any help from here, since either of them rewrites the whole document from its own
+     * cache on every commit.
+     *
+     * That is a bounded loss rather than an argument for an age threshold. The most the sweep can
+     * take from such a writer is a publish that has not happened yet: the move finds nothing to
+     * move and the caller is told its write failed, in the same breath it would be told about a
+     * full disk. No document that has been published is ever at risk, because the sweep matches
+     * no name a published document has. A threshold would buy a narrower window in exchange for
+     * assuming something about timestamp granularity and clock skew on the file store, and would
+     * leave every leftover it noticed for some later run to deal with.
+     *
+     * A leftover that will not go away is left where it is. Opening the store is not the place
+     * to refuse work over a file nobody is reading.
+     */
+    private void sweepAbandonedTempFiles() {
+        // Collected first and deleted once the stream is closed: a DirectoryStream does not
+        // define what its iterator does when the directory changes underneath it.
+        List<Path> leftovers = new ArrayList<>();
+        // Resolving the store path is inside the try: File tolerates a name the file system
+        // cannot parse - a stray colon on Windows - and loadUnderLock never converts such a path,
+        // since it returns early on one that does not exist. That store used to open empty and
+        // fail at its first save, and its first save is still where it should find out.
+        try {
+            Path store = file.toPath().toAbsolutePath();
+            Path dir = store.getParent();
+            if (dir == null) {
+                return;
+            }
+            try (var entries = Files.newDirectoryStream(dir)) {
+                for (Path entry : entries) {
+                    Path name = entry.getFileName();
+                    if (name != null
+                            && isAbandonedTempName(name.toString())
+                            && !name.equals(store.getFileName())
+                            && Files.isRegularFile(entry, LinkOption.NOFOLLOW_LINKS)) {
+                        leftovers.add(entry);
+                    }
+                }
+            }
+        } catch (Exception unsweepableDirectory) {
+            // A directory this cannot even list is not a reason to keep the store shut, and a
+            // listing that broke halfway is not one to act on half of.
+            return;
+        }
+        for (Path leftover : leftovers) {
+            try {
+                Files.deleteIfExists(leftover);
+            } catch (Exception stubbornLeftover) {
+                // Something else may hold it open, or the directory may be read only. Either
+                // way the store itself was read, and the caller gets the store.
+            }
+        }
+    }
+
+    /**
+     * Recognises exactly the names {@link #save()} gives its working file.
+     */
+    private static boolean isAbandonedTempName(String name) {
+        if (name.length() <= TEMP_PREFIX.length() + TEMP_SUFFIX.length()
+                || !name.startsWith(TEMP_PREFIX)
+                || !name.endsWith(TEMP_SUFFIX)) {
+            return false;
+        }
+        for (int i = TEMP_PREFIX.length(); i < name.length() - TEMP_SUFFIX.length(); i++) {
+            char c = name.charAt(i);
+            if (c < '0' || c > '9') {
+                return false;
+            }
+        }
+        return true;
     }
 
     // Replaces the cache field wholesale, so it needs the same lock as every reader.

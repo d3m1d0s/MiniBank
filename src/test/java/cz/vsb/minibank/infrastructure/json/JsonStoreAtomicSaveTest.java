@@ -26,6 +26,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * - is a property of {@code ATOMIC_MOVE} rather than of this code, and pinning it would need a
  * deliberately failing serializer injected into the store, which is production surface added for
  * one test.
+ *
+ * A run killed outright never reaches the cleanup a failed publish performs, so the store
+ * collects what such a run abandoned when it is next opened. That is asserted here too,
+ * together with what the collecting must leave alone.
  */
 class JsonStoreAtomicSaveTest {
 
@@ -140,6 +144,41 @@ class JsonStoreAtomicSaveTest {
 
         assertEquals(List.of(), customerNamesIn(reopened),
                 "a later save publishes what the store holds, and the refused change is not it");
+    }
+
+    /**
+     * The publish that is interrupted rather than refused. A killed run cannot delete anything on
+     * its way out, and nothing collected what it left behind: the next publish creates its temp
+     * file under a fresh name and moves that one, so the orphans pile up beside a store whose
+     * whole directory is meant to hold one document.
+     *
+     * The second half of this is the one worth having. A sweep is a delete loop over somebody's
+     * directory, so what it must not touch is pinned alongside: the neighbouring document, and a
+     * file carrying the same suffix without being the name a publish gives its working file.
+     */
+    @Test
+    void openingTheStoreCollectsTempFilesAKilledRunLeftBehind() throws Exception {
+        Path store = tempDir.resolve("data.json");
+        JsonDataStore s = new JsonDataStore(store.toString());
+        s.load();
+        s.save();
+        String published = Files.readString(store);
+
+        // Created the way a publish creates it, so the sweep is matched against the real name
+        // rather than against one this test made up.
+        Path abandoned = Files.createTempFile(tempDir, "store-", ".json.tmp");
+        Files.writeString(tempDir.resolve("demo.json"), "{}");
+        Files.writeString(tempDir.resolve("data.json.tmp"), "not a publish's working file");
+
+        JsonDataStore reopened = new JsonDataStore(store.toString());
+        reopened.load();
+
+        assertFalse(Files.exists(abandoned),
+                "opening the store must collect the temp file the killed run abandoned");
+        assertEquals(List.of("data.json", "data.json.tmp", "demo.json"), namesIn(tempDir),
+                "and must collect nothing else that happens to sit beside the store");
+        assertEquals(published, Files.readString(store),
+                "the document the sweep is tidying around must come through it byte for byte");
     }
 
     private static List<String> customerNamesIn(JsonDataStore store) {
