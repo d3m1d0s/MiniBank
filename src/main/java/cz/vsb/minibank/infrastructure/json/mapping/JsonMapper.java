@@ -237,6 +237,12 @@ public class JsonMapper {
         if (t.settledAt() != null) {
             j.settledAt = t.settledAt().toString();
         }
+        // Absent rather than a constant meaning "owes nothing", on the same terms as the fee
+        // above: null is a real value here and the common one, and inventing a name for it would
+        // put a decision in the store about every row written before this field existed.
+        if (t.dispatchState() != null) {
+            j.dispatchState = t.dispatchState().name();
+        }
         if (t.authMethod() != null) {
             j.authMethod = t.authMethod().method();
             if (t.authMethod() instanceof CardPayment cp) {
@@ -300,6 +306,18 @@ public class JsonMapper {
                 j.settledAt, "settlement instant", "transfer", j.id);
         t.hydrateSettlement(fee, settledAt);
         t.attachMessage(j.message);
+
+        // The same split the two instants above make, on an enum: absent is a real value, present
+        // and unreadable is not. It is written out here rather than through StoredValue.requiredEnum
+        // alone because that method refuses a null, which is right for the status - a transfer
+        // must have one - and wrong here, where a null says this payment owes the network nothing.
+        // Reading a garbled name as null would be the lenient answer, and lenient here means a
+        // payment that has left the bank silently stops being one the sweep will ever dispatch.
+        DispatchState dispatchState = (j.dispatchState != null)
+                ? StoredValue.requiredEnum(DispatchState.class, j.dispatchState,
+                        "dispatch state", "transfer", j.id)
+                : null;
+        t.hydrateDispatch(dispatchState);
 
         return t;
     }

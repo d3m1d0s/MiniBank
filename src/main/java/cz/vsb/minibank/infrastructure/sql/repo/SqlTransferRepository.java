@@ -1,6 +1,7 @@
 package cz.vsb.minibank.infrastructure.sql.repo;
 
 import cz.vsb.minibank.domain.CardPayment;
+import cz.vsb.minibank.domain.DispatchState;
 import cz.vsb.minibank.domain.Payment;
 import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
@@ -111,9 +112,11 @@ public final class SqlTransferRepository implements TransferRepository {
      * the settlement instant and the authorization metadata, refusing a write built on a stale
      * read.
      *
-     * fee, message and settled_at are in the DO UPDATE SET list and not only in the INSERT, and
-     * that is load-bearing: a transfer is inserted at CREATED and settled by a later save, so
-     * an insert-only fee would never be written at all and the stored fee would be inert on this backend.
+     * fee, message, settled_at and dispatch_state are in the DO UPDATE SET list and not only in
+     * the INSERT, and that is load-bearing: a transfer is inserted at CREATED and settled by a
+     * later save, so an insert-only fee would never be written at all and the stored fee would be
+     * inert on this backend. The dispatch state is written by exactly those later saves and by no
+     * other, so leaving it out of the update list would store nothing but nulls.
      *
      * The guard is the WHERE on the DO UPDATE arm, the same shape
      * {@code SqlAccountRepository.upsertAccount} carries and for the same reasons - it holds
@@ -147,13 +150,14 @@ public final class SqlTransferRepository implements TransferRepository {
                     status,
                     created_at,
                     settled_at,
+                    dispatch_state,
                     auth_method,
                     card_number_masked,
                     decline_reason,
                     auth_attempts,
                     auth_valid_until
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO UPDATE SET
                     source_account_id    = EXCLUDED.source_account_id,
                     beneficiary_id       = EXCLUDED.beneficiary_id,
@@ -165,6 +169,7 @@ public final class SqlTransferRepository implements TransferRepository {
                     status               = EXCLUDED.status,
                     created_at           = EXCLUDED.created_at,
                     settled_at           = EXCLUDED.settled_at,
+                    dispatch_state       = EXCLUDED.dispatch_state,
                     auth_method          = EXCLUDED.auth_method,
                     card_number_masked   = EXCLUDED.card_number_masked,
                     decline_reason       = EXCLUDED.decline_reason,
@@ -224,37 +229,48 @@ public final class SqlTransferRepository implements TransferRepository {
             } else {
                 ps.setNull(11, Types.TIMESTAMP_WITH_TIMEZONE);
             }
-            if (authMethod != null) {
-                ps.setString(12, authMethod);
+
+            // NULL when this payment owes the network nothing, which is every intra-bank transfer
+            // and everything that has not settled. A name is stored rather than an ordinal for
+            // the reason status is: transfers_dispatch_state_known names the two values it
+            // admits, and a number would make the column unreadable to anyone holding psql.
+            if (t.dispatchState() != null) {
+                ps.setString(12, t.dispatchState().name());
             } else {
                 ps.setNull(12, Types.VARCHAR);
             }
-            if (cardMask != null) {
-                ps.setString(13, cardMask);
+
+            if (authMethod != null) {
+                ps.setString(13, authMethod);
             } else {
                 ps.setNull(13, Types.VARCHAR);
             }
-            if (t.declineReason() != null) {
-                ps.setString(14, t.declineReason());
+            if (cardMask != null) {
+                ps.setString(14, cardMask);
             } else {
                 ps.setNull(14, Types.VARCHAR);
+            }
+            if (t.declineReason() != null) {
+                ps.setString(15, t.declineReason());
+            } else {
+                ps.setNull(15, Types.VARCHAR);
             }
 
             // auth_attempts
             if (t.authAttempts() > 0) {
-                ps.setInt(15, t.authAttempts());
+                ps.setInt(16, t.authAttempts());
             } else {
-                ps.setNull(15, Types.INTEGER);
+                ps.setNull(16, Types.INTEGER);
             }
 
             // auth_valid_until
             if (t.authValidUntil() != null) {
-                ps.setTimestamp(16, Timestamp.from(t.authValidUntil()));
+                ps.setTimestamp(17, Timestamp.from(t.authValidUntil()));
             } else {
-                ps.setNull(16, Types.TIMESTAMP_WITH_TIMEZONE);
+                ps.setNull(17, Types.TIMESTAMP_WITH_TIMEZONE);
             }
 
-            ps.setInt(17, t.version());
+            ps.setInt(18, t.version());
 
             // version is absent from the INSERT column list on purpose: a new row takes the
             // column default 0, so no code path ever chooses an insert version.
@@ -309,6 +325,7 @@ public final class SqlTransferRepository implements TransferRepository {
                    status,
                    created_at,
                    settled_at,
+                   dispatch_state,
                    auth_method,
                    card_number_masked,
                    decline_reason,
@@ -374,6 +391,7 @@ public final class SqlTransferRepository implements TransferRepository {
                status,
                created_at,
                settled_at,
+               dispatch_state,
                auth_method,
                card_number_masked,
                decline_reason,
@@ -389,6 +407,93 @@ public final class SqlTransferRepository implements TransferRepository {
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, accountId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int id = rs.getInt("id");
+                    Transfer cached = (uow != null) ? uow.get(Transfer.class, id) : null;
+                    if (cached != null) {
+                        result.add(cached);
+                        continue;
+                    }
+
+                    Transfer t = mapRowToTransfer(rs);
+                    if (uow != null) {
+                        uow.put(Transfer.class, t.id(), t);
+                    }
+                    result.add(t);
+                }
+            }
+        }
+
+        return result;
+    }
+
+    @Override
+    public List<Transfer> awaitingDispatch() {
+        UnitOfWork uow = UowContext.current();
+
+        try {
+            if (uow instanceof SqlUnitOfWork sqlUow) {
+                return loadAwaitingDispatchWithConnection(sqlUow.connection(), uow);
+            } else {
+                try (Connection conn = DriverManager.getConnection(url, user, password)) {
+                    return loadAwaitingDispatchWithConnection(conn, uow);
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("Failed to load transfers awaiting dispatch", e);
+        }
+    }
+
+    /**
+     * Every payment that has left this bank and that no gateway has been handed yet.
+     *
+     * The predicate is a bound parameter and not the literal 'PENDING', although the value is a
+     * constant of this class's own choosing and no caller supplies it: every statement in this
+     * project binds its values, the README says so, and a query that inlines one where a reader
+     * cannot see it makes that claim false for the sake of nothing.
+     *
+     * No index is declared for it, deliberately. This runs once at startup over a column that is
+     * NULL on almost every row, and the answer it wants is the handful of rows that are not - a
+     * scan that reads the table once, at a moment when nothing else is using it, against an index
+     * that every settling payment would have to maintain forever.
+     *
+     * ORDER BY id ASC, like the account's own list above and stated on the interface: a sweep
+     * interrupted partway through comes back to the same order rather than to whatever order the
+     * heap holds once these rows have been rewritten - which is exactly what marking them
+     * dispatched does to them.
+     */
+    private List<Transfer> loadAwaitingDispatchWithConnection(Connection conn, UnitOfWork uow)
+            throws SQLException {
+
+        String sql = """
+        SELECT id,
+               source_account_id,
+               beneficiary_id,
+               target_iban_snapshot,
+               amount,
+               currency,
+               fee,
+               message,
+               status,
+               created_at,
+               settled_at,
+               dispatch_state,
+               auth_method,
+               card_number_masked,
+               decline_reason,
+               auth_attempts,
+               auth_valid_until,
+               version
+          FROM transfers
+         WHERE dispatch_state = ?
+         ORDER BY id ASC
+        """;
+
+        List<Transfer> result = new ArrayList<>();
+
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, DispatchState.PENDING.name());
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     int id = rs.getInt("id");
@@ -617,6 +722,19 @@ public final class SqlTransferRepository implements TransferRepository {
                 feeBd != null ? Money.czk(feeBd) : null,
                 settledTs != null ? settledTs.toInstant() : null);
         t.attachMessage(rs.getString("message"));
+
+        // Absent is a real value and the common one - an intra-bank payment owes the network
+        // nothing, and neither does any row written before this column existed - so it is read
+        // back as null rather than refused. A name that is present and unreadable is refused,
+        // because null is the most lenient reading this field has: it would drop a settled
+        // payment out of the sweep that owes it a dispatch, and the next save would write the
+        // null over the string that caused it. transfers_dispatch_state_known makes such a value
+        // unwritable in the first place; this is what happens if one predates the constraint.
+        String storedDispatch = rs.getString("dispatch_state");
+        t.hydrateDispatch(storedDispatch != null
+                ? StoredValue.requiredEnum(
+                        DispatchState.class, storedDispatch, "dispatch state", "transfer", id)
+                : null);
 
         // Also outside that catch, and for a sharper reason than the three above: a transfer
         // that arrived here without its version would carry 0 and the next guarded write would

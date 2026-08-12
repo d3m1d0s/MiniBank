@@ -1021,6 +1021,155 @@ public class MinibankSqlUowTests {
         }
     }
 
+// -------------------------------------------------------------------------
+// 14) What a settled payment owes the payment network survives the round trip
+// -------------------------------------------------------------------------
+
+    /** An IBAN no account in these fixtures holds, so a payment to it leaves the bank. */
+    private static final String OUTSIDE_THE_BANK = "CZ2001000000000012345678";
+
+    /** A payer who owns an account, and one payee inside the bank to settle against. */
+    private record DispatchFixture(int payerId, int payerAccount, IBAN payeeIban) { }
+
+    private DispatchFixture seedPayerAndInBankPayee() {
+        final IBAN payerIban = new IBAN("CZ6508000000192000145399");
+        final IBAN payeeIban = new IBAN("CZ4308000000192000145407");
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            int payerId = infra.customers.nextId();
+            Customer payer = new Customer(payerId, "Dispatch Payer", "dispatch-payer@example.com",
+                    new Address("Street 1", "City"));
+            infra.customers.save(payer);
+            int payerAccount = infra.accounts.nextId();
+            infra.accounts.save(new Account(payerAccount, payerIban,
+                    Money.czk(50_000), Money.czk(20_000)));
+            payer.addAccountId(payerAccount);
+            // The second save is what writes accounts.customer_id; see DemoScenario.create.
+            infra.customers.save(payer);
+
+            int payeeId = infra.customers.nextId();
+            Customer payee = new Customer(payeeId, "Dispatch Payee", "dispatch-payee@example.com",
+                    new Address("Street 2", "City"));
+            infra.customers.save(payee);
+            int payeeAccount = infra.accounts.nextId();
+            infra.accounts.save(new Account(payeeAccount, payeeIban,
+                    Money.czk(50_000), Money.czk(20_000)));
+            payee.addAccountId(payeeAccount);
+            infra.customers.save(payee);
+
+            scope.uow().commit();
+            return new DispatchFixture(payerId, payerAccount, payeeIban);
+        }
+    }
+
+    /**
+     * A payment that leaves the bank comes back owing the network a dispatch; one that stays
+     * inside comes back owing nothing.
+     *
+     * The two halves have to be asserted together, because either one alone passes under a rule
+     * that is wrong in the other direction: a settlement that recorded the intent unconditionally
+     * would put every intra-bank payment in front of a gateway that must never see it, and one
+     * that recorded nothing would leave the sweep with nothing to find. Only the SQL backend can
+     * show the round trip through a real column - what is written here is read back out of
+     * PostgreSQL by a later unit of work, which is the half a mapper test cannot reach.
+     *
+     * Both amounts stay under RuleBasedRiskService's untrusted threshold and their total under the
+     * soft daily tier, so both settle immediately rather than parking at WAITING_AUTH - the same
+     * arrangement anInBankTransferCreditsTheDestinationInOneSqlTransaction relies on.
+     */
+    @Test
+    void anExternalSettlementOwesADispatchAndAnInBankOneDoesNot() {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+        DispatchFixture fixture = seedPayerAndInBankPayee();
+
+        int leavesTheBank = services.transferService.submitPaymentToIban(
+                fixture.payerId(), fixture.payerAccount(), OUTSIDE_THE_BANK, 100.0, "out").transferId();
+        int staysInside = services.transferService.submitPaymentToIban(
+                fixture.payerId(), fixture.payerAccount(), fixture.payeeIban().value(), 200.0, "in")
+                .transferId();
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            Transfer external = infra.transfers.byId(leavesTheBank)
+                    .orElseThrow(() -> new AssertionError("The external payment must be persisted"));
+            assertEquals(TransferStatus.SENT, external.status(),
+                    "this case says nothing unless the payment actually settled");
+            assertEquals(
+                    DispatchState.PENDING,
+                    external.dispatchState(),
+                    "a settled payment that left the bank must come back owing the network a dispatch"
+            );
+
+            Transfer inBank = infra.transfers.byId(staysInside)
+                    .orElseThrow(() -> new AssertionError("The in-bank payment must be persisted"));
+            assertEquals(TransferStatus.SENT, inBank.status());
+            assertNull(
+                    inBank.dispatchState(),
+                    "an in-bank payment credits its destination in the same transaction and owes no"
+                            + " gateway anything, so it must carry no dispatch state at all"
+            );
+
+            scope.uow().commit();
+        }
+    }
+
+    /**
+     * The lookup the startup sweep will run answers with the payments that still owe the network
+     * and with nothing else.
+     *
+     * Four rows, and each of the three that must not appear excludes a different wrong predicate:
+     * the in-bank settlement excludes "every SENT transfer", the unsettled one excludes "every
+     * transfer", and the one already marked excludes "every transfer that ever owed a dispatch".
+     * Marking is asserted through a reload rather than on the instance that was marked, so a mark
+     * that never reached the column would fail here instead of passing on an object nobody stored.
+     */
+    @Test
+    void onlyPaymentsThatStillOweTheNetworkAwaitDispatch() {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+        DispatchFixture fixture = seedPayerAndInBankPayee();
+
+        int stillOwed = services.transferService.submitPaymentToIban(
+                fixture.payerId(), fixture.payerAccount(), OUTSIDE_THE_BANK, 100.0, "still owed")
+                .transferId();
+        int alreadyHandedOver = services.transferService.submitPaymentToIban(
+                fixture.payerId(), fixture.payerAccount(), OUTSIDE_THE_BANK, 200.0, "handed over")
+                .transferId();
+        services.transferService.submitPaymentToIban(
+                fixture.payerId(), fixture.payerAccount(), fixture.payeeIban().value(), 100.0, "in bank");
+
+        // A transfer that has not settled: nothing has been debited, so no gateway is owed it.
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            infra.transfers.add(new Transfer(infra.transfers.nextId(), fixture.payerAccount(),
+                    null, "CZ0401000000000000000000", Money.czk(300)));
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            Transfer dispatched = infra.transfers.byId(alreadyHandedOver)
+                    .orElseThrow(() -> new AssertionError("The dispatched payment must be persisted"));
+            dispatched.markDispatched();
+            infra.transfers.save(dispatched);
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            assertEquals(
+                    List.of(stillOwed),
+                    infra.transfers.awaitingDispatch().stream().map(Transfer::id).toList(),
+                    "the sweep must see the one payment the network has not been handed, and no other"
+            );
+            assertEquals(
+                    DispatchState.DISPATCHED,
+                    infra.transfers.byId(alreadyHandedOver).orElseThrow().dispatchState(),
+                    "and the mark must have reached the column, rather than the row having merely"
+                            + " fallen out of the lookup"
+            );
+
+            scope.uow().commit();
+        }
+    }
+
     /** Sums balance_czk over every account row, so nothing can hide outside the fixture. */
     private Money totalAccountMoney() {
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);

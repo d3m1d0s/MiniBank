@@ -58,6 +58,20 @@ public class Transfer implements RecordsDomainEvents {
     /** When the money moved. Null on a transfer that has not settled. */
     private Instant settledAt;
 
+    /**
+     * What this payment still owes the payment network, or null when it owes it nothing.
+     *
+     * Written by {@link #send} alone, and only on the leg that leaves the bank, so null covers
+     * every transfer that has not settled and every intra-bank one without a constant having to
+     * say so. {@link DispatchState} carries the rest of the why.
+     *
+     * It lives on this row rather than in a table of its own, and that is the whole design: the
+     * record that a payment is owed to the network is written in the same unit of work as the
+     * debit that owes it, so the two either both commit or neither does. The row that a separate
+     * outbox would point at already holds the payload, because the gateway takes this aggregate.
+     */
+    private DispatchState dispatchState;
+
     private Payment authMethod; // nullable
     private String declineReason;
 
@@ -327,6 +341,15 @@ public class Transfer implements RecordsDomainEvents {
         this.fee = charged;
         this.settledAt = settledAt;
 
+        // The one place that can honestly say a dispatch is owed. The destination has just been
+        // resolved and null means the money leaves this bank, which the credit above already
+        // depends on; the service that calls this knows the same thing only by asking twice.
+        // Recording it here puts the intent in the same unit of work as the debit, so a commit
+        // that fails leaves neither a debit nor an obligation to send anything.
+        if (destination == null) {
+            this.dispatchState = DispatchState.PENDING;
+        }
+
         TransferStatus old = this.status;
         this.status = TransferStatus.SENT;
 
@@ -387,6 +410,31 @@ public class Transfer implements RecordsDomainEvents {
     }
 
     /**
+     * Records that a gateway has been handed this payment.
+     *
+     * Refused on a transfer that owes the network nothing, which is every intra-bank payment and
+     * everything that has not settled: marking one of those dispatched would claim that money left
+     * the bank through a gateway that was never given it.
+     *
+     * A transfer already marked is accepted and simply stays marked. That is not leniency, it is
+     * the dispatch contract: send first and mark afterwards is at-least-once, so a retry whose
+     * earlier attempt did reach the network and then failed to record it arrives here a second
+     * time, and refusing it would turn a successful retry into an error over work already done.
+     *
+     * No status change and no event: the money moved when this transfer was sent, and who has been
+     * handed the payment since is not a lifecycle step the customer sees.
+     *
+     * @throws InvalidStateTransitionException when this transfer owes the network no dispatch
+     */
+    public void markDispatched() {
+        if (dispatchState == null) {
+            throw new InvalidStateTransitionException(
+                    "Transfer " + id + " owes the payment network no dispatch");
+        }
+        this.dispatchState = DispatchState.DISPATCHED;
+    }
+
+    /**
      * Populates runtime fields when loading from persistence without authorization metadata.
      */
     public void hydrateForLoad(TransferStatus status,
@@ -441,6 +489,23 @@ public class Transfer implements RecordsDomainEvents {
     }
 
     /**
+     * Restores what a stored row says this payment owes the network.
+     *
+     * Its own method for the reason hydrateSettlement is one: the two existing hydrate methods
+     * have call sites in tests that must be left alone. Null is what every row written before the
+     * column existed carries and what every row that owes nothing carries, and the two are the
+     * same fact, which is why nothing here distinguishes them.
+     *
+     * It validates nothing, exactly like the two above. Whether a stored name is one this domain
+     * knows is decided by the loader that read it - both refuse an unreadable one rather than
+     * passing null in its place, because null is the lenient reading and would quietly drop a
+     * payment out of the sweep that owes it a dispatch.
+     */
+    public void hydrateDispatch(DispatchState dispatchState) {
+        this.dispatchState = dispatchState;
+    }
+
+    /**
      * Attaches the customer's own reference for this payment.
      *
      * Called by the creating service right after construction and by both mappers on load, not
@@ -470,6 +535,9 @@ public class Transfer implements RecordsDomainEvents {
 
     /** When the money moved, or null on a transfer that has not settled. */
     public Instant settledAt() { return settledAt; }
+
+    /** What this payment still owes the network, or null when it owes it nothing. */
+    public DispatchState dispatchState() { return dispatchState; }
 
     /** The customer's own reference, or null when none was given. */
     public String message() { return message; }

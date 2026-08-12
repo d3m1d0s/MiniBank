@@ -39,6 +39,26 @@ public interface TransferRepository {
     List<Transfer> bySourceAccount(int accountId);
 
     /**
+     * Every transfer that has settled out of this bank and that no gateway has been handed yet,
+     * in ascending id order.
+     *
+     * The dispatch state alone decides membership, and the status deliberately takes no part in
+     * it. {@link cz.vsb.minibank.domain.Transfer#send} is the only writer of a pending state and
+     * it assigns SENT in the same call, so a status predicate would say nothing this one does not
+     * - and would silently narrow the answer the day the two disagreed, which on this query means
+     * a payment nobody ever sends.
+     *
+     * Ordered, like {@link #bySourceAccount} and for a reason of the same kind: a sweep that fails
+     * partway through retries the same payments in the same order rather than in whatever order
+     * the store's pages happen to hold them after a row has been rewritten.
+     *
+     * Not an aggregate and not a projection: the caller dispatches these transfers and then marks
+     * them, so it needs the aggregates themselves, served from the identity map when the current
+     * unit of work already holds them.
+     */
+    List<Transfer> awaitingDispatch();
+
+    /**
      * Totals the CZK amounts that have actually left the given account in the half-open instant
      * range, fees excluded.
      *

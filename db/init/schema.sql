@@ -113,6 +113,7 @@ CREATE INDEX idx_beneficiaries_customer_id ON beneficiaries(customer_id);
 --   TransferStatus status,
 --   Instant createdAt,
 --   Instant settledAt,
+--   DispatchState dispatchState,
 --   Payment authMethod,
 --   String declineReason
 -- )
@@ -126,6 +127,12 @@ CREATE INDEX idx_beneficiaries_customer_id ON beneficiaries(customer_id);
 -- settled_at is when the money moved; created_at is when the order was placed. The daily
 -- total is keyed on settled_at, falling back to created_at for rows written before this
 -- column existed - see SqlTransferRepository.sumSentWithConnection.
+--
+-- dispatch_state is what a settled payment still owes the payment network, and it is on this
+-- row rather than in an outbox table of its own for one reason: the row a separate table would
+-- carry a foreign key to already holds the payload, because the gateway takes the whole
+-- aggregate. Written in the same transaction as the debit, so the obligation and the money
+-- movement that creates it commit together or not at all.
 ------------------------------------------------------------
 
 CREATE TABLE transfers (
@@ -151,6 +158,18 @@ CREATE TABLE transfers (
                            -- unreadable row rather than a merely wrong one.
                            created_at           TIMESTAMPTZ NOT NULL,
                            settled_at           TIMESTAMPTZ,
+
+                           -- PENDING once a payment has settled out of this bank, DISPATCHED once
+                           -- a gateway has been handed it. NULL is the third value and the common
+                           -- one: it says this payment owes the network nothing, which covers
+                           -- every intra-bank transfer, everything that has not settled, and every
+                           -- row written before this column existed. Nullable rather than NOT NULL
+                           -- with a NONE default precisely so that no existing row has to be given
+                           -- a value somebody would have to decide - see
+                           -- db/migrate/transfer-dispatch-state.sql for what backfilling those
+                           -- rows would send twice. Only Transfer.send writes the pending value and
+                           -- it assigns SENT in the same call, so a row carrying one is a SENT row.
+                           dispatch_state       VARCHAR(32),
 
                            auth_method          VARCHAR(32),
                            card_number_masked   VARCHAR(64),
@@ -193,7 +212,20 @@ CREATE TABLE transfers (
                            -- passes: an unsettled transfer has been charged nothing yet, which is
                            -- a different fact from being charged zero, and a CHECK admits a row
                            -- whose predicate is unknown.
-                           CONSTRAINT transfers_fee_not_negative CHECK (fee >= 0)
+                           CONSTRAINT transfers_fee_not_negative CHECK (fee >= 0),
+
+                           -- Both loaders refuse a dispatch state they cannot read rather than
+                           -- reading it as absent, because absent is the lenient answer: it drops
+                           -- a payment that has left the bank out of the only query that will ever
+                           -- hand it to the network. This is where such a value is refused at
+                           -- write time instead, and it faces the same out-of-domain writer the
+                           -- CHECKs above were added for.
+                           --
+                           -- NULL passes, exactly as it does on the fee and for the same mechanism:
+                           -- a CHECK admits a row whose predicate is unknown, and here unknown is
+                           -- the normal case rather than the exception.
+                           CONSTRAINT transfers_dispatch_state_known
+                               CHECK (dispatch_state IN ('PENDING', 'DISPATCHED'))
 );
 
 CREATE SEQUENCE transfers_id_seq;

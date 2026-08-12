@@ -1,5 +1,6 @@
 package cz.vsb.minibank.infrastructure.json.repo;
 
+import cz.vsb.minibank.domain.DispatchState;
 import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
@@ -16,6 +17,7 @@ import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
 import java.time.Instant;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -126,6 +128,62 @@ public class JsonTransferRepository implements TransferRepository {
                     return d;
                 })
                 .collect(Collectors.toList()));
+    }
+
+    /**
+     * Every payment that has left this bank and that no gateway has been handed yet.
+     *
+     * Sorted by id although this store is a list that is appended to in id order, so in practice
+     * it already answers that way. In practice is not the promise the interface makes, and the one
+     * writer that does not append - {@link #save}, which replaces a row where it stands - is one
+     * reordering away from making the accident untrue. On the other backend the order is the
+     * statement's, and a sweep must retry the same payments in the same order on both.
+     *
+     * The whole document is under one lock while this runs, which is the same hold every read here
+     * takes; inside a unit of work on this thread it is reentrant and costs nothing.
+     */
+    @Override
+    public List<Transfer> awaitingDispatch() {
+        UnitOfWork uow = UowContext.current();
+        return store.read(bundle -> bundle.transfers.stream()
+                .filter(JsonTransferRepository::awaitsDispatch)
+                .sorted(Comparator.comparingInt((JsonTransfer dto) -> dto.id))
+                .map(dto -> {
+                    if (uow != null) {
+                        Transfer cached = uow.get(Transfer.class, dto.id);
+                        if (cached != null) {
+                            return cached;
+                        }
+                    }
+                    Transfer d = JsonMapper.toDomain(dto, store);
+                    if (uow != null) {
+                        uow.put(Transfer.class, d.id(), d);
+                    }
+                    return d;
+                })
+                .collect(Collectors.toList()));
+    }
+
+    /**
+     * Whether a stored row still owes the network a dispatch, refusing a row whose answer this
+     * application would refuse to load.
+     *
+     * The refusal is the point, and it is the same rule {@link #amountOf} and {@link #dayKeyOf}
+     * apply to the fields they read: a name that is present and cannot be read is not skipped.
+     * Skipping is the cheap answer here and the dangerous one - the row drops silently out of the
+     * only query that will ever hand this payment to the network, so the money has left the
+     * customer's account and nothing is left that knows anybody owes it. The loader refuses such a
+     * row too, so this refuses exactly what it refuses and nothing more.
+     *
+     * Only this backend can reach it. On SQL transfers_dispatch_state_known makes a name outside
+     * the enum unwritable.
+     */
+    private static boolean awaitsDispatch(JsonTransfer dto) {
+        if (dto.dispatchState == null) {
+            return false;
+        }
+        return StoredValue.requiredEnum(DispatchState.class, dto.dispatchState,
+                "dispatch state", "transfer", dto.id) == DispatchState.PENDING;
     }
 
     @Override

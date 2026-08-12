@@ -45,6 +45,18 @@ public class JsonTransfer {
     /** ISO-8601, same shape as createdAt and authValidUntil. Null until the transfer settles. */
     public String settledAt;
 
+    /**
+     * What this payment still owes the payment network: the name of a DispatchState constant, or
+     * null when it owes it nothing.
+     *
+     * Null is the ordinary value and not a gap, exactly as it is in the transfers.dispatch_state
+     * column: every intra-bank transfer carries it, so does everything that has not settled, and
+     * so does every row this store held before the field existed. The mapper refuses a name it
+     * cannot read rather than treating it as absent, because absent is the lenient reading and
+     * would drop a settled payment out of the sweep that owes it a dispatch.
+     */
+    public String dispatchState;
+
     public String authMethod;
     public String cardNumberMasked;
     public String declineReason;
