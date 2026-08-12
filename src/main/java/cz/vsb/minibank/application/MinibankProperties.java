@@ -26,6 +26,30 @@ public final class MinibankProperties {
     /** Opt-in: discard the demo store before running the demo scenario. */
     public static final String DEMO_RESET = "minibank.demo.reset";
 
+    /**
+     * Whether the SQL console creates the demo dataset and the demo logins on startup. Default
+     * true, so the one-command demo keeps working straight after a clone and an absent key
+     * changes nothing.
+     * <p>
+     * The SQL console and not the JSON one, because only the SQL console creates a credential.
+     * {@code App} runs the same scenario against the JSON store and creates no user at all, and
+     * the repository Bootstrap hands JSON mode keeps its users in memory, so that entry point
+     * leaves no login behind for this key to withhold.
+     * <p>
+     * This is the console's half of what {@code spring.profiles.default=demo} does for the REST
+     * API, and the pair exists on purpose rather than by omission. The console has no Spring
+     * profiles, so there is no bean definition to gate there; and the profile decides more on
+     * the API side than whether a seed runs, so folding the two into this one key would take
+     * something away from the API rather than tidy the console. The two are not interchangeable
+     * either: a profile only decides whether a bean is built, and cannot unwrite rows another
+     * process has already committed to the same database, which is exactly why the console
+     * needs a switch of its own.
+     * <p>
+     * Read the way {@link #DEMO_RESET} is read: {@code true} in any case is true, and every
+     * other value, a malformed one included, is false. Only an absent key takes the default.
+     */
+    public static final String DEMO_ENABLED = "minibank.demo.enabled";
+
     public static final String SQL_URL = "minibank.sql.url";
     public static final String SQL_URL_DEFAULT = "jdbc:postgresql://localhost:5432/minibank";
 
@@ -60,6 +84,13 @@ public final class MinibankProperties {
 
     public static boolean demoReset() {
         return Boolean.getBoolean(DEMO_RESET);
+    }
+
+    public static boolean demoEnabled() {
+        // Not Boolean.getBoolean, which reads an absent key as false and so cannot express a
+        // default of true. The parse underneath is the same one, so a value that is neither
+        // true nor false is false here exactly as it is for DEMO_RESET.
+        return Boolean.parseBoolean(System.getProperty(DEMO_ENABLED, "true"));
     }
 
     public static String sqlUrl() {

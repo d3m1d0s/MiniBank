@@ -28,6 +28,7 @@ class MinibankPropertiesTest {
             MinibankProperties.SQL_USER,
             MinibankProperties.SQL_PASSWORD,
             MinibankProperties.DEMO_RESET,
+            MinibankProperties.DEMO_ENABLED,
             LEGACY_SQL_URL,
             LEGACY_SQL_USER,
             LEGACY_SQL_PASSWORD);
@@ -65,6 +66,7 @@ class MinibankPropertiesTest {
         assertEquals("minibank", MinibankProperties.sqlUser());
         assertEquals("minibank", MinibankProperties.sqlPassword());
         assertFalse(MinibankProperties.demoReset());
+        assertTrue(MinibankProperties.demoEnabled());
     }
 
     @Test
@@ -76,6 +78,7 @@ class MinibankPropertiesTest {
         System.setProperty(MinibankProperties.SQL_USER, "someone");
         System.setProperty(MinibankProperties.SQL_PASSWORD, "secret");
         System.setProperty(MinibankProperties.DEMO_RESET, "true");
+        System.setProperty(MinibankProperties.DEMO_ENABLED, "false");
 
         assertEquals("sql", MinibankProperties.storage());
         assertEquals("/tmp/store.json", MinibankProperties.jsonPath());
@@ -84,6 +87,38 @@ class MinibankPropertiesTest {
         assertEquals("someone", MinibankProperties.sqlUser());
         assertEquals("secret", MinibankProperties.sqlPassword());
         assertTrue(MinibankProperties.demoReset());
+        assertFalse(MinibankProperties.demoEnabled());
+    }
+
+    /**
+     * The demo switch is the one key whose default is true, so the direction matters: an absent
+     * key has to leave the one-command demo exactly as it was, and only the literal false may
+     * withhold it.
+     */
+    @Test
+    void theDemoRunsUnlessItIsExplicitlySwitchedOff() {
+        assertTrue(MinibankProperties.demoEnabled());
+
+        System.setProperty(MinibankProperties.DEMO_ENABLED, "false");
+        assertFalse(MinibankProperties.demoEnabled());
+
+        System.setProperty(MinibankProperties.DEMO_ENABLED, "true");
+        assertTrue(MinibankProperties.demoEnabled());
+    }
+
+    /**
+     * Both demo switches are read the same way, and the shared convention is worth pinning on
+     * the enabled key because its default runs the other direction: a typo there withholds the
+     * demo rather than leaving it alone, so somebody reading this has to be able to see that
+     * only the literal false was needed.
+     */
+    @Test
+    void aDemoSwitchThatIsNeitherTrueNorFalseCountsAsFalse() {
+        System.setProperty(MinibankProperties.DEMO_ENABLED, "yes");
+        System.setProperty(MinibankProperties.DEMO_RESET, "yes");
+
+        assertFalse(MinibankProperties.demoEnabled());
+        assertFalse(MinibankProperties.demoReset());
     }
 
     /**

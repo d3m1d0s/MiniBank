@@ -54,25 +54,66 @@ public class AppSql {
         PasswordEncoder encoder = new Pbkdf2PasswordEncoder();
         AuthService authService = new AuthService(infra.users, encoder);
 
-        int customerId = new DemoScenario(
-                infra.customers,
-                infra.accounts,
-                infra.transfers,
-                infra.alerts,
-                infra.uowFactory,
-                app.feePolicy
-        ).seed();
-        ensureDemoUsers(infra, encoder, customerId);
+        // The dataset and the logins together, because that is one decision: the logins exist to
+        // reach the dataset, and gating them apart would invent a state nobody asked for.
+        if (MinibankProperties.demoEnabled()) {
+            int customerId = new DemoScenario(
+                    infra.customers,
+                    infra.accounts,
+                    infra.transfers,
+                    infra.alerts,
+                    infra.uowFactory,
+                    app.feePolicy
+            ).seed();
+            ensureDemoUsers(infra, encoder, customerId);
+        } else {
+            announceDemoDataIsOff();
+        }
 
-        // After the seed, which commits a settled payment out of this bank and therefore writes a
-        // dispatch this process owes, and before the menu, so nothing a customer does queues up
-        // behind whatever an earlier run left unsent.
+        // After the seed, when there is one - it commits a settled payment out of this bank and
+        // therefore writes a dispatch this process owes - and before the menu, so nothing a
+        // customer does queues up behind whatever an earlier run left unsent. Unconditional: the
+        // rows it looks for are whatever the database already holds, and a run without the demo
+        // owes them just as much as a run with it.
         dispatcher.sweepPending();
 
         ConsoleMenu menu = new ConsoleMenu(app, infra, authService);
         menu.run();
 
         AppLogger.info("app", "MiniBank terminated");
+    }
+
+    /**
+     * Tells the operator, once, that this run created nothing and what that leaves them.
+     *
+     * Without the demo the console still requires a login, and a database that nobody else has
+     * put a user in has none to give: the prompt below cannot be answered. That is the intended
+     * end state - the switch exists so a real deployment brings its own data - but reaching it
+     * in silence would look like a broken build rather than a setting, and the login loop
+     * re-asks forever, so the way out is named here too.
+     *
+     * Printed to stdout rather than through AppLogger because it is guidance for the person at
+     * the prompt three lines below, not an event for the audit file, and AppLogger writes to
+     * stderr, which need not be where that person is looking. The key names carry the message:
+     * neither the credentials the demo would have created nor the connection string, which can
+     * itself carry a password, belongs on a sign-in screen.
+     *
+     * "is not true" rather than "=false", because false is not the only value that reaches here:
+     * anything that is not true switches the demo off, an empty value and a typo included.
+     * Quoting a false back at somebody who typed something else would send them looking for a
+     * line they never wrote.
+     */
+    private static void announceDemoDataIsOff() {
+        System.out.println();
+        System.out.println("=== Demo data is off ===");
+        System.out.println(MinibankProperties.DEMO_ENABLED + " is not true, so this run created"
+                + " no sample customer and no demo logins");
+        System.out.println("in the database " + MinibankProperties.SQL_URL + " points at.");
+        System.out.println("The login below accepts only an account that database already holds,"
+                + " and there is");
+        System.out.println("no way past it without one. End the input to quit, or start again"
+                + " without the flag");
+        System.out.println("to have the demo data and the demo logins created.");
     }
 
     /**
