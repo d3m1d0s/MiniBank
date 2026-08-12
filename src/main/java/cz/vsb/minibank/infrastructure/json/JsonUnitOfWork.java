@@ -26,6 +26,23 @@ import java.util.*;
  * was shared between threads. The confinement it depended on is now checked outright.
  */
 public final class JsonUnitOfWork implements UnitOfWork {
+
+    /**
+     * What a completed unit of work says to a caller that is still reading through it.
+     *
+     * Answering the read instead was a divergence between the two backends, and the JSON side
+     * was the lax one. The identity map is empty by the time this could be asked, so the
+     * repository fell through to the store and took a fresh hold of the store lock: a second,
+     * unrelated transaction wearing the name of the one that had ended, answering with rows
+     * that nothing in this unit of work can write back. {@code SqlUnitOfWork} could not do that
+     * even by accident - its cleanup has closed the connection, so the same call arrives as a
+     * wrapped SQLException - so code written and tested on JSON failed only in SQL. The strict
+     * reading is the one both now take: a read through a transaction that has finished is a
+     * mistake, and serving it hides the mistake rather than serving the caller.
+     */
+    private static final String COMPLETED_IDENTITY_MAP =
+            "Cannot use the identity map of a completed UnitOfWork";
+
     private final JsonDataStore store;
     private final DomainEventBus events;
     private final Thread owner;
@@ -64,18 +81,21 @@ public final class JsonUnitOfWork implements UnitOfWork {
     @SuppressWarnings("unchecked")
     @Override public <T> T get(Class<T> type, int id) {
         requireOwner();
+        if (!active) throw new IllegalStateException(COMPLETED_IDENTITY_MAP);
         var byType = identities.get(type);
         return byType == null ? null : (T) byType.get(id);
     }
 
     @Override public <T> void put(Class<T> type, int id, T obj) {
         requireOwner();
+        if (!active) throw new IllegalStateException(COMPLETED_IDENTITY_MAP);
         identities.computeIfAbsent(type, k -> new HashMap<>()).put(id, obj);
     }
 
     @SuppressWarnings("unchecked")
     @Override public <T> Collection<T> all(Class<T> type) {
         requireOwner();
+        if (!active) throw new IllegalStateException(COMPLETED_IDENTITY_MAP);
         var byType = identities.get(type);
         // Copied rather than returned live: a caller iterating it may load another aggregate,
         // and that lookup ends in a put on the very map being walked.
@@ -84,7 +104,10 @@ public final class JsonUnitOfWork implements UnitOfWork {
 
     @Override public void registerMutation(Runnable r) {
         requireOwner();
-        if (!active) throw new IllegalStateException("UoW is not active");
+        // SqlUnitOfWork's wording rather than the "UoW is not active" this used to say. Both
+        // backends already refused this; only the sentence differed.
+        if (!active) throw new IllegalStateException(
+                "Cannot register mutations on a completed UnitOfWork");
         mutations.add(r);
     }
 
@@ -98,10 +121,22 @@ public final class JsonUnitOfWork implements UnitOfWork {
      * log no longer blocks every other JSON transaction for the duration of a file write. That
      * lock is held for the whole transaction by design, and this is the one thing that no longer
      * needs to be inside it.
+     *
+     * A second commit is refused rather than ignored. This used to return quietly while
+     * {@code SqlUnitOfWork.commit} threw, so a use case that committed twice was correct on the
+     * JSON store and an HTTP 500 on PostgreSQL - the one divergence a caller could not find by
+     * testing. There is no reading under which the second call is meaningful: the mutations are
+     * cleared, the aggregates are drained and the store lock is gone, so it would persist
+     * nothing and announce nothing. It is a caller that believes it still has a transaction.
      */
     @Override public void commit() {
         requireOwner();
-        if (!active) return;
+        // Above the try, not inside it. finish() has already released the store lock, so a
+        // refusal raised inside would be handled as a failed commit: discardChanges would re-read
+        // the file over whatever the next transaction has in flight, and the finally would then
+        // unlock a hold this thread no longer has, burying the refusal under an
+        // IllegalMonitorStateException. SqlUnitOfWork guards ahead of its own try as well.
+        if (!active) throw new IllegalStateException("UnitOfWork already completed");
         List<DomainEvent> happened;
         try {
             // The store lock is already held by this thread, so the buffered mutations
@@ -186,7 +221,12 @@ public final class JsonUnitOfWork implements UnitOfWork {
      * already-seeded file. TransferApplicationService's authorize path does the same thing a
      * second way: it commits and then throws from inside the try, so close() rolls back a unit
      * of work that has already completed. The invariant is: exactly one of commit()/rollback()
-     * releases the store lock, and every later completion call is a no-op.
+     * releases the store lock, and every later rollback() is a no-op.
+     *
+     * A later commit() is not, and the asymmetry is deliberate. rollback() after completion is
+     * how try-with-resources is written here and says nothing about the caller; commit() after
+     * completion is a caller that thinks it still has a transaction to persist. Only one of the
+     * two can be forgiven without hiding the other.
      */
     private void finish() {
         active = false;

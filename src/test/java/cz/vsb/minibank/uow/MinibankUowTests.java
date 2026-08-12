@@ -194,6 +194,70 @@ public class MinibankUowTests {
         assertTrue(taken.await(5, TimeUnit.SECONDS), message);
     }
 
+    /**
+     * A second commit is refused here exactly as it always was on SQL.
+     *
+     * This is the divergence, not a new rule. {@code SqlUnitOfWork.commit} has always thrown
+     * IllegalStateException on a completed unit of work while this backend returned quietly, so
+     * a use case that committed twice passed every JSON test and answered 500 the moment the
+     * store was PostgreSQL - the one class of defect a caller could not find by testing. The
+     * message is asserted as well as the type, because two backends that refuse the same thing
+     * in two different sentences are still two contracts.
+     */
+    @Test
+    void aCompletedUnitOfWorkRefusesASecondCommit() throws InterruptedException {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
+            uow.commit();
+
+            IllegalStateException refused = assertThrows(IllegalStateException.class, uow::commit,
+                    "a second commit is a caller that believes it still has a transaction");
+            assertEquals("UnitOfWork already completed", refused.getMessage(),
+                    "and it must say so in the words SqlUnitOfWork already used");
+        }
+
+        // The trap the guard has to avoid. finish() has already released the store lock, so a
+        // refusal raised from inside commit's try would reach its finally and unlock a lock this
+        // thread no longer holds.
+        assertStoreLockIsFree("a refused second commit must leave the store usable");
+    }
+
+    /**
+     * And a read through a unit of work that has finished, which neither backend used to guard.
+     *
+     * The two answered it differently and both answers were wrong. On SQL the repository's probe
+     * of the identity map missed, the query behind it went through a connection cleanup had
+     * closed, and the caller got a wrapped SQLException about plumbing. Here it missed for the
+     * same reason - commit empties the map - and then succeeded: {@code store.read} simply took
+     * a fresh hold of the store lock and served a second, unrelated transaction under the name
+     * of the one that had ended, returning an Account that nothing in this unit of work could
+     * write back.
+     */
+    @Test
+    void aCompletedUnitOfWorkRefusesAReadThroughIt() {
+        int accountId = infra.accounts.byCustomerId(infra.customers.byId(1).orElseThrow().id())
+                .get(0).id();
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
+            uow.commit();
+
+            IllegalStateException refused = assertThrows(IllegalStateException.class,
+                    () -> uow.get(Account.class, accountId),
+                    "the identity map of a finished transaction answers nobody");
+            assertEquals("Cannot use the identity map of a completed UnitOfWork", refused.getMessage());
+
+            assertThrows(IllegalStateException.class, () -> uow.all(Account.class),
+                    "including the lookup by any key other than id, which reads the whole map");
+
+            // The shape the defect took in practice: nothing calls uow.get() by hand, it is
+            // reached through a repository that is still bound to this thread until the scope
+            // closes.
+            assertThrows(IllegalStateException.class, () -> infra.accounts.byId(accountId),
+                    "a repository read must not outlive the transaction it was serving");
+        }
+    }
+
     @Test
     void byCustomerId_usesIdentityMap() {
         int customerId = infra.customers.byId(1).orElseThrow().id();
