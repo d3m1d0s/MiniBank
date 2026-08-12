@@ -113,6 +113,11 @@ class CreditLegTest {
                 infra.uowFactory);
         service = services.transferService;
         fraudService = services.fraudService;
+
+        // What every composition root now does, and what the gateway assertions below depend on:
+        // settling records that a payment leaving the bank owes the network, and this is the thing
+        // that pays it, once the transaction has committed.
+        infra.events.register(new PaymentDispatcher(gateway, infra.transfers, infra.uowFactory));
     }
 
     /**

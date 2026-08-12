@@ -69,6 +69,12 @@ class TransferAmountValidationTest {
                 customers, accounts, transfers, infra.alerts, infra.uowFactory);
         service = services.transferService;
         gateway = (FakePaymentNetworkGateway) services.paymentGateway;
+
+        // What every composition root now does. Settling records that a payment leaving the bank
+        // owes the network, and the dispatcher is what pays it once the transaction has committed,
+        // so without this the gateway assertions below would be asserting the wiring and not the
+        // rule they are about.
+        infra.events.register(new PaymentDispatcher(gateway, transfers, infra.uowFactory));
     }
 
     private void assertNothingHappened() {

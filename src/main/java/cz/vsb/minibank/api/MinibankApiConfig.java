@@ -6,6 +6,8 @@ import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.domain.FeePolicy;
+import jakarta.annotation.PostConstruct;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -68,6 +70,65 @@ public class MinibankApiConfig {
                 infra.uowFactory,
                 false
         );
+    }
+
+    /**
+     * The one dispatcher for this context, and the one place it is attached to the bus.
+     *
+     * A bean of its own rather than a third registration inside {@link #bootstrapServices}, for a
+     * reason the audit observers do not have: the startup sweep needs the same instance, and a
+     * singleton bean method is both the single registration point and the way to hand it over. It
+     * is built from {@code services.paymentGateway}, so the dispatcher and anything else holding
+     * the gateway bean are looking at one network.
+     */
+    @Bean
+    public PaymentDispatcher paymentDispatcher(Bootstrap infra, BootstrapServices services) {
+        PaymentDispatcher dispatcher = new PaymentDispatcher(
+                services.paymentGateway, infra.transfers, infra.uowFactory);
+        infra.events.register(dispatcher);
+        return dispatcher;
+    }
+
+    /**
+     * Runs the startup sweep, after the demo data is in place.
+     *
+     * The ordering is not left to bean-creation luck. {@code DemoUsersInitializer} seeds from its
+     * own {@code @PostConstruct}, and the seed commits a settled payment out of this bank, which
+     * is precisely one of the rows the sweep exists to find. Resolving the initializer here is
+     * what puts the two in order: a bean handed out of an {@link ObjectProvider} is fully
+     * initialized, so its seeding has finished before this method returns and therefore before the
+     * returned bean's own {@code @PostConstruct} runs. An {@code ObjectProvider} rather than a
+     * plain parameter or {@code @DependsOn} because the initializer only exists under the demo
+     * profile, and without it there is simply nothing to wait for.
+     */
+    @Bean
+    public PaymentDispatchSweep paymentDispatchSweep(PaymentDispatcher dispatcher,
+                                                     ObjectProvider<DemoUsersInitializer> demoData) {
+        demoData.getIfAvailable();
+        return new PaymentDispatchSweep(dispatcher);
+    }
+
+    /**
+     * The startup hook itself, following {@code DemoUsersInitializer} rather than inventing a
+     * second pattern: this project has no {@code ApplicationRunner} anywhere and does not need its
+     * first one to hand a handful of payments over.
+     *
+     * Nested in the configuration that builds the dispatcher so that the hook and the wiring that
+     * orders it are read together. It carries no state and no logic of its own; everything it
+     * knows is in {@link PaymentDispatcher#sweepPending()}.
+     */
+    public static final class PaymentDispatchSweep {
+
+        private final PaymentDispatcher dispatcher;
+
+        PaymentDispatchSweep(PaymentDispatcher dispatcher) {
+            this.dispatcher = dispatcher;
+        }
+
+        @PostConstruct
+        void sweep() {
+            dispatcher.sweepPending();
+        }
     }
 
     @Bean

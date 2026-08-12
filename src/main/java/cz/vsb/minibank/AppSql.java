@@ -6,6 +6,7 @@ import cz.vsb.minibank.application.BootstrapServices;
 import cz.vsb.minibank.application.FraudAlertAuditLogObserver;
 import cz.vsb.minibank.application.MinibankProperties;
 import cz.vsb.minibank.application.PasswordEncoder;
+import cz.vsb.minibank.application.PaymentDispatcher;
 import cz.vsb.minibank.application.Pbkdf2PasswordEncoder;
 import cz.vsb.minibank.application.TransferAuditLogObserver;
 import cz.vsb.minibank.demo.DemoScenario;
@@ -43,6 +44,13 @@ public class AppSql {
                 infra.uowFactory
         );
 
+        // The third observer, and the only one that does something rather than record something.
+        // Attached here for the reason the audit pair is, and from the gateway BootstrapServices
+        // built, so this process has exactly one thing talking to the network.
+        PaymentDispatcher dispatcher = new PaymentDispatcher(
+                app.paymentGateway, infra.transfers, infra.uowFactory);
+        infra.events.register(dispatcher);
+
         PasswordEncoder encoder = new Pbkdf2PasswordEncoder();
         AuthService authService = new AuthService(infra.users, encoder);
 
@@ -55,6 +63,11 @@ public class AppSql {
                 app.feePolicy
         ).seed();
         ensureDemoUsers(infra, encoder, customerId);
+
+        // After the seed, which commits a settled payment out of this bank and therefore writes a
+        // dispatch this process owes, and before the menu, so nothing a customer does queues up
+        // behind whatever an earlier run left unsent.
+        dispatcher.sweepPending();
 
         ConsoleMenu menu = new ConsoleMenu(app, infra, authService);
         menu.run();

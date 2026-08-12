@@ -54,7 +54,6 @@ public class TransferApplicationService {
     private final FeePolicy feePolicy;
     private final RiskService riskService;
     private final OtpValidator otpValidator;
-    private final PaymentNetworkGateway paymentNetworkGateway;
     private final UnitOfWorkFactory uowFactory;
 
     /**
@@ -70,17 +69,22 @@ public class TransferApplicationService {
      */
     private final Clock clock;
 
+    /**
+     * No {@link PaymentNetworkGateway} is taken, and its absence is the shape of this class now.
+     * It used to hold one for a single call inside {@link #settle}, which is where the phantom
+     * dispatch lived; the network is reached from {@link PaymentDispatcher} after a commit, and
+     * this service records what is owed rather than paying it.
+     */
     public TransferApplicationService(AccountRepository accounts,
                                       TransferRepository transfers,
                                       FraudAlertRepository alerts,
                                       FeePolicy feePolicy,
                                       RiskService riskService,
                                       OtpValidator otpValidator,
-                                      PaymentNetworkGateway paymentNetworkGateway,
                                       UnitOfWorkFactory uowFactory,
                                       OwnershipGuard guard) {
         this(accounts, transfers, alerts, feePolicy, riskService, otpValidator,
-                paymentNetworkGateway, uowFactory, guard, Clock.system(BANK_ZONE));
+                uowFactory, guard, Clock.system(BANK_ZONE));
     }
 
     /**
@@ -94,7 +98,6 @@ public class TransferApplicationService {
                                       FeePolicy feePolicy,
                                       RiskService riskService,
                                       OtpValidator otpValidator,
-                                      PaymentNetworkGateway paymentNetworkGateway,
                                       UnitOfWorkFactory uowFactory,
                                       OwnershipGuard guard,
                                       Clock clock) {
@@ -105,7 +108,6 @@ public class TransferApplicationService {
         this.feePolicy = feePolicy;
         this.riskService = riskService;
         this.otpValidator = otpValidator;
-        this.paymentNetworkGateway = paymentNetworkGateway;
         this.uowFactory = uowFactory;
         this.guard = guard;
     }
@@ -416,14 +418,23 @@ public class TransferApplicationService {
     }
 
     /**
-     * Settles a transfer: moves the money, and hands the transfer to the network only when it
-     * leaves this bank.
+     * Settles a transfer: moves the money, and leaves a payment that is going outside this bank
+     * owing the network a dispatch.
      *
      * One lookup decides both halves, which is why they are one statement apart. An IBAN this
      * bank holds is credited here and is not also offered to the network, because under a real
      * gateway that would be the same money leaving twice - the credit leg would fix the
-     * destroyed-money bug and put a double spend in its place. Everything else is unchanged:
-     * resolved to nothing, credited to nobody, dispatched exactly as before.
+     * destroyed-money bug and put a double spend in its place. {@link Transfer#send} makes both
+     * decisions off that one answer: it credits a destination it is given, and records the
+     * dispatch as PENDING when it is given none.
+     *
+     * Nothing here calls a gateway, and that absence is the point of this method now. It used to
+     * hand the transfer to the network on the spot, from inside the caller's still-open unit of
+     * work. Every row write is deferred to commit, so a commit that then failed rolled the debit
+     * and the SENT status back over a payment that had already been dispatched, and answered the
+     * customer that nothing had been charged and to send it again. The obligation is now written
+     * with the debit, in one transaction, and {@link PaymentDispatcher} discharges it once that
+     * transaction has committed.
      *
      * Both accounts are saved here rather than by the callers. The destination is the save
      * nobody would remember to write, and the pair has to be registered in one deterministic
@@ -436,9 +447,6 @@ public class TransferApplicationService {
         Account destination = accounts.inBankByIban(t.targetIbanSnapshot()).orElse(null);
         t.send(source, destination, feePolicy, settledAt);
         accounts.saveBothInIdOrder(source, destination);
-        if (destination == null) {
-            paymentNetworkGateway.send(t);
-        }
     }
 
     /**
@@ -495,8 +503,12 @@ public class TransferApplicationService {
      * @throws InvalidOtpException when the code is wrong and attempts remain
      * @throws cz.vsb.minibank.domain.exceptions.OptimisticLockException when another transaction
      *         changed the source or destination account between this one reading its balance and
-     *         writing the new one. Nothing is charged; the JDBC transaction is rolled back with
-     *         the debit still inside it
+     *         writing the new one. Nothing is charged and nothing is dispatched: the JDBC
+     *         transaction is rolled back with the debit still inside it, and the payment reaches
+     *         the network only from {@link PaymentDispatcher}, which runs after a commit that
+     *         succeeded. That is what makes the 409 body's "nothing was charged, send it again"
+     *         safe to act on - the resubmission can no longer be the second dispatch of a payment
+     *         the first attempt had already handed over
      */
     public PaymentOutcome authorizePayment(int callerCustomerId, int transferId, String otp) {
         // Read once. This instant bounds the day this payment is checked against and is the
