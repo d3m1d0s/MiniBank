@@ -67,7 +67,7 @@ import java.util.Objects;
  * Bounded, exactly: failed sign-ins from one origin inside one window, at most
  * {@link #MAX_FAILURES}; and PBKDF2 hashes running concurrently for one origin, also at most
  * {@link #MAX_FAILURES}, because the allowance is taken at the gate rather than after the
- * hash. Taking it afterwards would have left a ~300 ms hole between the check and the count in
+ * hash. Taking it afterwards would have left a ~700 ms hole between the check and the count in
  * which the whole servlet thread pool - 200 threads by Tomcat's default, which nothing here
  * overrides - could pass a gate that had already been spent.
  *
@@ -143,8 +143,8 @@ public final class LoginThrottle {
      * at once, and the symmetry would be the wrong reason. The number is what it is because
      * the sweep below is O(n) and runs under this object's monitor on the path that inserts, so
      * a much larger map would trade a bound on guessing for a lock convoy on the login path -
-     * a thousand entries scan in microseconds beside a hash that costs hundreds of
-     * milliseconds, and cost about a hundred kilobytes.
+     * a thousand entries scan in microseconds beside a hash that costs the better part of a
+     * second, and cost about a hundred kilobytes.
      *
      * What it does not do is stop an attacker who holds more addresses than this. They can
      * cycle them so that every guess creates a fresh window and nothing is ever refused; at
@@ -185,13 +185,13 @@ public final class LoginThrottle {
      * Takes one unit of this origin's allowance, or refuses the attempt if it has none left.
      *
      * Called before the credential is checked, which is what makes this a bound on work and
-     * not only on answers: a refused attempt costs a map lookup instead of 120 000 PBKDF2
-     * iterations, five megabytes of garbage, a log line and, on the SQL backend, a fresh
+     * not only on answers: a refused attempt costs a map lookup instead of 220 000 PBKDF2
+     * iterations, seventeen megabytes of garbage, a log line and, on the SQL backend, a fresh
      * database connection.
      *
      * The allowance is taken here and not after the failure, and that ordering is the whole
      * correctness of this class. A check that only read the counter would be separated from
-     * the write that follows it by a full password hash - hundreds of milliseconds - and every
+     * the write that follows it by a full password hash - the better part of a second - and every
      * request the servlet container will run concurrently could pass it on the same stale
      * reading. The bound would then be MAX_FAILURES plus the size of the thread pool, which is
      * twenty times the intended number, and the same factor would apply to the hashes an

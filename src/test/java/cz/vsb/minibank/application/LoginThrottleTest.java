@@ -205,7 +205,7 @@ class LoginThrottleTest {
     /**
      * The bound has to hold at every instant, not on average, and this is the case that pins
      * it. Checking the counter and then taking the allowance after the password had been
-     * hashed would leave a gap of hundreds of milliseconds between the two; every request the
+     * hashed would leave a gap of the better part of a second between the two; every request the
      * servlet container will run at once - two hundred, by Tomcat's default - could pass the
      * same stale reading, and one origin would get MAX_FAILURES plus the whole thread pool of
      * guesses per window, and force that many PBKDF2 hashes with them.

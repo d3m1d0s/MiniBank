@@ -125,7 +125,7 @@ class HttpErrorContractTest {
     /**
      * Endpoints that exist only to reach rows no ordinary request can. Corrupting a store to
      * produce a dangling reference would test the store, not the contract; and filling the
-     * session store over HTTP would mean a thousand real logins at 120 000 PBKDF2 iterations
+     * session store over HTTP would mean a thousand real logins at 220 000 PBKDF2 iterations
      * each, so the refusal is raised here instead and the wire body is what gets asserted.
      */
     @RestController
@@ -207,8 +207,9 @@ class HttpErrorContractTest {
      * A salt and the hash taken over it are a value, not state: nothing writes to either array,
      * and only the three cases that check a password against this row read them at all. Built in
      * setUp it was recomputed for every test method in the class, so a hash deliberately made
-     * expensive - PBKDF2 at 120 000 iterations, and that count is meant to rise - was paid dozens
-     * of times over for the sake of those three.
+     * expensive - PBKDF2-HMAC-SHA512 at 220 000 iterations, about 0.7 s each, and that cost is
+     * meant to rise with the hardware it has to stay ahead of - was paid dozens of times over
+     * for the sake of those three.
      *
      * The row itself stays per test, because
      * aSessionWhoseUserWasReplacedIs401AuthRequiredWithTheSameBody overwrites it.
@@ -508,7 +509,7 @@ class HttpErrorContractTest {
      * The first attempt is a real POST, which is what proves the wiring: the controller reads
      * getRemoteAddr and hands it to the throttle, and one wrong password is still an ordinary
      * 401. The rest of the allowance is spent directly against the counter, because ten more
-     * real sign-ins would mean ten more 120 000-iteration hashes to assert something
+     * real sign-ins would mean ten more 220 000-iteration hashes to assert something
      * LoginThrottleTest already asserts for nothing. MockMvc's remote address is the constant
      * below, so the two paths address the same bucket.
      *
@@ -600,7 +601,7 @@ class HttpErrorContractTest {
 
         // And that one was counted. The rest of the allowance is taken straight from the
         // counter, as theAttemptAfterTheAllowanceIsRefusedAlikeForEveryUsername does, rather
-        // than paying for nine more 120 000-iteration hashes.
+        // than paying for nine more 220 000-iteration hashes.
         for (int i = 1; i < LoginThrottle.MAX_FAILURES; i++) {
             throttle.requireAttemptAllowed(MockHttpServletRequest.DEFAULT_REMOTE_ADDR);
         }

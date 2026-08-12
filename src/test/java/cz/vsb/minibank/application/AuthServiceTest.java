@@ -99,7 +99,7 @@ class AuthServiceTest {
     /**
      * Both login failures return the same status, the same code and the same message, so
      * the only channel left that could answer "does this username exist?" is how long the
-     * request takes. PBKDF2 at 120 000 iterations is tens of milliseconds, which is enough
+     * request takes. PBKDF2-HMAC-SHA512 at 220 000 iterations is about 0.7 s, which is enough
      * to read off a single request, so the unknown-username branch must hash too.
      *
      * Asserted by counting calls rather than by timing them: a stopwatch assertion on a

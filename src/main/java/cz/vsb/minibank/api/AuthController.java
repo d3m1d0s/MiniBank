@@ -66,7 +66,7 @@ public class AuthController {
         String origin = http.getRemoteAddr();
 
         // Before the credential check, so a refused attempt costs a map lookup rather than
-        // 120 000 PBKDF2 iterations, five megabytes of garbage and, in sql mode, a database
+        // 220 000 PBKDF2 iterations, seventeen megabytes of garbage and, in sql mode, a database
         // connection. The allowance is taken here rather than counted after the outcome is
         // known, so that requests already in flight cannot all pass a gate that has been
         // spent; see LoginThrottle.requireAttemptAllowed. The two releases below both run
