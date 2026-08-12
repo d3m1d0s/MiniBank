@@ -99,6 +99,25 @@ public class RestExceptionHandler {
         return error(HttpStatus.NOT_FOUND, ApiErrors.NOT_FOUND);
     }
 
+    /**
+     * Also where a write the store itself refused now arrives. A UNIQUE constraint violation used
+     * to leave the SQL repositories as a bare RuntimeException and be answered by handleRuntime
+     * below as 500 INTERNAL_ERROR, which claims the bank is broken over a row the database
+     * declined to duplicate: the transaction rolled back whole and nothing was half written, so
+     * 409 is the honest status and this is the family that already carries it.
+     *
+     * No code of its own, because the answer would be the same one. The exception message names
+     * the aggregate and its id and reaches no response - like every handler here, this one builds
+     * its body from the catalogue and echoes nothing.
+     *
+     * It writes no log line, as it never has for a conflict, and that is the one thing given up
+     * here: the 500 this replaces was logged at error with the driver's stack trace, so a race
+     * that files a row twice now leaves its trace in the database's own log rather than in this
+     * application's. The alternative is a line for every ordinary domain conflict as well, which
+     * this handler has always declined to write. The refusal still carries the driver's exception
+     * as its cause, so anywhere the throwable itself is logged - ConsoleMenu does - the constraint
+     * is still named.
+     */
     @ExceptionHandler(ConflictException.class)
     public ResponseEntity<ApiError> handleConflict(ConflictException ex) {
         return error(HttpStatus.CONFLICT, ApiErrors.CONFLICT);

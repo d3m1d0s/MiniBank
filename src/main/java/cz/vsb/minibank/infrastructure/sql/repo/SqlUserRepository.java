@@ -139,9 +139,13 @@ public class SqlUserRepository implements UserRepository {
 
         uow.registerMutation(() -> {
             try {
+                // users.username is UNIQUE, and DemoUsersInitializer decides whether to write a
+                // row by reading for it first, so two instances starting together can both find
+                // it absent. SqlWriteFailure answers the one that loses with a conflict instead
+                // of the unexplained failure that shape used to raise.
                 upsert(sqlUow.connection(), entity);
             } catch (SQLException e) {
-                throw new RuntimeException("Failed to save user id=" + entity.id(), e);
+                throw SqlWriteFailure.forSave(e, "user", entity.id());
             }
         });
 

@@ -3,8 +3,10 @@ package cz.vsb.minibank.uow;
 import cz.vsb.minibank.application.BootstrapServices;
 import cz.vsb.minibank.demo.DemoScenario;
 import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.exceptions.ConflictException;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
+import cz.vsb.minibank.domain.exceptions.OptimisticLockException;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -946,6 +948,75 @@ public class MinibankSqlUowTests {
                             + " once an alert has been annotated"
             );
 
+            scope.uow().commit();
+        }
+    }
+
+// -------------------------------------------------------------------------
+// 13) A constraint the store enforces is refused as a conflict, not as a failure
+// -------------------------------------------------------------------------
+
+    /**
+     * fraud_alerts_one_per_transfer is the schema's last line of defence over the one alert
+     * creation site that is guarded by a read instead of by a lock: authorizePayment files an
+     * alert when byTransferId comes back empty, so two requests can both read empty and both
+     * file. The constraint stops the second, and what its caller must not be told is that the
+     * bank is broken - nothing is, and the transaction rolled back whole.
+     *
+     * The version guard on the same statement cannot reach this case first, which is why the
+     * type asserted below is the plain conflict and not FraudAlertChangedException, the descendant
+     * that guard raises. The second alert carries an id of its own, so ON CONFLICT (id) never fires,
+     * the statement stays on its INSERT arm, and the WHERE that guards the DO UPDATE arm is
+     * never evaluated: transfer_id is what refuses the row.
+     *
+     * Only reachable on the SQL backend. The JSON store has no constraints of its own - it holds
+     * a list and appends to it - so this rule cannot be pinned anywhere but here.
+     */
+    @Test
+    void aSecondAlertOnOneTransferIsRefusedAsAConflict() {
+        OrderingFixture fixture = seedAccountWithTransfers(1);
+        int transferId = fixture.transferIds().get(0);
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            infra.alerts.add(new FraudAlert(infra.alerts.nextId(), transferId, "Filed first"));
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
+
+            int secondAlertId = infra.alerts.nextId();
+            infra.alerts.add(new FraudAlert(
+                    secondAlertId, transferId, "Filed by a request that read the queue as empty"));
+
+            ConflictException refused = assertThrows(ConflictException.class, uow::commit,
+                    "A write the store refuses over a UNIQUE constraint must surface as a"
+                            + " conflict, not as the bare RuntimeException the advice answers 500");
+
+            assertFalse(
+                    refused instanceof OptimisticLockException,
+                    "The row was refused for duplicating a transfer, not for a stale version: "
+                            + refused.getClass().getSimpleName()
+            );
+            assertTrue(
+                    refused.getMessage().contains(String.valueOf(secondAlertId)),
+                    "The refusal must name the alert it could not store: " + refused.getMessage()
+            );
+            assertFalse(
+                    refused.getMessage().contains("fraud_alerts_one_per_transfer"),
+                    "The constraint name belongs to the driver's exception, not to a message the"
+                            + " console prints to its operator: " + refused.getMessage()
+            );
+        }
+
+        // The commit failed whole, so the alert the first request filed is still the only one and
+        // the analyst's queue is what it was.
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            assertEquals(
+                    1,
+                    infra.alerts.all().size(),
+                    "The refused commit must not have left a second alert on the transfer"
+            );
             scope.uow().commit();
         }
     }

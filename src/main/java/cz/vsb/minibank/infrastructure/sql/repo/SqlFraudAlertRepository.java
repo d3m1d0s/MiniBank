@@ -80,13 +80,16 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
 
         uow.registerMutation(() -> {
             try {
-                // Only a driver failure is wrapped. FraudAlertChangedException is unchecked and
+                // Only a driver failure is wrapped, and SqlWriteFailure decides which of those is
+                // a failure at all: an alert filed on a transfer that already has one is refused
+                // by fraud_alerts_one_per_transfer, which is the race the constraint exists for
+                // and not a broken server. FraudAlertChangedException is unchecked and
                 // deliberately passes through untouched: it is a domain outcome, and wrapping it
                 // would have it reported as INTERNAL_ERROR instead of as the 409 that sends the
                 // analyst back to the alert.
                 upsertAlert(sqlUow.connection(), a);
             } catch (SQLException e) {
-                throw new RuntimeException("Failed to save fraud alert id=" + a.id(), e);
+                throw SqlWriteFailure.forSave(e, "fraud alert", a.id());
             }
         });
 

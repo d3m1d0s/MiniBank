@@ -87,13 +87,18 @@ public final class SqlTransferRepository implements TransferRepository {
 
         uow.registerMutation(() -> {
             try {
-                // Only a driver failure is wrapped. TransferChangedException is unchecked and
-                // deliberately passes through untouched: it is a domain outcome, and wrapping it
-                // would have it reported as INTERNAL_ERROR instead of as the 409 that tells the
-                // customer to look at the payment again.
+                // Only a driver failure is wrapped, and SqlWriteFailure decides which of those is
+                // a failure at all. This table carries no UNIQUE constraint of its own beyond its
+                // primary key, which ON CONFLICT (id) absorbs, so the conflict arm is unreachable
+                // from here today; the call is written the same way as its four siblings because
+                // the next constraint added to this table must not have to remember it.
+                // TransferChangedException is unchecked and deliberately passes through untouched:
+                // it is a domain outcome, and wrapping it would have it reported as
+                // INTERNAL_ERROR instead of as the 409 that tells the customer to look at the
+                // payment again.
                 upsertTransfer(sqlUow.connection(), t);
             } catch (SQLException e) {
-                throw new RuntimeException("Failed to save transfer id=" + t.id(), e);
+                throw SqlWriteFailure.forSave(e, "transfer", t.id());
             }
         });
 

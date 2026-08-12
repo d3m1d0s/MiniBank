@@ -63,6 +63,15 @@ final class ApiErrors {
             "NOT_FOUND",
             "The requested item does not exist or is not available to you.");
 
+    // Also the body for a write a UNIQUE constraint refused, which the SQL repositories now raise
+    // as a plain conflict. It fits without a word changed, and the fit is not luck: the row the
+    // caller asked for is already there, put there by whoever got in first, so the item really has
+    // moved on. The only violation a request can provoke is a second fraud alert on one payment,
+    // and the customer's true position is that the payment is now held by the request that won.
+    //
+    // It names neither the constraint nor the value that collided. The driver's text names both,
+    // and it stays where it has always been - off the wire, on the exception. What changes is the
+    // status beside this body, not what a caller can read.
     static final ApiError CONFLICT = new ApiError(
             "CONFLICT",
             "This action is no longer possible because the item has already changed state.");

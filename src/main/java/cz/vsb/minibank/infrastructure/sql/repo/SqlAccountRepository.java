@@ -208,13 +208,15 @@ public final class SqlAccountRepository implements AccountRepository {
 
         uow.registerMutation(() -> {
             try {
-                // Only a driver failure is wrapped. OptimisticLockException is unchecked and
+                // Only a driver failure is wrapped, and SqlWriteFailure decides which of those
+                // is a failure at all: accounts.iban is UNIQUE, and a write that trips it was
+                // refused rather than broken. OptimisticLockException is unchecked and
                 // deliberately passes through untouched: it is a domain outcome, and wrapping
                 // it would have it reported to the customer as INTERNAL_ERROR instead of as the
                 // 409 that says nothing was charged.
                 upsertAccount(sqlUow.connection(), account);
             } catch (SQLException e) {
-                throw new RuntimeException("Failed to save account id=" + account.id(), e);
+                throw SqlWriteFailure.forSave(e, "account", account.id());
             }
         });
 

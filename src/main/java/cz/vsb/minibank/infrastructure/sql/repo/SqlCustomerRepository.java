@@ -216,7 +216,7 @@ public final class SqlCustomerRepository implements CustomerRepository {
             try {
                 upsertCustomer(sqlUow.connection(), c, ownedAccountIds);
             } catch (SQLException e) {
-                throw new RuntimeException("Failed to save customer id=" + c.id(), e);
+                throw SqlWriteFailure.forSave(e, "customer", c.id());
             }
         });
 
@@ -348,7 +348,7 @@ public final class SqlCustomerRepository implements CustomerRepository {
             try {
                 upsertBeneficiary(sqlUow.connection(), customerId, b);
             } catch (SQLException e) {
-                throw new RuntimeException("Failed to save beneficiary id=" + b.id(), e);
+                throw SqlWriteFailure.forSave(e, "beneficiary", b.id());
             }
         });
     }
