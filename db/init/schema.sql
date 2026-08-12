@@ -120,7 +120,8 @@ CREATE INDEX idx_beneficiaries_customer_id ON beneficiaries(customer_id);
 -- fee is the fee actually charged, written once by Transfer.send. NULL until the transfer
 -- settles, and NULL forever on one that never did. Not recomputed on display, which is the
 -- whole point of storing it: swapping the FeePolicy bean must not silently restate what a
--- customer was charged last month.
+-- customer was charged last month. That is also why the sign is checked here and nowhere
+-- else - see the CHECK below.
 --
 -- settled_at is when the money moved; created_at is when the order was placed. The daily
 -- total is keyed on settled_at, falling back to created_at for rows written before this
@@ -141,7 +142,14 @@ CREATE TABLE transfers (
                            message              VARCHAR(140),
 
                            status               VARCHAR(32) NOT NULL,
-                           created_at           TIMESTAMPTZ,
+                           -- NOT NULL because the loader already treats it as such:
+                           -- Transfer.hydrateForLoad refuses a row without a creation instant
+                           -- rather than stamping the load instant over it. Everything this
+                           -- application writes stamps the column unconditionally, so the only
+                           -- producer of a NULL was a writer outside the domain - the same writer
+                           -- the CHECKs below were added against - and what it left behind was an
+                           -- unreadable row rather than a merely wrong one.
+                           created_at           TIMESTAMPTZ NOT NULL,
                            settled_at           TIMESTAMPTZ,
 
                            auth_method          VARCHAR(32),
@@ -170,7 +178,22 @@ CREATE TABLE transfers (
                            -- other. Without it the constraint lives only in Java and psql is a
                            -- way around it - which is precisely how a foreign row could be
                            -- written at all.
-                           CONSTRAINT transfers_currency_czk CHECK (currency = 'CZK')
+                           CONSTRAINT transfers_currency_czk CHECK (currency = 'CZK'),
+
+                           -- The fee is the one stored number nothing re-checks on the way out.
+                           -- Transfer.hydrateSettlement validates nothing, deliberately, so a
+                           -- hand-written negative fee loads on both backends and reaches the
+                           -- details endpoint and the fraud desk through Transfer.feeFor: the
+                           -- receipt then understates the historical debit and stops reconciling
+                           -- with the balance movement. FeePolicy's contract already says a fee is
+                           -- never negative; this is where a row that was not written through a
+                           -- FeePolicy is held to it.
+                           --
+                           -- NULL is left alone on purpose and the predicate is written so it
+                           -- passes: an unsettled transfer has been charged nothing yet, which is
+                           -- a different fact from being charged zero, and a CHECK admits a row
+                           -- whose predicate is unknown.
+                           CONSTRAINT transfers_fee_not_negative CHECK (fee >= 0)
 );
 
 CREATE SEQUENCE transfers_id_seq;
@@ -213,7 +236,13 @@ CREATE TABLE fraud_alerts (
                               assignee    VARCHAR(100),
                               tags        TEXT,
                               notes       TEXT,
-                              created_at  TIMESTAMPTZ,
+                              -- NOT NULL for the same reason transfers.created_at is, and the
+                              -- blast radius here is wider than one row: FraudAlert.hydrateForLoad
+                              -- refuses an alert with no creation instant, and
+                              -- SqlFraudAlertRepository loads the whole queue and maps every row,
+                              -- so a single NULL written by hand turns the analyst queue into a
+                              -- 500 until somebody goes and finds it.
+                              created_at  TIMESTAMPTZ NOT NULL,
                               resolved_at TIMESTAMPTZ,
 
                               -- Bumped by every guarded write, exactly as accounts.version and

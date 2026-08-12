@@ -561,6 +561,45 @@ public class SqlSchemaPassTest {
     }
 
     /**
+     * The stored fee, which is the one number in the row that nothing re-checks on the way out.
+     *
+     * Raw SQL for the same reason as the two cases above. Every Java path takes its fee from a
+     * {@link cz.vsb.minibank.domain.FeePolicy}, whose contract is that a fee is never negative, so
+     * a test that went through the domain would prove that contract again and say nothing about
+     * the column. Transfer.hydrateSettlement validates nothing on load, deliberately - a loader
+     * that refused a legacy row would make the whole store unreadable - so a fee written by hand
+     * comes back exactly as written on both backends, reaches the details endpoint and the fraud
+     * desk through Transfer.feeFor, and leaves the receipt understating a debit that really
+     * happened. The stored fee exists so a historical charge reconciles with the balance movement;
+     * a negative one is precisely the row that does not.
+     *
+     * The last two inserts are what makes this the right constraint rather than merely a strict
+     * one. Zero is a real fee, and NULL is the state every unsettled transfer is in - it says the
+     * payment has not been charged yet, which is a different fact from having been charged
+     * nothing, and a constraint that refused it would refuse every payment waiting for a code.
+     */
+    @Test
+    void aNegativeStoredFeeIsRefusedWhileAnAbsentOneIsStillAccepted() throws Exception {
+        int accountId = seedAccount(Money.czk(1_000), Money.czk(1_000_000), null);
+
+        for (String fee : new String[]{"-0.01", "-25.00"}) {
+            SQLException refused = assertThrows(SQLException.class,
+                    () -> insertRawTransferWithFee(accountId, fee),
+                    "a stored fee of " + fee + " must be refused by the database");
+            assertTrue(String.valueOf(refused.getMessage()).contains("transfers_fee_not_negative"),
+                    "refused by the named CHECK rather than by something else: " + refused.getMessage());
+        }
+
+        assertEquals(0, countTransfers(), "no row may survive a refused insert");
+
+        insertRawTransferWithFee(accountId, "0.00");
+        insertRawTransferWithFee(accountId, null);
+        assertEquals(2, countTransfers(),
+                "a transfer charged nothing and a transfer not charged yet are both legitimate"
+                        + " rows, and the second one is most of the table");
+    }
+
+    /**
      * The status column has no CHECK, deliberately, and this is what stands in its place.
      *
      * A CHECK on an enum column makes every future value a two-place change and would contradict
@@ -586,6 +625,62 @@ public class SqlSchemaPassTest {
             assertTrue(refused.getMessage().contains(String.valueOf(transferId)),
                     "and the row, so a corrupt store can be found: " + refused.getMessage());
         }
+    }
+
+    // -------------------------------------------------------------------------
+    // The columns a stored row must carry
+    // -------------------------------------------------------------------------
+
+    /**
+     * Neither table takes a row that does not say when it was created.
+     *
+     * Both loaders already refuse one. Transfer.hydrateForLoad and FraudAlert.hydrateForLoad throw
+     * DataIntegrityException naming the row rather than stamping the load instant over the gap,
+     * because a row created "when it was last read" sorts first in a list that promises the newest
+     * and moves the date filters the analyst's queue runs on, differently on every read. So the
+     * column was able to hold a value the application refuses to read back, and this is the
+     * writer's half of that pair: every writer inside the application stamps it unconditionally,
+     * which leaves psql and a bad script as the only producers - the same writer the two CHECKs
+     * above were added against.
+     *
+     * fraud_alerts is the worse of the two and is here for that reason. SqlFraudAlertRepository
+     * loads the whole queue and maps every row in it, so one alert written without a creation
+     * instant does not spoil one alert: it answers the analyst's entire queue with a 500 until
+     * somebody goes and finds it by hand.
+     *
+     * Matched on SQLState rather than on a constraint name, because a NOT NULL column has none to
+     * match. 23502 is not_null_violation, and it is what tells a refusal by this rule apart from a
+     * refusal by the foreign key or by one of the CHECKs above.
+     */
+    @Test
+    void neitherTableTakesARowWithNoCreationInstant() throws Exception {
+        int accountId = seedAccount(Money.czk(1_000), Money.czk(1_000_000), null);
+
+        SQLException undatedTransfer = assertThrows(SQLException.class,
+                () -> insertRawTransferWithoutCreationInstant(accountId),
+                "a transfer with no creation instant must be refused by the database");
+        assertEquals("23502", undatedTransfer.getSQLState(),
+                "refused as a not-null violation rather than by something else: "
+                        + undatedTransfer.getMessage());
+        assertTrue(String.valueOf(undatedTransfer.getMessage()).contains("created_at"),
+                "and the refusal must name the column: " + undatedTransfer.getMessage());
+        assertEquals(0, countTransfers(), "no row may survive a refused insert");
+
+        int transferId = insertRawTransfer(accountId, "100.00", "CZK", "HELD_FOR_REVIEW");
+
+        SQLException undatedAlert = assertThrows(SQLException.class,
+                () -> insertRawAlert(transferId, false),
+                "an alert with no creation instant must be refused by the database");
+        assertEquals("23502", undatedAlert.getSQLState(),
+                "refused as a not-null violation rather than by something else: "
+                        + undatedAlert.getMessage());
+        assertTrue(String.valueOf(undatedAlert.getMessage()).contains("created_at"),
+                "and the refusal must name the column: " + undatedAlert.getMessage());
+        assertEquals(0, countAlerts(), "no row may survive a refused insert");
+
+        // And the rule is not so tight that it refuses the alert a normal writer produces.
+        insertRawAlert(transferId, true);
+        assertEquals(1, countAlerts());
     }
 
     // -------------------------------------------------------------------------
@@ -885,9 +980,18 @@ public class SqlSchemaPassTest {
     }
 
     private int countTransfers() throws SQLException {
+        return countRows("transfers");
+    }
+
+    private int countAlerts() throws SQLException {
+        return countRows("fraud_alerts");
+    }
+
+    /** The table name is a literal from this class, never a value, so no injection is possible. */
+    private int countRows(String table) throws SQLException {
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
              Statement st = conn.createStatement();
-             ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM transfers")) {
+             ResultSet rs = st.executeQuery("SELECT COUNT(*) FROM " + table)) {
             rs.next();
             return rs.getInt(1);
         }
@@ -922,6 +1026,67 @@ public class SqlSchemaPassTest {
                 rs.next();
                 return rs.getInt(1);
             }
+        }
+    }
+
+    /**
+     * A settled row whose fee is written straight into the column, null included.
+     *
+     * A separate statement rather than a fifth parameter on the one above, so its three existing
+     * call sites are left alone. The amount is fixed at 100.00 because this fixture is about the
+     * fee: varying both would leave a refusal ambiguous between the two CHECKs.
+     */
+    private void insertRawTransferWithFee(int accountId, String fee) throws SQLException {
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
+             PreparedStatement ps = conn.prepareStatement("""
+                     INSERT INTO transfers
+                         (id, source_account_id, target_iban_snapshot, amount, currency, status,
+                          fee, created_at)
+                     VALUES (nextval('transfers_id_seq'), ?, ?, 100.00, 'CZK', 'SENT',
+                             ?::numeric, now())
+                     """)) {
+            ps.setInt(1, accountId);
+            ps.setString(2, EXTERNAL_IBAN.value());
+            if (fee != null) {
+                ps.setString(3, fee);
+            } else {
+                ps.setNull(3, java.sql.Types.NUMERIC);
+            }
+            ps.executeUpdate();
+        }
+    }
+
+    /**
+     * The same insert with created_at simply left out of the column list, which is the shape a
+     * hand-written INSERT actually takes rather than an explicit NULL nobody would type.
+     */
+    private void insertRawTransferWithoutCreationInstant(int accountId) throws SQLException {
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
+             PreparedStatement ps = conn.prepareStatement("""
+                     INSERT INTO transfers
+                         (id, source_account_id, target_iban_snapshot, amount, currency, status)
+                     VALUES (nextval('transfers_id_seq'), ?, ?, 100.00, 'CZK', 'SENT')
+                     """)) {
+            ps.setInt(1, accountId);
+            ps.setString(2, EXTERNAL_IBAN.value());
+            ps.executeUpdate();
+        }
+    }
+
+    /** An alert filed behind the fraud service's back, with or without its creation instant. */
+    private void insertRawAlert(int transferId, boolean dated) throws SQLException {
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
+             PreparedStatement ps = conn.prepareStatement("""
+                     INSERT INTO fraud_alerts (id, transfer_id, state, reason, created_at)
+                     VALUES (nextval('fraud_alerts_id_seq'), ?, 'NEW', 'filed by hand', ?)
+                     """)) {
+            ps.setInt(1, transferId);
+            if (dated) {
+                ps.setTimestamp(2, java.sql.Timestamp.from(Instant.now()));
+            } else {
+                ps.setNull(2, java.sql.Types.TIMESTAMP_WITH_TIMEZONE);
+            }
+            ps.executeUpdate();
         }
     }
 }
