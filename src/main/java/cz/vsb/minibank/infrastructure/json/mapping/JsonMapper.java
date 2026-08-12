@@ -14,6 +14,7 @@ import cz.vsb.minibank.infrastructure.StoredValue;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Utility class for mapping between domain objects and their JSON DTO representations.
@@ -105,6 +106,22 @@ public class JsonMapper {
         Customer c = toDomain(j);
 
         if (store != null) {
+            // Which accounts this customer owns is decided here, when the customer is built, and
+            // not when the closure below runs. The DTO is not a stable object: a save puts a
+            // freshly built JsonCustomer into the bundle in place of this one, so a customer
+            // loaded earlier holds a reference to an instance the store no longer keeps. Reading
+            // the list through that reference answers whatever the detached instance happens to
+            // say, and it would answer the store's current list again the day a writer appended to
+            // an existing DTO in place rather than replacing it - the same customer object giving
+            // one answer or another depending on which kind of writer touched the row last.
+            //
+            // Only the ids are frozen. The accounts they name are still resolved from the live
+            // bundle inside the closure, which is the whole point of a lazy list: the balances a
+            // caller reads through it are the current ones, not the ones stored when the customer
+            // was loaded.
+            List<Integer> ownedAccountIds =
+                    (j.accountIds != null) ? List.copyOf(j.accountIds) : List.of();
+
             c.attachAccounts(new LazyList<>(() -> {
                 UnitOfWork uow = UowContext.current();
 
@@ -113,7 +130,7 @@ public class JsonMapper {
                 // therefore takes the store lock itself; inside an open unit of work the
                 // acquisition is reentrant and free.
                 return store.read(bundle -> bundle.accounts.stream()
-                        .filter(a -> j.accountIds != null && j.accountIds.contains(a.id))
+                        .filter(a -> ownedAccountIds.contains(a.id))
                         .map(dto -> {
                             if (uow != null) {
                                 Account cached = uow.get(Account.class, dto.id);
@@ -298,22 +315,26 @@ public class JsonMapper {
         if (store != null) {
             // Lazy source account
             // Deferred, same as the LazyList above: locks for itself because there may be
-            // no unit of work bound when Transfer.sourceAccount() is dereferenced. The
-            // identity-map probe is inside the hold too, because reading j.sourceAccountId
-            // is a read of a Bundle-resident DTO.
+            // no unit of work bound when Transfer.sourceAccount() is dereferenced. Which
+            // account it points at is captured here for the reason given there - a save
+            // replaces the whole JsonTransfer in the bundle, so this DTO need not still be the
+            // stored one when the closure runs - and the account itself is still read live.
+            // The identity-map probe stays inside the hold so that it and the scan below decide
+            // against one state of the store.
+            int sourceAccountId = j.sourceAccountId;
             t.attachSourceAccount(new LazyRef<>(() -> store.read(bundle -> {
                 UnitOfWork uow = UowContext.current();
                 if (uow != null) {
-                    Account cached = uow.get(Account.class, j.sourceAccountId);
+                    Account cached = uow.get(Account.class, sourceAccountId);
                     if (cached != null) {
                         return cached;
                     }
                 }
 
                 JsonAccount accDto = bundle.accounts.stream()
-                        .filter(a -> a.id == j.sourceAccountId)
+                        .filter(a -> a.id == sourceAccountId)
                         .findFirst()
-                        .orElseThrow(() -> new IllegalStateException("Account not found: " + j.sourceAccountId));
+                        .orElseThrow(() -> new IllegalStateException("Account not found: " + sourceAccountId));
 
                 Account acc = JsonMapper.toDomain(accDto);
 
@@ -325,11 +346,15 @@ public class JsonMapper {
             })));
 
             // Lazy beneficiary (if present)
+            // Captured like the source account above, and here the capture also settles the
+            // unboxing: the guard proves the id is present once, at load time, where the closure
+            // used to trust a field that a later generation of this DTO could have left null.
             if (j.beneficiaryId != null) {
+                int beneficiaryId = j.beneficiaryId;
                 t.attachBeneficiary(new LazyRef<>(() -> store.read(bundle -> {
                     UnitOfWork uow = UowContext.current();
                     if (uow != null) {
-                        Beneficiary cached = uow.get(Beneficiary.class, j.beneficiaryId);
+                        Beneficiary cached = uow.get(Beneficiary.class, beneficiaryId);
                         if (cached != null) {
                             return cached;
                         }
@@ -347,16 +372,16 @@ public class JsonMapper {
                     // the read-your-own-data rule, before TransferDetailsDto ever grows a beneficiary field.
                     JsonCustomer custDto = bundle.customers.stream()
                             .filter(c -> c.beneficiaries != null
-                                    && c.beneficiaries.stream().anyMatch(b -> b.id == j.beneficiaryId))
+                                    && c.beneficiaries.stream().anyMatch(b -> b.id == beneficiaryId))
                             .findFirst()
                             .orElseThrow(() -> new IllegalStateException(
-                                    "Customer for beneficiary " + j.beneficiaryId + " not found"));
+                                    "Customer for beneficiary " + beneficiaryId + " not found"));
 
                     JsonBeneficiary benDto = custDto.beneficiaries.stream()
-                            .filter(b -> b.id == j.beneficiaryId)
+                            .filter(b -> b.id == beneficiaryId)
                             .findFirst()
                             .orElseThrow(() -> new IllegalStateException(
-                                    "Beneficiary not found: " + j.beneficiaryId));
+                                    "Beneficiary not found: " + beneficiaryId));
 
                     Beneficiary b = JsonMapper.toDomain(benDto);
 
