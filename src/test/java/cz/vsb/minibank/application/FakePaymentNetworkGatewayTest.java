@@ -57,9 +57,10 @@ class FakePaymentNetworkGatewayTest {
 
     /**
      * The gateway interface asks an implementation to be idempotent for the same transfer id, and
-     * this one appended whatever it was handed. Dispatch happens inside the unit of work, so a
-     * commit that fails afterwards leaves a payment the network has already been told about; the
-     * caller retries it, and the history claimed the money left twice.
+     * this one appended whatever it was handed. Dispatch is at-least-once by design:
+     * PaymentDispatcher sends first and marks the row afterwards, so a crash or a refused mark
+     * leaves it PENDING and the next sweep offers the same payment again, and a history that
+     * appended blindly would then claim the money left twice.
      */
     @Test
     void theSameTransferSentTwiceIsRecordedOnce() {
@@ -112,11 +113,11 @@ class FakePaymentNetworkGatewayTest {
     // ------------------------------------------------------------ concurrency
 
     /**
-     * Under the REST API this stub is the gateway, and settle() enters it from whichever request
-     * threads are authorizing payments at that moment. An unsynchronized list loses appends
-     * between them and can throw out of the copy that grows it, which would roll a valid payment
-     * back. Eight threads released together dispatch two hundred distinct payments each, and the
-     * history has to hold every one of them.
+     * Under the REST API this stub is the gateway, and PaymentDispatcher enters it from whichever
+     * request threads have just committed a settling payment. An unsynchronized list loses appends
+     * between them and can throw out of the copy that grows it, and a lost append falsifies the
+     * history the tests read. Eight threads released together dispatch two hundred distinct
+     * payments each, and the history has to hold every one of them.
      *
      * Nothing is asserted about the order they landed in. The threads interleave, and membership
      * is the only thing this stub promises across them.

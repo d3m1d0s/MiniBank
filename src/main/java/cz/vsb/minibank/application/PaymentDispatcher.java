@@ -68,10 +68,12 @@ import java.util.Objects;
  *
  * <h2>No scheduler</h2>
  *
- * {@link #sweepPending()} is called once by each composition root, at startup, after the demo data
- * is in place. There is no background thread anywhere in this project and this does not add the
- * first one: a payment that fails to dispatch waits for the next start, and every path that could
- * produce one is already a path where the process is in trouble.
+ * {@link #sweepPending()} is called once by each composition root, at startup, after whatever
+ * seeds data has run - the demo dataset when one is seeded, nothing on a run with the demo off,
+ * which still owes whatever earlier runs left unsent. There is no background thread anywhere in
+ * this project and this does not add the first one: a payment that fails to dispatch waits for the
+ * next start, and every path that could produce one is already a path where the process is in
+ * trouble.
  */
 public final class PaymentDispatcher implements TransferObserver {
 
