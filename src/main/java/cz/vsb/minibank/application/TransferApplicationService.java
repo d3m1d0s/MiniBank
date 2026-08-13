@@ -528,9 +528,9 @@ public class TransferApplicationService {
             // The gate. An open alert blocks confirmation, and HELD_FOR_REVIEW is how that fact
             // is stored: it is set when the alert is created and left only by an analyst's
             // decision. One source of truth, and the status rather than a re-read of the alert,
-            // because the status is what every surface already renders and because it keeps
-            // FraudAlertRepository.byTransferId - whose two backends disagree about the
-            // identity map - off the debit path entirely.
+            // because the status is what every surface already renders; the alert row is
+            // consulted only further down, where the risk re-check has to know whether one
+            // already exists.
             //
             // Raised in this class and not in a controller because the console and the demo
             // runner call this method directly, which is why the ownership check and the
@@ -706,16 +706,14 @@ public class TransferApplicationService {
      * screen. The alert is hidden from a view, not resolved - its state is still the analyst's
      * verdict, and nothing outside {@code FraudApplicationService} writes it.
      *
-     * Not covered by the account's version column, and worth naming because that column is in this same change.
-     * This method writes only the transfers row; it never touches accounts, so accounts.version
-     * cannot see it. Two tabs, one WAITING_AUTH transfer: cancel committing just before an
-     * authorization means the authorization's account guard still passes and the customer is
-     * charged for a payment they cancelled and got a 200 for; cancel committing just after means
-     * DECLINED is written over SENT, and because the daily total counts only SENT rows the day's
-     * spent figure silently drops by the amount while the debit stands. The same shape reaches
-     * FraudApplicationService.decline. Closing it needs the same compare-and-set on
-     * transfers.status that accounts got on its version, which is a second mechanism and its own
-     * item; the measured leak was on the balance and that is where the column went.
+     * Covered by the transfers version column, and worth naming because accounts.version cannot
+     * see this path: cancelling writes only the transfers row. Two tabs, one WAITING_AUTH
+     * transfer: whichever of a cancel and an authorization commits second is built on a stale
+     * read, and the version-guarded upsert in SqlTransferRepository refuses it with
+     * TransferChangedException instead of letting DECLINED land over SENT or a cancelled
+     * payment charge its owner. FraudApplicationService.decline sits behind the same guard. On
+     * the JSON backend the store lock serializes whole transactions, so the race cannot form
+     * there.
      *
      * @throws NotFoundException when this caller has no transfer with this id, whether
      *         because none exists or because it debits somebody else's account
