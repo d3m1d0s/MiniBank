@@ -3,6 +3,7 @@ package cz.vsb.minibank.infrastructure.sql.repo;
 import cz.vsb.minibank.domain.Address;
 import cz.vsb.minibank.domain.Beneficiary;
 import cz.vsb.minibank.domain.Customer;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWork;
@@ -10,6 +11,7 @@ import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
 import java.sql.*;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -190,6 +192,17 @@ public final class SqlCustomerRepository implements CustomerRepository {
         }
     }
 
+    /**
+     * Buffers the customer row and the ownership claim its account ids make.
+     *
+     * The ids are read here, at the call, rather than inside the mutation that runs at commit,
+     * and the difference is the whole reason the claim below can be strict. The aggregate goes
+     * on being edited in between: DemoScenario opens its accounts after this first save and
+     * appends their ids to this very list, so a mutation reading the list late would claim rows
+     * whose INSERTs are still queued behind it and match nothing. Reading now is also the
+     * behaviour DemoScenario already describes when it calls this list "empty on the first save"
+     * and relies on the second save to write ownership.
+     */
     @Override
     public void save(Customer c) {
         UnitOfWork uow = UowContext.current();
@@ -197,11 +210,13 @@ public final class SqlCustomerRepository implements CustomerRepository {
             throw new IllegalStateException("Customer mutations must be executed inside a SQL UnitOfWork");
         }
 
+        List<Integer> ownedAccountIds = c.accountIds().stream().sorted().toList();
+
         uow.registerMutation(() -> {
             try {
-                upsertCustomer(sqlUow.connection(), c);
+                upsertCustomer(sqlUow.connection(), c, ownedAccountIds);
             } catch (SQLException e) {
-                throw new RuntimeException("Failed to save customer id=" + c.id(), e);
+                throw SqlWriteFailure.forSave(e, "customer", c.id());
             }
         });
 
@@ -209,7 +224,9 @@ public final class SqlCustomerRepository implements CustomerRepository {
         uow.put(Customer.class, c.id(), c);
     }
 
-    private void upsertCustomer(Connection conn, Customer c) throws SQLException {
+    private void upsertCustomer(Connection conn, Customer c, List<Integer> ownedAccountIds)
+            throws SQLException {
+
         String sql = """
                 INSERT INTO customers (id, name, email, street, city)
                 VALUES (?, ?, ?, ?, ?)
@@ -234,19 +251,56 @@ public final class SqlCustomerRepository implements CustomerRepository {
         // This is the second writer of accounts rows, next to SqlAccountRepository's upsert,
         // and it takes the same row locks. It writes the one column that upsert deliberately
         // never SETs, so neither can clobber the other and neither touches version - but the
-        // lock ORDER matters, and that is why the ids are sorted here. saveBothInIdOrder takes
+        // lock ORDER matters, and that is why the ids arrive sorted. saveBothInIdOrder takes
         // its two account locks strictly ascending; a customer whose accountIds happened to be
         // stored descending would take them the other way round and the two writers could
         // deadlock. Today every accountIds list is built ascending, so the sort changes nothing
         // and exists so that staying safe does not depend on that continuing to be true.
+        if (ownedAccountIds.isEmpty()) {
+            return;
+        }
+
         String accSql = "UPDATE accounts SET customer_id = ? WHERE id = ?";
         try (PreparedStatement psAcc = conn.prepareStatement(accSql)) {
-            for (Integer accId : c.accountIds().stream().sorted().toList()) {
+            for (Integer accId : ownedAccountIds) {
                 psAcc.setInt(1, c.id());
                 psAcc.setInt(2, accId);
                 psAcc.addBatch();
             }
-            psAcc.executeBatch();
+            refuseUnclaimedAccounts(c.id(), ownedAccountIds, psAcc.executeBatch());
+        }
+    }
+
+    /**
+     * Fails the transaction when an ownership claim matched no row.
+     *
+     * accounts.customer_id is the whole of ownership in SQL mode: SqlAccountRepository inserts
+     * it NULL and never sets it again, and Customer.accountIds() is read back out of it. An
+     * UPDATE that matches nothing therefore leaves the account owned by nobody, the customer
+     * reloading with no accounts, and every money path answering 404 - which is what DemoScenario
+     * warns about. This used to happen in silence, because the counts executeBatch answers with
+     * were thrown away and a zero-row UPDATE is not an error to JDBC.
+     *
+     * Throwing is safe here and not merely loud. The call runs inside a mutation buffered by
+     * SqlUnitOfWork.commit, which rolls the JDBC transaction back on any RuntimeException, so the
+     * customers row this same method wrote a moment ago goes back with it and the caller is left
+     * with nothing rather than with half an ownership.
+     *
+     * SUCCESS_NO_INFO is skipped rather than counted as zero. It is the driver saying it ran the
+     * statement but cannot report how many rows it touched, which is not the same as none, and
+     * refusing a correct write over it would be worse than the defect being fixed. PostgreSQL
+     * reports real counts for a batched UPDATE, so that arm exists for the JDBC contract rather
+     * than for the driver in use. Everything else has to be exactly one row: the predicate is the
+     * primary key, so no statement in this batch can honestly touch two.
+     */
+    private static void refuseUnclaimedAccounts(int customerId, List<Integer> accountIds, int[] claimed) {
+        for (int i = 0; i < claimed.length; i++) {
+            if (claimed[i] == 1 || claimed[i] == Statement.SUCCESS_NO_INFO) {
+                continue;
+            }
+            throw new DataIntegrityException(
+                    "Customer " + customerId + " claims account " + accountIds.get(i)
+                            + ", which has no accounts row to own");
         }
     }
 
@@ -294,7 +348,7 @@ public final class SqlCustomerRepository implements CustomerRepository {
             try {
                 upsertBeneficiary(sqlUow.connection(), customerId, b);
             } catch (SQLException e) {
-                throw new RuntimeException("Failed to save beneficiary id=" + b.id(), e);
+                throw SqlWriteFailure.forSave(e, "beneficiary", b.id());
             }
         });
     }

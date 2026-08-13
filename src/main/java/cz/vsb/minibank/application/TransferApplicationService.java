@@ -20,6 +20,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.Collection;
 import java.util.Objects;
 
 /**
@@ -53,7 +54,6 @@ public class TransferApplicationService {
     private final FeePolicy feePolicy;
     private final RiskService riskService;
     private final OtpValidator otpValidator;
-    private final PaymentNetworkGateway paymentNetworkGateway;
     private final UnitOfWorkFactory uowFactory;
 
     /**
@@ -69,17 +69,22 @@ public class TransferApplicationService {
      */
     private final Clock clock;
 
+    /**
+     * No {@link PaymentNetworkGateway} is taken, and its absence is the shape of this class now.
+     * It used to hold one for a single call inside {@link #settle}, which is where the phantom
+     * dispatch lived; the network is reached from {@link PaymentDispatcher} after a commit, and
+     * this service records what is owed rather than paying it.
+     */
     public TransferApplicationService(AccountRepository accounts,
                                       TransferRepository transfers,
                                       FraudAlertRepository alerts,
                                       FeePolicy feePolicy,
                                       RiskService riskService,
                                       OtpValidator otpValidator,
-                                      PaymentNetworkGateway paymentNetworkGateway,
                                       UnitOfWorkFactory uowFactory,
                                       OwnershipGuard guard) {
         this(accounts, transfers, alerts, feePolicy, riskService, otpValidator,
-                paymentNetworkGateway, uowFactory, guard, Clock.system(BANK_ZONE));
+                uowFactory, guard, Clock.system(BANK_ZONE));
     }
 
     /**
@@ -93,7 +98,6 @@ public class TransferApplicationService {
                                       FeePolicy feePolicy,
                                       RiskService riskService,
                                       OtpValidator otpValidator,
-                                      PaymentNetworkGateway paymentNetworkGateway,
                                       UnitOfWorkFactory uowFactory,
                                       OwnershipGuard guard,
                                       Clock clock) {
@@ -104,7 +108,6 @@ public class TransferApplicationService {
         this.feePolicy = feePolicy;
         this.riskService = riskService;
         this.otpValidator = otpValidator;
-        this.paymentNetworkGateway = paymentNetworkGateway;
         this.uowFactory = uowFactory;
         this.guard = guard;
     }
@@ -139,7 +142,7 @@ public class TransferApplicationService {
                     amount, clock.instant());
             t.attachMessage(reference);
 
-            routeTransferCreation(account, t, beneficiary.trusted());
+            routeTransferCreation(caller, account, t, beneficiary.trusted());
 
             // Built before the commit, from the aggregates this unit of work owns, so what the
             // caller is told is what this transaction did rather than what the store happened to
@@ -152,9 +155,12 @@ public class TransferApplicationService {
 
     /**
      * UC 04 - Submit Payment Order to an arbitrary IBAN.
-     * The IBAN is validated by the value object and invalid input results in an exception.
+     * The IBAN is validated by the value object, before any transaction opens - see
+     * {@link #requireTargetIban} - and invalid input results in an exception.
      *
      * @return identifier of the created transfer
+     * @throws cz.vsb.minibank.domain.exceptions.ValidationException when no target IBAN was
+     *         given, or when the message is longer than the store can hold
      * @throws NotFoundException when this caller has no such account, whether because none
      *         exists or because it is somebody else's
      * @throws DailyLimitExceededException when this amount would take today's outflow past the
@@ -162,16 +168,22 @@ public class TransferApplicationService {
      */
     public PaymentOutcome submitPaymentToIban(int callerCustomerId, int sourceAccountId, String targetIban, double amountCzk, String message) {
         // Validated before the unit of work opens: rejected input is caller input, not a
-        // reason to start a transaction and roll it back.
+        // reason to start a transaction and roll it back. The destination belongs above this
+        // line for that same reason and used to sit below it, which made the rule the comment
+        // states untrue for the one field a customer types by hand: a mistyped IBAN is a plain
+        // 400, and it was taking the JSON store's global lock, or opening a DriverManager
+        // connection with no pool behind it, purely to be torn down again.
         Money amount = Money.czkPayment(amountCzk);
         String reference = requireStorableMessage(message);
+        IBAN iban = requireTargetIban(targetIban);
 
         try (UowScope scope = new UowScope(uowFactory.begin())) {
-            IBAN iban = new IBAN(targetIban);
             var caller = guard.requireCaller(callerCustomerId);
             // The daily limits and the day's running total that decide this payment are read
             // off an account the caller owns, so a victim's limits cannot settle an attacker's
-            // payment and a victim's history cannot pay for it either.
+            // payment and a victim's history cannot pay for it either. The payee total the alert
+            // rule works from now spans this caller's other accounts as well, and stops there:
+            // it is still only their own history, resolved from their own customer row.
             var account = guard.requireOwnedAccount(caller, sourceAccountId);
             requireDifferentAccount(account, iban);
 
@@ -180,7 +192,7 @@ public class TransferApplicationService {
             t.attachMessage(reference);
 
             // An arbitrary IBAN is not a saved beneficiary, so it is never a trusted one.
-            routeTransferCreation(account, t, false);
+            routeTransferCreation(caller, account, t, false);
 
             PaymentOutcome outcome = outcomeOf(t, account);
             scope.uow().commit();
@@ -196,10 +208,30 @@ public class TransferApplicationService {
      * request, because an alerted transfer must not be confirmable by its owner while the alert
      * is open; the customer's confirmation step is what an analyst's APPROVE unlocks.
      *
+     * Only the settling branch writes an account, and the two that do not are deliberate rather
+     * than forgetful. Nothing on them changes the aggregate: canDebit and the risk evaluation
+     * only read it, holdForReview and requestAuthorization change the transfer alone, and the
+     * account carries no list of its transfers for a new one to join - see {@link Account}, which
+     * says why that field is gone. Both branches used to call accounts.save anyway, and on SQL
+     * that is not a no-op: the upsert rewrites identical values and bumps accounts.version, so
+     * merely submitting a payment took a serialization point on the account row. A submission
+     * that only parks a transfer at WAITING_AUTH could then be answered 409
+     * CONCURRENT_MODIFICATION because it raced an authorization of some older transfer from the
+     * same account, over an operation that moved no money. Anything a future branch here does
+     * change on the account has to save it; nothing on these two does.
+     *
+     * Takes the caller as well as the account because the two totals it computes have two
+     * scopes: the ceiling and the soft tier are measured over this account alone, being columns
+     * on it, and the payee total over every account this customer holds. {@link RiskService}
+     * states that seam in full. The caller is the aggregate {@link OwnershipGuard} already
+     * resolved and the account is one it has already proved belongs to that caller, so widening
+     * the total reaches nothing new.
+     *
      * @throws DailyLimitExceededException when the day's outflow plus this amount would pass
      *         the account's ceiling
      */
-    private void routeTransferCreation(Account account, Transfer t, boolean beneficiaryTrusted) {
+    private void routeTransferCreation(Customer caller, Account account, Transfer t,
+                                       boolean beneficiaryTrusted) {
 
         Money fee = t.feeAmount(feePolicy);
         if (!account.canDebit(t.amount(), fee)) {
@@ -218,7 +250,7 @@ public class TransferApplicationService {
                 beneficiaryTrusted,
                 t.amount(),
                 sentOnTheDayOf(account.id(), t.createdAt()),
-                sentToPayeeOnTheDayOf(account.id(), t.targetIbanSnapshot(), t.createdAt()),
+                sentToPayeeOnTheDayOf(caller.accountIds(), t.targetIbanSnapshot(), t.createdAt()),
                 account.dailyLimit(),
                 account.softDailyThreshold());
 
@@ -241,7 +273,6 @@ public class TransferApplicationService {
             // transfer is now HELD_FOR_REVIEW at the instant its alert does.
             t.holdForReview(new CardPayment(t.amount(), "****0000"));
             transfers.add(t);
-            accounts.save(account);
 
             FraudAlert a = new FraudAlert(
                     alerts.nextId(),
@@ -257,8 +288,36 @@ public class TransferApplicationService {
         } else {
             t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
             transfers.add(t);
-            accounts.save(account);
         }
+    }
+
+    /**
+     * Turns the caller's destination into a value object, or refuses the request.
+     *
+     * An omitted destination and a mistyped one are not the same complaint, and the difference
+     * was worth a guard because the value object cannot make it. {@link IBAN}'s constructor
+     * opens with a bare requireNonNull, so a request that simply left the field out arrived at
+     * the HTTP edge as a NullPointerException; no handler in RestExceptionHandler claims that
+     * type, so it fell to the catch-all and was answered 500 with an error-level stack trace.
+     * That tells the customer the bank is broken and tells the log the same, over a request
+     * that was merely incomplete.
+     *
+     * Refused as a missing value rather than as a malformed IBAN, following the login screen's
+     * refusal of an absent password. INVALID_IBAN reads "The IBAN you entered is not valid",
+     * which is a sentence about something the customer never entered; VALIDATION_ERROR is the
+     * catalogue entry that already says "invalid or missing values", and it needs nothing new
+     * added to the contract. Anything actually present, blank included, keeps INVALID_IBAN,
+     * because then there is a value to look at and correct.
+     *
+     * @throws cz.vsb.minibank.domain.exceptions.ValidationException when no destination was given
+     * @throws cz.vsb.minibank.domain.exceptions.InvalidIbanException when the destination given
+     *         is not a well-formed Czech IBAN
+     */
+    private static IBAN requireTargetIban(String targetIban) {
+        if (targetIban == null) {
+            throw new cz.vsb.minibank.domain.exceptions.ValidationException("Target IBAN is required");
+        }
+        return new IBAN(targetIban);
     }
 
     /**
@@ -333,27 +392,49 @@ public class TransferApplicationService {
     }
 
     /**
-     * The same day window, narrowed to one payee. Feeds the alert rule and nothing else.
+     * The same day window, narrowed to one payee and widened to every account the customer
+     * holds. Feeds the alert rule and nothing else.
+     *
+     * The asymmetry with {@link #sentOnTheDayOf} is deliberate, and {@link RiskService#evaluate}
+     * states it where a reader meets both totals at once: the ceiling and the soft tier are
+     * columns on one account and have to be measured over that account's rows, while the payee
+     * total is a fact about a customer and was defeated outright by anyone splitting a payment
+     * across two accounts of their own.
+     *
+     * The ids are the caller's own, off the {@link Customer} that {@link OwnershipGuard} already
+     * resolved. Reading them from there rather than querying accounts by customer is what keeps
+     * this to no extra lookup and to exactly the scope ownership is decided by everywhere else
+     * in this class.
      */
-    private Money sentToPayeeOnTheDayOf(int accountId, String targetIban, Instant when) {
+    private Money sentToPayeeOnTheDayOf(Collection<Integer> accountIds, String targetIban,
+                                        Instant when) {
         ZoneId zone = clock.getZone();
         LocalDate day = LocalDate.ofInstant(when, zone);
         return transfers.sentTotalToIbanBetween(
-                accountId,
+                accountIds,
                 targetIban,
                 day.atStartOfDay(zone).toInstant(),
                 day.plusDays(1).atStartOfDay(zone).toInstant());
     }
 
     /**
-     * Settles a transfer: moves the money, and hands the transfer to the network only when it
-     * leaves this bank.
+     * Settles a transfer: moves the money, and leaves a payment that is going outside this bank
+     * owing the network a dispatch.
      *
      * One lookup decides both halves, which is why they are one statement apart. An IBAN this
      * bank holds is credited here and is not also offered to the network, because under a real
      * gateway that would be the same money leaving twice - the credit leg would fix the
-     * destroyed-money bug and put a double spend in its place. Everything else is unchanged:
-     * resolved to nothing, credited to nobody, dispatched exactly as before.
+     * destroyed-money bug and put a double spend in its place. {@link Transfer#send} makes both
+     * decisions off that one answer: it credits a destination it is given, and records the
+     * dispatch as PENDING when it is given none.
+     *
+     * Nothing here calls a gateway, and that absence is the point of this method now. It used to
+     * hand the transfer to the network on the spot, from inside the caller's still-open unit of
+     * work. Every row write is deferred to commit, so a commit that then failed rolled the debit
+     * and the SENT status back over a payment that had already been dispatched, and answered the
+     * customer that nothing had been charged and to send it again. The obligation is now written
+     * with the debit, in one transaction, and {@link PaymentDispatcher} discharges it once that
+     * transaction has committed.
      *
      * Both accounts are saved here rather than by the callers. The destination is the save
      * nobody would remember to write, and the pair has to be registered in one deterministic
@@ -366,9 +447,6 @@ public class TransferApplicationService {
         Account destination = accounts.inBankByIban(t.targetIbanSnapshot()).orElse(null);
         t.send(source, destination, feePolicy, settledAt);
         accounts.saveBothInIdOrder(source, destination);
-        if (destination == null) {
-            paymentNetworkGateway.send(t);
-        }
     }
 
     /**
@@ -425,8 +503,12 @@ public class TransferApplicationService {
      * @throws InvalidOtpException when the code is wrong and attempts remain
      * @throws cz.vsb.minibank.domain.exceptions.OptimisticLockException when another transaction
      *         changed the source or destination account between this one reading its balance and
-     *         writing the new one. Nothing is charged; the JDBC transaction is rolled back with
-     *         the debit still inside it
+     *         writing the new one. Nothing is charged and nothing is dispatched: the JDBC
+     *         transaction is rolled back with the debit still inside it, and the payment reaches
+     *         the network only from {@link PaymentDispatcher}, which runs after a commit that
+     *         succeeded. That is what makes the 409 body's "nothing was charged, send it again"
+     *         safe to act on - the resubmission can no longer be the second dispatch of a payment
+     *         the first attempt had already handed over
      */
     public PaymentOutcome authorizePayment(int callerCustomerId, int transferId, String otp) {
         // Read once. This instant bounds the day this payment is checked against and is the
@@ -446,9 +528,9 @@ public class TransferApplicationService {
             // The gate. An open alert blocks confirmation, and HELD_FOR_REVIEW is how that fact
             // is stored: it is set when the alert is created and left only by an analyst's
             // decision. One source of truth, and the status rather than a re-read of the alert,
-            // because the status is what every surface already renders and because it keeps
-            // FraudAlertRepository.byTransferId - whose two backends disagree about the
-            // identity map - off the debit path entirely.
+            // because the status is what every surface already renders; the alert row is
+            // consulted only further down, where the risk re-check has to know whether one
+            // already exists.
             //
             // Raised in this class and not in a controller because the console and the demo
             // runner call this method directly, which is why the ownership check and the
@@ -511,7 +593,8 @@ public class TransferApplicationService {
             // settled yet: two payments of 6 500 to one new payee are each under the threshold
             // when they are made, and the second crosses it only once the first has gone. That
             // ordering is the one an attacker controls, so a rule asked only at creation closes
-            // the convenient half of that and not the other one.
+            // the convenient half of that and not the other one. The two halves need not leave
+            // the same account either, which is why this site widened with the other one.
             //
             // Asked once per transfer. An alert that already exists has been seen by an analyst
             // or is waiting to be, and raising a second one would make an approved payment
@@ -533,7 +616,7 @@ public class TransferApplicationService {
                         trustedNow,
                         t.amount(),
                         sentOnTheDayOf(acc.id(), now),
-                        sentToPayeeOnTheDayOf(acc.id(), t.targetIbanSnapshot(), now),
+                        sentToPayeeOnTheDayOf(caller.accountIds(), t.targetIbanSnapshot(), now),
                         acc.dailyLimit(),
                         acc.softDailyThreshold());
 
@@ -623,16 +706,14 @@ public class TransferApplicationService {
      * screen. The alert is hidden from a view, not resolved - its state is still the analyst's
      * verdict, and nothing outside {@code FraudApplicationService} writes it.
      *
-     * Not covered by the account's version column, and worth naming because that column is in this same change.
-     * This method writes only the transfers row; it never touches accounts, so accounts.version
-     * cannot see it. Two tabs, one WAITING_AUTH transfer: cancel committing just before an
-     * authorization means the authorization's account guard still passes and the customer is
-     * charged for a payment they cancelled and got a 200 for; cancel committing just after means
-     * DECLINED is written over SENT, and because the daily total counts only SENT rows the day's
-     * spent figure silently drops by the amount while the debit stands. The same shape reaches
-     * FraudApplicationService.decline. Closing it needs the same compare-and-set on
-     * transfers.status that accounts got on its version, which is a second mechanism and its own
-     * item; the measured leak was on the balance and that is where the column went.
+     * Covered by the transfers version column, and worth naming because accounts.version cannot
+     * see this path: cancelling writes only the transfers row. Two tabs, one WAITING_AUTH
+     * transfer: whichever of a cancel and an authorization commits second is built on a stale
+     * read, and the version-guarded upsert in SqlTransferRepository refuses it with
+     * TransferChangedException instead of letting DECLINED land over SENT or a cancelled
+     * payment charge its owner. FraudApplicationService.decline sits behind the same guard. On
+     * the JSON backend the store lock serializes whole transactions, so the race cannot form
+     * there.
      *
      * @throws NotFoundException when this caller has no transfer with this id, whether
      *         because none exists or because it debits somebody else's account

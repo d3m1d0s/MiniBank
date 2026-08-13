@@ -37,6 +37,19 @@ public final class SqlUnitOfWork implements UnitOfWork {
         }
     }
 
+    /**
+     * What a completed unit of work says to a caller that is still reading through it. The
+     * reasoning is on the same constant in {@code JsonUnitOfWork} and is not repeated; the
+     * wording is shared so the two backends refuse the same thing in the same words.
+     *
+     * Here it replaces a failure rather than adding one. cleanup() has closed the connection, so
+     * a repository that probed the map and missed went on to query through it and surfaced a
+     * wrapped SQLException about a closed connection - the truth about the plumbing, not about
+     * what the caller did wrong.
+     */
+    private static final String COMPLETED_IDENTITY_MAP =
+            "Cannot use the identity map of a completed UnitOfWork";
+
     private final Connection connection;
     private final DomainEventBus events;
     private final Map<Key, Object> identityMap = new HashMap<>();
@@ -59,17 +72,20 @@ public final class SqlUnitOfWork implements UnitOfWork {
     @Override
     @SuppressWarnings("unchecked")
     public <T> T get(Class<T> type, int id) {
+        requireNotCompleted();
         return (T) identityMap.get(new Key(type, id));
     }
 
     @Override
     public <T> void put(Class<T> type, int id, T obj) {
+        requireNotCompleted();
         identityMap.put(new Key(type, id), obj);
     }
 
     @SuppressWarnings("unchecked")
     @Override
     public <T> Collection<T> all(Class<T> type) {
+        requireNotCompleted();
         // Copied rather than returned live: a caller iterating it may load another aggregate,
         // and that lookup ends in a put on the very map being walked.
         List<T> result = new ArrayList<>();
@@ -89,6 +105,12 @@ public final class SqlUnitOfWork implements UnitOfWork {
         mutations.add(Objects.requireNonNull(r, "mutation"));
     }
 
+    private void requireNotCompleted() {
+        if (completed) {
+            throw new IllegalStateException(COMPLETED_IDENTITY_MAP);
+        }
+    }
+
     /**
      * Executes the buffered mutations, commits, and only then announces what happened.
      *
@@ -105,6 +127,10 @@ public final class SqlUnitOfWork implements UnitOfWork {
      */
     @Override
     public void commit() {
+        // JsonUnitOfWork refuses a second commit in these words too; it used to return quietly,
+        // which made a double commit a defect only PostgreSQL reported. Ahead of the try so the
+        // refusal is not handled as a failed transaction: raised inside it, the catch below would
+        // answer by rolling back a connection cleanup has already closed.
         if (completed) {
             throw new IllegalStateException("UnitOfWork already completed");
         }

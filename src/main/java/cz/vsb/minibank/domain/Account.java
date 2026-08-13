@@ -114,8 +114,8 @@ public class Account {
      *
      * Two callers, both in SqlAccountRepository: once when a row is read, and once after a
      * guarded write reports the version it left behind. The second call is what lets the same
-     * account be saved more than once in one unit of work - DemoScenario saves each account
-     * three times - without the second write conflicting with the first.
+     * account be saved more than once in one unit of work - DemoScenario saves the primary
+     * account three times - without the second write conflicting with the first.
      *
      * The invariant a future retry must respect: once a save has executed, this number is the
      * version the store holds only while that transaction is still going to commit. If the

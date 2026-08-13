@@ -14,6 +14,7 @@ import cz.vsb.minibank.infrastructure.StoredValue;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Utility class for mapping between domain objects and their JSON DTO representations.
@@ -63,13 +64,35 @@ public class JsonMapper {
         return j;
     }
 
+    /**
+     * The nulls guarded here are not hypothetical, and the field initializers on
+     * {@link JsonCustomer} do not stop them: Jackson replaces an initialized list with null on an
+     * explicit {@code "accountIds": null}, and this store is a file people open and edit.
+     *
+     * Absent reads as empty rather than as corrupt because that is already how the rest of the
+     * codebase reads it - JsonCustomerRepository skips such a customer when searching by account
+     * id, and JsonDataStore skips it when handing out the next beneficiary id. What neither of
+     * them does is answer with a bare NullPointerException, which is what this loader did: an
+     * unexplained 500 for a row every one of its neighbours can read.
+     *
+     * A missing address becomes an empty one for the reason the other backend has no choice about:
+     * a customer whose street and city are NULL still arrives from SQL as an Address holding
+     * nulls, never as a null Address, and every reader of {@code Customer.address()} dereferences
+     * it without checking.
+     */
     public static Customer toDomain(JsonCustomer j) {
-        Customer c = new Customer(j.id, j.name, j.email, toDomain(j.address));
-        for (Integer id : j.accountIds) {
-            c.addAccountId(id);
+        Address address = (j.address != null) ? toDomain(j.address) : new Address(null, null);
+
+        Customer c = new Customer(j.id, j.name, j.email, address);
+        if (j.accountIds != null) {
+            for (Integer id : j.accountIds) {
+                c.addAccountId(id);
+            }
         }
-        for (JsonBeneficiary jb : j.beneficiaries) {
-            c.addBeneficiary(toDomain(jb));
+        if (j.beneficiaries != null) {
+            for (JsonBeneficiary jb : j.beneficiaries) {
+                c.addBeneficiary(toDomain(jb));
+            }
         }
         return c;
     }
@@ -83,6 +106,22 @@ public class JsonMapper {
         Customer c = toDomain(j);
 
         if (store != null) {
+            // Which accounts this customer owns is decided here, when the customer is built, and
+            // not when the closure below runs. The DTO is not a stable object: a save puts a
+            // freshly built JsonCustomer into the bundle in place of this one, so a customer
+            // loaded earlier holds a reference to an instance the store no longer keeps. Reading
+            // the list through that reference answers whatever the detached instance happens to
+            // say, and it would answer the store's current list again the day a writer appended to
+            // an existing DTO in place rather than replacing it - the same customer object giving
+            // one answer or another depending on which kind of writer touched the row last.
+            //
+            // Only the ids are frozen. The accounts they name are still resolved from the live
+            // bundle inside the closure, which is the whole point of a lazy list: the balances a
+            // caller reads through it are the current ones, not the ones stored when the customer
+            // was loaded.
+            List<Integer> ownedAccountIds =
+                    (j.accountIds != null) ? List.copyOf(j.accountIds) : List.of();
+
             c.attachAccounts(new LazyList<>(() -> {
                 UnitOfWork uow = UowContext.current();
 
@@ -91,7 +130,7 @@ public class JsonMapper {
                 // therefore takes the store lock itself; inside an open unit of work the
                 // acquisition is reentrant and free.
                 return store.read(bundle -> bundle.accounts.stream()
-                        .filter(a -> j.accountIds.contains(a.id))
+                        .filter(a -> ownedAccountIds.contains(a.id))
                         .map(dto -> {
                             if (uow != null) {
                                 Account cached = uow.get(Account.class, dto.id);
@@ -198,6 +237,12 @@ public class JsonMapper {
         if (t.settledAt() != null) {
             j.settledAt = t.settledAt().toString();
         }
+        // Absent rather than a constant meaning "owes nothing", on the same terms as the fee
+        // above: null is a real value here and the common one, and inventing a name for it would
+        // put a decision in the store about every row written before this field existed.
+        if (t.dispatchState() != null) {
+            j.dispatchState = t.dispatchState().name();
+        }
         if (t.authMethod() != null) {
             j.authMethod = t.authMethod().method();
             if (t.authMethod() instanceof CardPayment cp) {
@@ -235,34 +280,44 @@ public class JsonMapper {
 
         Instant ts = StoredValue.requiredInstant(j.createdAt, "creation instant", "transfer", j.id);
 
-        // parse OTP metadata
         Integer attempts = j.authAttempts;
-        Instant validUntil = null;
-        try {
-            if (j.authValidUntil != null) {
-                validUntil = Instant.parse(j.authValidUntil);
-            }
-        } catch (Exception ignored) {
-        }
+
+        // An absent deadline is a real value and stays one: a transfer released from review waits
+        // with no clock running, and Transfer.isAuthExpired reads null as exactly that. Which is
+        // why an unreadable deadline must not also arrive as null. On a row still WAITING_AUTH it
+        // would silently turn the customer's five minutes into an unlimited window, and the next
+        // save would write the null over the string that caused it.
+        Instant validUntil = StoredValue.presentInstantOrNull(
+                j.authValidUntil, "authorization deadline", "transfer", j.id);
 
         TransferStatus status = StoredValue.requiredEnum(
                 TransferStatus.class, j.status, "status", "transfer", j.id);
         t.hydrateForLoad(status, payment, j.declineReason, ts, attempts, validUntil);
 
         // Absent is a real value for both of these, unlike the status above: a transfer that has
-        // not settled was charged nothing and moved no money. Guarded rather than passed
-        // straight through, because Money.czk has a double overload that would autounbox a null
-        // fee into a NullPointerException, and Instant.parse(null) throws.
+        // not settled was charged nothing and moved no money. The fee is guarded rather than
+        // passed straight through because Money.czk has a double overload that would autounbox a
+        // null into a NullPointerException. Absent is all that is tolerated, though: an unreadable
+        // settlement instant used to become null here and then be written back as null by toDto,
+        // so the day the money actually left was lost from the store and not only from the object,
+        // and a row with no settlement instant is counted against its creation day instead.
         Money fee = (j.fee != null) ? Money.czk(j.fee) : null;
-        Instant settledAt = null;
-        try {
-            if (j.settledAt != null) {
-                settledAt = Instant.parse(j.settledAt);
-            }
-        } catch (Exception ignored) {
-        }
+        Instant settledAt = StoredValue.presentInstantOrNull(
+                j.settledAt, "settlement instant", "transfer", j.id);
         t.hydrateSettlement(fee, settledAt);
         t.attachMessage(j.message);
+
+        // The same split the two instants above make, on an enum: absent is a real value, present
+        // and unreadable is not. It is written out here rather than through StoredValue.requiredEnum
+        // alone because that method refuses a null, which is right for the status - a transfer
+        // must have one - and wrong here, where a null says this payment owes the network nothing.
+        // Reading a garbled name as null would be the lenient answer, and lenient here means a
+        // payment that has left the bank silently stops being one the sweep will ever dispatch.
+        DispatchState dispatchState = (j.dispatchState != null)
+                ? StoredValue.requiredEnum(DispatchState.class, j.dispatchState,
+                        "dispatch state", "transfer", j.id)
+                : null;
+        t.hydrateDispatch(dispatchState);
 
         return t;
     }
@@ -278,22 +333,26 @@ public class JsonMapper {
         if (store != null) {
             // Lazy source account
             // Deferred, same as the LazyList above: locks for itself because there may be
-            // no unit of work bound when Transfer.sourceAccount() is dereferenced. The
-            // identity-map probe is inside the hold too, because reading j.sourceAccountId
-            // is a read of a Bundle-resident DTO.
+            // no unit of work bound when Transfer.sourceAccount() is dereferenced. Which
+            // account it points at is captured here for the reason given there - a save
+            // replaces the whole JsonTransfer in the bundle, so this DTO need not still be the
+            // stored one when the closure runs - and the account itself is still read live.
+            // The identity-map probe stays inside the hold so that it and the scan below decide
+            // against one state of the store.
+            int sourceAccountId = j.sourceAccountId;
             t.attachSourceAccount(new LazyRef<>(() -> store.read(bundle -> {
                 UnitOfWork uow = UowContext.current();
                 if (uow != null) {
-                    Account cached = uow.get(Account.class, j.sourceAccountId);
+                    Account cached = uow.get(Account.class, sourceAccountId);
                     if (cached != null) {
                         return cached;
                     }
                 }
 
                 JsonAccount accDto = bundle.accounts.stream()
-                        .filter(a -> a.id == j.sourceAccountId)
+                        .filter(a -> a.id == sourceAccountId)
                         .findFirst()
-                        .orElseThrow(() -> new IllegalStateException("Account not found: " + j.sourceAccountId));
+                        .orElseThrow(() -> new IllegalStateException("Account not found: " + sourceAccountId));
 
                 Account acc = JsonMapper.toDomain(accDto);
 
@@ -305,11 +364,15 @@ public class JsonMapper {
             })));
 
             // Lazy beneficiary (if present)
+            // Captured like the source account above, and here the capture also settles the
+            // unboxing: the guard proves the id is present once, at load time, where the closure
+            // used to trust a field that a later generation of this DTO could have left null.
             if (j.beneficiaryId != null) {
+                int beneficiaryId = j.beneficiaryId;
                 t.attachBeneficiary(new LazyRef<>(() -> store.read(bundle -> {
                     UnitOfWork uow = UowContext.current();
                     if (uow != null) {
-                        Beneficiary cached = uow.get(Beneficiary.class, j.beneficiaryId);
+                        Beneficiary cached = uow.get(Beneficiary.class, beneficiaryId);
                         if (cached != null) {
                             return cached;
                         }
@@ -327,16 +390,16 @@ public class JsonMapper {
                     // the read-your-own-data rule, before TransferDetailsDto ever grows a beneficiary field.
                     JsonCustomer custDto = bundle.customers.stream()
                             .filter(c -> c.beneficiaries != null
-                                    && c.beneficiaries.stream().anyMatch(b -> b.id == j.beneficiaryId))
+                                    && c.beneficiaries.stream().anyMatch(b -> b.id == beneficiaryId))
                             .findFirst()
                             .orElseThrow(() -> new IllegalStateException(
-                                    "Customer for beneficiary " + j.beneficiaryId + " not found"));
+                                    "Customer for beneficiary " + beneficiaryId + " not found"));
 
                     JsonBeneficiary benDto = custDto.beneficiaries.stream()
-                            .filter(b -> b.id == j.beneficiaryId)
+                            .filter(b -> b.id == beneficiaryId)
                             .findFirst()
                             .orElseThrow(() -> new IllegalStateException(
-                                    "Beneficiary not found: " + j.beneficiaryId));
+                                    "Beneficiary not found: " + beneficiaryId));
 
                     Beneficiary b = JsonMapper.toDomain(benDto);
 
@@ -393,14 +456,12 @@ public class JsonMapper {
         a.hydrateForLoad(st, j.reason, ts, j.riskScore, j.assignee, tags, j.notes);
 
         // hydrateDecision takes all three as null, which is what every alert written before
-        // these fields existed has. Absent is a real value here, unlike the state above.
-        java.time.Instant resolvedAt = null;
-        try {
-            if (j.resolvedAt != null) {
-                resolvedAt = java.time.Instant.parse(j.resolvedAt);
-            }
-        } catch (Exception ignored) {
-        }
+        // these fields existed has. Absent is a real value here, unlike the state above; a
+        // resolution instant that is present and cannot be read is not, because it used to land
+        // on exactly the value a legal row carries and nothing downstream could tell the two
+        // apart.
+        java.time.Instant resolvedAt = StoredValue.presentInstantOrNull(
+                j.resolvedAt, "resolution instant", "fraud alert", j.id);
         a.hydrateDecision(j.decision, j.decidedBy, resolvedAt);
 
         return a;

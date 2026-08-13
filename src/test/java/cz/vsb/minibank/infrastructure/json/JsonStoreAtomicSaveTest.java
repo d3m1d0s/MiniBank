@@ -21,10 +21,15 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * The write now goes to a sibling temp file and replaces the store in one move. What can be
  * asserted here is the observable half of that: the temp file is always consumed, and a publish
- * that cannot complete leaves nothing behind. The other half - that a reader never sees a prefix
+ * that cannot complete leaves nothing behind, neither a working file beside the store nor an
+ * unpublished change in the store's memory. The other half - that a reader never sees a prefix
  * - is a property of {@code ATOMIC_MOVE} rather than of this code, and pinning it would need a
  * deliberately failing serializer injected into the store, which is production surface added for
  * one test.
+ *
+ * A run killed outright never reaches the cleanup a failed publish performs, so the store
+ * collects what such a run abandoned when it is next opened. That is asserted here too,
+ * together with what the collecting must leave alone.
  */
 class JsonStoreAtomicSaveTest {
 
@@ -93,6 +98,91 @@ class JsonStoreAtomicSaveTest {
 
         assertEquals(List.of("data.json"), namesIn(tempDir),
                 "a failed publish must delete its temp file rather than leave it beside the store");
+    }
+
+    /**
+     * A change whose publish failed must not stay in memory waiting for the next publish to
+     * carry it out. The path with no unit of work bound applies its mutation straight to the
+     * shared data and then saves, so a refused save left the change in the cache and the next
+     * successful save wrote it to disk. That next save need not be a deliberate one: every
+     * nextXxxId() persists the whole cache in order to bump one sequence, so allocating an id
+     * was enough to publish an operation that had already reported failure.
+     *
+     * The save is refused here by removing the directory the store lives in, because a publish
+     * writes its temp file beside the store. That fails on every platform, it leaves the store
+     * as something the revert can still read back rather than something it chokes on, and it
+     * can be undone, so the test can then watch what a successful save actually puts on disk.
+     */
+    @Test
+    void aChangeWhosePublishFailedIsNotCarriedIntoTheNextOne() throws Exception {
+        Path vault = tempDir.resolve("vault");
+        Path store = vault.resolve("data.json");
+
+        JsonDataStore s = new JsonDataStore(store.toString());
+        s.load();
+        Files.delete(vault);
+
+        RuntimeException failure = assertThrows(RuntimeException.class,
+                () -> s.mutateAndSave(() -> {
+                    JsonCustomer c = new JsonCustomer();
+                    c.id = 1;
+                    c.name = "Alice";
+                    s.data().customers.add(c);
+                }),
+                "a publish with nowhere to write its temp file must fail");
+        assertEquals(RuntimeException.class, failure.getClass(),
+                "reverting must not change what the caller is told about the failure");
+
+        assertEquals(List.of(), customerNamesIn(s),
+                "the refused change must be gone from the store, not sitting in it");
+
+        Files.createDirectories(vault);
+        s.save();
+
+        JsonDataStore reopened = new JsonDataStore(store.toString());
+        reopened.load();
+
+        assertEquals(List.of(), customerNamesIn(reopened),
+                "a later save publishes what the store holds, and the refused change is not it");
+    }
+
+    /**
+     * The publish that is interrupted rather than refused. A killed run cannot delete anything on
+     * its way out, and nothing collected what it left behind: the next publish creates its temp
+     * file under a fresh name and moves that one, so the orphans pile up beside a store whose
+     * whole directory is meant to hold one document.
+     *
+     * The second half of this is the one worth having. A sweep is a delete loop over somebody's
+     * directory, so what it must not touch is pinned alongside: the neighbouring document, and a
+     * file carrying the same suffix without being the name a publish gives its working file.
+     */
+    @Test
+    void openingTheStoreCollectsTempFilesAKilledRunLeftBehind() throws Exception {
+        Path store = tempDir.resolve("data.json");
+        JsonDataStore s = new JsonDataStore(store.toString());
+        s.load();
+        s.save();
+        String published = Files.readString(store);
+
+        // Created the way a publish creates it, so the sweep is matched against the real name
+        // rather than against one this test made up.
+        Path abandoned = Files.createTempFile(tempDir, "store-", ".json.tmp");
+        Files.writeString(tempDir.resolve("demo.json"), "{}");
+        Files.writeString(tempDir.resolve("data.json.tmp"), "not a publish's working file");
+
+        JsonDataStore reopened = new JsonDataStore(store.toString());
+        reopened.load();
+
+        assertFalse(Files.exists(abandoned),
+                "opening the store must collect the temp file the killed run abandoned");
+        assertEquals(List.of("data.json", "data.json.tmp", "demo.json"), namesIn(tempDir),
+                "and must collect nothing else that happens to sit beside the store");
+        assertEquals(published, Files.readString(store),
+                "the document the sweep is tidying around must come through it byte for byte");
+    }
+
+    private static List<String> customerNamesIn(JsonDataStore store) {
+        return store.read(bundle -> bundle.customers.stream().map(c -> c.name).toList());
     }
 
     private static List<String> namesIn(Path dir) throws Exception {

@@ -15,14 +15,25 @@ import java.time.Clock;
  * pair of observers on them and one status change reached the audit log hundreds of times in a
  * single run. Attaching them belongs to the four places that actually start the application -
  * {@code App}, {@code AppSql}, {@code DemoRunner} and {@code MinibankApiConfig} - each of which
- * runs once.
+ * runs once. Those same four attach the {@link PaymentDispatcher}, for the same reason and from
+ * the gateway this class exposes.
  */
 public class BootstrapServices {
 
     public final TransferApplicationService transferService;
     public final FraudApplicationService fraudService;
-    public final PaymentNetworkGateway paymentGateway; // for integration tests and possibly UI
     public final FeePolicy feePolicy;
+
+    /**
+     * The gateway the composition roots build their {@link PaymentDispatcher} from.
+     *
+     * Exposed rather than hidden because it is nobody's collaborator any more: no service here
+     * holds it, since a settling payment records what it owes the network instead of calling it.
+     * The one thing that does call it is attached to the event bus, by whatever started the
+     * process, and this field is where it gets the instance from. The integration tests read it to
+     * see what has been dispatched.
+     */
+    public final PaymentNetworkGateway paymentGateway;
 
     /**
      * The one ownership rule, exposed so the read endpoints answer the same way the
@@ -126,7 +137,6 @@ public class BootstrapServices {
                 feePolicy,
                 riskService,
                 otp,
-                paymentGateway,
                 uowFactory,
                 ownershipGuard,
                 clock

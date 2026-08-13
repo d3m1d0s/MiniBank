@@ -67,13 +67,16 @@ import java.util.Objects;
  * Bounded, exactly: failed sign-ins from one origin inside one window, at most
  * {@link #MAX_FAILURES}; and PBKDF2 hashes running concurrently for one origin, also at most
  * {@link #MAX_FAILURES}, because the allowance is taken at the gate rather than after the
- * hash. Taking it afterwards would have left a ~300 ms hole between the check and the count in
+ * hash. Taking it afterwards would have left a ~700 ms hole between the check and the count in
  * which the whole servlet thread pool - 200 threads by Tomcat's default, which nothing here
  * overrides - could pass a gate that had already been spent.
  *
  * Not bounded, deliberately: the cost of repeated <i>successful</i> sign-ins. Counting
  * attempts rather than failures would throttle the legitimate repeated logins a page reload
  * produces, so a caller holding any valid password can still spend CPU one hash at a time.
+ * Nor are sign-ins that failed on this application's own side, for the reason
+ * {@link #releaseAttemptThatWasNotAGuess} sets out; the condition that makes them repeatable
+ * is one in which nothing else works either.
  * Also not bounded: guesses made against one account from many origins, and guesses from an
  * attacker holding more distinct addresses than {@link #MAX_TRACKED_ORIGINS}, who can recycle
  * them so that every guess lands on a freshly created window. Bounding either needs the
@@ -140,8 +143,8 @@ public final class LoginThrottle {
      * at once, and the symmetry would be the wrong reason. The number is what it is because
      * the sweep below is O(n) and runs under this object's monitor on the path that inserts, so
      * a much larger map would trade a bound on guessing for a lock convoy on the login path -
-     * a thousand entries scan in microseconds beside a hash that costs hundreds of
-     * milliseconds, and cost about a hundred kilobytes.
+     * a thousand entries scan in microseconds beside a hash that costs the better part of a
+     * second, and cost about a hundred kilobytes.
      *
      * What it does not do is stop an attacker who holds more addresses than this. They can
      * cycle them so that every guess creates a fresh window and nothing is ever refused; at
@@ -182,13 +185,13 @@ public final class LoginThrottle {
      * Takes one unit of this origin's allowance, or refuses the attempt if it has none left.
      *
      * Called before the credential is checked, which is what makes this a bound on work and
-     * not only on answers: a refused attempt costs a map lookup instead of 120 000 PBKDF2
-     * iterations, five megabytes of garbage, a log line and, on the SQL backend, a fresh
+     * not only on answers: a refused attempt costs a map lookup instead of 220 000 PBKDF2
+     * iterations, seventeen megabytes of garbage, a log line and, on the SQL backend, a fresh
      * database connection.
      *
      * The allowance is taken here and not after the failure, and that ordering is the whole
      * correctness of this class. A check that only read the counter would be separated from
-     * the write that follows it by a full password hash - hundreds of milliseconds - and every
+     * the write that follows it by a full password hash - the better part of a second - and every
      * request the servlet container will run concurrently could pass it on the same stale
      * reading. The bound would then be MAX_FAILURES plus the size of the thread pool, which is
      * twenty times the intended number, and the same factor would apply to the hashes an
@@ -255,6 +258,35 @@ public final class LoginThrottle {
      * inside a single hash, and the quantity being bounded is a rate.
      */
     public synchronized void releaseSuccessfulAttempt(String origin) {
+        giveBack(origin);
+    }
+
+    /**
+     * Gives back the unit an attempt took when that attempt never became a guess.
+     *
+     * The quantity this class bounds is failed sign-ins, and a request that never reached the
+     * password comparison has not failed one. On the SQL backend a database that is down makes
+     * SqlUserRepository throw before any credential is looked at, and the caller is answered
+     * 500; that is a report about this application, not about anybody's password. Counting it
+     * turns a short outage into a much longer one: with the single bucket described above,
+     * ten such attempts refuse every customer's sign-in for the rest of the window, which only
+     * time clears, so the refusals outlive the outage that produced them by up to a quarter of
+     * an hour. The design notes above settle the take-at-gate ordering and the shared origin
+     * and are silent on this case, so it is recorded here rather than inferred from them.
+     *
+     * Deliberately identical to {@link #releaseSuccessfulAttempt} and deliberately incapable
+     * of telling the two apart: only the caller knows which happened, and it is a separate
+     * method purely so that neither call site has to be read against the other's name.
+     *
+     * The caller must not reach this for an authentication failure. Releasing an unknown
+     * username but not a wrong password - or the other way round - would let anyone read the
+     * users table off the counter, which is the leak AuthService hashes a stand-in to close.
+     */
+    public synchronized void releaseAttemptThatWasNotAGuess(String origin) {
+        giveBack(origin);
+    }
+
+    private void giveBack(String origin) {
         String key = key(origin);
         Window window = windows.get(key);
         if (window == null) return;

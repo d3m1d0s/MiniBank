@@ -11,12 +11,17 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * Pins where the audit observers are attached.
+ * Pins where the observers are attached.
  *
  * The bus is no longer static, so an observer registered twice no longer outlives the thing that
  * registered it - but it still writes every audit line twice for as long as it is there, and the
  * defect this pins is unchanged: BootstrapServices used to attach a pair in its constructor, and
  * the suite builds one per test class.
+ *
+ * The stake is higher for the third observer than for the two audit ones. A duplicated
+ * {@code PaymentDispatcher} would not double a log line, it would offer every settled payment to
+ * the network twice; that the gateway is idempotent is what makes it survivable, not what makes it
+ * correct.
  */
 public class AuditObserverRegistrationTest {
 
@@ -55,7 +60,23 @@ public class AuditObserverRegistrationTest {
         new MinibankApiConfig().bootstrapServices(infra);
 
         assertEquals(2, infra.events.observerCount(),
-                "the API's composition root must attach the transfer observer and the fraud"
-                        + " observer, one each");
+                "the services bean must attach the transfer observer and the fraud observer, one"
+                        + " each, and nothing else");
+    }
+
+    /**
+     * The dispatcher has a bean of its own rather than a third line in the services bean, because
+     * the startup sweep needs the same instance. That makes the bean method the single attachment
+     * point, which is what this pins.
+     */
+    @Test
+    void theApiCompositionRootAttachesThePaymentDispatcherOnce() {
+        MinibankApiConfig config = new MinibankApiConfig();
+        BootstrapServices services = config.bootstrapServices(infra);
+
+        config.paymentDispatcher(infra, services);
+
+        assertEquals(3, infra.events.observerCount(),
+                "the two audit observers and the dispatcher, one each");
     }
 }

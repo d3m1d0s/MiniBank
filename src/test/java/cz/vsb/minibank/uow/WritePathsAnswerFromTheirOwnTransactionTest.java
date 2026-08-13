@@ -13,6 +13,7 @@ import cz.vsb.minibank.domain.Customer;
 import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.UserRole;
 import cz.vsb.minibank.domain.repository.AccountRepository;
+import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -105,12 +106,17 @@ class WritePathsAnswerFromTheirOwnTransactionTest {
 
         int customerId = seedCustomerWithAnAccount();
 
+        // All four, including the customers one. Every write below opens with
+        // OwnershipGuard.requireCaller, which is a real customer lookup, so leaving that
+        // repository unwatched exempted the first call each of these paths makes from the very
+        // property this class exists to assert.
         AccountRepository accounts = watch(infra.accounts);
+        CustomerRepository customers = watch(infra.customers);
         TransferRepository transfers = watch(infra.transfers);
         FraudAlertRepository alerts = watch(infra.alerts);
 
         BootstrapServices services = new BootstrapServices(
-                infra.customers, accounts, transfers, alerts, infra.uowFactory);
+                customers, accounts, transfers, alerts, infra.uowFactory);
 
         paymentController = new PaymentController(services.transferService, accounts);
         authorizationController = new AuthorizationController(services.transferService, accounts,
@@ -190,6 +196,16 @@ class WritePathsAnswerFromTheirOwnTransactionTest {
         return (AccountRepository) java.lang.reflect.Proxy.newProxyInstance(
                 AccountRepository.class.getClassLoader(),
                 new Class<?>[]{AccountRepository.class},
+                (proxy, method, args) -> {
+                    witness.record();
+                    return invoke(real, method, args);
+                });
+    }
+
+    private CustomerRepository watch(CustomerRepository real) {
+        return (CustomerRepository) java.lang.reflect.Proxy.newProxyInstance(
+                CustomerRepository.class.getClassLoader(),
+                new Class<?>[]{CustomerRepository.class},
                 (proxy, method, args) -> {
                     witness.record();
                     return invoke(real, method, args);

@@ -35,6 +35,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * in the second one: it is the ordering an attacker controls, and it is the ordering the rule
  * cannot catch at creation, because at the moment the second payment is made the first has not
  * settled and is therefore in no total.
+ *
+ * The cases further down split across ACCOUNTS rather than across payments. Totalled on the
+ * paying account - which is where this rule started, having taken the daily total's scope
+ * without ever arguing for it - the whole mechanism above was optional for anyone holding two
+ * accounts: 6 500 out of each is the same 13 000 and neither evaluation saw more than half.
  */
 class SplitPaymentAlertTest {
 
@@ -45,6 +50,8 @@ class SplitPaymentAlertTest {
     private static final String OTP = "0000";
 
     private static final IBAN PAYER = new IBAN("CZ6508000000192000145399");
+    private static final IBAN SECOND_PAYER = new IBAN("CZ7408000000192000145431");
+    private static final IBAN NEIGHBOUR_PAYER = new IBAN("CZ2508000000192000145440");
     private static final String PAYEE = "CZ2001000000000012345678";
     private static final String OTHER_PAYEE = "CZ9608000000192000142222";
 
@@ -200,10 +207,122 @@ class SplitPaymentAlertTest {
     }
 
     // ------------------------------------------------------------------
+    // Split across two accounts rather than across two payments
+    // ------------------------------------------------------------------
+
+    /**
+     * The split the source-account key could not see at all.
+     *
+     * One customer, two of their own accounts, one untrusted payee, 6 500 out of each. Keyed on
+     * the paying account the second half starts from a total of zero and settles for a code like
+     * any other payment, so 13 000 reaches a new payee in a day with nothing raised - which is
+     * the very arithmetic the cumulative rule was written for. Nothing else about the rule
+     * changes: the same threshold, the same key, the same two check sites.
+     */
+    @Test
+    void theHalvesAreAddedUpAcrossTheCustomersOwnAccounts() {
+        int otherAccount = openAccountFor(customerId, SECOND_PAYER);
+
+        int first = pay(customerId, accountId, PAYEE);
+        services.transferService.authorizePayment(customerId, first, OTP);
+        assertEquals(TransferStatus.SENT, statusOf(first));
+
+        int second = pay(customerId, otherAccount, PAYEE);
+
+        assertEquals(TransferStatus.HELD_FOR_REVIEW, statusOf(second),
+                "6 500 out of each of one customer's two accounts is 13 000 to one payee");
+        assertTrue(alertOn(second).isPresent(), "and the analyst has something to look at");
+    }
+
+    /**
+     * The same split in the ordering the rule cannot catch at creation, so that both check sites
+     * are pinned across accounts and not only the one.
+     */
+    @Test
+    void theHalfFromTheOtherAccountIsHeldAtAuthorizationWhenBothWereCreatedFirst() {
+        int otherAccount = openAccountFor(customerId, SECOND_PAYER);
+
+        int first = pay(customerId, accountId, PAYEE);
+        int second = pay(customerId, otherAccount, PAYEE);
+        assertEquals(TransferStatus.WAITING_AUTH, statusOf(second),
+                "at creation the first half has not settled, so it is in no total");
+
+        services.transferService.authorizePayment(customerId, first, OTP);
+
+        assertThrows(TransferUnderReviewException.class,
+                () -> services.transferService.authorizePayment(customerId, second, OTP),
+                "the second half must be refused at the moment it would settle");
+
+        assertEquals(TransferStatus.HELD_FOR_REVIEW, statusOf(second));
+        assertTrue(alertOn(second).isPresent());
+    }
+
+    /**
+     * The line the wider scope must not cross.
+     *
+     * A shared payee is not a shared customer. Totalling every payment to one IBAN regardless of
+     * who sent it would turn a popular landlord or e-shop into a source of alerts on people who
+     * have paid it once, and each of them would be held under a reason - a new beneficiary and a
+     * high amount - that is false about them. The total is the customer's own history and
+     * nobody else's, which is also why the ids come off the caller aggregate rather than out of
+     * a query over the payee.
+     */
+    @Test
+    void twoCustomersPayingTheSamePayeeDoNotAddUp() {
+        int neighbour = openNeighbourCustomer();
+        int neighbourAccount = openAccountFor(neighbour, NEIGHBOUR_PAYER);
+
+        int first = pay(customerId, accountId, PAYEE);
+        services.transferService.authorizePayment(customerId, first, OTP);
+        assertEquals(TransferStatus.SENT, statusOf(first));
+
+        int second = pay(neighbour, neighbourAccount, PAYEE);
+
+        assertEquals(TransferStatus.WAITING_AUTH, statusOf(second),
+                "one customer's spending must not raise an alert on another's payment");
+        assertTrue(alertOn(second).isEmpty());
+    }
+
+    // ------------------------------------------------------------------
 
     private int pay(String iban) {
+        return pay(customerId, accountId, iban);
+    }
+
+    private int pay(int payerCustomerId, int payerAccountId, String iban) {
         return services.transferService.submitPaymentToIban(
-                customerId, accountId, iban, HALF, null).transferId();
+                payerCustomerId, payerAccountId, iban, HALF, null).transferId();
+    }
+
+    /**
+     * Opens an account on the same terms setUp uses and gives it to this customer.
+     *
+     * The second save of the customer is what records the ownership: it is the customer row that
+     * carries accountIds, and OwnershipGuard - and now the payee total - reads the scope from
+     * there.
+     */
+    private int openAccountFor(int ownerId, IBAN iban) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            Customer owner = infra.customers.byId(ownerId).orElseThrow();
+            int id = infra.accounts.nextId();
+            infra.accounts.save(new Account(id, iban,
+                    Money.czk(1_000_000), Money.czk(900_000), Money.czk(800_000)));
+            owner.addAccountId(id);
+            infra.customers.save(owner);
+            scope.uow().commit();
+            return id;
+        }
+    }
+
+    /** Somebody else entirely, so the payee total can be shown to stop at the customer. */
+    private int openNeighbourCustomer() {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            int id = infra.customers.nextId();
+            infra.customers.save(new Customer(id, "Split Neighbour", "neighbour@example.com",
+                    new Address("Hlavni 2", "Ostrava")));
+            scope.uow().commit();
+            return id;
+        }
     }
 
     private Transfer transferOf(int id) {

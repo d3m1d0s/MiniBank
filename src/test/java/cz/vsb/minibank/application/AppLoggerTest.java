@@ -7,7 +7,10 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -100,5 +103,30 @@ class AppLoggerTest {
                 "Log should contain exception class name");
         assertTrue(log.contains("Boom"),
                 "Log should contain exception message");
+    }
+
+    @Test
+    void survivesALogFileThatCannotBeAPath() {
+        // The embedded NUL is what makes this value unusable: Windows rejects every control
+        // character in a path and the Unix providers reject NUL in particular, so both throw
+        // InvalidPathException, which is unchecked. The property is restored by tearDown.
+        System.setProperty(MinibankProperties.LOG_FILE, "target\0minibank.log");
+
+        PrintStream previousErr = System.err;
+        ByteArrayOutputStream captured = new ByteArrayOutputStream();
+        System.setErr(new PrintStream(captured, true, StandardCharsets.UTF_8));
+        try {
+            assertDoesNotThrow(
+                    () -> AppLogger.audit("test.category", "Transfer committed"),
+                    "A misconfigured log destination must not fail the audited operation");
+        } finally {
+            System.setErr(previousErr);
+        }
+
+        String stderr = captured.toString(StandardCharsets.UTF_8);
+        assertTrue(stderr.contains("Transfer committed"),
+                "The line should still reach stderr when the file cannot be opened");
+        assertTrue(stderr.contains("InvalidPathException"),
+                "The broken configuration should be reported on stderr, not swallowed");
     }
 }

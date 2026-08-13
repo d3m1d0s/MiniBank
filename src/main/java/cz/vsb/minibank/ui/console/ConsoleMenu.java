@@ -196,9 +196,27 @@ public class ConsoleMenu {
         while (true) {
             System.out.println("=== Login ===");
             System.out.print("Username: ");
+            // End of input is an end of session, not a failure. This loop runs before the
+            // menu's try block and there is no handler anywhere above it, so an unguarded
+            // read here turns Ctrl+D, or piped input that simply stops, into a stack trace
+            // out of main. Giving up on the login is the whole answer: run() then reaches the
+            // menu loop, whose own guard ends it on the same exhausted input, and an operator
+            // who never signed in has no role, so that menu offers nothing but Exit.
+            //
+            // Returning and not continuing. The input that ended does not come back, so a
+            // second pass would redraw this header forever.
+            if (!in.hasNextLine()) {
+                return;
+            }
             String username = in.nextLine().trim();
 
             System.out.print("Password: ");
+            // The same end of session one read later, and the likelier half of it: a script
+            // that names a user and stops. Guarding only the read above would move the stack
+            // trace down a line rather than remove it.
+            if (!in.hasNextLine()) {
+                return;
+            }
             String password = in.nextLine();
 
             try {
@@ -263,6 +281,17 @@ public class ConsoleMenu {
             }
             System.out.println("9) Exit");
             System.out.print("Choice: ");
+            // Input that runs out without choosing 9 leaves the menu with nothing to read.
+            // This read sits outside the try below, so the NoSuchElementException Scanner
+            // answers with would leave run() and main() as a stack trace; worse, when the
+            // end of input first lands inside a command the generic clause prints "could not
+            // be completed" and logs at ERROR, and then this line crashes anyway, so the
+            // operator gets a misleading message and a trace for what is only a finished
+            // script. Returning is the exit the missing 9 would have caused, and it has to be
+            // a return: nothing more will ever arrive, so continuing would spin on the menu.
+            if (!in.hasNextLine()) {
+                return;
+            }
             String choice = in.nextLine().trim();
 
             if ("9".equals(choice)) {
@@ -283,6 +312,11 @@ public class ConsoleMenu {
 
             try {
                 cmd.execute();
+            } catch (CommandCancelled e) {
+                // Deliberately unlogged. The operator changed their mind at a prompt; the file
+                // that would record it is the one carrying the AUDIT records, and a menu that
+                // was never used is not an event worth keeping.
+                System.out.println("Cancelled.");
             } catch (DataIntegrityException e) {
                 // Ahead of the DomainException clause on purpose. Inconsistent stored data is
                 // our fault, not the operator's: it must keep the ERROR severity and the
@@ -385,7 +419,7 @@ public class ConsoleMenu {
         }
 
         int accId = askInt("Source account id", accs.get(0).id());
-        int benId = askInt("Beneficiary id", -1);
+        int benId = askInt("Beneficiary id");
         double amount = askDouble("Amount CZK", 1000);
 
         int tid = services.transferService.submitPaymentByBeneficiary(cid, accId, benId, amount, "").transferId();
@@ -415,7 +449,7 @@ public class ConsoleMenu {
         // Asked first, like commands 3 and 4, so a user with no customer id is refused by a
         // server-side rule before being prompted for a transfer id.
         int cid = resolveCustomerId();
-        int tid = askInt("Transfer id", -1);
+        int tid = askInt("Transfer id");
         System.out.print("OTP (0000/123456): ");
         String otp = in.nextLine().trim();
 
@@ -471,7 +505,7 @@ public class ConsoleMenu {
 
         System.out.print("Action (approve/decline/request): ");
         String act = in.nextLine().trim();
-        int tid = askInt("Transfer id", -1);
+        int tid = askInt("Transfer id");
 
         switch (act.toLowerCase()) {
             case "approve" -> {
@@ -504,7 +538,7 @@ public class ConsoleMenu {
 
     private void cancelPayment() {
         int cid = resolveCustomerId();
-        int tid = askInt("Transfer id", -1);
+        int tid = askInt("Transfer id");
         services.transferService.cancelPayment(cid, tid);
 
         TransferRepository transfers = infra.transfers;
@@ -523,10 +557,18 @@ public class ConsoleMenu {
             return;
         }
 
-        // This reads an account id the operator typed straight out of the repository,
-        // bypassing the application services, so OwnershipGuard cannot reach it from where it
-        // lives. Either restrict the prompt to accs or route this through a guarded read.
         int accId = askInt("Account id", accs.get(0).id());
+
+        // The typed id has to be one of this customer's own accounts. This read goes straight to
+        // the repository rather than through the application services, so OwnershipGuard is not
+        // on the path and there is nowhere else for the rule to live. Somebody else's account and
+        // one that does not exist get the same answer: account ids are small consecutive
+        // integers, and any difference between those two replies enumerates the bank.
+        if (accs.stream().noneMatch(a -> a.id() == accId)) {
+            System.out.println("[Error] You have no account with id " + accId + ".");
+            return;
+        }
+
         var list = transfers.bySourceAccount(accId);
         if (list.isEmpty()) {
             System.out.println("No transfers");
@@ -541,17 +583,103 @@ public class ConsoleMenu {
         }
     }
 
+    /**
+     * The operator's way out of a prompt: abandon this command and go back to the menu.
+     *
+     * Carries no stack trace and no message. It is control flow, not a failure, and the frames
+     * it would record are the console's own - nothing may ever print them next to the AUDIT
+     * records in minibank.log, which is exactly what used to happen when the escape was a
+     * NumberFormatException.
+     */
+    private static final class CommandCancelled extends RuntimeException {
+        CommandCancelled() {
+            super(null, null, false, false);
+        }
+    }
+
+    /**
+     * Prompts and reads one line, with end of input treated as a cancel.
+     *
+     * The guard is what makes the re-asking loops below safe to write. Without it a finished
+     * script or a Ctrl+D meets {@code nextLine()} and gets NoSuchElementException, which is
+     * neither exception the menu names and so lands in the generic clause: an ERROR line and a
+     * trace for input that simply ended. The menu loop's own guard then ends the session on the
+     * next pass, which is the right outcome; this only stops it being reported as a fault.
+     */
+    private String askLine(String prompt) {
+        System.out.print(prompt);
+        if (!in.hasNextLine()) {
+            throw new CommandCancelled();
+        }
+        return in.nextLine().trim();
+    }
+
+    /**
+     * Reads a whole number the operator has to supply, re-asking until one arrives. A blank
+     * line cancels the command.
+     *
+     * The cancel is half of the fix and not a garnish. These four prompts have no default, and
+     * before the re-asking loop existed the only way out of one was to type something
+     * unparsable and let the NumberFormatException abort the command back to the menu - a
+     * typo, or an Enter, recorded at ERROR with a stack trace in the file that carries the
+     * AUDIT records, under the misleading "Operation could not be completed". Re-asking
+     * without offering a way out would have taken that escape away and held the operator at a
+     * prompt with no exit, so both halves land together.
+     *
+     * The cancel travels as an exception rather than as a sentinel return value for two
+     * reasons. Every int is a legal answer here, so a sentinel would have to steal one: the
+     * obvious candidate is the -1 these sites used to pass, and an operator who typed -1 would
+     * then be cancelling by accident. And an unwind says the one thing that is true at the four
+     * call sites - there is no value, so there is nothing to carry on with - where a sentinel
+     * would put the same "if it is the magic number, return" check at each of them and leave
+     * every one of those reads looking as if it produced an id.
+     */
+    private int askInt(String label) {
+        while (true) {
+            String s = askLine(label + " (blank to cancel): ");
+            if (s.isEmpty()) {
+                throw new CommandCancelled();
+            }
+            try {
+                return Integer.parseInt(s);
+            } catch (NumberFormatException e) {
+                System.out.println("[Error] '" + s + "' is not a whole number."
+                        + " Type a number, or leave the line blank to cancel.");
+            }
+        }
+    }
+
+    /**
+     * The same read where the prompt carries a default, which an empty line still answers with.
+     * Only the typo behaviour changes: it is re-asked here rather than abandoning the command.
+     */
     private int askInt(String label, int defVal) {
-        System.out.print(label + (defVal >= 0 ? " [" + defVal + "]" : "") + ": ");
-        String s = in.nextLine().trim();
-        if (s.isEmpty() && defVal >= 0) return defVal;
-        return Integer.parseInt(s);
+        while (true) {
+            String s = askLine(label + " [" + defVal + "]: ");
+            if (s.isEmpty()) {
+                return defVal;
+            }
+            try {
+                return Integer.parseInt(s);
+            } catch (NumberFormatException e) {
+                System.out.println("[Error] '" + s + "' is not a whole number."
+                        + " Type a number, or leave the line blank for " + defVal + ".");
+            }
+        }
     }
 
     private double askDouble(String label, double defVal) {
-        System.out.print(label + " [" + defVal + "]: ");
-        String s = in.nextLine().trim();
-        if (s.isEmpty()) return defVal;
-        return Double.parseDouble(s);
+        while (true) {
+            String s = askLine(label + " [" + defVal + "]: ");
+            if (s.isEmpty()) {
+                return defVal;
+            }
+            try {
+                return Double.parseDouble(s);
+            } catch (NumberFormatException e) {
+                System.out.println("[Error] '" + s + "' is not an amount."
+                        + " Type a number, or leave the line blank for " + defVal + ".");
+            }
+        }
     }
 }

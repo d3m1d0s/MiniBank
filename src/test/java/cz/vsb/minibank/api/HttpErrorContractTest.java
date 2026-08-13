@@ -18,10 +18,14 @@ import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.TooManySessionsException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
+import cz.vsb.minibank.domain.repository.UserRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.infrastructure.memory.InMemoryUserRepository;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
+import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -36,6 +40,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Optional;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -120,7 +125,7 @@ class HttpErrorContractTest {
     /**
      * Endpoints that exist only to reach rows no ordinary request can. Corrupting a store to
      * produce a dangling reference would test the store, not the contract; and filling the
-     * session store over HTTP would mean a thousand real logins at 120 000 PBKDF2 iterations
+     * session store over HTTP would mean a thousand real logins at 220 000 PBKDF2 iterations
      * each, so the refusal is raised here instead and the wire body is what gets asserted.
      */
     @RestController
@@ -142,6 +147,83 @@ class HttpErrorContractTest {
         }
     }
 
+    /**
+     * Counts the transactions the payment path opens.
+     *
+     * The one fact asserted in this file that has no wire signature. A payment refused for a
+     * mistyped destination answers 400 INVALID_IBAN whether that destination is parsed before
+     * the unit of work or inside it, so nothing about the response tells the two apart and only
+     * this count does. It wraps the real factory rather than replacing it, so every other case
+     * in this file still runs against the ordinary store.
+     */
+    private static final class CountingUowFactory implements UnitOfWorkFactory {
+
+        private final UnitOfWorkFactory delegate;
+        private int begun;
+
+        CountingUowFactory(UnitOfWorkFactory delegate) {
+            this.delegate = delegate;
+        }
+
+        @Override
+        public UnitOfWork begin() {
+            begun++;
+            return delegate.begin();
+        }
+    }
+
+    /**
+     * A user store that is down. The cheapest way to reach the login path's other kind of
+     * failure: in sql mode SqlUserRepository wraps the SQLException a closed database gives it
+     * into a plain RuntimeException, so the advice's catch-all answers 500 and no credential
+     * was ever looked at.
+     */
+    private static final class UnreachableUserRepository implements UserRepository {
+
+        @Override
+        public Optional<User> byId(int id) {
+            throw new IllegalStateException("user store is unreachable");
+        }
+
+        @Override
+        public Optional<User> findByUsername(String username) {
+            throw new IllegalStateException("user store is unreachable");
+        }
+
+        @Override
+        public void save(User user) {
+            throw new IllegalStateException("user store is unreachable");
+        }
+
+        @Override
+        public int nextId() {
+            throw new IllegalStateException("user store is unreachable");
+        }
+    }
+
+    /**
+     * Alice's stored credential, hashed once for the whole class.
+     *
+     * A salt and the hash taken over it are a value, not state: nothing writes to either array,
+     * and only the three cases that check a password against this row read them at all. Built in
+     * setUp it was recomputed for every test method in the class, so a hash deliberately made
+     * expensive - PBKDF2-HMAC-SHA512 at 220 000 iterations, about 0.7 s each, and that cost is
+     * meant to rise with the hardware it has to stay ahead of - was paid dozens of times over
+     * for the sake of those three.
+     *
+     * The row itself stays per test, because
+     * aSessionWhoseUserWasReplacedIs401AuthRequiredWithTheSameBody overwrites it.
+     */
+    private static final Pbkdf2PasswordEncoder ENCODER = new Pbkdf2PasswordEncoder();
+    private static byte[] aliceSalt;
+    private static byte[] aliceHash;
+
+    @BeforeAll
+    static void hashAlicesPasswordOnce() {
+        aliceSalt = ENCODER.generateSalt();
+        aliceHash = ENCODER.hash("alice123".toCharArray(), aliceSalt);
+    }
+
     @TempDir
     Path tempDir;
 
@@ -159,6 +241,9 @@ class HttpErrorContractTest {
     private InMemoryUserRepository users;
     private TestClock sessionClock;
     private LoginThrottle throttle;
+
+    /** The factory behind the transfer service, so a refusal can be asked what it opened. */
+    private CountingUowFactory uowFactory;
 
     /**
      * The throttle gets a clock of its own rather than sharing the session store's. Their two
@@ -201,8 +286,9 @@ class HttpErrorContractTest {
         accounts.save(new Account(VICTIM_ACCOUNT_ID, new IBAN(VICTIM_IBAN),
                 Money.czk(20_000), Money.czk(40_000)));
 
+        uowFactory = new CountingUowFactory(infra.uowFactory);
         BootstrapServices services = new BootstrapServices(
-                infra.customers, accounts, transfers, infra.alerts, infra.uowFactory);
+                infra.customers, accounts, transfers, infra.alerts, uowFactory);
         TransferApplicationService transferService = services.transferService;
 
         // Created through the service as the victim, so they are ordinary rows rather than
@@ -219,11 +305,8 @@ class HttpErrorContractTest {
                 infra.alerts, transfers, accounts, services.fraudService, services.feePolicy,
                 infra.uowFactory);
 
-        var encoder = new Pbkdf2PasswordEncoder();
         users = new InMemoryUserRepository();
-        byte[] salt = encoder.generateSalt();
-        users.save(new User(1, "alice", encoder.hash("alice123".toCharArray(), salt), salt,
-                UserRole.CUSTOMER, CUSTOMER_ID));
+        users.save(new User(1, "alice", aliceHash, aliceSalt, UserRole.CUSTOMER, CUSTOMER_ID));
 
         // The store revalidates against the same repository the login path authenticates
         // against, and its clock is one the test moves by hand, so the expiry case below costs
@@ -237,7 +320,7 @@ class HttpErrorContractTest {
         throttleClock = new TestClock(Instant.parse("2026-01-01T09:00:00Z"));
         throttle = new LoginThrottle(throttleClock);
         AuthController authController =
-                new AuthController(new AuthService(users, encoder), sessions, throttle);
+                new AuthController(new AuthService(users, ENCODER), sessions, throttle);
 
         api = MockMvcBuilders
                 .standaloneSetup(paymentController, authorizationController, fraudController,
@@ -426,7 +509,7 @@ class HttpErrorContractTest {
      * The first attempt is a real POST, which is what proves the wiring: the controller reads
      * getRemoteAddr and hands it to the throttle, and one wrong password is still an ordinary
      * 401. The rest of the allowance is spent directly against the counter, because ten more
-     * real sign-ins would mean ten more 120 000-iteration hashes to assert something
+     * real sign-ins would mean ten more 220 000-iteration hashes to assert something
      * LoginThrottleTest already asserts for nothing. MockMvc's remote address is the constant
      * below, so the two paths address the same bucket.
      *
@@ -488,6 +571,86 @@ class HttpErrorContractTest {
         assertFalse(body.contains("alice"), "no username may come back: " + body);
         assertTrue(body.contains("No account has been locked"),
                 "the honest user must be told their account is fine: " + body);
+    }
+
+    /**
+     * A failure that is not a guess must not spend anybody's allowance.
+     *
+     * The counter is the one LoginThrottle describes: every caller on this deployment arrives
+     * from one loopback address, so there is a single bucket for the whole bank, and nothing
+     * but time empties it. A database that is down makes the user store throw before any
+     * password is compared and the caller is answered 500. Counted, ten of those during a
+     * momentary outage refused every customer's sign-in for a quarter of an hour after the
+     * database had come back - a lockout produced entirely by requests in which nobody guessed
+     * at anything, and the one shape of denial of service the whole design is arranged to
+     * avoid.
+     *
+     * The second half is what stops this being a throttle that simply stopped counting: the
+     * same number of genuinely wrong passwords still exhausts the allowance.
+     */
+    @Test
+    void aRunOfServerSideFailuresDoesNotSpendTheAllowanceThatWrongPasswordsDo() throws Exception {
+        MockMvc broken = apiWithAnUnreachableUserStore();
+
+        for (int i = 0; i < LoginThrottle.MAX_FAILURES; i++) {
+            assertResponse(broken, aWrongPasswordForAlice(), 500, BODY_INTERNAL_ERROR);
+        }
+
+        // A full allowance's worth of 500s, and the next caller still gets the ordinary answer.
+        assertResponse(api, aWrongPasswordForAlice(), 401, BODY_AUTH_FAILED);
+
+        // And that one was counted. The rest of the allowance is taken straight from the
+        // counter, as theAttemptAfterTheAllowanceIsRefusedAlikeForEveryUsername does, rather
+        // than paying for nine more 220 000-iteration hashes.
+        for (int i = 1; i < LoginThrottle.MAX_FAILURES; i++) {
+            throttle.requireAttemptAllowed(MockHttpServletRequest.DEFAULT_REMOTE_ADDR);
+        }
+
+        assertResponse(api, aWrongPasswordForAlice(), 429, BODY_TOO_MANY_ATTEMPTS);
+    }
+
+    /**
+     * The line the release must not cross. An unknown username and a wrong password raise one
+     * exception type on purpose, and AuthService hashes a stand-in for the first so that the
+     * two cost the same wall-clock time as well. Handing the unit back for a name that is not
+     * in the users table would put the answer in the counter instead: attempts at names that
+     * do not exist would never run out, attempts at a name that does would, and a caller with
+     * a stopwatch would be replaced by one that can count to eleven.
+     */
+    @Test
+    void anUnknownUsernameSpendsTheAllowanceExactlyAsAKnownOneDoes() throws Exception {
+        for (int i = 1; i < LoginThrottle.MAX_FAILURES; i++) {
+            throttle.requireAttemptAllowed(MockHttpServletRequest.DEFAULT_REMOTE_ADDR);
+        }
+
+        assertResponse(api, post("/api/auth/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"username\":\"nobody\",\"password\":\"whatever\"}"), 401, BODY_AUTH_FAILED);
+
+        assertResponse(api, aWrongPasswordForAlice(), 429, BODY_TOO_MANY_ATTEMPTS);
+    }
+
+    /**
+     * The same login endpoint over a store that cannot be reached, sharing this test's throttle
+     * so that both instances address one bucket - MockMvc gives every request the same remote
+     * address, which is what the throttle keys on.
+     */
+    private MockMvc apiWithAnUnreachableUserStore() {
+        AuthController broken = new AuthController(
+                new AuthService(new UnreachableUserRepository(), new Pbkdf2PasswordEncoder()),
+                sessions, throttle);
+
+        return MockMvcBuilders
+                .standaloneSetup(broken)
+                .setControllerAdvice(new RestExceptionHandler())
+                .build();
+    }
+
+    /** A fresh builder each call: MockMvc consumes the one it is handed. */
+    private static RequestBuilder aWrongPasswordForAlice() {
+        return post("/api/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"username\":\"alice\",\"password\":\"not-my-password\"}");
     }
 
     // ---------------------------------------------------------------- 403
@@ -692,6 +855,56 @@ class HttpErrorContractTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"sourceAccountId\":" + ACCOUNT_ID
                                 + ",\"targetIban\":\"XX12\",\"amountCzk\":100.0,\"message\":\"x\"}"), 400, BODY_INVALID_IBAN);
+    }
+
+    /**
+     * The neighbour above with the field left out altogether, which used to be a 500.
+     *
+     * A record component binds null happily, so an omitted targetIban travelled all the way to
+     * IBAN's constructor, which opens with a bare requireNonNull. The resulting
+     * NullPointerException is a type the advice claims no handler for, so it fell to the
+     * catch-all: the customer was told the bank was broken and the log got a stack trace at
+     * error level, over a request that was merely incomplete.
+     *
+     * VALIDATION_ERROR rather than the INVALID_IBAN of the case above, which is the same
+     * distinction the login screen draws when it refuses an absent password: "The IBAN you
+     * entered is not valid" is a sentence about something the customer never entered.
+     */
+    @Test
+    void aPaymentWithNoTargetIbanIs400ValidationErrorAndNotA500() throws Exception {
+        assertResponse(api, post("/api/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceAccountId\":" + ACCOUNT_ID
+                                + ",\"amountCzk\":100.0,\"message\":\"x\"}"), 400, BODY_VALIDATION_ERROR);
+
+        // The same request said out loud. Both shapes are "no destination given" and neither
+        // may reach a different row of the contract from the other.
+        assertResponse(api, post("/api/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceAccountId\":" + ACCOUNT_ID
+                                + ",\"targetIban\":null,\"amountCzk\":100.0,\"message\":\"x\"}"),
+                400, BODY_VALIDATION_ERROR);
+    }
+
+    /**
+     * The half of aMalformedIbanIs400InvalidIban that the status and the body cannot show.
+     *
+     * The destination is the one field on this form a customer types by hand, and it used to be
+     * parsed inside the unit of work, so a plain 400 took the JSON store's global lock - or
+     * opened a JDBC connection with no pool behind it - purely to tear it down again. The
+     * response bytes are the same either way, which is why the assertion is on the factory.
+     */
+    @Test
+    void aMalformedIbanIsRefusedBeforeAnyTransactionOpens() throws Exception {
+        int begunBefore = uowFactory.begun;
+
+        assertResponse(api, post("/api/payments")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"sourceAccountId\":" + ACCOUNT_ID
+                                + ",\"targetIban\":\"XX12\",\"amountCzk\":100.0,\"message\":\"x\"}"), 400, BODY_INVALID_IBAN);
+
+        assertEquals(begunBefore, uowFactory.begun,
+                "Refused caller input must not open a transaction only to roll it back");
     }
 
     /**

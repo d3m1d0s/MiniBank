@@ -58,6 +58,20 @@ public class Transfer implements RecordsDomainEvents {
     /** When the money moved. Null on a transfer that has not settled. */
     private Instant settledAt;
 
+    /**
+     * What this payment still owes the payment network, or null when it owes it nothing.
+     *
+     * Written by {@link #send} alone, and only on the leg that leaves the bank, so null covers
+     * every transfer that has not settled and every intra-bank one without a constant having to
+     * say so. {@link DispatchState} carries the rest of the why.
+     *
+     * It lives on this row rather than in a table of its own, and that is the whole design: the
+     * record that a payment is owed to the network is written in the same unit of work as the
+     * debit that owes it, so the two either both commit or neither does. The row that a separate
+     * outbox would point at already holds the payload, because the gateway takes this aggregate.
+     */
+    private DispatchState dispatchState;
+
     private Payment authMethod; // nullable
     private String declineReason;
 
@@ -243,13 +257,16 @@ public class Transfer implements RecordsDomainEvents {
         if (status != TransferStatus.HELD_FOR_REVIEW)
             throw new InvalidStateTransitionException("Release allowed only from HELD_FOR_REVIEW");
 
+        // authAttempts is deliberately left where it stands, for the reason
+        // holdForReviewOnAuthorization gives for not clearing it there: a transfer held at
+        // confirmation time can arrive here with guesses already spent, and handing them back
+        // would make the three-attempt cap something an analyst's approval refills. Zeroing it
+        // used to be defended as a no-op, and that argument was true only while the creation
+        // hold was the single edge into HELD_FOR_REVIEW. The creation path still reaches this
+        // method with the counter at zero, which is holdForReview's doing and not this one's.
+
         TransferStatus old = this.status;
         this.status = TransferStatus.WAITING_AUTH;
-
-        // Necessarily already zero - registerFailedOtpAttempt refuses anything but WAITING_AUTH,
-        // so a held transfer cannot have spent one - and written anyway so the invariant does
-        // not depend on that argument staying true.
-        this.authAttempts = 0;
         this.authValidUntil = null;
 
         raise(new TransferStatusChanged(this, old, this.status));
@@ -324,6 +341,15 @@ public class Transfer implements RecordsDomainEvents {
         this.fee = charged;
         this.settledAt = settledAt;
 
+        // The one place that can honestly say a dispatch is owed. The destination has just been
+        // resolved and null means the money leaves this bank, which the credit above already
+        // depends on; the service that calls this knows the same thing only by asking twice.
+        // Recording it here puts the intent in the same unit of work as the debit, so a commit
+        // that fails leaves neither a debit nor an obligation to send anything.
+        if (destination == null) {
+            this.dispatchState = DispatchState.PENDING;
+        }
+
         TransferStatus old = this.status;
         this.status = TransferStatus.SENT;
 
@@ -353,19 +379,59 @@ public class Transfer implements RecordsDomainEvents {
     /**
      * Declines the transfer with the given reason.
      *
-     * Only SENT is refused, so a HELD_FOR_REVIEW transfer is always cancellable by its owner.
-     * That is what keeps a customer from being trapped behind a queue nobody is working: the
-     * hold has no expiry of its own, so the customer's own Cancel is their way out of it.
+     * DECLINED is refused as firmly as SENT, because the reason recorded here is the record of
+     * why this payment stopped and a second decline writes over it. That ran in both directions:
+     * an analyst's wording over the customer's own "Canceled by customer", and a customer's
+     * Cancel over "Too many invalid OTP attempts" or "Authorization window expired" on a payment
+     * they were never given the chance to complete. It also raised a DECLINED to DECLINED status
+     * change, so the audit trail carried a transition that never happened.
+     * {@code FraudApplicationService} already excludes DECLINED before both of its calls to this
+     * method, for exactly that reason; the rule belongs here, where the state machine is, so that
+     * no caller can be the one that forgets it.
+     *
+     * HELD_FOR_REVIEW is deliberately not refused, so a transfer under review is always
+     * cancellable by its owner. That is what keeps a customer from being trapped behind a queue
+     * nobody is working: the hold has no expiry of its own, so the customer's own Cancel is their
+     * way out of it.
      */
     public void decline(String reason) {
         if (status == TransferStatus.SENT)
             throw new InvalidStateTransitionException("Cannot decline already SENT transfer");
+
+        if (status == TransferStatus.DECLINED)
+            throw new InvalidStateTransitionException(
+                    "Transfer " + id + " has already been declined");
 
         TransferStatus old = this.status;
         this.status = TransferStatus.DECLINED;
         this.declineReason = reason;
 
         raise(new TransferStatusChanged(this, old, this.status));
+    }
+
+    /**
+     * Records that a gateway has been handed this payment.
+     *
+     * Refused on a transfer that owes the network nothing, which is every intra-bank payment and
+     * everything that has not settled: marking one of those dispatched would claim that money left
+     * the bank through a gateway that was never given it.
+     *
+     * A transfer already marked is accepted and simply stays marked. That is not leniency, it is
+     * the dispatch contract: send first and mark afterwards is at-least-once, so a retry whose
+     * earlier attempt did reach the network and then failed to record it arrives here a second
+     * time, and refusing it would turn a successful retry into an error over work already done.
+     *
+     * No status change and no event: the money moved when this transfer was sent, and who has been
+     * handed the payment since is not a lifecycle step the customer sees.
+     *
+     * @throws InvalidStateTransitionException when this transfer owes the network no dispatch
+     */
+    public void markDispatched() {
+        if (dispatchState == null) {
+            throw new InvalidStateTransitionException(
+                    "Transfer " + id + " owes the payment network no dispatch");
+        }
+        this.dispatchState = DispatchState.DISPATCHED;
     }
 
     /**
@@ -423,6 +489,23 @@ public class Transfer implements RecordsDomainEvents {
     }
 
     /**
+     * Restores what a stored row says this payment owes the network.
+     *
+     * Its own method for the reason hydrateSettlement is one: the two existing hydrate methods
+     * have call sites in tests that must be left alone. Null is what every row written before the
+     * column existed carries and what every row that owes nothing carries, and the two are the
+     * same fact, which is why nothing here distinguishes them.
+     *
+     * It validates nothing, exactly like the two above. Whether a stored name is one this domain
+     * knows is decided by the loader that read it - both refuse an unreadable one rather than
+     * passing null in its place, because null is the lenient reading and would quietly drop a
+     * payment out of the sweep that owes it a dispatch.
+     */
+    public void hydrateDispatch(DispatchState dispatchState) {
+        this.dispatchState = dispatchState;
+    }
+
+    /**
      * Attaches the customer's own reference for this payment.
      *
      * Called by the creating service right after construction and by both mappers on load, not
@@ -453,6 +536,9 @@ public class Transfer implements RecordsDomainEvents {
     /** When the money moved, or null on a transfer that has not settled. */
     public Instant settledAt() { return settledAt; }
 
+    /** What this payment still owes the network, or null when it owes it nothing. */
+    public DispatchState dispatchState() { return dispatchState; }
+
     /** The customer's own reference, or null when none was given. */
     public String message() { return message; }
 
@@ -473,9 +559,12 @@ public class Transfer implements RecordsDomainEvents {
      * Records the version the store holds for this transfer.
      *
      * Two callers, both in SqlTransferRepository: once when a row is read, and once after a
-     * guarded write reports the version it left behind. The second call is what lets the same
-     * transfer be saved more than once in one unit of work without the second write conflicting
-     * with the first - {@code routeTransferCreation} saves and then settles.
+     * guarded write reports the version it left behind. The second call is what would let a
+     * later guarded write in the same unit of work be compared against the version the first
+     * one left, the way {@link FraudAlert#hydrateVersion}'s is exercised by
+     * {@code decideAndUpdateAlert}; no path writes a transfer twice in one unit of work today -
+     * {@code routeTransferCreation} registers one save and then settles, and the deferred write
+     * picks up the settled state at commit.
      *
      * The invariant a future retry must respect is {@link Account#hydrateVersion}'s: after a
      * save has executed this number is the store's only while the transaction still commits. A

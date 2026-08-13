@@ -19,9 +19,9 @@
 --
 -- Deliberately NOT in db/init/, which docker compose runs unattended on a fresh volume: a
 -- fresh database is created at the final shape by schema.sql and has nothing to alter. Same
--- reasoning as db/reset.sql and db/migrate/hold-alerted-transfers.sql. This script and the
--- a8 one are independent of each other and may be run in either order; the filenames carry no
--- ordering.
+-- reasoning as db/reset.sql and db/migrate/hold-alerted-transfers.sql. This script and
+-- db/migrate/transfer-version.sql are independent of each other and may be run in either
+-- order; the filenames carry no ordering.
 --
 -- A migrated database is NOT byte-identical to a fresh one. ALTER TABLE appends, so the new
 -- columns land at the end of each table rather than where schema.sql shows them. Types,

@@ -58,6 +58,31 @@ public class FraudAlert implements RecordsDomainEvents {
     private final List<String> tags = new ArrayList<>();
     private String notes;
 
+    /**
+     * The version the store holds for this row, or 0 for an alert no store has seen.
+     *
+     * The same token {@link Account} and {@link Transfer} carry, and the last aggregate to want
+     * one. The state guards below are checks against this transaction's own snapshot and the
+     * write is deferred to commit under READ COMMITTED, so between two transactions they catch
+     * nothing on their own. What was catching these races was the transfers version, and only by
+     * accident: it sees a conflict when both analysts happen to write the transfers row too.
+     * Whenever they do not - a DECLINE on a payment that has already been sent or already been
+     * declined records the verdict on the alert alone, and the annotate route is a deliberate
+     * no-op on both aggregates yet still saves the alert - nothing looked at all. So an APPROVE
+     * could overwrite a DECLINE and file confirmed fraud as OK, and an annotation that read the
+     * alert as NEW could write NEW, no decision and no resolution instant back over a verdict,
+     * reopening a decided alert. That last one is the sharp end: authorizePayment gates on the
+     * transfer's status and skips the risk re-check once any alert row exists, so a reopened NEW
+     * alert sits on a confirmable payment and nothing holds it again.
+     *
+     * Only SqlFraudAlertRepository touches it. On the JSON backend it stays 0 forever and nothing
+     * reads it, exactly as {@link Transfer#version()} does: JsonFraudAlert declares no such field,
+     * and JsonUnitOfWork holds the store lock from its constructor to commit, so a JSON
+     * transaction's read and write cannot interleave and there is no stale write for a version to
+     * catch.
+     */
+    private int version;
+
     public FraudAlert(int id, int transferId, String reason) {
         this(id, transferId, reason, null, null, null, null);
     }
@@ -263,4 +288,24 @@ public class FraudAlert implements RecordsDomainEvents {
     public String assignee() { return assignee; }
     public List<String> tags() { return Collections.unmodifiableList(tags); }
     public String notes() { return notes; }
+
+    public int version() { return version; }
+
+    /**
+     * Records the version the store holds for this alert.
+     *
+     * Two callers, both in SqlFraudAlertRepository: once when a row is read, and once after a
+     * guarded write reports the version it left behind. The second call is what lets one unit of
+     * work save the same alert twice without the second write conflicting with the first, and
+     * every decision does exactly that - {@code FraudApplicationService.decideAndUpdateAlert}
+     * saves once in the verdict arm and again after the assignee, tags and notes block.
+     *
+     * The invariant a future retry must respect is {@link Account#hydrateVersion}'s: once a save
+     * has executed this number is the store's only while that transaction is still going to
+     * commit. A rolled-back transaction leaves this instance one ahead of the row, and therefore
+     * unusable.
+     */
+    public void hydrateVersion(int version) {
+        this.version = version;
+    }
 }

@@ -69,8 +69,23 @@ public class JsonAccountRepository implements AccountRepository {
         }
 
         return store.read(bundle -> {
+            // Exact, where this used to fold case, and that is the correction rather than the
+            // regression it looks like. SqlAccountRepository binds this same already-normalized
+            // iban.value() to WHERE iban = ?, and no constraint normalizes accounts.iban there,
+            // so a row stored in lower case belongs to no account on that backend. Settlement
+            // routes on this answer - found is credited here, absent is handed to the external
+            // gateway - so the two backends disagreeing about one row is one dataset sending the
+            // same money to two different places.
+            //
+            // Normalizing the stored value at read time would close the gap the other way, but it
+            // needs a second change on the SQL side and it accepts a row the application cannot
+            // write: every stored IBAN comes from JsonMapper.toDto, which writes iban().value().
+            // The query side loses nothing either way, because IBAN's constructor has already
+            // normalized what arrives here. iban.value() is the receiver so that a hand-written
+            // row with no iban key belongs to no account rather than to a NullPointerException,
+            // which is what a NULL column does in the SQL predicate too.
             var matches = bundle.accounts.stream()
-                    .filter(a -> a.iban.equalsIgnoreCase(iban.value()))
+                    .filter(a -> iban.value().equals(a.iban))
                     .toList();
             if (matches.isEmpty()) {
                 return Optional.<Account>empty();

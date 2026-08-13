@@ -3,6 +3,7 @@ package cz.vsb.minibank.demo;
 import cz.vsb.minibank.application.BootstrapServices;
 import cz.vsb.minibank.application.FraudAlertAuditLogObserver;
 import cz.vsb.minibank.application.MinibankProperties;
+import cz.vsb.minibank.application.PaymentDispatcher;
 import cz.vsb.minibank.application.TransferAuditLogObserver;
 import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.exceptions.TransferUnderReviewException;
@@ -70,6 +71,13 @@ public class DemoRunner {
                 infra.uowFactory
         );
 
+        // The third observer, and the only one that does something rather than record something.
+        // Attached here for the reason the audit pair is, and from the gateway BootstrapServices
+        // built, so this process has exactly one thing talking to the network.
+        PaymentDispatcher dispatcher = new PaymentDispatcher(
+                services.paymentGateway, infra.transfers, infra.uowFactory);
+        infra.events.register(dispatcher);
+
         int customerId = new DemoScenario(
                 infra.customers,
                 infra.accounts,
@@ -78,6 +86,11 @@ public class DemoRunner {
                 infra.uowFactory,
                 services.feePolicy
         ).seed();
+
+        // After the seed, which commits a settled payment out of this bank and therefore writes a
+        // dispatch this run owes, and before the script, so the two do not have to be told apart
+        // in the output.
+        dispatcher.sweepPending();
 
         Account account = infra.accounts.byIban(DemoScenario.PRIMARY_IBAN).orElseThrow();
         int accountId = account.id();

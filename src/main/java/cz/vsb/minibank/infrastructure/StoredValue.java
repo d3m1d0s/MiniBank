@@ -71,4 +71,30 @@ public final class StoredValue {
                     + " has an unreadable " + field + ": " + stored);
         }
     }
+
+    /**
+     * The same, for the timestamps a legitimate row is allowed not to carry: null when there is no
+     * string at all, and the same named refusal when there is one and it cannot be read.
+     *
+     * Three fields need this shape rather than {@link #requiredInstant}'s, and absent really is
+     * their normal state: a transfer that has not settled, a transfer released from review with no
+     * authorization deadline, an alert nobody has decided. What stood in for it was the opposite
+     * error to the one requiredInstant closed. Each of the three was parsed inside a catch that
+     * swallowed everything, justified by the comment beside it only for the absent case, so an
+     * unreadable string arrived as null as well - and null is the most lenient reading each of
+     * those three fields has. A corrupt authorization deadline turned the five-minute window a
+     * customer has to type their code into no window at all.
+     *
+     * Splitting absent from unreadable is the whole point, and it is why the null check is here
+     * rather than inside requiredInstant: the two are one refusal on a mandatory field and two
+     * different answers on an optional one. The daily total needs the same rule for the day a row
+     * counts under, and reads it through here rather than through the loader, so a row the sum
+     * refuses is named exactly as the loader would have named it.
+     */
+    public static Instant presentInstantOrNull(String stored, String field, String kind, int id) {
+        if (stored == null) {
+            return null;
+        }
+        return requiredInstant(stored, field, kind, id);
+    }
 }

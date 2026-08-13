@@ -11,6 +11,7 @@ import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.ZeroFeePolicy;
 import cz.vsb.minibank.domain.exceptions.ConflictException;
+import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.exceptions.InvalidStateTransitionException;
 import cz.vsb.minibank.domain.exceptions.TransferUnderReviewException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
@@ -236,6 +237,51 @@ class FraudReviewGateTest {
     }
 
     /**
+     * The counter above is zero because that payment was held before its owner was ever offered
+     * a code. This is the other release, and it must not hand attempts back.
+     *
+     * A payment held at confirmation time has already been through the OTP step, so the customer
+     * can arrive at the review with guesses spent. Releasing it used to reset the counter, which
+     * turned the three-attempt cap into something an analyst's approval refills: guess twice,
+     * get held, get approved, and guess three more times. Nothing about the hold is evidence
+     * that the earlier guesses were the account holder's.
+     *
+     * Reached the only way it can be reached: both halves are created before either settles, so
+     * the payee total crosses the alert threshold only at the moment the second is confirmed.
+     */
+    @Test
+    void anApprovedHoldDoesNotRefillTheOtpAttemptsTheCustomerSpent() {
+        int first = payExternal(NEEDS_AUTH_ONLY);
+        int second = payExternal(NEEDS_AUTH_ONLY);
+
+        assertThrows(InvalidOtpException.class,
+                () -> service.authorizePayment(CUSTOMER_ID, second, "999999"));
+        assertThrows(InvalidOtpException.class,
+                () -> service.authorizePayment(CUSTOMER_ID, second, "999999"));
+        assertEquals(2, transfer(second).authAttempts(), "two of the three are gone");
+
+        service.authorizePayment(CUSTOMER_ID, first, FixedOtpValidator.DEMO_OTP);
+        assertThrows(TransferUnderReviewException.class,
+                () -> service.authorizePayment(CUSTOMER_ID, second, FixedOtpValidator.DEMO_OTP),
+                "6 000 already gone to this payee plus 6 000 more is over the threshold");
+        assertEquals(TransferStatus.HELD_FOR_REVIEW, status(second));
+
+        fraudService.approve(second);
+
+        assertEquals(TransferStatus.WAITING_AUTH, status(second));
+        assertEquals(2, transfer(second).authAttempts(),
+                "the review gave the customer no guesses back");
+
+        service.authorizePayment(CUSTOMER_ID, second, "999999");
+
+        assertEquals(TransferStatus.DECLINED, status(second),
+                "the third wrong code is the third, not the first of a fresh three");
+        assertEquals("Too many invalid OTP attempts", transfer(second).declineReason());
+        assertEquals(OPENING.minus(Money.czk(NEEDS_AUTH_ONLY)), balance(),
+                "only the half that was confirmed may have moved");
+    }
+
+    /**
      * A second analyst working a stale queue is refused, and refused before anything is written.
      * Without this, an APPROVE arriving after a DECLINE would put a confirmed-fraud alert back
      * to OK.
@@ -392,6 +438,59 @@ class FraudReviewGateTest {
                 "the customer cancelled this payment; the record must still say so");
     }
 
+    /**
+     * The same rule the other way round, which nothing enforced. A payment the fraud desk has
+     * already stopped is over, so a cancel arriving afterwards is refused rather than answered
+     * with a 200 that rewrites why it stopped.
+     *
+     * The asymmetry was the whole defect: the decline path checked for DECLINED and the cancel
+     * path did not, so the analyst could not overwrite the customer's reason but the customer
+     * could overwrite the analyst's - and the audit log took a DECLINED to DECLINED transition
+     * with it.
+     */
+    @Test
+    void cancellingAPaymentTheFraudDeskAlreadyDeclinedIsRefused() {
+        int id = payExternal(RAISES_ALERT);
+        fraudService.decline(id, "confirmed mule account");
+        assertEquals("confirmed mule account", transfer(id).declineReason());
+
+        assertThrows(ConflictException.class, () -> service.cancelPayment(CUSTOMER_ID, id),
+                "a payment that has already been declined cannot be declined again");
+
+        assertEquals("confirmed mule account", transfer(id).declineReason(),
+                "the desk stopped this payment; the record must still say why");
+        assertEquals(TransferStatus.DECLINED, status(id));
+        assertEquals(FraudAlertState.SUSPICIOUS, alertFor(id).state(), "and the verdict stands");
+        assertEquals(OPENING, balance());
+    }
+
+    /**
+     * The auto-declines are the same fact and the worse case, because the customer has a reason
+     * to press Cancel on one: their payment has just failed in front of them. Overwriting it left
+     * no record anywhere that the three OTP attempts were what stopped the money.
+     */
+    @Test
+    void cancellingAPaymentThatExhaustedItsOtpAttemptsKeepsWhyItReallyStopped() {
+        int id = payExternal(NEEDS_AUTH_ONLY);
+
+        for (int i = 0; i < TransferApplicationService.MAX_OTP_ATTEMPTS; i++) {
+            try {
+                service.authorizePayment(CUSTOMER_ID, id, "999999");
+            } catch (InvalidOtpException expected) {
+                // Only the first two throw. The third declines the transfer and reports that
+                // as an outcome rather than as an error.
+            }
+        }
+        assertEquals(TransferStatus.DECLINED, status(id));
+        assertEquals("Too many invalid OTP attempts", transfer(id).declineReason());
+
+        assertThrows(ConflictException.class, () -> service.cancelPayment(CUSTOMER_ID, id));
+
+        assertEquals("Too many invalid OTP attempts", transfer(id).declineReason(),
+                "a cancel must not restate a payment the bank itself refused");
+        assertEquals(OPENING, balance());
+    }
+
     // ------------------------------------------------------------------ nothing else changed
 
     /**
@@ -479,6 +578,17 @@ class FraudReviewGateTest {
         cancelled.decline("Canceled by customer");
         assertThrows(InvalidStateTransitionException.class, cancelled::releaseForAuthorization,
                 "an approval must not resurrect a payment its owner withdrew");
+
+        // And out of reach of a second decline. Nothing leaves DECLINED either: the reason is
+        // the record of why this payment stopped, so whoever declines it second rewrites it.
+        cancelled.drainDomainEvents();
+        assertThrows(InvalidStateTransitionException.class,
+                () -> cancelled.decline("Declined by fraud analyst"));
+        assertEquals("Canceled by customer", cancelled.declineReason(),
+                "a refused decline must not rewrite the reason that stands");
+        assertTrue(cancelled.drainDomainEvents().isEmpty(),
+                "DECLINED to DECLINED is not a transition, and the audit log must not be told"
+                        + " it was one");
     }
 
     /**
@@ -517,6 +627,45 @@ class FraudReviewGateTest {
         declined.decline("Canceled by customer");
         assertThrows(InvalidStateTransitionException.class,
                 declined::holdForReviewOnAuthorization);
+    }
+
+    /**
+     * The attempt counter across a hold and its release, on the aggregate itself, because this
+     * is where the rule lives and the service-level case above can only reach it through a
+     * particular arithmetic of thresholds.
+     *
+     * holdForReviewOnAuthorization keeps the spent attempts on purpose. Release then zeroed
+     * them, so the pair cancelled out and the cap was refillable by whoever could get a payment
+     * reviewed. The creation-time hold is the other half of the invariant and is asserted with
+     * it: a transfer that was never offered for confirmation has a counter belonging to no
+     * confirmation step, so that one is cleared and must stay cleared.
+     */
+    @Test
+    void releasingATransferKeepsTheAttemptsSpentBeforeItWasHeld() {
+        Transfer t = createdTransfer();
+        t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
+        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS);
+        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS);
+        assertEquals(TransferStatus.WAITING_AUTH, t.status(), "two of three leaves one");
+        assertEquals(2, t.authAttempts());
+
+        t.holdForReviewOnAuthorization();
+        assertEquals(2, t.authAttempts(), "a hold does not spend or return an attempt");
+
+        t.releaseForAuthorization();
+        assertEquals(TransferStatus.WAITING_AUTH, t.status());
+        assertEquals(2, t.authAttempts(),
+                "a released transfer keeps what its owner spent; otherwise the three-attempt cap"
+                        + " is refillable by getting the payment reviewed");
+
+        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS);
+        assertEquals(TransferStatus.DECLINED, t.status(),
+                "the next wrong code is the third and must exhaust it");
+
+        // And the creation-time hold, which is reached before any code was asked for.
+        Transfer neverConfirmed = heldTransfer();
+        neverConfirmed.releaseForAuthorization();
+        assertEquals(0, neverConfirmed.authAttempts());
     }
 
     /**

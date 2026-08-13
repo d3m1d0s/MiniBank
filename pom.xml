@@ -9,8 +9,7 @@
     <version>1.0-SNAPSHOT</version>
 
     <properties>
-        <maven.compiler.source>17</maven.compiler.source>
-        <maven.compiler.target>17</maven.compiler.target>
+        <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <spring.boot.version>3.3.4</spring.boot.version>
         <!-- What a bare "mvn exec:java" runs. Override it on the command line for AppSql or
@@ -44,7 +43,11 @@
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
-            <version>5.7.0</version>
+            <!-- The bundled Byte Buddy has to be able to read the running JDK's own class
+                 files: mocking a concrete class retransforms java.lang.Object, so a Mockito
+                 that trails the current JDK fails every such mock with "Java N is not
+                 supported". 5.7.0 topped out at Java 22 and broke the suite on JDK 24. -->
+            <version>5.23.0</version>
             <scope>test</scope>
         </dependency>
         <!--
@@ -78,10 +81,38 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <!-- Publishes each dependency's jar path as a build property, so the
+                         surefire argLine below can name mockito-core without hard-coding
+                         a local repository path. -->
+                    <execution>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
                 <configuration>
                     <useModulePath>false</useModulePath>
+                    <!-- Mockito attached at JVM start: left to itself the inline mock maker
+                         attaches its agent while the tests are already running, which JDK 21
+                         warns about and a future JDK will refuse by default. The path property
+                         comes from dependency:properties above. -->
+                    <!-- -Xshare:off because the agent appends the bootstrap classpath,
+                         which class data sharing otherwise reports at every start; the
+                         feature only saves startup time, so it is cheaper switched off
+                         than warned about. -->
+                    <argLine>-Xshare:off -javaagent:${org.mockito:mockito-core:jar}</argLine>
+                    <!-- Some tests walk failure paths on purpose and log loudly while they
+                         pass; that output belongs in target/surefire-reports, not the
+                         console. -->
+                    <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     <systemPropertyVariables>
                         <!-- Keep audit output of the whole suite out of the working tree -->
                         <minibank.log.file>${project.build.directory}/minibank-test.log</minibank.log.file>
@@ -113,8 +144,9 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.11.0</version>
                 <configuration>
-                    <source>17</source>
-                    <target>17</target>
+                    <!-- release rather than source/target: it pins the API surface to the
+                         real JDK 17, so a newer build JDK cannot let a 18+ method slip in. -->
+                    <release>17</release>
                     <compilerArgs>
                         <arg>-parameters</arg>
                     </compilerArgs>

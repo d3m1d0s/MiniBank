@@ -29,6 +29,18 @@ public final class AppLogger {
                 MinibankProperties.LOG_FILE, MinibankProperties.LOG_FILE_DEFAULT));
     }
 
+    /**
+     * Writes one line to stderr and appends it to the log file. Nothing short of an Error
+     * gets out of this call.
+     * <p>
+     * The destination is a runtime setting, so it can hold a value that is not a path at all,
+     * and the callers that make that expensive are the audit observers, which run once the
+     * unit of work has committed, and the REST exception handler, which is already busy
+     * turning one failure into a response. A throw from here would report a second failure
+     * for work the database has accepted and charged the customer for. A logger reports on
+     * an operation and must not be able to fail it, so a broken destination costs the log
+     * file and nothing else.
+     */
     public static void log(LogLevel level, String category, String message, Throwable t) {
         Instant now = Instant.now();
         User user = SecurityContext.currentUser();
@@ -64,8 +76,11 @@ public final class AppLogger {
                 t.printStackTrace(new PrintWriter(sw));
                 out.write(sw.toString());
             }
-        } catch (IOException e) {
-            // Logging failed as well - just print the stack trace to stderr
+        } catch (IOException | RuntimeException e) {
+            // The unchecked half is what covers resolving the destination: logFile() is evaluated
+            // in the resource specification, which the language nests inside this try, and it
+            // throws InvalidPathException when the configured value cannot be a path at all.
+            // Hoisting that call above the try would put it back outside the catch.
             e.printStackTrace();
         }
     }

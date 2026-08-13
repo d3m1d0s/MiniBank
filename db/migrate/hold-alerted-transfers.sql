@@ -23,6 +23,8 @@
 -- No schema change is needed anywhere: transfers.status is VARCHAR(32) with no enum type, no
 -- CHECK and no lookup FK, and 'HELD_FOR_REVIEW' is fifteen characters. Idempotent.
 
+\set ON_ERROR_STOP on
+
 UPDATE transfers t
    SET status = 'HELD_FOR_REVIEW',
        auth_valid_until = NULL

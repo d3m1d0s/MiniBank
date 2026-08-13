@@ -36,8 +36,8 @@ public class AuthService {
      * An unknown username and a wrong password are indistinguishable to the caller: same
      * exception, same message, and - because the unknown-username branch below hashes a
      * stand-in - very nearly the same response time. Skipping the hash there would leak
-     * the user list through a single timed request, since PBKDF2 at 120 000 iterations
-     * takes long enough to read off a stopwatch.
+     * the user list through a single timed request, since PBKDF2-HMAC-SHA512 at 220 000
+     * iterations takes about 0.7 s, which anybody can read off a stopwatch.
      *
      * @throws AuthenticationFailedException when username or password is invalid
      */

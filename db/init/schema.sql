@@ -113,6 +113,7 @@ CREATE INDEX idx_beneficiaries_customer_id ON beneficiaries(customer_id);
 --   TransferStatus status,
 --   Instant createdAt,
 --   Instant settledAt,
+--   DispatchState dispatchState,
 --   Payment authMethod,
 --   String declineReason
 -- )
@@ -120,11 +121,18 @@ CREATE INDEX idx_beneficiaries_customer_id ON beneficiaries(customer_id);
 -- fee is the fee actually charged, written once by Transfer.send. NULL until the transfer
 -- settles, and NULL forever on one that never did. Not recomputed on display, which is the
 -- whole point of storing it: swapping the FeePolicy bean must not silently restate what a
--- customer was charged last month.
+-- customer was charged last month. That is also why the sign is checked here and nowhere
+-- else - see the CHECK below.
 --
 -- settled_at is when the money moved; created_at is when the order was placed. The daily
 -- total is keyed on settled_at, falling back to created_at for rows written before this
 -- column existed - see SqlTransferRepository.sumSentWithConnection.
+--
+-- dispatch_state is what a settled payment still owes the payment network, and it is on this
+-- row rather than in an outbox table of its own for one reason: the row a separate table would
+-- carry a foreign key to already holds the payload, because the gateway takes the whole
+-- aggregate. Written in the same transaction as the debit, so the obligation and the money
+-- movement that creates it commit together or not at all.
 ------------------------------------------------------------
 
 CREATE TABLE transfers (
@@ -141,8 +149,27 @@ CREATE TABLE transfers (
                            message              VARCHAR(140),
 
                            status               VARCHAR(32) NOT NULL,
-                           created_at           TIMESTAMPTZ,
+                           -- NOT NULL because the loader already treats it as such:
+                           -- Transfer.hydrateForLoad refuses a row without a creation instant
+                           -- rather than stamping the load instant over it. Everything this
+                           -- application writes stamps the column unconditionally, so the only
+                           -- producer of a NULL was a writer outside the domain - the same writer
+                           -- the CHECKs below were added against - and what it left behind was an
+                           -- unreadable row rather than a merely wrong one.
+                           created_at           TIMESTAMPTZ NOT NULL,
                            settled_at           TIMESTAMPTZ,
+
+                           -- PENDING once a payment has settled out of this bank, DISPATCHED once
+                           -- a gateway has been handed it. NULL is the third value and the common
+                           -- one: it says this payment owes the network nothing, which covers
+                           -- every intra-bank transfer, everything that has not settled, and every
+                           -- row written before this column existed. Nullable rather than NOT NULL
+                           -- with a NONE default precisely so that no existing row has to be given
+                           -- a value somebody would have to decide - see
+                           -- db/migrate/transfer-dispatch-state.sql for what backfilling those
+                           -- rows would send twice. Only Transfer.send writes the pending value and
+                           -- it assigns SENT in the same call, so a row carrying one is a SENT row.
+                           dispatch_state       VARCHAR(32),
 
                            auth_method          VARCHAR(32),
                            card_number_masked   VARCHAR(64),
@@ -170,7 +197,35 @@ CREATE TABLE transfers (
                            -- other. Without it the constraint lives only in Java and psql is a
                            -- way around it - which is precisely how a foreign row could be
                            -- written at all.
-                           CONSTRAINT transfers_currency_czk CHECK (currency = 'CZK')
+                           CONSTRAINT transfers_currency_czk CHECK (currency = 'CZK'),
+
+                           -- The fee is the one stored number nothing re-checks on the way out.
+                           -- Transfer.hydrateSettlement validates nothing, deliberately, so a
+                           -- hand-written negative fee loads on both backends and reaches the
+                           -- details endpoint and the fraud desk through Transfer.feeFor: the
+                           -- receipt then understates the historical debit and stops reconciling
+                           -- with the balance movement. FeePolicy's contract already says a fee is
+                           -- never negative; this is where a row that was not written through a
+                           -- FeePolicy is held to it.
+                           --
+                           -- NULL is left alone on purpose and the predicate is written so it
+                           -- passes: an unsettled transfer has been charged nothing yet, which is
+                           -- a different fact from being charged zero, and a CHECK admits a row
+                           -- whose predicate is unknown.
+                           CONSTRAINT transfers_fee_not_negative CHECK (fee >= 0),
+
+                           -- Both loaders refuse a dispatch state they cannot read rather than
+                           -- reading it as absent, because absent is the lenient answer: it drops
+                           -- a payment that has left the bank out of the only query that will ever
+                           -- hand it to the network. This is where such a value is refused at
+                           -- write time instead, and it faces the same out-of-domain writer the
+                           -- CHECKs above were added for.
+                           --
+                           -- NULL passes, exactly as it does on the fee and for the same mechanism:
+                           -- a CHECK admits a row whose predicate is unknown, and here unknown is
+                           -- the normal case rather than the exception.
+                           CONSTRAINT transfers_dispatch_state_known
+                               CHECK (dispatch_state IN ('PENDING', 'DISPATCHED'))
 );
 
 CREATE SEQUENCE transfers_id_seq;
@@ -196,6 +251,10 @@ CREATE INDEX idx_transfers_daily_total
 -- table was created and were written by nothing and read by nothing; wiring them up is what
 -- decided_by arrives with, rather than arriving alone.
 -- decided_by is NULL for a decision made from the console, which has no login.
+--
+-- version is not a domain field either, exactly as it is not one on accounts and transfers: it
+-- is the optimistic-lock token, see SqlFraudAlertRepository.upsertAlert. The JSON backend has
+-- none and needs none.
 ------------------------------------------------------------
 
 CREATE TABLE fraud_alerts (
@@ -209,8 +268,25 @@ CREATE TABLE fraud_alerts (
                               assignee    VARCHAR(100),
                               tags        TEXT,
                               notes       TEXT,
-                              created_at  TIMESTAMPTZ,
-                              resolved_at TIMESTAMPTZ
+                              -- NOT NULL for the same reason transfers.created_at is, and the
+                              -- blast radius here is wider than one row: FraudAlert.hydrateForLoad
+                              -- refuses an alert with no creation instant, and
+                              -- SqlFraudAlertRepository loads the whole queue and maps every row,
+                              -- so a single NULL written by hand turns the analyst queue into a
+                              -- 500 until somebody goes and finds it.
+                              created_at  TIMESTAMPTZ NOT NULL,
+                              resolved_at TIMESTAMPTZ,
+
+                              -- Bumped by every guarded write, exactly as accounts.version and
+                              -- transfers.version are. This row needs its own because FraudAlert's
+                              -- state guards are checked against each transaction's own snapshot
+                              -- and the write is deferred to commit: on every analyst action that
+                              -- does not also write the transfers row - a verdict on a payment
+                              -- already SENT or DECLINED, and the annotate route, which changes no
+                              -- state at all - transfers.version sees nothing and the last commit
+                              -- simply won, which is how an APPROVE could bury a DECLINE and an
+                              -- annotation could write NEW back over a verdict.
+                              version     INTEGER NOT NULL DEFAULT 0
 );
 
 

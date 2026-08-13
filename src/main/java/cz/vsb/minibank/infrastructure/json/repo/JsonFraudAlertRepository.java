@@ -8,6 +8,7 @@ import cz.vsb.minibank.infrastructure.json.mapping.JsonMapper;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -89,13 +90,27 @@ public class JsonFraudAlertRepository implements FraudAlertRepository {
 
     @Override
     public Optional<FraudAlert> byTransferId(int transferId) {
-        var uow = UowContext.current();
+        UnitOfWork uow = UowContext.current();
         // Entry point for all three fraud use cases; iterates the list an interleaved
         // add mutates.
         return store.read(bundle -> {
-            var f = bundle.fraudAlerts.stream().filter(x -> x.transferId == transferId).findFirst();
+            // Lowest id, the row the SQL twin's ORDER BY id ASC LIMIT 1 returns. Ambiguity is
+            // resolved rather than refused as an ambiguous IBAN is, because nothing declares
+            // this column unique.
+            var f = bundle.fraudAlerts.stream()
+                    .filter(x -> x.transferId == transferId)
+                    .min(Comparator.comparingInt((JsonFraudAlert x) -> x.id));
             if (f.isEmpty()) return Optional.<FraudAlert>empty();
-            FraudAlert d = JsonMapper.toDomain(f.get());
+            JsonFraudAlert row = f.get();
+            // Probed after the scan rather than before it as in byId, because the row is what
+            // supplies the id. Without it a decided alert was displaced by a fresh copy of its
+            // own stored row, and since commit drains domain events by walking the identity
+            // map, the verdict was written to the store and never announced.
+            if (uow != null) {
+                FraudAlert cached = uow.get(FraudAlert.class, row.id);
+                if (cached != null) return Optional.of(cached);
+            }
+            FraudAlert d = JsonMapper.toDomain(row);
             if (uow != null) uow.put(FraudAlert.class, d.id(), d);
             return Optional.of(d);
         });

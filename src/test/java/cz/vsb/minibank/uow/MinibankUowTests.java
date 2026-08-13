@@ -11,6 +11,8 @@ import org.junit.jupiter.api.*;
 import java.nio.file.*;
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -129,6 +131,131 @@ public class MinibankUowTests {
         Bootstrap reopened = new Bootstrap(dataPath);
         assertTrue(reopened.transfers.byId(doomedTransferId).isEmpty(),
                 "And it must not have reached disk either");
+    }
+
+    /**
+     * The same property when what escapes is an Error rather than an Exception. Nothing promises
+     * a commit fails with an Exception: Jackson can overflow the stack part way through a save,
+     * and an assertion inside a mutation throws AssertionError. The unit of work completes and
+     * the store lock is released either way, so a revert that only runs for Exception leaves the
+     * next transaction holding the difference.
+     */
+    @Test
+    void aCommitThatFailsWithAnErrorAlsoLeavesNothingBehind() throws InterruptedException {
+        int accountId = infra.accounts.byCustomerId(infra.customers.byId(1).orElseThrow().id())
+                .get(0).id();
+
+        int doomedTransferId;
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            doomedTransferId = infra.transfers.nextId();
+            infra.transfers.add(new Transfer(
+                    doomedTransferId, accountId, null,
+                    "CZ0401000000000000000000", Money.czk(1_000)));
+
+            // Fails after the transfer has already been applied to the shared data, and with
+            // something a catch of Exception does not see.
+            scope.uow().registerMutation(() -> { throw new AssertionError("commit fails here"); });
+
+            AssertionError failure = assertThrows(AssertionError.class, scope.uow()::commit);
+            assertEquals("commit fails here", failure.getMessage(),
+                    "The Error must reach the caller as itself, not swallowed or replaced");
+        }
+
+        assertStoreLockIsFree("The failed commit must have released the store lock");
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            assertTrue(infra.transfers.byId(doomedTransferId).isEmpty(),
+                    "The failed transaction's transfer must not be visible to the next one");
+            assertTrue(infra.transfers.bySourceAccount(accountId).isEmpty(),
+                    "The failed transaction must have left the store as it found it");
+            scope.uow().commit();
+        }
+
+        Bootstrap reopened = new Bootstrap(dataPath);
+        assertTrue(reopened.transfers.byId(doomedTransferId).isEmpty(),
+                "And it must not have reached disk either");
+    }
+
+    /**
+     * Fails rather than hangs when the store lock was not given up.
+     *
+     * The check has to come from another thread. That lock is reentrant, so a unit of work opened
+     * on this one would walk into a lock it never released and report nothing wrong, and a test
+     * that deadlocks instead of failing tells nobody which assertion broke.
+     */
+    private void assertStoreLockIsFree(String message) throws InterruptedException {
+        CountDownLatch taken = new CountDownLatch(1);
+        Thread other = new Thread(() -> {
+            infra.store.read(bundle -> bundle.transfers.size());
+            taken.countDown();
+        });
+        other.setDaemon(true); // a wedged store must not keep the JVM alive once the test has failed
+        other.start();
+        assertTrue(taken.await(5, TimeUnit.SECONDS), message);
+    }
+
+    /**
+     * A second commit is refused here exactly as it always was on SQL.
+     *
+     * This is the divergence, not a new rule. {@code SqlUnitOfWork.commit} has always thrown
+     * IllegalStateException on a completed unit of work while this backend returned quietly, so
+     * a use case that committed twice passed every JSON test and answered 500 the moment the
+     * store was PostgreSQL - the one class of defect a caller could not find by testing. The
+     * message is asserted as well as the type, because two backends that refuse the same thing
+     * in two different sentences are still two contracts.
+     */
+    @Test
+    void aCompletedUnitOfWorkRefusesASecondCommit() throws InterruptedException {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
+            uow.commit();
+
+            IllegalStateException refused = assertThrows(IllegalStateException.class, uow::commit,
+                    "a second commit is a caller that believes it still has a transaction");
+            assertEquals("UnitOfWork already completed", refused.getMessage(),
+                    "and it must say so in the words SqlUnitOfWork already used");
+        }
+
+        // The trap the guard has to avoid. finish() has already released the store lock, so a
+        // refusal raised from inside commit's try would reach its finally and unlock a lock this
+        // thread no longer holds.
+        assertStoreLockIsFree("a refused second commit must leave the store usable");
+    }
+
+    /**
+     * And a read through a unit of work that has finished, which neither backend used to guard.
+     *
+     * The two answered it differently and both answers were wrong. On SQL the repository's probe
+     * of the identity map missed, the query behind it went through a connection cleanup had
+     * closed, and the caller got a wrapped SQLException about plumbing. Here it missed for the
+     * same reason - commit empties the map - and then succeeded: {@code store.read} simply took
+     * a fresh hold of the store lock and served a second, unrelated transaction under the name
+     * of the one that had ended, returning an Account that nothing in this unit of work could
+     * write back.
+     */
+    @Test
+    void aCompletedUnitOfWorkRefusesAReadThroughIt() {
+        int accountId = infra.accounts.byCustomerId(infra.customers.byId(1).orElseThrow().id())
+                .get(0).id();
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
+            uow.commit();
+
+            IllegalStateException refused = assertThrows(IllegalStateException.class,
+                    () -> uow.get(Account.class, accountId),
+                    "the identity map of a finished transaction answers nobody");
+            assertEquals("Cannot use the identity map of a completed UnitOfWork", refused.getMessage());
+
+            assertThrows(IllegalStateException.class, () -> uow.all(Account.class),
+                    "including the lookup by any key other than id, which reads the whole map");
+
+            // The shape the defect took in practice: nothing calls uow.get() by hand, it is
+            // reached through a repository that is still bound to this thread until the scope
+            // closes.
+            assertThrows(IllegalStateException.class, () -> infra.accounts.byId(accountId),
+                    "a repository read must not outlive the transaction it was serving");
+        }
     }
 
     @Test

@@ -1,5 +1,6 @@
 package cz.vsb.minibank.infrastructure.json.repo;
 
+import cz.vsb.minibank.domain.DispatchState;
 import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
@@ -7,6 +8,7 @@ import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
+import cz.vsb.minibank.infrastructure.StoredValue;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.dto.JsonTransfer;
 import cz.vsb.minibank.infrastructure.json.mapping.JsonMapper;
@@ -14,6 +16,8 @@ import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
 import java.time.Instant;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -126,6 +130,62 @@ public class JsonTransferRepository implements TransferRepository {
                 .collect(Collectors.toList()));
     }
 
+    /**
+     * Every payment that has left this bank and that no gateway has been handed yet.
+     *
+     * Sorted by id although this store is a list that is appended to in id order, so in practice
+     * it already answers that way. In practice is not the promise the interface makes, and the one
+     * writer that does not append - {@link #save}, which replaces a row where it stands - is one
+     * reordering away from making the accident untrue. On the other backend the order is the
+     * statement's, and a sweep must retry the same payments in the same order on both.
+     *
+     * The whole document is under one lock while this runs, which is the same hold every read here
+     * takes; inside a unit of work on this thread it is reentrant and costs nothing.
+     */
+    @Override
+    public List<Transfer> awaitingDispatch() {
+        UnitOfWork uow = UowContext.current();
+        return store.read(bundle -> bundle.transfers.stream()
+                .filter(JsonTransferRepository::awaitsDispatch)
+                .sorted(Comparator.comparingInt((JsonTransfer dto) -> dto.id))
+                .map(dto -> {
+                    if (uow != null) {
+                        Transfer cached = uow.get(Transfer.class, dto.id);
+                        if (cached != null) {
+                            return cached;
+                        }
+                    }
+                    Transfer d = JsonMapper.toDomain(dto, store);
+                    if (uow != null) {
+                        uow.put(Transfer.class, d.id(), d);
+                    }
+                    return d;
+                })
+                .collect(Collectors.toList()));
+    }
+
+    /**
+     * Whether a stored row still owes the network a dispatch, refusing a row whose answer this
+     * application would refuse to load.
+     *
+     * The refusal is the point, and it is the same rule {@link #amountOf} and {@link #dayKeyOf}
+     * apply to the fields they read: a name that is present and cannot be read is not skipped.
+     * Skipping is the cheap answer here and the dangerous one - the row drops silently out of the
+     * only query that will ever hand this payment to the network, so the money has left the
+     * customer's account and nothing is left that knows anybody owes it. The loader refuses such a
+     * row too, so this refuses exactly what it refuses and nothing more.
+     *
+     * Only this backend can reach it. On SQL transfers_dispatch_state_known makes a name outside
+     * the enum unwritable.
+     */
+    private static boolean awaitsDispatch(JsonTransfer dto) {
+        if (dto.dispatchState == null) {
+            return false;
+        }
+        return StoredValue.requiredEnum(DispatchState.class, dto.dispatchState,
+                "dispatch state", "transfer", dto.id) == DispatchState.PENDING;
+    }
+
     @Override
     public Money sentTotalBetween(int accountId, Instant fromInclusive, Instant toExclusive) {
         // Summed off the DTOs. bySourceAccount would build a Transfer and two LazyRef closures
@@ -134,9 +194,18 @@ public class JsonTransferRepository implements TransferRepository {
         // Money before it is added, so the total rounds exactly as the amounts themselves do -
         // summing the stored values first and rounding once would not.
         //
-        // A SENT row with no amount is refused rather than skipped. Skipping it would answer a
-        // daily total that is quietly short by one payment, which is the shape of defect this
-        // ceiling exists to prevent.
+        // A SENT row this application would refuse to load is refused here too, rather than
+        // skipped or summed as it stands. Skipping answers a daily total that is quietly short by
+        // one payment, which is the shape of defect this ceiling exists to prevent; summing a row
+        // the loader rejects is the same defect wearing the other sign, because a negative stored
+        // amount does not merely fail to add, it subtracts, and buys headroom under the ceiling
+        // for the next real payment. The rule is one rule and it is applied once, in amountOf and
+        // dayKeyOf below, over exactly the rows Transfer's constructor and JsonMapper refuse and
+        // no others - a sum that refused more than the loader does would be a second opinion about
+        // what a valid row is, which is how the two backends drift apart.
+        //
+        // Only this backend can reach any of it. On SQL the CHECK constraints on amount and
+        // currency make such a row unrepresentable and the sum runs in the database.
         //
         // store.read holds the store lock, which a JsonUnitOfWork on this thread already holds,
         // so the re-acquisition is reentrant and costs nothing.
@@ -145,7 +214,6 @@ public class JsonTransferRepository implements TransferRepository {
             for (JsonTransfer dto : bundle.transfers) {
                 if (dto.sourceAccountId != accountId) continue;
                 if (!TransferStatus.SENT.name().equals(dto.status)) continue;
-                if (!"CZK".equals(dto.currency)) continue;
                 Instant countedOn = dayKeyOf(dto);
                 if (countedOn == null) continue;
                 if (countedOn.isBefore(fromInclusive) || !countedOn.isBefore(toExclusive)) continue;
@@ -156,8 +224,15 @@ public class JsonTransferRepository implements TransferRepository {
     }
 
     /**
-     * The same total, narrowed to one destination. See the interface for why it is its own
-     * method and not a parameter on the one above.
+     * The same total, narrowed to one destination and totalled over several accounts at once.
+     * See the interface for why it is its own method rather than a parameter on the one above,
+     * and why its scope is the customer's accounts while the day total above stays on one.
+     *
+     * The account test is a membership test over the ids the caller passed, so a row belonging
+     * to none of them is left out exactly as a row belonging to another account used to be. The
+     * ids arrive as a Collection and are not copied into a Set: this runs under the store lock
+     * with a caller's own handful of accounts, and a hash set per call would cost more than the
+     * scan it saves.
      *
      * Both sides of the destination comparison are normalized, and the stored one is allowed to
      * be null. Neither is paranoia: JsonTransfer.targetIbanSnapshot is a bare field with no
@@ -166,16 +241,15 @@ public class JsonTransferRepository implements TransferRepository {
      * reachable through the public domain API and CreditLegTest pins that it must still resolve.
      */
     @Override
-    public Money sentTotalToIbanBetween(int accountId, String targetIban,
+    public Money sentTotalToIbanBetween(Collection<Integer> accountIds, String targetIban,
                                         Instant fromInclusive, Instant toExclusive) {
         String wanted = IBAN.normalize(targetIban);
 
         return store.read(bundle -> {
             Money total = Money.czk(0.0);
             for (JsonTransfer dto : bundle.transfers) {
-                if (dto.sourceAccountId != accountId) continue;
+                if (!accountIds.contains(dto.sourceAccountId)) continue;
                 if (!TransferStatus.SENT.name().equals(dto.status)) continue;
-                if (!"CZK".equals(dto.currency)) continue;
                 if (!Objects.equals(wanted, IBAN.normalize(dto.targetIbanSnapshot))) continue;
                 Instant countedOn = dayKeyOf(dto);
                 if (countedOn == null) continue;
@@ -187,18 +261,46 @@ public class JsonTransferRepository implements TransferRepository {
     }
 
     /**
-     * The amount of a row being counted towards a total, refusing a row that carries none.
+     * The money a row being counted towards a total carries, refusing a row whose money this
+     * application would refuse to load.
      *
-     * The field is a {@link java.math.BigDecimal} rather than a primitive, so "absent" is now a
-     * value it can hold. That is the point of the type - a primitive answered 0.00 for a missing
-     * amount and no total ever noticed - but it means the reading side has to say what absent
-     * means, and here it means the store is corrupt.
+     * Three ways a stored row fails that, and only the first of them used to arrive here.
+     *
+     * Absent is a value the amount field can hold at all only because it is a
+     * {@link java.math.BigDecimal} rather than a primitive. That is the point of the type - a
+     * primitive answered 0.00 for a missing amount and no total ever noticed - but it means the
+     * reading side has to say what absent means, and here it means the store is corrupt.
+     *
+     * Non-positive was added to the total exactly as stored. {@link Money} fixes a scale and a
+     * currency and promises nothing about sign, deliberately, since it also has to express a
+     * balance going the other way; the rule that a transfer moves a strictly positive amount is
+     * Transfer's constructor's, and this sum is the one place a stored amount is read without a
+     * Transfer being built around it, so the rule was not reaching it. The row is therefore one
+     * this very repository will not hand out of {@link #byId}, counted here with a minus sign.
+     *
+     * A currency that is not CZK was skipped, absent and foreign alike, since one exact-match
+     * test caught both, and the skip was the whole of the defence. Both other readers of the
+     * field refuse such a row - {@link Money}'s constructor a code that is not canonical,
+     * Transfer's a well-formed foreign one - so a total that silently omits it is a total nobody
+     * can reconcile against the statement it was computed from.
      */
     private static Money amountOf(JsonTransfer dto) {
         if (dto.amount == null) {
             throw new DataIntegrityException("Stored transfer " + dto.id + " has no amount");
         }
-        return Money.czk(dto.amount);
+        if (dto.currency == null) {
+            throw new DataIntegrityException("Stored transfer " + dto.id + " has no currency");
+        }
+        if (!"CZK".equals(dto.currency)) {
+            throw new DataIntegrityException("Stored transfer " + dto.id
+                    + " has an unusable currency: " + dto.currency);
+        }
+        Money amount = Money.czk(dto.amount);
+        if (!amount.isPositive()) {
+            throw new DataIntegrityException("Stored transfer " + dto.id
+                    + " has an amount that is not greater than zero: " + amount);
+        }
+        return amount;
     }
 
     /**
@@ -208,26 +310,22 @@ public class JsonTransferRepository implements TransferRepository {
      * once per backend so the daily limit cannot mean different things depending on where the
      * data lives. The fallback is what makes the migration change no historical total: a row
      * written before settledAt existed keeps counting under its creation day, exactly as it did.
-     * A row with neither parseable counts toward no day at all.
+     * A row carrying neither timestamp counts toward no day at all, which is the NULL that fails
+     * both range comparisons on the other backend, and it stays that way here.
+     *
+     * Absent and unreadable part company, and that distinction is the whole of this. An absent
+     * settlement instant is what every transfer that has not settled carries: a fact this store
+     * is meant to hold, and the reason the fallback exists. A timestamp that is present and will
+     * not parse is a row no loader would accept, and there is no day it can honestly be filed
+     * under - so it is refused rather than dropped, and refused whether or not the window would
+     * have contained it, because the window is exactly what an unreadable timestamp makes
+     * unanswerable.
      */
     private static Instant dayKeyOf(JsonTransfer dto) {
-        Instant settledAt = parseInstantOrNull(dto.settledAt);
-        return settledAt != null ? settledAt : parseInstantOrNull(dto.createdAt);
-    }
-
-    /**
-     * A row whose timestamp is missing or unreadable counts toward no day at all.
-     *
-     * Parsed here rather than by going through JsonMapper, because Transfer.hydrateForLoad only
-     * assigns createdAt when it is non-null: a row the mapper cannot parse keeps the moment it
-     * was constructed, which would put it in today's total on every call, forever.
-     */
-    private static Instant parseInstantOrNull(String value) {
-        if (value == null) return null;
-        try {
-            return Instant.parse(value);
-        } catch (Exception e) {
-            return null;
-        }
+        Instant settledAt =
+                StoredValue.presentInstantOrNull(dto.settledAt, "settlement instant", "transfer", dto.id);
+        return settledAt != null
+                ? settledAt
+                : StoredValue.presentInstantOrNull(dto.createdAt, "creation instant", "transfer", dto.id);
     }
 }

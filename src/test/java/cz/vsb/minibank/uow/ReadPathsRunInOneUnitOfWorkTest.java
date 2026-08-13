@@ -13,6 +13,7 @@ import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.UserRole;
 import cz.vsb.minibank.domain.repository.AccountRepository;
+import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -94,14 +95,19 @@ class ReadPathsRunInOneUnitOfWorkTest {
     void setUp() {
         infra = new Bootstrap(tempDir.resolve("data.json").toString());
 
+        // All four, including the customers one the guard reads through. Watching three of them
+        // left OwnershipGuard.requireCaller unobserved, and that is the lookup every guarded read
+        // makes first, so the property below was never asserted about the one repository a
+        // controller reaches indirectly.
         AccountRepository accounts = watch(infra.accounts);
+        CustomerRepository customers = watch(infra.customers);
         TransferRepository transfers = watch(infra.transfers);
         FraudAlertRepository alerts = watch(infra.alerts);
 
         fraudController = new FraudController(alerts, transfers, accounts, null,
                 new SimpleFeePolicy(), infra.uowFactory);
         authorizationController = new AuthorizationController(null, accounts, transfers,
-                new SimpleFeePolicy(), new OwnershipGuard(infra.customers, accounts),
+                new SimpleFeePolicy(), new OwnershipGuard(customers, accounts),
                 infra.uowFactory);
     }
 
@@ -141,6 +147,31 @@ class ReadPathsRunInOneUnitOfWorkTest {
         authorizationController.listMyWaiting();
 
         witness.theOnlyOne("The waiting list");
+    }
+
+    /**
+     * The only read endpoint that resolves its caller, and therefore the only one that reaches
+     * CustomerRepository at all.
+     *
+     * The other three reads take their subject from the session and never load it, so a witness
+     * on the customer repository would sit idle in every test above and prove nothing. This is
+     * the path that exercises it: three lookups - the caller through
+     * {@link OwnershipGuard#requireCaller}, the transfer, then its account - which have to be
+     * three uses of one unit of work rather than three connections.
+     */
+    @Test
+    void theTransferDetailRunsEveryLookupInOneUnitOfWork() {
+        int customerId = seedAlertedTransfers(1);
+        signInAsCustomer(customerId);
+        int transferId = infra.alerts.all().get(0).transferId();
+        witness.seen.clear();
+
+        authorizationController.transferDetails(transferId);
+
+        witness.theOnlyOne("The transfer detail");
+        assertTrue(witness.seen.size() >= 3,
+                "it must have loaded the caller, the transfer and the account behind it; saw "
+                        + witness.seen.size() + " calls");
     }
 
     @Test
@@ -205,6 +236,16 @@ class ReadPathsRunInOneUnitOfWorkTest {
         return (AccountRepository) java.lang.reflect.Proxy.newProxyInstance(
                 AccountRepository.class.getClassLoader(),
                 new Class<?>[]{AccountRepository.class},
+                (proxy, method, args) -> {
+                    witness.record();
+                    return invoke(real, method, args);
+                });
+    }
+
+    private CustomerRepository watch(CustomerRepository real) {
+        return (CustomerRepository) java.lang.reflect.Proxy.newProxyInstance(
+                CustomerRepository.class.getClassLoader(),
+                new Class<?>[]{CustomerRepository.class},
                 (proxy, method, args) -> {
                     witness.record();
                     return invoke(real, method, args);

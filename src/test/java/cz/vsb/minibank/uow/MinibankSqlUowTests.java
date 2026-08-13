@@ -3,7 +3,10 @@ package cz.vsb.minibank.uow;
 import cz.vsb.minibank.application.BootstrapServices;
 import cz.vsb.minibank.demo.DemoScenario;
 import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.exceptions.ConflictException;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
+import cz.vsb.minibank.domain.exceptions.OptimisticLockException;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -17,6 +20,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -724,6 +728,446 @@ public class MinibankSqlUowTests {
                 "and the destination row really was updated, not just the sender's");
         assertEquals(0, before.minus(charged).amount().compareTo(totalAccountMoney().amount()),
                 "the fee is the only money that may leave the system");
+    }
+
+// -------------------------------------------------------------------------
+// 10) An ownership claim that matches no row must fail the commit
+// -------------------------------------------------------------------------
+
+    /**
+     * accounts.customer_id is written by exactly one statement, SqlCustomerRepository's
+     * {@code UPDATE accounts SET customer_id = ? WHERE id = ?}, and it is the only record of
+     * ownership SQL mode has. A customer naming an account id with no row behind it makes that
+     * statement match nothing, which JDBC does not consider an error, so the commit used to
+     * succeed and leave an account owned by nobody, a customer that reloads with no accounts,
+     * and every money path on it answering 404 without anything having reported a problem.
+     */
+    @Test
+    void claimingAnAccountThatHasNoRowFailsTheCommit() {
+        int customerId;
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
+
+            customerId = infra.customers.nextId();
+            Customer c = new Customer(customerId, "Claims Too Much", "claims@example.com",
+                    new Address("Street 1", "City"));
+
+            // A genuine id off the accounts sequence that no row is ever written for, which is
+            // the shape a stale or simply wrong entry in accountIds has. The first id off that
+            // sequence is discarded so this one cannot equal the customer's own: both sequences
+            // restart with the truncate in setUp, and an assertion about a message naming "1"
+            // would be answered by either of them.
+            infra.accounts.nextId();
+            int missingAccountId = infra.accounts.nextId();
+            c.addAccountId(missingAccountId);
+            infra.customers.save(c);
+
+            DataIntegrityException refused = assertThrows(DataIntegrityException.class, uow::commit,
+                    "A claim on an account with no row must fail the commit, not pass unnoticed");
+            assertTrue(
+                    refused.getMessage().contains(String.valueOf(missingAccountId)),
+                    "The refusal must name the account it could not claim: " + refused.getMessage()
+            );
+        }
+
+        // The customers row was written by the same method, one statement earlier, so a refusal
+        // that did not take the whole transaction with it would be its own kind of half-write.
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            assertTrue(
+                    infra.customers.byId(customerId).isEmpty(),
+                    "The failed commit must have rolled the customer row back as well"
+            );
+            scope.uow().commit();
+        }
+    }
+
+// -------------------------------------------------------------------------
+// 11) The ordering the demo depends on still assigns ownership
+// -------------------------------------------------------------------------
+
+    /**
+     * The counterpart to the case above, and the reason it has to be careful about what it
+     * refuses. Every caller here saves a customer once before its accounts exist and again
+     * afterwards, and it is that second save which writes accounts.customer_id - DemoScenario
+     * says so, and says the money paths 404 without it. Checking the rows an ownership claim
+     * touched must let this through untouched.
+     */
+    @Test
+    void theSecondSaveStillAssignsOwnershipInTheDemoOrdering() {
+        int customerId;
+        int accountId;
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            customerId = infra.customers.nextId();
+            Customer c = new Customer(customerId, "Ordinary Owner", "ordinary@example.com",
+                    new Address("Street 1", "City"));
+            infra.customers.save(c);
+
+            accountId = infra.accounts.nextId();
+            infra.accounts.save(new Account(accountId, new IBAN("CZ6508000000192000145399"),
+                    Money.czk(9_000), Money.czk(3_000)));
+
+            c.addAccountId(accountId);
+            infra.customers.save(c);
+
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            Customer reloaded = infra.customers.byId(customerId)
+                    .orElseThrow(() -> new AssertionError("Customer must exist after commit"));
+
+            assertEquals(
+                    List.of(accountId),
+                    reloaded.accountIds(),
+                    "The second save must have written accounts.customer_id"
+            );
+            assertEquals(
+                    List.of(accountId),
+                    infra.accounts.byCustomerId(customerId).stream().map(Account::id).toList(),
+                    "and the account must answer to that owner from the other side"
+            );
+
+            scope.uow().commit();
+        }
+    }
+
+// -------------------------------------------------------------------------
+// 12) Collection reads answer in a defined order, not in the heap's
+// -------------------------------------------------------------------------
+
+    /** One account with some transfers on it, ids as the sequences handed them out. */
+    private record OrderingFixture(int accountId, List<Integer> transferIds) { }
+
+    private OrderingFixture seedAccountWithTransfers(int count) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            int customerId = infra.customers.nextId();
+            Customer c = new Customer(customerId, "Ordering User", "ordering@example.com",
+                    new Address("Street 1", "City"));
+            infra.customers.save(c);
+
+            int accountId = infra.accounts.nextId();
+            infra.accounts.save(new Account(accountId, new IBAN("CZ6508000000192000145399"),
+                    Money.czk(50_000), Money.czk(50_000)));
+            c.addAccountId(accountId);
+            infra.customers.save(c);
+
+            List<Integer> transferIds = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                int transferId = infra.transfers.nextId();
+                infra.transfers.add(new Transfer(
+                        transferId, accountId, null, "CZ0401000000000000000000", Money.czk(100 + i)));
+                transferIds.add(transferId);
+            }
+
+            scope.uow().commit();
+            return new OrderingFixture(accountId, List.copyOf(transferIds));
+        }
+    }
+
+    /**
+     * A rewritten transfer must not move in the customer's list.
+     *
+     * The rewrite in the middle is what makes this discriminate. Rows read straight back off a
+     * freshly truncated table come out in insertion order on either backend, so an insert-and-read
+     * case passes whether or not the statement is ordered; an UPDATE writes a new tuple version
+     * wherever the page has room, which here is behind every other row, and an unordered SELECT
+     * then answers with that transfer last. One wrong OTP attempt on a waiting payment is enough
+     * to cause it, and AuthorizationController.waitingFor renders repository order as it stands.
+     */
+    @Test
+    void transfersOfOneAccountStayInIdOrderWhenOneIsRewritten() {
+        OrderingFixture fixture = seedAccountWithTransfers(5);
+
+        // The earliest row, so its new tuple version lands behind all four others.
+        int rewritten = fixture.transferIds().get(0);
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            Transfer t = infra.transfers.byId(rewritten)
+                    .orElseThrow(() -> new AssertionError("Seeded transfer must exist"));
+            t.requestAuthorization(new CardPayment(t.amount(), "**** **** **** 4242"));
+            t.registerFailedOtpAttempt(3);
+            infra.transfers.save(t);
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            List<Integer> ids = infra.transfers.bySourceAccount(fixture.accountId())
+                    .stream().map(Transfer::id).toList();
+
+            assertEquals(
+                    fixture.transferIds().stream().sorted().toList(),
+                    ids,
+                    "bySourceAccount must answer in ascending id order, not in whatever order the"
+                            + " heap holds once a row has been rewritten"
+            );
+
+            scope.uow().commit();
+        }
+    }
+
+    /**
+     * An annotated alert must not move in the analyst's queue.
+     *
+     * The same rule as the case above, on the statement behind FraudController.buildQueue, and it
+     * needs a case of its own because the two live in different repositories. updateNotes is the
+     * cheapest rewrite an analyst can cause - no state transition, no verdict - and the tuple
+     * relocates all the same.
+     */
+    @Test
+    void fraudAlertQueueStaysInIdOrderWhenAnAlertIsRewritten() {
+        OrderingFixture fixture = seedAccountWithTransfers(5);
+
+        // One alert per transfer: fraud_alerts_one_per_transfer refuses a second on the same one.
+        List<Integer> alertIds = new ArrayList<>();
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            for (int transferId : fixture.transferIds()) {
+                int alertId = infra.alerts.nextId();
+                infra.alerts.add(new FraudAlert(alertId, transferId, "Seeded for the queue"));
+                alertIds.add(alertId);
+            }
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            FraudAlert first = infra.alerts.byId(alertIds.get(0))
+                    .orElseThrow(() -> new AssertionError("Seeded alert must exist"));
+            first.updateNotes("Called the customer back");
+            infra.alerts.save(first);
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            List<Integer> ids = infra.alerts.all().stream().map(FraudAlert::id).toList();
+
+            assertEquals(
+                    alertIds.stream().sorted().toList(),
+                    ids,
+                    "all() must answer in ascending id order, not in whatever order the heap holds"
+                            + " once an alert has been annotated"
+            );
+
+            scope.uow().commit();
+        }
+    }
+
+// -------------------------------------------------------------------------
+// 13) A constraint the store enforces is refused as a conflict, not as a failure
+// -------------------------------------------------------------------------
+
+    /**
+     * fraud_alerts_one_per_transfer is the schema's last line of defence over the one alert
+     * creation site that is guarded by a read instead of by a lock: authorizePayment files an
+     * alert when byTransferId comes back empty, so two requests can both read empty and both
+     * file. The constraint stops the second, and what its caller must not be told is that the
+     * bank is broken - nothing is, and the transaction rolled back whole.
+     *
+     * The version guard on the same statement cannot reach this case first, which is why the
+     * type asserted below is the plain conflict and not FraudAlertChangedException, the descendant
+     * that guard raises. The second alert carries an id of its own, so ON CONFLICT (id) never fires,
+     * the statement stays on its INSERT arm, and the WHERE that guards the DO UPDATE arm is
+     * never evaluated: transfer_id is what refuses the row.
+     *
+     * Only reachable on the SQL backend. The JSON store has no constraints of its own - it holds
+     * a list and appends to it - so this rule cannot be pinned anywhere but here.
+     */
+    @Test
+    void aSecondAlertOnOneTransferIsRefusedAsAConflict() {
+        OrderingFixture fixture = seedAccountWithTransfers(1);
+        int transferId = fixture.transferIds().get(0);
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            infra.alerts.add(new FraudAlert(infra.alerts.nextId(), transferId, "Filed first"));
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            UnitOfWork uow = scope.uow();
+
+            int secondAlertId = infra.alerts.nextId();
+            infra.alerts.add(new FraudAlert(
+                    secondAlertId, transferId, "Filed by a request that read the queue as empty"));
+
+            ConflictException refused = assertThrows(ConflictException.class, uow::commit,
+                    "A write the store refuses over a UNIQUE constraint must surface as a"
+                            + " conflict, not as the bare RuntimeException the advice answers 500");
+
+            assertFalse(
+                    refused instanceof OptimisticLockException,
+                    "The row was refused for duplicating a transfer, not for a stale version: "
+                            + refused.getClass().getSimpleName()
+            );
+            assertTrue(
+                    refused.getMessage().contains(String.valueOf(secondAlertId)),
+                    "The refusal must name the alert it could not store: " + refused.getMessage()
+            );
+            assertFalse(
+                    refused.getMessage().contains("fraud_alerts_one_per_transfer"),
+                    "The constraint name belongs to the driver's exception, not to a message the"
+                            + " console prints to its operator: " + refused.getMessage()
+            );
+        }
+
+        // The commit failed whole, so the alert the first request filed is still the only one and
+        // the analyst's queue is what it was.
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            assertEquals(
+                    1,
+                    infra.alerts.all().size(),
+                    "The refused commit must not have left a second alert on the transfer"
+            );
+            scope.uow().commit();
+        }
+    }
+
+// -------------------------------------------------------------------------
+// 14) What a settled payment owes the payment network survives the round trip
+// -------------------------------------------------------------------------
+
+    /** An IBAN no account in these fixtures holds, so a payment to it leaves the bank. */
+    private static final String OUTSIDE_THE_BANK = "CZ2001000000000012345678";
+
+    /** A payer who owns an account, and one payee inside the bank to settle against. */
+    private record DispatchFixture(int payerId, int payerAccount, IBAN payeeIban) { }
+
+    private DispatchFixture seedPayerAndInBankPayee() {
+        final IBAN payerIban = new IBAN("CZ6508000000192000145399");
+        final IBAN payeeIban = new IBAN("CZ4308000000192000145407");
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            int payerId = infra.customers.nextId();
+            Customer payer = new Customer(payerId, "Dispatch Payer", "dispatch-payer@example.com",
+                    new Address("Street 1", "City"));
+            infra.customers.save(payer);
+            int payerAccount = infra.accounts.nextId();
+            infra.accounts.save(new Account(payerAccount, payerIban,
+                    Money.czk(50_000), Money.czk(20_000)));
+            payer.addAccountId(payerAccount);
+            // The second save is what writes accounts.customer_id; see DemoScenario.create.
+            infra.customers.save(payer);
+
+            int payeeId = infra.customers.nextId();
+            Customer payee = new Customer(payeeId, "Dispatch Payee", "dispatch-payee@example.com",
+                    new Address("Street 2", "City"));
+            infra.customers.save(payee);
+            int payeeAccount = infra.accounts.nextId();
+            infra.accounts.save(new Account(payeeAccount, payeeIban,
+                    Money.czk(50_000), Money.czk(20_000)));
+            payee.addAccountId(payeeAccount);
+            infra.customers.save(payee);
+
+            scope.uow().commit();
+            return new DispatchFixture(payerId, payerAccount, payeeIban);
+        }
+    }
+
+    /**
+     * A payment that leaves the bank comes back owing the network a dispatch; one that stays
+     * inside comes back owing nothing.
+     *
+     * The two halves have to be asserted together, because either one alone passes under a rule
+     * that is wrong in the other direction: a settlement that recorded the intent unconditionally
+     * would put every intra-bank payment in front of a gateway that must never see it, and one
+     * that recorded nothing would leave the sweep with nothing to find. Only the SQL backend can
+     * show the round trip through a real column - what is written here is read back out of
+     * PostgreSQL by a later unit of work, which is the half a mapper test cannot reach.
+     *
+     * Both amounts stay under RuleBasedRiskService's untrusted threshold and their total under the
+     * soft daily tier, so both settle immediately rather than parking at WAITING_AUTH - the same
+     * arrangement anInBankTransferCreditsTheDestinationInOneSqlTransaction relies on.
+     */
+    @Test
+    void anExternalSettlementOwesADispatchAndAnInBankOneDoesNot() {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+        DispatchFixture fixture = seedPayerAndInBankPayee();
+
+        int leavesTheBank = services.transferService.submitPaymentToIban(
+                fixture.payerId(), fixture.payerAccount(), OUTSIDE_THE_BANK, 100.0, "out").transferId();
+        int staysInside = services.transferService.submitPaymentToIban(
+                fixture.payerId(), fixture.payerAccount(), fixture.payeeIban().value(), 200.0, "in")
+                .transferId();
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            Transfer external = infra.transfers.byId(leavesTheBank)
+                    .orElseThrow(() -> new AssertionError("The external payment must be persisted"));
+            assertEquals(TransferStatus.SENT, external.status(),
+                    "this case says nothing unless the payment actually settled");
+            assertEquals(
+                    DispatchState.PENDING,
+                    external.dispatchState(),
+                    "a settled payment that left the bank must come back owing the network a dispatch"
+            );
+
+            Transfer inBank = infra.transfers.byId(staysInside)
+                    .orElseThrow(() -> new AssertionError("The in-bank payment must be persisted"));
+            assertEquals(TransferStatus.SENT, inBank.status());
+            assertNull(
+                    inBank.dispatchState(),
+                    "an in-bank payment credits its destination in the same transaction and owes no"
+                            + " gateway anything, so it must carry no dispatch state at all"
+            );
+
+            scope.uow().commit();
+        }
+    }
+
+    /**
+     * The lookup the startup sweep will run answers with the payments that still owe the network
+     * and with nothing else.
+     *
+     * Four rows, and each of the three that must not appear excludes a different wrong predicate:
+     * the in-bank settlement excludes "every SENT transfer", the unsettled one excludes "every
+     * transfer", and the one already marked excludes "every transfer that ever owed a dispatch".
+     * Marking is asserted through a reload rather than on the instance that was marked, so a mark
+     * that never reached the column would fail here instead of passing on an object nobody stored.
+     */
+    @Test
+    void onlyPaymentsThatStillOweTheNetworkAwaitDispatch() {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+        DispatchFixture fixture = seedPayerAndInBankPayee();
+
+        int stillOwed = services.transferService.submitPaymentToIban(
+                fixture.payerId(), fixture.payerAccount(), OUTSIDE_THE_BANK, 100.0, "still owed")
+                .transferId();
+        int alreadyHandedOver = services.transferService.submitPaymentToIban(
+                fixture.payerId(), fixture.payerAccount(), OUTSIDE_THE_BANK, 200.0, "handed over")
+                .transferId();
+        services.transferService.submitPaymentToIban(
+                fixture.payerId(), fixture.payerAccount(), fixture.payeeIban().value(), 100.0, "in bank");
+
+        // A transfer that has not settled: nothing has been debited, so no gateway is owed it.
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            infra.transfers.add(new Transfer(infra.transfers.nextId(), fixture.payerAccount(),
+                    null, "CZ0401000000000000000000", Money.czk(300)));
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            Transfer dispatched = infra.transfers.byId(alreadyHandedOver)
+                    .orElseThrow(() -> new AssertionError("The dispatched payment must be persisted"));
+            dispatched.markDispatched();
+            infra.transfers.save(dispatched);
+            scope.uow().commit();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            assertEquals(
+                    List.of(stillOwed),
+                    infra.transfers.awaitingDispatch().stream().map(Transfer::id).toList(),
+                    "the sweep must see the one payment the network has not been handed, and no other"
+            );
+            assertEquals(
+                    DispatchState.DISPATCHED,
+                    infra.transfers.byId(alreadyHandedOver).orElseThrow().dispatchState(),
+                    "and the mark must have reached the column, rather than the row having merely"
+                            + " fallen out of the lookup"
+            );
+
+            scope.uow().commit();
+        }
     }
 
     /** Sums balance_czk over every account row, so nothing can hide outside the fixture. */

@@ -8,6 +8,7 @@ import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
+import cz.vsb.minibank.infrastructure.json.dto.JsonCustomer;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
@@ -203,5 +204,132 @@ public class MinibankLazyLoadTests {
 
             uow.commit();
         }
+    }
+
+    // ----------------------------------------------------------------------
+    // 3) WHAT A DEFERRED LOADER READS LATE, AND WHAT IT MUST NOT
+    // ----------------------------------------------------------------------
+
+    /**
+     * The customer, loaded through a unit of work that has already ended by the time the caller
+     * dereferences anything on it. That is the state a lazy list has to survive, and it is where
+     * the store can move on underneath the object.
+     */
+    private Customer customerFromAnEndedUnitOfWork() {
+        UnitOfWork uow = infra.uowFactory.begin();
+        try (UowScope __ = new UowScope(uow)) {
+            Customer c = infra.customers.byId(customerId)
+                    .orElseThrow(() -> new AssertionError("Customer must exist"));
+            uow.commit();
+            return c;
+        }
+    }
+
+    /**
+     * A second stored account that no customer claims yet, so that a live read has something to
+     * pick up and a captured one has something to leave out.
+     */
+    private int openUnclaimedAccount() {
+        int id = infra.accounts.nextId();
+        infra.accounts.save(new Account(
+                id,
+                new IBAN("CZ4308000000192000145407"),
+                Money.czk(2_000),
+                Money.czk(1_000)));
+        return id;
+    }
+
+    /**
+     * A customer answers with the accounts its stored row named at the moment the customer was
+     * built, even when that row's id list changes underneath it afterwards.
+     *
+     * The loader used to read {@code JsonCustomer.accountIds} at dereference time, through a
+     * reference to a DTO that is not stable: a save puts a freshly built JsonCustomer into the
+     * bundle in place of the old one, so a customer loaded earlier holds an instance the store no
+     * longer keeps, and its membership was answered by whichever generation happened to be on the
+     * other end of that reference while the accounts themselves came from the current bundle.
+     *
+     * The append below is what separates the two readings, because it edits the row the closure
+     * still points at instead of replacing it. It is written straight into the bundle rather than
+     * through a repository because no writer works that way today - which is a fact about this
+     * version's writers and not a property of the loader, and is exactly the reason the loader has
+     * to hold its own copy of the answer.
+     *
+     * The balance moved afterwards is the other half of the same rule: identity is captured, state
+     * is not. A customer that froze its Account objects at load time would report a balance that is
+     * simply out of date, which is the opposite defect and no better.
+     */
+    @Test
+    void customerAccounts_answerTheMembershipCapturedWhenTheCustomerWasBuilt() {
+        Customer loadedEarly = customerFromAnEndedUnitOfWork();
+        int secondAccountId = openUnclaimedAccount();
+
+        // The stored row claims it, by amendment rather than by replacement.
+        infra.store.lock();
+        try {
+            JsonCustomer row = infra.store.data().customers.stream()
+                    .filter(x -> x.id == customerId)
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("Stored customer row must exist"));
+            row.accountIds.add(secondAccountId);
+        } finally {
+            infra.store.unlock();
+        }
+
+        Account moved = infra.accounts.byId(accountId)
+                .orElseThrow(() -> new AssertionError("Account must exist"));
+        moved.credit(Money.czk(500));
+        infra.accounts.save(moved);
+
+        List<Account> accounts = loadedEarly.accounts();
+
+        assertEquals(
+                List.of(accountId),
+                accounts.stream().map(Account::id).toList(),
+                "accounts() must answer the ids the row carried when the customer was built"
+        );
+        assertEquals(
+                Money.czk(10_500),
+                accounts.get(0).balance(),
+                "the accounts themselves stay lazy, so their state is read when accounts() is called"
+        );
+    }
+
+    /**
+     * The same rule against the writer that exists: saving a customer replaces its stored row, and
+     * a customer object built before that save keeps answering with the accounts the row named
+     * then.
+     *
+     * Nothing about this answer is new. A replaced row leaves the detached instance alone, so the
+     * old loader and the new one agree here - they agree by accident, and the accident is that no
+     * writer amends a row in place. What is pinned is which of the two answers is the intended one,
+     * so that a customer holding a captured list cannot later be read as a regression against the
+     * store having moved on.
+     */
+    @Test
+    void customerAccounts_areUnmovedByTheStoredRowBeingReplaced() {
+        Customer loadedEarly = customerFromAnEndedUnitOfWork();
+        int secondAccountId = openUnclaimedAccount();
+
+        UnitOfWork later = infra.uowFactory.begin();
+        try (UowScope __ = new UowScope(later)) {
+            Customer reloaded = infra.customers.byId(customerId)
+                    .orElseThrow(() -> new AssertionError("Customer must exist"));
+            reloaded.addAccountId(secondAccountId);
+            infra.customers.save(reloaded);
+            later.commit();
+        }
+
+        assertEquals(
+                2,
+                infra.accounts.byCustomerId(customerId).size(),
+                "the store must hold both accounts by now, or the assertion below proves nothing"
+        );
+
+        assertEquals(
+                List.of(accountId),
+                loadedEarly.accounts().stream().map(Account::id).toList(),
+                "a customer built before the save answers with the accounts its row named then"
+        );
     }
 }
