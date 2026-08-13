@@ -104,7 +104,11 @@
                          attaches its agent while the tests are already running, which JDK 21
                          warns about and a future JDK will refuse by default. The path property
                          comes from dependency:properties above. -->
-                    <argLine>-javaagent:${org.mockito:mockito-core:jar}</argLine>
+                    <!-- -Xshare:off because the agent appends the bootstrap classpath,
+                         which class data sharing otherwise reports at every start; the
+                         feature only saves startup time, so it is cheaper switched off
+                         than warned about. -->
+                    <argLine>-Xshare:off -javaagent:${org.mockito:mockito-core:jar}</argLine>
                     <!-- Some tests walk failure paths on purpose and log loudly while they
                          pass; that output belongs in target/surefire-reports, not the
                          console. -->
