@@ -68,9 +68,15 @@ public class JsonDataStore {
      * boundaries, and because calls made inside that window re-acquire it reentrantly.
      *
      * Because the lock spans a whole transaction, anything a transaction does runs
-     * inside it - including AppLogger's audit writes to stderr and minibank.log, and
-     * PaymentNetworkGateway.send. Nothing invoked between begin() and commit() may
-     * block indefinitely, or it blocks every other thread that touches the store.
+     * inside it - including AppLogger's audit writes to stderr and minibank.log.
+     * Nothing invoked between begin() and commit() may block indefinitely, or it
+     * blocks every other thread that touches the store; that rule is why
+     * PaymentDispatcher calls the payment gateway between units of work rather than
+     * from inside one.
+     *
+     * Threads are all this lock coordinates. A second process on the same file is
+     * refused outright at startup - JsonStoreGuard holds that contract, and says
+     * why the answer is refusal rather than coordination.
      */
     private final ReentrantLock lock = new ReentrantLock();
 
@@ -279,9 +285,8 @@ public class JsonDataStore {
      * someone else in the same directory, and the default layout has one: the console app and the
      * API write storage/data.json while the demo writes storage/demo.json, two legitimate writers
      * of two different documents whose working files are named alike. A second process over the
-     * same document could collide too, though that pair is already ruining each other's work
-     * without any help from here, since either of them rewrites the whole document from its own
-     * cache on every commit.
+     * same document cannot collide here any more: JsonStoreGuard turns it away at startup,
+     * before its store would list this directory.
      *
      * That is a bounded loss rather than an argument for an age threshold. The most the sweep can
      * take from such a writer is a publish that has not happened yet: the move finds nothing to
