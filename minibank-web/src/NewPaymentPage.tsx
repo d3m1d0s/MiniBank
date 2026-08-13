@@ -126,6 +126,21 @@ export default function NewPaymentPage({ onNavigate }: Props) {
             setSubmitting(true);
             const result = await createPayment(payload);
             setInfo({ type: 'success', result });
+
+            // The fields have done their job; a form that keeps them re-sends the
+            // same payment on one stray Enter. The confirmation panel stays.
+            setTargetIban('');
+            setAmount('');
+            setMessage('');
+
+            // The payment may have moved money, so the balances fetched on mount
+            // are stale next to the confirmation's new one.
+            try {
+                setAccounts(await getMyAccounts());
+            } catch {
+                // The payment itself succeeded; if this refresh fails, the
+                // confirmation still shows the authoritative new balance.
+            }
         } catch (e) {
             if (isApiError(e)) {
                 setInfo({
@@ -152,17 +167,31 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                 </header>
 
                 <div className="card-body layout">
-                    {/* Navigation for customer views */}
+                    {/*
+                      Navigation for customer views. Entries without a screen stay
+                      to show the product this page lives in, but are marked
+                      planned: muted, inert, and saying so in the title.
+                    */}
                     <nav className="nav">
                         <div className="nav-title">Navigation</div>
                         <ul>
                             <li>
-                                <button type="button" className="nav-link">
+                                <button
+                                    type="button"
+                                    className="nav-link planned-item"
+                                    aria-disabled="true"
+                                    title="Planned - not part of this showcase"
+                                >
                                     Dashboard
                                 </button>
                             </li>
                             <li>
-                                <button type="button" className="nav-link">
+                                <button
+                                    type="button"
+                                    className="nav-link planned-item"
+                                    aria-disabled="true"
+                                    title="Planned - not part of this showcase"
+                                >
                                     Accounts
                                 </button>
                             </li>
@@ -175,7 +204,12 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                 </button>
                             </li>
                             <li>
-                                <button type="button" className="nav-link">
+                                <button
+                                    type="button"
+                                    className="nav-link planned-item"
+                                    aria-disabled="true"
+                                    title="Planned - not part of this showcase"
+                                >
                                     History & Statements
                                 </button>
                             </li>
@@ -189,7 +223,12 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                 </button>
                             </li>
                             <li>
-                                <button type="button" className="nav-link">
+                                <button
+                                    type="button"
+                                    className="nav-link planned-item"
+                                    aria-disabled="true"
+                                    title="Planned - not part of this showcase"
+                                >
                                     Settings
                                 </button>
                             </li>
@@ -213,8 +252,11 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                             <form className="form" onSubmit={handleSendClick}>
                                 {/* From account */}
                                 <div className="field-row">
-                                    <label className="field-label">From:</label>
+                                    <label className="field-label" htmlFor="payment-source">
+                                        From:
+                                    </label>
                                     <select
+                                        id="payment-source"
                                         className="field-input"
                                         value={selectedAccountId ?? ''}
                                         onChange={(e) =>
@@ -234,15 +276,18 @@ export default function NewPaymentPage({ onNavigate }: Props) {
 
                                 {/* Target IBAN + amount */}
                                 <div className="field-row">
-                                    <label className="field-label">To:</label>
+                                    <label className="field-label" htmlFor="payment-target">
+                                        To:
+                                    </label>
                                     <input
+                                        id="payment-target"
                                         className="field-input"
                                         type="text"
                                         placeholder="IBAN"
                                         value={targetIban}
                                         onChange={(e) => setTargetIban(e.target.value)}
                                     />
-                                    <div className="field-side">
+                                    <label className="field-side" htmlFor="payment-amount">
                                         Amount:
                                         {/*
                                           Stays type="text". A Czech amount is written
@@ -257,6 +302,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                           not yet an amount.
                                         */}
                                         <input
+                                            id="payment-amount"
                                             className="amount-input"
                                             type="text"
                                             inputMode="decimal"
@@ -270,15 +316,16 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                                 }
                                             }}
                                         />
-                                    </div>
+                                    </label>
                                 </div>
 
                                 {/* Message for recipient */}
                                 <div className="field-column">
-                                    <label className="field-label">
+                                    <label className="field-label" htmlFor="payment-message">
                                         Message for recipient:
                                     </label>
                                     <textarea
+                                        id="payment-message"
                                         className="textarea"
                                         rows={3}
                                         maxLength={MAX_MESSAGE_LENGTH}
@@ -292,7 +339,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
 
                                 {/* Result / errors */}
                                 {info.type === 'error' && (
-                                    <div className="summary" style={{ borderColor: 'salmon' }}>
+                                    <div className="summary" role="alert" style={{ borderColor: 'salmon' }}>
                                         <div className="summary-title">We could not send this payment</div>
                                         <ul>
                                             {info.messages.map((m, idx) => (
@@ -303,7 +350,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                 )}
 
                                 {info.type === 'success' && (
-                                    <div className="summary">
+                                    <div className="summary" role="status">
                                         <div className="summary-title">
                                             {isUnderReview(info.result.status)
                                                 ? 'The bank is reviewing this payment'
@@ -324,17 +371,23 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                             <li>Status: {info.result.status}</li>
 
                                             {/*
-                                              "Charged", not "Amount requested". This field is
-                                              amount plus fee - PaymentController sets it that
-                                              way and NewPaymentResultDto says so - and the fee
-                                              is printed on the next line, so the old label
-                                              invited the reader to add the two and arrive at
-                                              the amount plus twice the fee. Waiting
-                                              authorizations already labels the same field
-                                              "Charged"; the two money screens now agree.
+                                              chargedAmount is amount plus fee for every
+                                              outcome, even ones where no money has moved:
+                                              authorizationRequired=true means nothing was
+                                              debited yet. So the label may only claim a
+                                              charge once the payment has settled; until
+                                              then it states what will be taken. The fee is
+                                              printed on the next line, so the label must
+                                              not read as "amount requested" either - that
+                                              invited adding the two and arriving at the
+                                              amount plus twice the fee. Waiting
+                                              authorizations labels the settled field
+                                              "Charged"; the settled branch here agrees.
                                             */}
                                             <li>
-                                                Charged: {formatMoney(info.result.chargedAmount)}
+                                                {info.result.authorizationRequired
+                                                    ? <>Will be charged after confirmation: {formatMoney(info.result.chargedAmount)}</>
+                                                    : <>Charged: {formatMoney(info.result.chargedAmount)}</>}
                                             </li>
                                             <li>
                                                 Fee: {formatMoney(info.result.feeAmount)}
@@ -362,9 +415,9 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                     </button>
                                     <button
                                         type="button"
-                                        className="btn-secondary"
-                                        disabled
-                                        title="Not implemented yet"
+                                        className="btn-secondary planned-item"
+                                        aria-disabled="true"
+                                        title="Planned - not part of this showcase"
                                     >
                                         Save as draft
                                     </button>

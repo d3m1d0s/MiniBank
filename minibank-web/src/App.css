@@ -242,12 +242,14 @@ body {
 }
 
 .btn-primary {
-  background: #3b82f6;
+  /* One step darker than the surrounding accent blue: the near-white label
+     sat at about 3.5:1 on #3b82f6, on #2563eb it clears 4.5:1. */
+  background: #2563eb;
   color: #f9fafb;
 }
 
 .btn-primary:hover:not(:disabled) {
-  background: #2563eb;
+  background: #1d4ed8;
   transform: translateY(-0.5px);
 }
 
@@ -265,6 +267,28 @@ body {
 .btn-secondary:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+/* ====== Planned-only controls ====== */
+
+/*
+ * Nav entries and buttons that sketch the product around this showcase but are
+ * not built. Muted like a disabled control, but pointer events stay on so the
+ * title can explain why on hover; the rules below take back the hover styles a
+ * live control would show.
+ */
+.planned-item,
+.planned-item:hover {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.nav-link.planned-item:hover {
+  background: transparent;
+}
+
+.btn-secondary.planned-item:hover {
+  background: rgba(15, 23, 42, 1);
 }
 
 /* ====== Table for WaitingAuthorizationsPage / FraudDeskPage ====== */
