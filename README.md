@@ -30,7 +30,7 @@ approves it, records confirmed fraud, or leaves notes.
 
 ## Requirements
 
-- Java 17
+- Java 17 or newer. The build holds the code to the Java 17 API, so a current JDK works too.
 - Maven 3.9 or newer
 - Docker, for PostgreSQL mode and for the SQL tests
 - Node 20 or newer, for either front end
