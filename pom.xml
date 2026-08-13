@@ -81,10 +81,34 @@
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.8.1</version>
+                <executions>
+                    <!-- Publishes each dependency's jar path as a build property, so the
+                         surefire argLine below can name mockito-core without hard-coding
+                         a local repository path. -->
+                    <execution>
+                        <goals>
+                            <goal>properties</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
                 <configuration>
                     <useModulePath>false</useModulePath>
+                    <!-- Mockito attached at JVM start: left to itself the inline mock maker
+                         attaches its agent while the tests are already running, which JDK 21
+                         warns about and a future JDK will refuse by default. The path property
+                         comes from dependency:properties above. -->
+                    <argLine>-javaagent:${org.mockito:mockito-core:jar}</argLine>
+                    <!-- Some tests walk failure paths on purpose and log loudly while they
+                         pass; that output belongs in target/surefire-reports, not the
+                         console. -->
+                    <redirectTestOutputToFile>true</redirectTestOutputToFile>
                     <systemPropertyVariables>
                         <!-- Keep audit output of the whole suite out of the working tree -->
                         <minibank.log.file>${project.build.directory}/minibank-test.log</minibank.log.file>
