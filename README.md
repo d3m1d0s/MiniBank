@@ -12,8 +12,9 @@ approves it, records confirmed fraud, or leaves notes.
 ## What is in here
 
 - **Two persistence backends behind one set of repository interfaces**: a JSON document store and
-  PostgreSQL. The in-memory piece is a `UserRepository` shim that JSON mode uses for the console;
-  in JSON mode users are not persisted.
+  PostgreSQL. The in-memory piece is a `UserRepository` shim that JSON mode is handed in place of
+  a persistent one; in JSON mode users are not persisted, so the demo logins the API creates live
+  only as long as the process.
 - **A hand written Unit of Work** for each backend, with an identity map and mutations that are
   registered and replayed at commit. Rollback is atomic across entities on the SQL side.
 - **Lazy Load** wired into the JSON adapter. In SQL mode the lazy navigation methods return nothing
@@ -21,7 +22,9 @@ approves it, records confirmed fraud, or leaves notes.
 - **A REST API** on Spring Boot, and two console entry points that drive the same services.
 - **Two web front ends**: a customer application, which also carries the fraud desk for a signed in
   analyst, and a standalone analyst application. What they share is in `frontend-shared/`.
-- Every JDBC query is a parameterized `PreparedStatement`.
+- Every JDBC statement that carries a value binds it as a `PreparedStatement` parameter; no value
+  is ever concatenated into SQL text. The only plain `Statement`s are the constant-text `nextval`
+  queries that allocate ids.
 
 `src/Project_structure.md` maps the tree.
 
@@ -51,6 +54,12 @@ and the one time password is a fixed constant. Start with a different profile to
 ```
 
 The store is written to `storage/data.json`, which is not tracked by git.
+
+One process at a time owns the store. A second one pointed at the same file refuses to start,
+naming the sidecar lock file it found held, `storage/data.json.lock`; close the first process,
+give the second one a store of its own with `-Dminibank.json.path`, or point both at PostgreSQL,
+which is built for more than one writer. The lock file is empty and staying behind after a run is
+normal; the claim lives with the running process, so deleting the file frees nothing.
 
 ### With PostgreSQL
 
@@ -126,12 +135,20 @@ config, so the API must be running and no cross origin configuration is needed.
 mvn -B compile exec:java
 ```
 
+An API already running in JSON mode holds `storage/data.json`, so `App` refuses to start beside
+it; stop the API first, or give `App` a store of its own with `-Dminibank.json.path`.
+
 `AppSql` uses PostgreSQL and signs you in first. Name it, and give it the url if you moved the
 port:
 
 ```
 mvn -B compile exec:java "-Dexec.mainClass=cz.vsb.minibank.AppSql" "-Dminibank.sql.url=jdbc:postgresql://localhost:55432/minibank"
 ```
+
+Left at its default, `AppSql` seeds the sample customer and creates the same demo logins the
+API's `demo` profile does, written into the database it connects to. Set `minibank.demo.enabled`
+to `false` and it creates nothing, so the login prompt accepts only users that database already
+holds.
 
 There is also a scripted end to end run, which prints what it checked at each step:
 
@@ -157,6 +174,13 @@ user interface says so, so a payment cannot be confirmed without being told this
 These are throwaway local values, not secrets. No screen prints them; the running application
 announces them once at startup, in the line quoted above.
 
+The password hashing parameters changed with this version, nothing is stored beside a hash to say
+which parameters wrote it, and the seeders never overwrite a user they find. A PostgreSQL database
+seeded by an older version of this code therefore answers both demo passwords with 401. Delete the
+rows with `DELETE FROM users`, or destroy the volume with `docker compose down -v`, and start
+again with the demo active to reseed them. JSON mode is untouched: its users live only in memory,
+so nothing hashed under the old parameters survives a restart.
+
 The profile is active by default through `spring.profiles.default=demo` in
 `src/main/resources/application.properties`. Switch it off with any other profile:
 
@@ -176,10 +200,10 @@ reach the customer screens. A customer who signs into the analyst application is
 mvn -B test
 ```
 
-**This is green while silently skipping every test that needs a database.** Seventeen of them, all
-in `MinibankSqlUowTests` and `SqlSchemaPassTest`, skip rather than fail when no database is
-reachable, so that a fresh clone stays green. To actually run them, point them at the test
-database:
+**This is green while silently skipping every test that needs a database.** Every test in
+`MinibankSqlUowTests`, `SqlSchemaPassTest` and `SqlUserRepositoryTest` skips rather than fails
+when no database is reachable, so that a fresh clone stays green. To actually run them, point
+them at the test database:
 
 ```
 mvn -B test "-Dminibank.test.sql.url=jdbc:postgresql://localhost:55432/minibank_test"
@@ -241,7 +265,7 @@ without it the container keeps its data and a changed `schema.sql` is never appl
 
 ## Configuration
 
-Eight keys, all optional, declared once in
+The keys, all optional, are declared once in
 `src/main/java/cz/vsb/minibank/application/MinibankProperties.java` and listed in
 `application.properties`. The REST API resolves them through that file, the command line or the
 environment; the console entry points read the same names as system properties, so one `-D` works
@@ -253,6 +277,7 @@ everywhere.
 | `minibank.json.path` | `storage/data.json` | the JSON store |
 | `minibank.demo.path` | `storage/demo.json` | the demo runner's own store |
 | `minibank.demo.reset` | unset | `true` discards that store before the demo runs |
+| `minibank.demo.enabled` | `true` | `false` stops the SQL console seeding the sample data and creating the demo logins; the API is switched by the `demo` profile instead |
 | `minibank.sql.url` | `jdbc:postgresql://localhost:5432/minibank` | JDBC url |
 | `minibank.sql.user` | `minibank` | |
 | `minibank.sql.password` | `minibank` | |
