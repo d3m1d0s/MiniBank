@@ -559,9 +559,12 @@ public class Transfer implements RecordsDomainEvents {
      * Records the version the store holds for this transfer.
      *
      * Two callers, both in SqlTransferRepository: once when a row is read, and once after a
-     * guarded write reports the version it left behind. The second call is what lets the same
-     * transfer be saved more than once in one unit of work without the second write conflicting
-     * with the first - {@code routeTransferCreation} saves and then settles.
+     * guarded write reports the version it left behind. The second call is what would let a
+     * later guarded write in the same unit of work be compared against the version the first
+     * one left, the way {@link FraudAlert#hydrateVersion}'s is exercised by
+     * {@code decideAndUpdateAlert}; no path writes a transfer twice in one unit of work today -
+     * {@code routeTransferCreation} registers one save and then settles, and the deferred write
+     * picks up the settled state at commit.
      *
      * The invariant a future retry must respect is {@link Account#hydrateVersion}'s: after a
      * save has executed this number is the store's only while the transaction still commits. A
