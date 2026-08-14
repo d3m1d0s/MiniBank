@@ -39,7 +39,7 @@ export default function LoginDialog({ onLoggedIn, notice }: Props) {
 
     return (
         <div className="app-shell">
-            <div className="card">
+            <div className="card card--narrow">
                 <header className="card-header">
                     <h1>Sign in</h1>
                 </header>

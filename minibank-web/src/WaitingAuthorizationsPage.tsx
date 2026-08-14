@@ -470,7 +470,6 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                     className="btn-secondary"
                                     onClick={handleCancel}
                                     disabled={!selectedId || loading}
-                                    style={{ marginLeft: 8 }}
                                 >
                                     Cancel transfer
                                 </button>

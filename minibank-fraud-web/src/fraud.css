@@ -6,6 +6,33 @@
 
 * { box-sizing: border-box; }
 
+/* The shell below is already 100vh tall; the UA margin put the whole window 16px past it. */
+body { margin: 0; }
+
+/*
+ * Form controls do not inherit typography from their container, so without this every
+ * field and button renders in the UA font at the UA size: Arial at 13.33px, beside a
+ * shell in system-ui at 16px.
+ */
+button,
+input,
+select,
+textarea {
+    font: inherit;
+}
+
+/* The keyboard ring. Deliberately not on :focus, so a pointer press does not draw one. */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: 2px solid #1f5eff;
+    outline-offset: 2px;
+}
+
+/* Used by the sign-in panel, which is a .panel and a form at once. */
+.form { display: flex; flex-direction: column; gap: 12px; }
+
 .shell {
     min-height: 100vh;
     display: flex;
@@ -42,10 +69,16 @@
 .titlebar-right { display: flex; gap: 10px; align-items: center; }
 .user { font-size: 12px; opacity: .75; }
 
+/*
+ * auto rather than hidden. The panes below can now shrink, so this should never
+ * scroll; when something does outgrow the window it has to be reachable rather
+ * than silently cut off, which is what hidden did to the whole detail pane on any
+ * screen under about 1250px.
+ */
 .content {
     padding: 12px;
     flex: 1;
-    overflow: hidden;
+    overflow: auto;
 }
 
 .content--split {
@@ -144,15 +177,28 @@
 
 .facts { margin: 0; padding-left: 18px; font-size: 13px; }
 .history { display: grid; gap: 6px; }
+/*
+ * All four tracks share the row in proportion, and none of them has a fixed floor.
+ * Fixed widths gave the row a minimum of about 470px that the pane could not go under,
+ * and a full length IBAN then pushed the whole detail pane past the edge of the window.
+ * A single 1fr track cannot replace them: it is sized from what the others leave over,
+ * which at a narrow width is nothing, and the IBAN column collapsed to zero.
+ */
 .history-row {
     display: grid;
-    grid-template-columns: 160px 150px 160px 1fr;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1.7fr);
     gap: 10px;
     font-size: 12px;
     padding: 6px 8px;
     border: 1px solid #ececec;
     border-radius: 8px;
     background: #fafafa;
+}
+
+/* A grid item defaults to its min-content width, and an IBAN has nowhere to break. */
+.history-row > * {
+    min-width: 0;
+    overflow-wrap: anywhere;
 }
 
 .actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
@@ -183,8 +229,13 @@
 
 .hint { font-size: 12px; opacity: .75; }
 
-.left, .right { min-height: 0; }
-.panel { min-height: 0; }
+/*
+ * The horizontal counterpart of the rule the vertical axis already had. A grid item
+ * and a flex item both default to their min-content size, so without this the detail
+ * pane could not shrink and was clipped by .content instead.
+ */
+.left, .right { min-height: 0; min-width: 0; }
+.panel { min-height: 0; min-width: 0; }
 
 
 .panel-scroll {
