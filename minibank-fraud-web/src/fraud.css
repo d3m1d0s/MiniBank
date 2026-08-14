@@ -6,7 +6,7 @@
 
 * { box-sizing: border-box; }
 
-/* The shell below is already 100vh tall; the UA margin put the whole window 16px past it. */
+/* The shell below already fills the viewport, and the window allows for the shell padding, so the UA margin was pure overflow. */
 body { margin: 0; }
 
 /*
@@ -43,7 +43,8 @@ textarea:focus-visible {
 
 .window {
     width: min(1280px, 100%);
-    height: min(820px, 100vh);
+    /* 36px is the shell padding on both edges; change one and the other has to follow. */
+    height: min(820px, calc(100vh - 36px));
     background: #f7f7f7;
     border: 1px solid #bdbdbd;
     border-radius: 10px;
@@ -70,10 +71,10 @@ textarea:focus-visible {
 .user { font-size: 12px; opacity: .75; }
 
 /*
- * auto rather than hidden. The panes below can now shrink, so this should never
- * scroll; when something does outgrow the window it has to be reachable rather
- * than silently cut off, which is what hidden did to the whole detail pane on any
- * screen under about 1250px.
+ * auto rather than hidden. The panes below can now shrink, so this only scrolls once
+ * they are both at their floor; when something does outgrow the window it has to be
+ * reachable rather than silently cut off, which is what hidden did to the whole detail
+ * pane on any screen under about 1250px.
  */
 .content {
     padding: 12px;
@@ -81,9 +82,14 @@ textarea:focus-visible {
     overflow: auto;
 }
 
+/*
+ * Both tracks need a floor. The queue keeps its 420px wherever there is room for it, but
+ * against a rigid sibling the flexible track has nothing to stop it reaching zero, and a
+ * detail pane of no width is worse than one .content has to scroll to.
+ */
 .content--split {
     display: grid;
-    grid-template-columns: 420px 1fr;
+    grid-template-columns: minmax(320px, 420px) minmax(360px, 1fr);
     gap: 12px;
 }
 
@@ -93,9 +99,17 @@ textarea:focus-visible {
     border-radius: 10px;
     padding: 12px;
     height: 100%;
-    overflow: hidden;
+    /*
+     * auto rather than hidden. Only the list and the scroll body below have a scroll
+     * container of their own, so the title, the error box and the filters were cut off
+     * with nothing to scroll them back into view.
+     */
+    overflow: auto;
     display: flex;
     flex-direction: column;
+    /* A flex item takes its min-content size as an automatic minimum. */
+    min-height: 0;
+    min-width: 0;
 }
 
 .panel-title {
@@ -149,7 +163,8 @@ textarea:focus-visible {
     cursor: pointer;
 }
 
-.list-item--active { outline: 2px solid #5b8cff; border-color: #5b8cff; }
+/* Drawn inside, so the keyboard ring stays the only thing using the outline channel. */
+.list-item--active { box-shadow: inset 0 0 0 2px #5b8cff; border-color: #5b8cff; }
 
 .li-top { display: flex; justify-content: space-between; gap: 10px; }
 .li-code { font-weight: 700; }
@@ -178,15 +193,18 @@ textarea:focus-visible {
 .facts { margin: 0; padding-left: 18px; font-size: 13px; }
 .history { display: grid; gap: 6px; }
 /*
- * All four tracks share the row in proportion, and none of them has a fixed floor.
- * Fixed widths gave the row a minimum of about 470px that the pane could not go under,
- * and a full length IBAN then pushed the whole detail pane past the edge of the window.
- * A single 1fr track cannot replace them: it is sized from what the others leave over,
- * which at a narrow width is nothing, and the IBAN column collapsed to zero.
+ * The four tracks share the row in proportion. Fixed widths gave the row a minimum of
+ * about 470px that the pane could not go under, and a full length IBAN then pushed the
+ * whole detail pane past the edge of the window. A single 1fr track cannot replace them:
+ * it is sized from what the others leave over, which at a narrow width is nothing, and
+ * the IBAN column collapsed to zero. Only the status track keeps a floor, because it is
+ * the one cell whose value has no break opportunity in it and still has to be read:
+ * 6.5rem is 104px, resolved against the root size rather than the 12px of the row, and
+ * the longest status needs 102px. The other three break at a space and can go on sharing.
  */
 .history-row {
     display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1.1fr) minmax(0, 1.7fr);
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(6.5rem, 1.1fr) minmax(0, 1.7fr);
     gap: 10px;
     font-size: 12px;
     padding: 6px 8px;
@@ -195,7 +213,7 @@ textarea:focus-visible {
     background: #fafafa;
 }
 
-/* A grid item defaults to its min-content width, and an IBAN has nowhere to break. */
+/* Two floors to remove: the item's automatic minimum size, and an IBAN with no break opportunity in it. */
 .history-row > * {
     min-width: 0;
     overflow-wrap: anywhere;
@@ -231,11 +249,10 @@ textarea:focus-visible {
 
 /*
  * The horizontal counterpart of the rule the vertical axis already had. A grid item
- * and a flex item both default to their min-content size, so without this the detail
- * pane could not shrink and was clipped by .content instead.
+ * takes its min-content size as an automatic minimum, so without this the detail pane
+ * could not shrink.
  */
 .left, .right { min-height: 0; min-width: 0; }
-.panel { min-height: 0; min-width: 0; }
 
 
 .panel-scroll {
