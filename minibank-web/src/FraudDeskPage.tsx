@@ -400,15 +400,22 @@ export default function FraudDeskPage() {
                                                     WITHDRAWN,
                                                 )
                                             }
-                                            onChange={(e) =>
+                                            /*
+                                              Read before the updater runs, not inside it. React
+                                              clears currentTarget once the handler returns, and
+                                              an updater passed to setState runs later, on the
+                                              render pass: reading the event in there dereferenced
+                                              null and took the whole screen down with it.
+                                            */
+                                            onChange={(e) => {
+                                                const showWithdrawn = e.currentTarget.checked;
                                                 setFilters((prev) => ({
                                                     ...prev,
-                                                    excludeTransferStatus: e
-                                                        .currentTarget.checked
+                                                    excludeTransferStatus: showWithdrawn
                                                         ? undefined
                                                         : [WITHDRAWN],
-                                                }))
-                                            }
+                                                }));
+                                            }}
                                         />{' '}
                                         Show alerts on cancelled payments
                                     </label>
