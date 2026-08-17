@@ -266,10 +266,7 @@ export default function FraudDeskPage() {
                             <h2 className="section-title">Alerts queue</h2>
 
                             {counters && (
-                                <div
-                                    className="summary"
-                                    style={{ marginBottom: 8 }}
-                                >
+                                <div className="summary gap-below-sm">
                                     {/*
                                       "Overview" was nearly right and too vague to settle the
                                       question these numbers raise. They count the WHOLE queue,
@@ -419,13 +416,7 @@ export default function FraudDeskPage() {
                             </div>
 
                             {listError && (
-                                <div
-                                    className="summary"
-                                    style={{
-                                        borderColor: 'salmon',
-                                        marginTop: 8,
-                                    }}
-                                >
+                                <div className="summary summary--danger gap-above-sm">
                                     <div className="summary-title">Error</div>
                                     <ul>
                                         <li>{listError}</li>
@@ -442,10 +433,7 @@ export default function FraudDeskPage() {
                                     No fraud alerts.
                                 </p>
                             ) : (
-                                <div
-                                    className="table-wrapper"
-                                    style={{ marginTop: 8 }}
-                                >
+                                <div className="table-wrapper gap-above-sm">
                                     <table className="table">
                                         <thead>
                                         <tr>
@@ -506,13 +494,7 @@ export default function FraudDeskPage() {
                             <h2 className="section-title">Alert details</h2>
 
                             {detailError && (
-                                <div
-                                    className="summary"
-                                    style={{
-                                        borderColor: 'salmon',
-                                        marginBottom: 8,
-                                    }}
-                                >
+                                <div className="summary summary--danger gap-below-sm">
                                     <div className="summary-title">Error</div>
                                     <ul>
                                         <li>{detailError}</li>
@@ -560,10 +542,7 @@ export default function FraudDeskPage() {
                                         </p>
                                     </div>
 
-                                    <div
-                                        className="details-card"
-                                        style={{ marginTop: 12 }}
-                                    >
+                                    <div className="details-card gap-above-lg">
                                         <p>
                                             <strong>Transfer:</strong>{' '}
                                             {detail.transfer.code}
@@ -601,10 +580,7 @@ export default function FraudDeskPage() {
                                         </p>
                                     </div>
 
-                                    <div
-                                        className="details-card"
-                                        style={{ marginTop: 12 }}
-                                    >
+                                    <div className="details-card gap-above-lg">
                                         <p>
                                             <strong>
                                                 Customer history (last 10
@@ -616,10 +592,7 @@ export default function FraudDeskPage() {
                                                 No history.
                                             </p>
                                         ) : (
-                                            <div
-                                                className="table-wrapper"
-                                                style={{ marginTop: 8 }}
-                                            >
+                                            <div className="table-wrapper gap-above-sm">
                                                 <table className="table">
                                                     <thead>
                                                     <tr>
@@ -708,10 +681,7 @@ export default function FraudDeskPage() {
                                             />
                                         </div>
 
-                                        <div
-                                            className="field-column"
-                                            style={{ marginTop: 8 }}
-                                        >
+                                        <div className="field-column gap-above-sm">
                                             <label className="field-label">
                                                 Internal notes
                                             </label>
@@ -735,10 +705,7 @@ export default function FraudDeskPage() {
                                             from anything but SUSPICIOUS, which is what lets
                                             fraud confirmed after the money left be recorded on
                                             an alert that was already cleared. */}
-                                        <div
-                                            className="actions"
-                                            style={{ marginTop: 12 }}
-                                        >
+                                        <div className="actions gap-above-lg">
                                             <button
                                                 type="button"
                                                 className="btn-primary"
@@ -790,13 +757,7 @@ export default function FraudDeskPage() {
                                     </div>
 
                                     {decisionError && (
-                                        <div
-                                            className="summary"
-                                            style={{
-                                                borderColor: 'salmon',
-                                                marginTop: 8,
-                                            }}
-                                        >
+                                        <div className="summary summary--danger gap-above-sm">
                                             <div className="summary-title">
                                                 Error
                                             </div>
@@ -807,10 +768,7 @@ export default function FraudDeskPage() {
                                     )}
 
                                     {decisionMessage && (
-                                        <div
-                                            className="summary"
-                                            style={{ marginTop: 8 }}
-                                        >
+                                        <div className="summary gap-above-sm">
                                             <div className="summary-title">
                                                 Result
                                             </div>

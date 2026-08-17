@@ -1,7 +1,14 @@
 :root {
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    background: #ececec;
-    color: #111;
+    font-family: var(--font-family-ui);
+    /*
+     * 100% rather than a hard 16px: it is 16px in every mainstream UA, so nothing moves on
+     * defaults, and it leaves a user who has raised their default text size alone, which is
+     * what --control-min-height in rem depends on.
+     */
+    font-size: 100%;
+    line-height: var(--leading-normal);
+    background: var(--color-surface-canvas);
+    color: var(--color-text-primary);
 }
 
 * { box-sizing: border-box; }
@@ -26,49 +33,72 @@ button:focus-visible,
 input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
-    outline: 2px solid #1f5eff;
-    outline-offset: 2px;
+    outline: var(--border-width-marker) solid var(--color-focus-ring);
+    outline-offset: var(--focus-offset);
 }
 
 /* Used by the sign-in panel, which is a .panel and a form at once. */
-.form { display: flex; flex-direction: column; gap: 12px; }
+.form { display: flex; flex-direction: column; gap: var(--gap-form); }
+
+/*
+ * No call site in this application yet. It exists so the class carries the same meaning on
+ * both platforms: the two stylesheets now declare .actions, .form and .inline identically,
+ * and the idiom picks the rung through the gap role rather than through a literal.
+ */
+.inline { display: flex; flex-wrap: wrap; align-items: center; gap: var(--gap-inline); }
 
 .shell {
     min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 18px;
+    padding: var(--space-7);
 }
 
 .window {
-    width: min(1280px, 100%);
-    /* 36px is the shell padding on both edges; change one and the other has to follow. */
-    height: min(820px, calc(100vh - 36px));
-    background: #f7f7f7;
-    border: 1px solid #bdbdbd;
-    border-radius: 10px;
+    /*
+     * A maximised window. The old pair of ceilings held it at 1700x1180 whatever the display,
+     * which on a 2560x1440 screen leaves about 430px of grey down each side and reads as an
+     * application that has not been finished. The size of a window is decided by the display
+     * it is on and never by the amount of content in it, so both axes now take everything the
+     * shell hands them. What is left around it is the shell padding, and that is the whole
+     * reason this still reads as a window rather than a page: chrome that meets the edge of
+     * the screen has stopped being chrome. The floors are gone with the ceilings and nothing
+     * shrinks, because 100% and the viewport less that padding were already the last terms of
+     * the two min() calls: at every viewport small enough for a floor to matter the old rule
+     * resolved to exactly these two values, and above it the window only grows.
+     */
+    width: 100%;
+    height: calc(100vh - var(--space-7) * 2);
+    background: var(--color-surface-shell);
+    border: var(--border-width-hairline) solid var(--color-border-container);
+    border-radius: var(--radius-shell);
     overflow: hidden;
-    box-shadow: 0 10px 35px rgba(0,0,0,.15);
+    box-shadow: var(--shadow-shell);
     display: flex;
     flex-direction: column;
 }
 
-.window--login { max-width: 560px; height: auto; }
+.window--login { max-width: var(--size-dialog-max); height: auto; }
 
 .titlebar {
-    height: 44px;
-    background: #e2e2e2;
-    border-bottom: 1px solid #bdbdbd;
+    /*
+     * min-height for the same reason .btn takes one: the bar is 44px of chrome around text
+     * that grows, and at a raised default size a fixed height let the window's overflow cut
+     * the top off the title and the button inside it.
+     */
+    min-height: var(--size-titlebar);
+    background: var(--color-surface-chrome);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-container);
     display: flex;
     align-items: center;
-    padding: 0 12px;
+    padding: 0 var(--space-6);
     justify-content: space-between;
 }
 
-.title { font-weight: 700; }
-.titlebar-right { display: flex; gap: 10px; align-items: center; }
-.user { font-size: 12px; opacity: .75; }
+.title { font-weight: var(--weight-bold); }
+.titlebar-right { display: flex; gap: var(--space-5); align-items: center; }
+.user { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
 
 /*
  * auto rather than hidden. The panes below can now shrink, so this only scrolls once
@@ -77,7 +107,7 @@ textarea:focus-visible {
  * pane on any screen under about 1250px.
  */
 .content {
-    padding: 12px;
+    padding: var(--space-6);
     flex: 1;
     overflow: auto;
 }
@@ -89,15 +119,15 @@ textarea:focus-visible {
  */
 .content--split {
     display: grid;
-    grid-template-columns: minmax(320px, 420px) minmax(360px, 1fr);
-    gap: 12px;
+    grid-template-columns: minmax(var(--size-queue-min), var(--size-queue-max)) minmax(var(--size-detail-min), 1fr);
+    gap: var(--space-6);
 }
 
 .panel {
-    background: #fff;
-    border: 1px solid #cfcfcf;
-    border-radius: 10px;
-    padding: 12px;
+    background: var(--color-surface-raised);
+    border: var(--border-width-hairline) solid var(--color-border-container);
+    border-radius: var(--radius-surface);
+    padding: var(--space-6);
     height: 100%;
     /*
      * auto rather than hidden. Only the list and the scroll body below have a scroll
@@ -113,85 +143,108 @@ textarea:focus-visible {
 }
 
 .panel-title {
-    font-weight: 700;
-    margin-bottom: 10px;
+    font-weight: var(--weight-bold);
+    margin-bottom: var(--space-5);
 }
 
-.filters { display: grid; gap: 8px; margin-bottom: 10px; }
+.filters { display: grid; gap: var(--space-4); margin-bottom: var(--space-5); }
 
 .row {
     display: grid;
-    gap: 8px;
+    gap: var(--gap-field-row);
     align-items: center;
     min-width: 0;
 }
 
-.row label { font-size: 12px; opacity: .8; }
+.row label { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-secondary); }
 .row input,
 .row select {
-    height: 34px;
-    border: 1px solid #cfcfcf;
-    border-radius: 8px;
-    padding: 0 10px;
-    background: #fff;
+    /*
+     * min-height rather than height. A fixed 34px clipped the control's own label the
+     * moment the text grew, and in rem the floor grows with it instead.
+     */
+    min-height: var(--control-min-height);
+    border: var(--border-width-hairline) solid var(--color-border);
+    border-radius: var(--radius-field);
+    padding: var(--space-2) var(--space-5);
+    background: var(--color-surface-field);
+    transition: background-color var(--motion-fast) var(--ease),
+                border-color var(--motion-fast) var(--ease),
+                color var(--motion-fast) var(--ease),
+                transform var(--motion-instant) var(--ease);
 
     width: 100%;
     min-width: 0;
 }
 
 
-.row--2 { grid-template-columns: 90px 1fr; }
-.row--3 { grid-template-columns: 90px 1fr 1fr; }
+.row--2 { grid-template-columns: var(--size-row-label) 1fr; }
+.row--3 { grid-template-columns: var(--size-row-label) 1fr 1fr; }
 
 .list {
-    border: 1px solid #d8d8d8;
-    border-radius: 10px;
-    padding: 6px;
+    border: var(--border-width-hairline) solid var(--color-border-container);
+    border-radius: var(--radius-surface);
+    padding: var(--space-3);
     overflow: auto;
     flex: 1;
-    background: #fafafa;
+    background: var(--color-surface-sunken);
 }
 
 .list-item {
     width: 100%;
     text-align: left;
-    border: 1px solid #dcdcdc;
-    border-radius: 10px;
-    background: #fff;
-    padding: 10px;
-    margin-bottom: 8px;
+    border: var(--border-width-hairline) solid var(--color-border);
+    border-radius: var(--radius-surface);
+    background: var(--color-surface-raised);
+    padding: var(--space-5);
+    margin-bottom: var(--space-4);
     cursor: pointer;
+    transition: background-color var(--motion-fast) var(--ease),
+                border-color var(--motion-fast) var(--ease),
+                color var(--motion-fast) var(--ease),
+                transform var(--motion-instant) var(--ease);
 }
 
-/* Drawn inside, so the keyboard ring stays the only thing using the outline channel. */
-.list-item--active { box-shadow: inset 0 0 0 2px #5b8cff; border-color: #5b8cff; }
+/*
+ * Drawn inside, so the keyboard ring stays the only thing using the outline channel, and
+ * so hover, which owns background-color, cannot reach it. The second shadow is the tint:
+ * a spread larger than the item fills it, clipped to the padding box, so selection is
+ * legible at a glance in a queue long enough to scroll and not only at its edge.
+ */
+.list-item--active {
+    box-shadow:
+        inset 0 0 0 var(--border-width-marker) var(--color-selected-marker),
+        inset 0 0 0 9999px var(--color-selected-surface);
+    border-color: var(--color-selected-marker);
+}
 
-.li-top { display: flex; justify-content: space-between; gap: 10px; }
-.li-code { font-weight: 700; }
-.li-state { font-size: 12px; opacity: .75; }
-.li-mid { margin-top: 4px; font-size: 13px; }
-.li-bot { margin-top: 6px; font-size: 12px; opacity: .8; }
+.li-top { display: flex; justify-content: space-between; gap: var(--space-5); }
+.li-code { font-weight: var(--weight-bold); }
+.li-state { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
+.li-mid { margin-top: var(--space-2); font-size: var(--text-2); line-height: var(--leading-dense); }
+.li-bot { margin-top: var(--space-3); font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-secondary); }
 
 .counters {
-    margin-top: 10px;
+    margin-top: var(--space-5);
     display: flex;
-    gap: 12px;
-    font-size: 12px;
-    opacity: .8;
+    gap: var(--space-6);
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+    color: var(--color-text-secondary);
 }
 
 .box {
-    border: 1px solid #d8d8d8;
-    border-radius: 10px;
-    padding: 10px;
-    margin-bottom: 10px;
-    background: #fff;
+    border: var(--border-width-hairline) solid var(--color-border-container);
+    border-radius: var(--radius-surface);
+    padding: var(--space-5);
+    margin-bottom: var(--space-5);
+    background: var(--color-surface-raised);
 }
 
-.box-title { font-weight: 700; margin-bottom: 8px; }
+.box-title { font-weight: var(--weight-bold); margin-bottom: var(--space-4); }
 
-.facts { margin: 0; padding-left: 18px; font-size: 13px; }
-.history { display: grid; gap: 6px; }
+.facts { margin: 0; padding-left: var(--space-7); font-size: var(--text-2); line-height: var(--leading-dense); }
+.history { display: grid; gap: var(--space-3); }
 /*
  * The four tracks share the row in proportion. Fixed widths gave the row a minimum of
  * about 470px that the pane could not go under, and a full length IBAN then pushed the
@@ -204,13 +257,14 @@ textarea:focus-visible {
  */
 .history-row {
     display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(6.5rem, 1.1fr) minmax(0, 1.7fr);
-    gap: 10px;
-    font-size: 12px;
-    padding: 6px 8px;
-    border: 1px solid #ececec;
-    border-radius: 8px;
-    background: #fafafa;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(var(--size-status-column), 1.1fr) minmax(0, 1.7fr);
+    gap: var(--space-5);
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+    padding: var(--space-3) var(--space-4);
+    border: var(--border-width-hairline) solid var(--color-border-divider);
+    border-radius: var(--radius-inset);
+    background: var(--color-surface-sunken);
 }
 
 /* Two floors to remove: the item's automatic minimum size, and an IBAN with no break opportunity in it. */
@@ -219,33 +273,112 @@ textarea:focus-visible {
     overflow-wrap: anywhere;
 }
 
-.actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.actions { display: flex; flex-wrap: wrap; gap: var(--gap-actions); margin-top: var(--gap-actions-top); }
 
 .btn {
-    height: 34px;
-    border: 1px solid #bdbdbd;
-    background: #fff;
-    border-radius: 8px;
-    padding: 0 12px;
+    min-height: var(--control-min-height);
+    border: var(--border-width-hairline) solid var(--color-border);
+    background: var(--color-surface-raised);
+    border-radius: var(--radius-control);
+    padding: var(--space-2) var(--space-6);
     cursor: pointer;
+    transition: background-color var(--motion-fast) var(--ease),
+                border-color var(--motion-fast) var(--ease),
+                color var(--motion-fast) var(--ease),
+                transform var(--motion-instant) var(--ease);
 }
 
 .btn--primary {
-    background: #1f5eff;
-    border-color: #1f5eff;
-    color: #fff;
+    background: var(--color-accent);
+    border-color: var(--color-border-accent);
+    color: var(--color-text-on-accent);
+}
+
+/*
+ * The interaction states, and the rule that keeps them apart: each one owns a different
+ * property. Hover and the press write background-color, selection writes box-shadow, focus
+ * writes outline, planned writes border-style. Nothing that can happen at the same time as
+ * something else writes what that something else wrote, so no state can erase another and
+ * the background shorthand above stays safe to use.
+ *
+ * Hover and the press are suppressed on a control that cannot be operated. Busy is not
+ * suppressed, because a busy control is still the live one: that is the whole difference
+ * between it and disabled, which recedes.
+ */
+.btn:hover:not(:disabled):not([aria-busy="true"]):not(.planned-item),
+.list-item:hover:not(:disabled):not([aria-busy="true"]),
+.row input:hover:not(:disabled),
+.row select:hover:not(:disabled) {
+    background-color: var(--color-surface-hover);
+    transform: var(--lift-hover);
+}
+
+.btn--primary:hover:not(:disabled):not([aria-busy="true"]):not(.planned-item) {
+    background-color: var(--color-accent-hover);
+}
+
+.btn:active:not(:disabled):not([aria-busy="true"]):not(.planned-item),
+.list-item:active:not(:disabled):not([aria-busy="true"]) {
+    background-color: var(--color-surface-hover);
+    transform: translateY(1px);
+}
+
+.btn--primary:active:not(:disabled):not([aria-busy="true"]):not(.planned-item) {
+    background-color: var(--color-accent-active);
+}
+
+/*
+ * Unstyled, the UA drew a disabled label in rgba(16,16,16,.3), which is 2.01:1 on white.
+ * A neutral control keeps its rest fill and is told apart by its weakened edge, its
+ * weakened label and its cursor, so the rule holds on any surface. An accent control has
+ * to lose its fill instead: something that cannot be pressed must not look like the one
+ * that can.
+ */
+.btn:disabled,
+.btn[aria-disabled="true"]:not(.planned-item),
+.list-item:disabled,
+.row input:disabled,
+.row select:disabled {
+    border-color: var(--color-border-disabled);
+    color: var(--color-text-disabled);
+    cursor: not-allowed;
+}
+
+.btn--primary:disabled,
+.btn--primary[aria-disabled="true"]:not(.planned-item) {
+    background-color: var(--color-surface-disabled);
+}
+
+/*
+ * Nothing in this application sets aria-busy yet, so this is inert: every submitting
+ * control is rendered by passing `disabled`, and until the attribute exists busy and
+ * disabled paint alike. The cursor lands now so the change that adds the attribute has
+ * nothing left to decide.
+ */
+[aria-busy="true"] { cursor: progress; }
+
+/*
+ * No call site in this application yet either; the customer screens are what will carry
+ * planned entries. A dashed edge separates it from disabled without relying on colour,
+ * and pointer events stay on so the title attribute can explain itself on hover.
+ */
+.planned-item[aria-disabled="true"] {
+    background-color: transparent;
+    border: var(--border-width-hairline) var(--border-style-planned) var(--color-border-strong);
+    color: var(--color-text-planned);
+    cursor: default;
 }
 
 .error {
-    background: #ffe7e7;
-    border: 1px solid #ffb3b3;
-    color: #7a0b0b;
-    padding: 10px;
-    border-radius: 10px;
-    margin: 8px 0;
+    background: var(--color-danger-surface);
+    border: var(--border-width-hairline) solid var(--color-danger-border);
+    color: var(--color-danger-text);
+    padding: var(--space-5);
+    border-radius: var(--radius-surface);
+    margin: var(--space-4) 0;
 }
 
-.hint { font-size: 12px; opacity: .75; }
+.hint { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
 
 /*
  * The horizontal counterpart of the rule the vertical axis already had. A grid item
@@ -255,9 +388,24 @@ textarea:focus-visible {
 .left, .right { min-height: 0; min-width: 0; }
 
 
+/*
+ * The scrolling body of the detail pane, and the answer to where a large display's extra
+ * width goes now that the window no longer stops taking it. Not to the queue: a queue row is
+ * a code, a state, an amount and one short reason, it is read down rather than across, and a
+ * 900px row would be emptier than the pane the width was taken from, with the emptiness put
+ * on the navigation side instead of the working one. Not split between the two either, which
+ * spends the width twice and buys the same field of white in both. It stops here. The pane
+ * itself keeps its whole share of the split, so it still shrinks and grows with the window
+ * and the layout has one flexible track as before; only what is read inside it is bounded.
+ * 1280px is where, because under the old window ceiling this body was never wider than about
+ * 1220px: no resolution the old window already fitted moves at all, and past it the width
+ * arrives as margin inside the pane rather than as a column whose longest line, a single
+ * IBAN, ends two fifths of the way across it.
+ */
 .panel-scroll {
     flex: 1;
     min-height: 0;
     overflow: auto;
-    padding-right: 4px;
+    padding-right: var(--space-2);
+    max-width: var(--size-shell-max);
 }

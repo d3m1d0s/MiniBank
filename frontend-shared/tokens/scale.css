@@ -1,0 +1,123 @@
+/* scale.css. Everything with no colour in it.
+ *
+ * Loaded by both applications and by the desktop customer screens when they arrive. The two
+ * platforms deliberately look different, so the palette, the radius roles and the gap roles
+ * live in a theme file; what is shared is the measurement system. A value only belongs here
+ * if the answer is the same in a dark web page and a light desktop window.
+ *
+ * The spacing base step is 10px, which is what the two stylesheets actually use, not the 4px
+ * a fresh scale would start from.
+ */
+:root {
+  /* The union of the two stacks that were already in use, which differed only in their
+     fallbacks. system-ui resolves first everywhere either stack targeted, so no rendered
+     face changes. */
+  --font-family-ui: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial,
+                    sans-serif;
+
+  /* Type. Eleven declared sizes collapse to seven rungs; the largest move is 0.8px. */
+  --text-1: 0.75rem;      /* 12px */
+  --text-2: 0.8125rem;    /* 13px */
+  --text-3: 0.875rem;     /* 14px */
+  --text-4: 0.9375rem;    /* 15px */
+  --text-5: 1rem;         /* 16px */
+  --text-6: 1.375rem;     /* 22px */
+  --text-7: 2.375rem;     /* 38px */
+
+  --leading-tight: 1.1;   /* display headings */
+  --leading-dense: 1.35;  /* dense data rows: queues, history, field labels */
+  --leading-normal: 1.5;  /* body */
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  --tracking-wide: 0.03em;
+  --tracking-widest: 0.2em;
+
+  /* Spacing. Eleven of the thirteen measured values land exactly; only 14 and 18 move, by
+     2px each. The 20px rung exists so nothing has to move by 4px. */
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 10px;
+  --space-6: 12px;
+  --space-7: 16px;
+  --space-8: 20px;
+  --space-9: 24px;
+  --space-10: 32px;
+  --space-11: 40px;
+
+  /* 34px at the default root size. In rem rather than px so a control grows with the text
+     instead of clipping its own label at 200% zoom. */
+  --control-min-height: 2.125rem;
+
+  --border-width-hairline: 1px;
+  /* One token for the focus ring and the selection marker, so the two never drift apart. */
+  --border-width-marker: 2px;
+  /* A planned entry is drawn with a dashed edge, which reads without colour. */
+  --border-style-planned: dashed;
+
+  /* The ring sits outside the control, on the surface behind it, so its contrast obligation
+     is against that surface and never against a button fill or a selection tint. */
+  --focus-offset: 2px;
+
+  --motion-instant: 0.05s;   /* transform */
+  --motion-fast: 0.15s;      /* background-color, border-color, color */
+  --ease: ease;
+
+  /* No call sites yet. Declared so the first dialog does not invent a number. */
+  --z-base: 0;
+  --z-sticky: 100;
+  --z-overlay: 800;
+  --z-dialog: 900;
+  --z-toast: 1000;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-instant: 0s;
+    --motion-fast: 0s;
+  }
+}
+
+/* ---------------------------------------------------------------------------------------
+ * THE THEME CONTRACT
+ *
+ * A theme file declares every name below. Nothing checks this, so it is a checklist rather
+ * than a guarantee: a missing name inherits nothing and fails silently.
+ *
+ * color-scheme is a real declaration, not a custom property, and belongs in the theme too.
+ *
+ * surfaces        --color-canvas-image --color-surface-canvas --color-surface-sunken
+ *                 --color-surface-field --color-surface-shell --color-surface-raised
+ *                 --color-surface-chrome --color-surface-hover --color-surface-disabled
+ * borders         --color-border --color-border-container --color-border-divider
+ *                 --color-border-strong --color-border-disabled --color-border-accent
+ * text            --color-text-primary --color-text-secondary --color-text-muted
+ *                 --color-text-planned --color-text-disabled --color-text-on-accent
+ * accent          --color-accent --color-accent-hover --color-accent-active
+ *                 --color-accent-line
+ * selection       --color-selected-surface --color-selected-marker --color-focus-ring
+ * status          --color-info-surface --color-info-border --color-info-text
+ *                 --color-danger-surface --color-danger-border --color-danger-text
+ *                 --color-danger-accent
+ *                 --color-success-surface --color-success-border --color-success-text
+ *                 --color-warning-surface --color-warning-border --color-warning-text
+ * radius roles    --radius-control --radius-field --radius-inset --radius-surface
+ *                 --radius-shell
+ * gap roles       --gap-form --gap-actions --gap-actions-top --gap-inline --gap-field-row
+ *                 --gap-nav
+ * fixed sizes     --size-shell-max --size-form-max --size-prose-max --size-dialog-max
+ *                 --size-nav-column
+ *                 --size-label-min --size-amount-field --size-otp-field --size-textarea-min
+ *                 --size-textarea-max --size-window-height --size-titlebar --size-row-label
+ *                 --size-queue-min --size-queue-max --size-detail-min --size-status-column
+ * elevation       --shadow-shell
+ * motion          --lift-hover, together with its own prefers-reduced-motion override.
+ *                 The durations above are zeroed here because they are declared here; a
+ *                 theme file is loaded after this one, so an override written here would
+ *                 lose the cascade to the theme's own declaration.
+ * ------------------------------------------------------------------------------------- */

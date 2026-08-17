@@ -241,7 +241,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
 
                         {loadingAccounts && <p>Loading accounts…</p>}
                         {accountsError && (
-                            <p style={{ color: 'salmon' }}>Error: {accountsError}</p>
+                            <p className="text-danger">Error: {accountsError}</p>
                         )}
 
                         {!loadingAccounts && !accountsError && accounts.length === 0 && (
@@ -339,7 +339,7 @@ export default function NewPaymentPage({ onNavigate }: Props) {
 
                                 {/* Result / errors */}
                                 {info.type === 'error' && (
-                                    <div className="summary" role="alert" style={{ borderColor: 'salmon' }}>
+                                    <div className="summary summary--danger" role="alert">
                                         <div className="summary-title">We could not send this payment</div>
                                         <ul>
                                             {info.messages.map((m, idx) => (

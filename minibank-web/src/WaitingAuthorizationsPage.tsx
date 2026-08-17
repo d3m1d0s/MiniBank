@@ -343,10 +343,7 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
 
                             {/* Errors related to list/details loading */}
                             {listError && (
-                                <div
-                                    className="summary"
-                                    style={{ borderColor: 'salmon', marginBottom: 8 }}
-                                >
+                                <div className="summary summary--danger gap-below-sm">
                                     <div className="summary-title">Error</div>
                                     <ul>
                                         <li>{listError}</li>
@@ -494,10 +491,7 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
 
                             {/* Errors related to authorization confirmation */}
                             {confirmError && (
-                                <div
-                                    className="summary"
-                                    style={{ borderColor: 'salmon', marginTop: 8 }}
-                                >
+                                <div className="summary summary--danger gap-above-sm">
                                     <div className="summary-title">Error</div>
                                     <ul>
                                         <li>{confirmError}</li>
@@ -506,7 +500,7 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                             )}
 
                             {result && (
-                                <div className="summary" style={{ marginTop: 10 }}>
+                                <div className="summary gap-above-md">
                                     <div className="summary-title">
                                         {result.status === 'SENT'
                                             ? 'Payment authorized'

@@ -45,7 +45,7 @@ export default function LoginDialog({ onLoggedIn, notice }: Props) {
                 </header>
                 <div className="card-body">
                     {notice && !error && (
-                        <div className="summary" style={{ marginBottom: 8 }}>
+                        <div className="summary gap-below-sm">
                             <ul><li>{notice}</li></ul>
                         </div>
                     )}
@@ -69,7 +69,7 @@ export default function LoginDialog({ onLoggedIn, notice }: Props) {
                             />
                         </div>
                         {error && (
-                            <div className="summary" style={{ borderColor: 'salmon', marginTop: 8 }}>
+                            <div className="summary summary--danger gap-above-sm">
                                 <div className="summary-title">Error</div>
                                 <ul><li>{error}</li></ul>
                             </div>

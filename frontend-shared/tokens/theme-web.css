@@ -1,0 +1,169 @@
+/* theme-web.css. Loaded by minibank-web only. Dark palette, web idiom.
+ *
+ * Every surface, border and state colour below is opaque. The values they replace were alpha
+ * over a radial gradient, so the same declared colour resolved to a different pixel at the top
+ * left of the page than at the bottom right, and no ratio measured against them could be
+ * trusted. Where the alpha was doing real compositing work the difference is under one unit
+ * per channel, so nothing on screen moves. Alpha survives in exactly one place, the selection
+ * tint, because that one has to let a hover show through it, and both composites are measured.
+ *
+ * The name list and its order match theme-desktop.css exactly. A diff of the two files shows
+ * values and comments and nothing else.
+ */
+:root {
+  color-scheme: dark;
+
+  /* ---- radius roles: web idiom. Nothing here moves. ---- */
+  --radius-control: 999px;
+  --radius-field: 10px;
+  --radius-inset: 14px;
+  --radius-surface: 16px;
+  --radius-shell: 24px;
+
+  /* ---- gap roles: web idiom. Nothing here moves. ----
+   * .actions, .form and .inline disagree between the two platforms by a few pixels. They are
+   * reconciled by sharing one vocabulary rather than one number: the idiom picks the rung.
+   */
+  --gap-form: var(--space-7);
+  --gap-actions: var(--space-5);
+  --gap-actions-top: var(--space-2);
+  --gap-inline: var(--space-5);
+  --gap-field-row: var(--space-6);
+  --gap-nav: var(--space-3);
+
+  --lift-hover: translateY(-0.5px);
+
+  /* ---- surfaces, ordered by elevation ------------------------------------
+   * The ladder goes UP from the shell, not down. The whole luminance budget
+   * between #0f172a and pure black is 1.176:1 and #020617 already spends 1.12
+   * of it, so there is no room below: a second surface has to be lighter.
+   */
+  --color-canvas-image:
+          radial-gradient(circle at top left, #111827, #020617 55%),
+          radial-gradient(circle at bottom right, #020617, #000000 60%);
+  --color-surface-canvas: #020617;
+  --color-surface-sunken: #020617;    /* the table head, unchanged                  */
+  --color-surface-field: #020617;     /* input, select and textarea wells           */
+  --color-surface-shell: #0f172a;     /* .card, was rgba(15,23,42,0.95)             */
+  --color-surface-raised: #1b2742;    /* .summary .details-card .table-wrapper
+                                         .btn-secondary. All four were #0f172a, so
+                                         the card measured 1.00:1 against them.     */
+  --color-surface-chrome: #253357;    /* no call site in this theme today. The web
+                                         app has no title bar. Declared because the
+                                         two theme files carry identical names, and
+                                         because the dark desktop title bar will
+                                         need it. In dark, furniture sits ABOVE
+                                         content; in light it sits below.           */
+  --color-surface-hover: #22304f;     /* was three near values: #1d2736, #1e293b,
+                                         #172236                                    */
+  --color-surface-disabled: #1e2740;  /* only for controls whose rest fill is an
+                                         accent                                     */
+
+  /* ---- borders. Two neutral families, split by role.
+   *      --color-border is the boundary of something you operate and carries the
+   *      3:1 obligation. --color-border-container holds things and carries no
+   *      threshold, which is why the cards and panels keep their present weight.
+   */
+  --color-border: #6e7c9c;            /* was rgba(55,65,81,0.9), 1.64:1 on the shell */
+  --color-border-container: #333e55;  /* absorbs rgba(148,163,184,0.25) and the
+                                         container half of rgba(55,65,81,0.9)        */
+  --color-border-divider: #2b3856;    /* was rgba(31,41,55,1), which is 1.01:1 on the
+                                         new raised surface, that is, nothing         */
+  --color-border-strong: #94a3b8;     /* emphasis, and the planned dashed edge        */
+  --color-border-disabled: #414c68;
+  --color-border-accent: #3b82f6;     /* the edge of a filled primary button          */
+
+  /* ---- text ---- */
+  --color-text-primary: #f9fafb;
+  --color-text-secondary: #e5e7eb;
+  --color-text-muted: #9ca3af;
+  --color-text-planned: #9ca3af;
+  --color-text-disabled: #828b9e;     /* was opacity 0.6 on the whole control */
+  --color-text-on-accent: #f9fafb;
+
+  /* ---- accent, split by job. --color-accent is the LIGHTEST blue that keeps a
+   *      #f9fafb label at 4.5:1 (measured 4.95:1; #3b82f6 gives only 3.52:1). It
+   *      is therefore too dark to be a 3:1 boundary against the raised surface
+   *      (2.87:1), which is why --color-border-accent exists and why the primary
+   *      button gains a 1px edge. Hover goes DARKER here, which is the opposite
+   *      of what a lines-and-tints rule would say: a lighter fill sinks its own
+   *      label. --color-accent-hover is the value the button already uses, so the
+   *      hover does not change at all.
+   */
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-active: #1a43bd;
+  --color-accent-line: #3b82f6;       /* focus ring, focused field edge, primary edge */
+
+  /* ---- selection and focus ---- */
+  --color-selected-surface: rgb(59 130 246 / 0.22);
+  --color-selected-marker: #60a5fa;   /* NOT --color-accent-line: #3b82f6 falls to
+                                         2.60:1 on a hovered selected tint           */
+  --color-focus-ring: #3b82f6;        /* was rgba(59,130,246,0.8); opaque now, so the
+                                         ring stops depending on what is behind it   */
+
+  /* ---- status. The inline `salmon` literals keep salmon's exact sRGB value #fa8072:
+   *      it clears 3:1 as a border and 4.5:1 as text everywhere it is used, so changing
+   *      it would be churn with no requirement behind it. --color-danger-accent is the
+   *      separate 3:1 red for a field in error, which does not exist yet.
+   *      --color-info-border keeps the exact composite the .summary edge resolves to
+   *      today; it is a notice edge, not a control.
+   */
+  --color-info-surface: #1b2742;
+  --color-info-border: #2957a4;       /* was rgba(59,130,246,0.6) over the card */
+  --color-info-text: #93c5fd;
+  --color-danger-surface: #452027;    /* no call site today                     */
+  --color-danger-border: #fa8072;     /* the inline literals, verbatim          */
+  --color-danger-text: #fa8072;
+  --color-danger-accent: #f87171;     /* the 3:1 red for a field in error       */
+  --color-success-surface: #14392b;
+  --color-success-border: #34d399;
+  --color-success-text: #6ee7b7;
+  --color-warning-surface: #453410;
+  --color-warning-border: #fbbf24;
+  --color-warning-text: #fcd34d;
+
+  /* ---- shadow ---- */
+  --shadow-shell:
+          0 28px 80px rgb(0 0 0 / 0.75),
+          0 0 0 1px rgb(15 23 42 / 0.6);
+
+  /* ---- named fixed dimensions. Not on any scale. Named so the desktop customer
+   *      screens reuse them rather than invent a second set. --size-shell-max and the last
+   *      seven have no call site in this application; they are declared because the two
+   *      theme files carry identical name lists.
+   */
+  /* The shell no longer has a ceiling: the card takes the window, so this is left for the
+     desktop side of the contract. */
+  --size-shell-max: 1120px;
+  /* The width of a column of labelled controls, and the limit the card used to impose on
+     one. It is what the form panel measured inside the old 1120px card once its padding,
+     its navigation column and the gap were taken out, so the payment form keeps the width
+     it has always had; the IBAN field is left about 500px, twice a Czech IBAN. */
+  --size-form-max: 740px;
+  /* A line of running text. In ch, so it tracks the text rather than fighting it: 66 sits
+     inside the band where the eye still finds the start of the next line without help. */
+  --size-prose-max: 66ch;
+  --size-dialog-max: 480px;
+  --size-nav-column: 260px;
+  --size-label-min: 60px;
+  --size-amount-field: 140px;
+  --size-otp-field: 180px;
+  --size-textarea-min: 80px;
+  --size-textarea-max: 200px;
+  --size-window-height: 820px;
+  --size-titlebar: 44px;
+  --size-row-label: 90px;
+  --size-queue-min: 320px;
+  --size-queue-max: 420px;
+  --size-detail-min: 360px;
+  --size-status-column: 6.5rem;
+}
+
+/* The durations are zeroed in scale.css, which is loaded first. --lift-hover is declared
+   here, so its override has to be here too, or the declaration above would win. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --lift-hover: none;
+  }
+}

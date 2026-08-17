@@ -1,0 +1,152 @@
+/* theme-desktop.css. Loaded by minibank-fraud-web only. Light palette, desktop idiom.
+ *
+ * Identical name list, identical order to theme-web.css, different values.
+ *
+ * Note that the surface ORDERING is not the mirror of the dark theme, and forcing it to be
+ * would produce a title bar nobody can see. Here chrome is DARKER than the shell, because a
+ * desktop title bar sits behind its window. In the dark theme chrome is LIGHTER than the
+ * shell. The role name is shared; the direction belongs to the idiom.
+ */
+:root {
+  color-scheme: light;
+
+  /* ---- radius roles: desktop idiom. Nothing here moves. ---- */
+  --radius-control: 8px;
+  --radius-field: 8px;
+  --radius-inset: 8px;
+  --radius-surface: 10px;
+  --radius-shell: 10px;
+
+  /* ---- gap roles: desktop idiom. Nothing here moves. ----
+   * .actions, .form and .inline disagree between the two platforms by a few pixels. They are
+   * reconciled by sharing one vocabulary rather than one number: the idiom picks the rung.
+   */
+  --gap-form: var(--space-6);
+  --gap-actions: var(--space-4);
+  --gap-actions-top: var(--space-5);
+  --gap-inline: var(--space-4);
+  --gap-field-row: var(--space-4);
+  --gap-nav: var(--space-2);
+
+  --lift-hover: none;                 /* a desktop control does not float on hover */
+
+  /* ---- surfaces ---- */
+  --color-canvas-image: none;         /* the desktop idiom paints a flat ground */
+  --color-surface-canvas: #ececec;
+  --color-surface-sunken: #fafafa;
+  --color-surface-field: #ffffff;
+  --color-surface-shell: #f7f7f7;
+  --color-surface-raised: #ffffff;
+  --color-surface-chrome: #e2e2e2;    /* .titlebar */
+  --color-surface-hover: #ededed;     /* this stylesheet has no :hover rule at all today */
+  --color-surface-disabled: #e9e9e9;
+
+  /* ---- borders. The same split as the dark theme: --color-border is the boundary
+   *      of something you operate, --color-border-container holds things.
+   *      #808080 is set by the worst adjacency this application actually produces,
+   *      which is the .titlebar at #e2e2e2, where a real Logout button lives.
+   *      #9a9a9a is 2.814:1 on white and 2.19:1 on the title bar, so it fails
+   *      everywhere; #bdbdbd is 1.88:1 on white, so it cannot be a strong border in
+   *      this palette and is re-roled as the container weight, which is the job it
+   *      already does on .window.
+   */
+  --color-border: #808080;            /* .btn, .row input, .row select, .list-item.
+                                         Absorbs #cfcfcf, #dcdcdc and the .btn #bdbdbd */
+  --color-border-container: #bdbdbd;  /* .window, .titlebar, .panel, .list, .box.
+                                         Absorbs #cfcfcf and #d8d8d8; .window unchanged */
+  --color-border-divider: #ececec;    /* the light theme had no divider slot;
+                                         .history-row keeps its exact current value    */
+  --color-border-strong: #5f5f5f;     /* emphasis, and the planned dashed edge         */
+  --color-border-disabled: #c9c9c9;
+  --color-border-accent: #1f5eff;
+
+  /* ---- text. Four opacity values become four real colours, and three of them are the
+   *      exact composite the opacity produces on white, so nothing moves on a white
+   *      surface. What is gained is that a label and its container no longer fade
+   *      together, so each can be aimed at a contrast target.
+   *        opacity .8  on #111 over #ffffff composites to #414141
+   *        opacity .75 on #111 over #ffffff composites to #4c4c4c
+   */
+  --color-text-primary: #111111;
+  --color-text-secondary: #414141;    /* was opacity .8:  .row label, .li-bot, .counters */
+  --color-text-muted: #4d4d4d;        /* was opacity .75: .user, .li-state, .hint        */
+  --color-text-planned: #4d4d4d;
+  --color-text-disabled: #6f6f6f;     /* fraud.css never styled :disabled, so the UA drew
+                                         the label at 2.01:1                             */
+  --color-text-on-accent: #ffffff;
+
+  /* ---- accent. One blue does both jobs here: #1f5eff carries a white label at 5.12:1
+   *      AND clears 3:1 against all five surfaces (3.95:1 worst case, on the title bar).
+   *      The dark theme cannot manage that, which is why --color-border-accent is a
+   *      separate slot rather than a formula. Hover goes darker for the same reason it
+   *      goes darker in dark: a filled button's label must survive its own hover.
+   */
+  --color-accent: #1f5eff;
+  --color-accent-hover: #1a52e6;      /* fraud.css had no :hover at all */
+  --color-accent-active: #1747cc;
+  --color-accent-line: #1f5eff;
+
+  /* ---- selection and focus ---- */
+  --color-selected-surface: rgb(31 94 255 / 0.12);  /* selection was an edge only */
+  --color-selected-marker: #1f5eff;   /* was #5b8cff, which is 3.16:1 on white and
+                                         2.44:1 on the title bar, that is, passing only
+                                         where it happens to sit today                 */
+  --color-focus-ring: #1f5eff;
+
+  /* ---- status. The existing danger triple keeps all three of its values, because the
+   *      box is identified by its tinted fill and its 9.49:1 text and nothing is asked of
+   *      a notice edge. --color-danger-accent is the separate 3:1 red for the field in
+   *      error that does not exist yet.
+   */
+  --color-info-surface: #e4ecff;
+  --color-info-border: #5b8cff;
+  --color-info-text: #1442c8;
+  --color-danger-surface: #ffe7e7;    /* unchanged */
+  --color-danger-border: #ffb3b3;     /* unchanged */
+  --color-danger-text: #7a0b0b;       /* unchanged */
+  --color-danger-accent: #c1121f;
+  --color-success-surface: #e6f6ec;
+  --color-success-border: #166534;
+  --color-success-text: #14532d;
+  --color-warning-surface: #fff0d4;
+  --color-warning-border: #8a5300;
+  --color-warning-text: #6b3f00;
+
+  /* ---- shadow ---- */
+  --shadow-shell: 0 10px 35px rgb(0 0 0 / 0.15);
+
+  /* ---- named fixed dimensions. Not on any scale. Named so the desktop customer
+   *      screens reuse them rather than invent a second set. The form, prose and field
+   *      names have no call site in this application yet, and each of them is what the
+   *      desktop customer quadrant will need; they are declared because the two theme
+   *      files carry identical name lists.
+   */
+  --size-shell-max: 1280px;
+  /* No call site here yet. The customer quadrant will need both: a column of labelled
+     controls stops being one past about the same width on either platform, and a line of
+     text is read by the same eye, so the two numbers are the web's and deliberately so. */
+  --size-form-max: 740px;
+  --size-prose-max: 66ch;
+  --size-dialog-max: 560px;
+  --size-nav-column: 260px;
+  --size-label-min: 60px;
+  --size-amount-field: 140px;
+  --size-otp-field: 180px;
+  --size-textarea-min: 80px;
+  --size-textarea-max: 200px;
+  --size-window-height: 820px;
+  --size-titlebar: 44px;
+  --size-row-label: 90px;
+  --size-queue-min: 320px;
+  --size-queue-max: 420px;
+  --size-detail-min: 360px;
+  --size-status-column: 6.5rem;
+}
+
+/* The durations are zeroed in scale.css, which is loaded first. --lift-hover is declared
+   here, so its override has to be here too, or the declaration above would win. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --lift-hover: none;
+  }
+}
