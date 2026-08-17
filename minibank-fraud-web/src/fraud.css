@@ -157,7 +157,12 @@ textarea:focus-visible {
 }
 
 .row label { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-secondary); }
-.row input,
+/*
+ * The checkbox is excluded by name. What follows is the grammar of a text field, and a
+ * checkbox given a field's width, height, radius and fill stops looking like a switch and
+ * starts looking like an empty box waiting to be typed into.
+ */
+.row input:not([type="checkbox"]),
 .row select {
     /*
      * min-height rather than height. A fixed 34px clipped the control's own label the
@@ -178,16 +183,39 @@ textarea:focus-visible {
 }
 
 
+/*
+ * The box and the sentence it switches are one line, not a field with a caption under it:
+ * the field rules above no longer reach a checkbox, and the label that wraps it is the row.
+ */
+.row label:has(> input[type="checkbox"]) {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
 .row--2 { grid-template-columns: var(--size-row-label) 1fr; }
 .row--3 { grid-template-columns: var(--size-row-label) 1fr 1fr; }
 
+/*
+ * The tray is a hole in the panel, not more panel: at #fafafa against #ffffff a short queue
+ * read as an unpainted area rather than as an almost empty tray. The tray never collapses to
+ * its content; a queue is a frame of fixed size with a variable number of cases in it.
+ */
 .list {
     border: var(--border-width-hairline) solid var(--color-border-container);
     border-radius: var(--radius-surface);
     padding: var(--space-3);
     overflow: auto;
     flex: 1;
-    background: var(--color-surface-sunken);
+    background: var(--color-surface-canvas);
+}
+
+.list > .hint {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--text-3);
 }
 
 .list-item {
@@ -224,10 +252,19 @@ textarea:focus-visible {
 .li-mid { margin-top: var(--space-2); font-size: var(--text-2); line-height: var(--leading-dense); }
 .li-bot { margin-top: var(--space-3); font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-secondary); }
 
+/*
+ * A status line under the list, and it wraps: at 200 percent text the last counter was cut
+ * off by the panel edge and read "show".
+ */
 .counters {
     margin-top: var(--space-5);
+    padding-top: var(--space-5);
+    border-top: var(--border-width-hairline) solid var(--color-border-container);
     display: flex;
+    flex-wrap: wrap;
+    /* The shorthand first: it resets row-gap, so the wrapped row spacing has to follow it. */
     gap: var(--space-6);
+    row-gap: var(--space-3);
     font-size: var(--text-1);
     line-height: var(--leading-dense);
     color: var(--color-text-secondary);
@@ -243,8 +280,22 @@ textarea:focus-visible {
 
 .box-title { font-weight: var(--weight-bold); margin-bottom: var(--space-4); }
 
+/*
+ * The bold was on the labels, which are identical on every alert, and not on the values,
+ * which are why the panel is open. Two values carry the decision and stay bold by name.
+ */
+.box b {
+    font-weight: var(--weight-regular);
+    color: var(--color-text-secondary);
+}
+
+.value-strong {
+    font-weight: var(--weight-bold);
+    font-variant-numeric: tabular-nums;
+}
+
 .facts { margin: 0; padding-left: var(--space-7); font-size: var(--text-2); line-height: var(--leading-dense); }
-.history { display: grid; gap: var(--space-3); }
+.history { display: grid; gap: 0; }
 /*
  * The four tracks share the row in proportion. Fixed widths gave the row a minimum of
  * about 470px that the pane could not go under, and a full length IBAN then pushed the
@@ -265,6 +316,26 @@ textarea:focus-visible {
     border: var(--border-width-hairline) solid var(--color-border-divider);
     border-radius: var(--radius-inset);
     background: var(--color-surface-sunken);
+}
+
+/*
+ * Ten bordered cards in a column are an ornament that costs about 8px a row. A hairline and
+ * an alternating ground read as a table, which is what this is.
+ */
+.history-row {
+    border: 0;
+    border-radius: 0;
+    border-bottom: var(--border-width-hairline) solid var(--color-border-divider);
+    background: transparent;
+}
+
+.history-row:last-child { border-bottom: 0; }
+.history-row:nth-child(even) { background: var(--color-surface-sunken); }
+
+/* The amount column. Digits of 50.00, 1500.00 and 10001.00 line up by place or they are read one by one. */
+.history-row > :nth-child(2) {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
 }
 
 /* Two floors to remove: the item's automatic minimum size, and an IBAN with no break opportunity in it. */
@@ -295,6 +366,22 @@ textarea:focus-visible {
 }
 
 /*
+ * Three levels, not two: the one that releases, the one that records fraud, and the one that
+ * decides nothing. The third is set apart by the gap it stands behind rather than by colour.
+ * Danger is an edge and not a fill: a filled red would out shout the primary and turn an
+ * ordinary working outcome into an alarm.
+ */
+.btn--danger {
+    border-color: var(--color-danger-accent);
+    color: var(--color-danger-text);
+}
+
+.btn--quiet {
+    margin-left: auto;
+    color: var(--color-text-secondary);
+}
+
+/*
  * The interaction states, and the rule that keeps them apart: each one owns a different
  * property. Hover and the press write background-color, selection writes box-shadow, focus
  * writes outline, planned writes border-style. Nothing that can happen at the same time as
@@ -307,7 +394,7 @@ textarea:focus-visible {
  */
 .btn:hover:not(:disabled):not([aria-busy="true"]):not(.planned-item),
 .list-item:hover:not(:disabled):not([aria-busy="true"]),
-.row input:hover:not(:disabled),
+.row input:not([type="checkbox"]):hover:not(:disabled),
 .row select:hover:not(:disabled) {
     background-color: var(--color-surface-hover);
     transform: var(--lift-hover);
@@ -315,6 +402,11 @@ textarea:focus-visible {
 
 .btn--primary:hover:not(:disabled):not([aria-busy="true"]):not(.planned-item) {
     background-color: var(--color-accent-hover);
+}
+
+/* Written to the same specificity as the primary's, or the neutral .btn:hover above would win. */
+.btn--danger:hover:not(:disabled):not([aria-busy="true"]):not(.planned-item) {
+    background-color: var(--color-danger-surface);
 }
 
 .btn:active:not(:disabled):not([aria-busy="true"]):not(.planned-item),
@@ -337,7 +429,7 @@ textarea:focus-visible {
 .btn:disabled,
 .btn[aria-disabled="true"]:not(.planned-item),
 .list-item:disabled,
-.row input:disabled,
+.row input:not([type="checkbox"]):disabled,
 .row select:disabled {
     border-color: var(--color-border-disabled);
     color: var(--color-text-disabled);
@@ -369,13 +461,29 @@ textarea:focus-visible {
     cursor: default;
 }
 
-.error {
-    background: var(--color-danger-surface);
-    border: var(--border-width-hairline) solid var(--color-danger-border);
-    color: var(--color-danger-text);
+/*
+ * One shape, two palettes. The outcome of an irreversible action is announced the way its
+ * refusal already was, and the permanent help text below the buttons keeps the .hint style
+ * it has always had, so the difference reads without reading.
+ */
+.error,
+.result {
     padding: var(--space-5);
     border-radius: var(--radius-surface);
     margin: var(--space-4) 0;
+    border: var(--border-width-hairline) solid;
+}
+
+.error {
+    background: var(--color-danger-surface);
+    border-color: var(--color-danger-border);
+    color: var(--color-danger-text);
+}
+
+.result {
+    background: var(--color-success-surface);
+    border-color: var(--color-success-border);
+    color: var(--color-success-text);
 }
 
 .hint { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
@@ -408,4 +516,87 @@ textarea:focus-visible {
     overflow: auto;
     padding-right: var(--space-2);
     max-width: var(--size-shell-max);
+    /* The body gains and loses its scrollbar as the detail changes; the gutter keeps the
+       evidence from shifting sideways under the eye when it does. */
+    scrollbar-gutter: stable;
+}
+
+/*
+ * The verdict is the reason this screen exists, so it does not scroll. It is the panel's
+ * footer: the evidence above it moves, the three buttons never do, and a repeated action is
+ * faster when its target stays put. The 50% ceiling is for 200 percent text, where the block
+ * alone is half the panel: past that it scrolls inside itself rather than eat the evidence.
+ */
+.panel-foot {
+    flex: 0 0 auto;
+    margin-top: var(--space-5);
+    padding-top: var(--space-5);
+    border-top: var(--border-width-hairline) solid var(--color-border-container);
+    max-width: var(--size-shell-max);
+    max-height: 50%;
+    overflow: auto;
+}
+
+/* A reason and a note are short. The cell can be wide; the field has no business being. */
+.panel-foot .row input { max-width: 32rem; }
+
+/*
+ * Above this width the single column stops being the right answer: the ceiling that keeps a
+ * column of text readable turns into a permanent band of white beside it. A container query
+ * and not a media query, because what decides is the width of this pane and not of the
+ * screen. The literal is here rather than in a token because a container query condition
+ * cannot read a custom property; if it ever earns a name, the name belongs in the desktop
+ * theme and not in the shared scale.
+ *
+ * 1600 is where, and the number comes from the band: the readable column is capped at 1280,
+ * so a pane narrower than that has no band to reclaim and a pane at 1425, which is what 1920
+ * gives, has 145px of it. Splitting there costs more than it buys, because two columns of
+ * short evidence end higher up the panel and put the emptiness in the middle of the panel
+ * instead of at its right edge. At 1600 the band is 320px and from there it only grows.
+ */
+.right { container-type: inline-size; }
+
+@container (min-width: 1600px) {
+    .panel-scroll {
+        max-width: none;
+        display: grid;
+        grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+        column-gap: var(--space-6);
+        align-content: start;
+    }
+
+    .panel-scroll > .hint,
+    .panel-scroll > .error { grid-column: 1 / -1; }
+
+    /* History is the one block that wants width: four columns and an IBAN in the last. */
+    .box--history { grid-column: 2; grid-row: 1 / span 2; }
+
+    .panel-foot { max-width: none; }
+}
+
+/*
+ * Under about 740px the two tracks plus their gaps and the padding no longer fit, and the
+ * detail pane simply left the screen to the right. One column, the queue a tray of bounded
+ * height above the case. The window stays a window; it is just narrow. The arithmetic of the
+ * threshold: 320 + 360 for the two floors, 12 of gap and 24 of padding is 716, so 760 is the
+ * first width at which the split is still honest.
+ */
+@media (max-width: 760px) {
+    /*
+     * A column of two, and a flex column rather than a one track grid. Both panes are sized
+     * from what is in them here, and two auto grid rows inside a pane of definite height
+     * shared that height equally instead: the queue got 365px for 399px of content and its
+     * counter line was painted over by the case below it.
+     */
+    .content--split {
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Neither pane shrinks below what is in it; the shell around them scrolls instead. */
+    .left, .right { flex: 0 0 auto; }
+    .panel { height: auto; }
+    .list { max-height: 40vh; }
+    .right .panel-scroll { overflow: visible; }
+    .panel-foot { max-height: none; }
 }

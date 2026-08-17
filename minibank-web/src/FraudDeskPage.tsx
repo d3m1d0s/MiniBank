@@ -312,7 +312,7 @@ export default function FraudDeskPage() {
                                         State
                                     </label>
                                     <select
-                                        className="field-input"
+                                        className="field-input field-input--state"
                                         value={filters.state ?? ''}
                                         onChange={(e) =>
                                             updateFilter(
@@ -342,7 +342,7 @@ export default function FraudDeskPage() {
                                       setAmountReadable is for.
                                     */}
                                     <input
-                                        className="field-input"
+                                        className="field-input field-input--amount"
                                         type="number"
                                         min="0"
                                         step="0.01"
@@ -356,7 +356,7 @@ export default function FraudDeskPage() {
                                     />
                                     <div className="field-side">-</div>
                                     <input
-                                        className="field-input"
+                                        className="field-input field-input--amount"
                                         type="number"
                                         min="0"
                                         step="0.01"
@@ -375,7 +375,7 @@ export default function FraudDeskPage() {
                                         Assignee
                                     </label>
                                     <input
-                                        className="field-input"
+                                        className="field-input field-input--login"
                                         type="text"
                                         placeholder="e.g. analyst1"
                                         value={filters.assignee ?? ''}
