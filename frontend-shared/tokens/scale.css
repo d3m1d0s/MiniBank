@@ -54,6 +54,21 @@
      instead of clipping its own label at 200% zoom. */
   --control-min-height: 2.125rem;
 
+  /* Field widths by role, for the same reason and in the same unit. What goes into a field
+     is a measurement, not an idiom: an IBAN is 24 characters in a dark web page and 24 in a
+     light desktop window, so the number is shared and the theme files do not carry it.
+     They are not part of the theme contract below; a theme owes nothing here. */
+  /* A Czech IBAN. The domain accepts nothing else and nothing longer, and typed the way a
+     person types it, CZ65 0800 0000 1920 0014 5399, it measures 253px in the field. Held by
+     the account select and by the beneficiary field alike: one value by role, one width. */
+  --size-field-account: 16rem;
+  /* The longest option of a state filter, Suspicious, is 96px, plus 20px for the arrow the
+     select draws for itself. */
+  --size-field-state: 8rem;
+  /* A login. The real ones look like analyst1 at 80px and the placeholder e.g. analyst1 is
+     109px; 10rem holds about nineteen characters, which is past both. */
+  --size-field-login: 10rem;
+
   --border-width-hairline: 1px;
   /* One token for the focus ring and the selection marker, so the two never drift apart. */
   --border-width-marker: 2px;
@@ -110,8 +125,8 @@
  *                 --radius-shell
  * gap roles       --gap-form --gap-actions --gap-actions-top --gap-inline --gap-field-row
  *                 --gap-nav
- * fixed sizes     --size-shell-max --size-form-max --size-prose-max --size-dialog-max
- *                 --size-nav-column
+ * fixed sizes     --size-shell-max --size-content-max --size-form-max --size-prose-max
+ *                 --size-dialog-max --size-nav-column
  *                 --size-label-min --size-amount-field --size-otp-field --size-textarea-min
  *                 --size-textarea-max --size-window-height --size-titlebar --size-row-label
  *                 --size-queue-min --size-queue-max --size-detail-min --size-status-column

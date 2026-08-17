@@ -54,40 +54,44 @@ textarea:focus-visible {
   outline-offset: var(--focus-offset);
 }
 
-/* ====== Shell + Card ====== */
+/* ====== Shell, page and dialog ====== */
 
 .app-shell {
   min-height: 100vh;
   display: flex;
   justify-content: center;
   /*
-   * stretch, so the card is as tall as the window rather than as tall as what is in it.
-   * The size of the shell is the window's to decide on both axes; the sign-in dialog is
+   * stretch, so a working screen is as tall as the window rather than as tall as what is in
+   * it. The size of the shell is the window's to decide on both axes; the sign-in dialog is
    * the one exception, and it opts out through its own auto margins below.
    */
   align-items: stretch;
-  /*
-   * One even gutter, and no more: the card carries a radius and a shadow, and both need a
-   * little of the canvas to sit on. Everything past this line belongs to the screen.
-   */
-  padding: var(--space-7);
-}
-
-.card {
-  /* No ceiling. What the window gives is what the card takes, on every screen alike, so
-     the frame stops depending on how much happens to be inside it. The readable limits
-     moved to the blocks that have one: see .form below. */
-  width: 100%;
-  background: var(--color-surface-shell);
-  border-radius: var(--radius-shell);
-  padding: var(--space-9) var(--space-10) var(--space-10);
-  border: var(--border-width-hairline) solid var(--color-border-container);
-  box-shadow: var(--shadow-shell);
 }
 
 /*
- * A card holding one short form rather than a working screen: the sign-in dialog, which
- * stays a dialog on an empty field because that is what signing in looks like everywhere.
+ * The one screen that keeps canvas around it, and the only gutter left in this stylesheet
+ * that is not simply keeping text off the glass.
+ */
+.app-shell:has(.card--narrow) {
+  padding: var(--space-7);
+}
+
+/*
+ * A working screen. Not a card: a border, a radius and a shadow drawn around the whole
+ * viewport describe neither a card nor a page, and a web application in a browser tab runs
+ * to the edges of the window because the window is the frame. What is left of it is one
+ * surface, and the header below is what keeps that surface from beginning with a line of
+ * text floating on nothing.
+ */
+.card {
+  width: 100%;
+  background: var(--color-surface-shell);
+}
+
+/*
+ * The sign-in dialog, which keeps the frame the working screens have given up: it is a
+ * dialog, it stays a dialog on an empty field, and that is what signing in looks like
+ * everywhere.
  *
  * The auto margins do two things. A cross-axis auto margin only takes space that is
  * already free, so a short dialog sits in the middle of a tall window while a dialog
@@ -98,12 +102,36 @@ textarea:focus-visible {
 .card--narrow {
   max-width: var(--size-dialog-max);
   margin-block: auto;
+  border-radius: var(--radius-shell);
+  padding: var(--space-9) var(--space-10) var(--space-10);
+  border: var(--border-width-hairline) solid var(--color-border-container);
+  box-shadow: var(--shadow-shell);
 }
 
 .card-header {
   padding-bottom: var(--space-7);
   margin-bottom: var(--space-9);
   border-bottom: var(--border-width-hairline) solid var(--color-border-container);
+}
+
+/*
+ * The page header of a working screen. It is furniture now rather than the first block of
+ * content: it runs the full width of the window, it stands outside the reading column, and
+ * with no card edge left to contain it, its own surface and its lower edge are the only
+ * things that tell a reader where the page begins.
+ */
+.card:not(.card--narrow) > .card-header {
+  padding: var(--space-8) var(--space-10);
+  margin-bottom: 0;
+  background: var(--color-surface-chrome);
+}
+
+/*
+ * The page gutter, and nothing more than that: it keeps text off the glass. The navigation
+ * column starts here, at the edge of the window, because it is furniture too.
+ */
+.card:not(.card--narrow) > .card-body {
+  padding: var(--space-9) var(--space-10) var(--space-10);
 }
 
 .card-header h1 {
@@ -117,9 +145,16 @@ textarea:focus-visible {
 
 /* ====== Main layout: left navigation, right content ====== */
 
+/*
+ * stretch rather than flex-start, and the hairline between the two columns is the reason.
+ * That line is the navigation column's own right border, so with flex-start the column was
+ * exactly as tall as its three or six entries and the line stopped in mid air a fifth of the
+ * way down a page that carried on for another 1600px. Stretched, the column is as tall as
+ * the panel beside it and the line ends where the content does.
+ */
 .card-body.layout {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: var(--space-10);
 }
 
@@ -202,6 +237,17 @@ textarea:focus-visible {
 .form-panel {
   flex: 1 1 auto;
   min-width: 0;
+  /*
+   * THE reading column, and the only ceiling left on a working screen. Every block inside it
+   * is as wide as this and no wider - the form, the notices, the detail boxes and the tables
+   * alike - which is what makes their right edges line up instead of a table running to the
+   * window while the block under it stops 1400px short.
+   *
+   * The full bleed parts are deliberately outside it: the page surface, the header bar and
+   * the navigation column are furniture and run to the edges of the window. Only what is
+   * read is bounded.
+   */
+  max-width: var(--size-content-max);
 }
 
 .form-panel h2 {
@@ -241,14 +287,12 @@ textarea:focus-visible {
 /* ====== Forms / form fields ====== */
 
 /*
- * Where the ceiling the card used to impose actually belongs. The card follows the window
- * now, and a field that followed the card with it would be a two thousand pixel text input
- * on a large display. A column of labelled controls has a width past which it stops being
- * one, so the limit sits on the column; the tables further down have no such width and are
- * given none.
+ * No ceiling of its own. It used to carry one, and so did every notice and labelled row
+ * below, while the tables carried none: two ceilings on one screen is what put the right
+ * edge of a table a thousand pixels past the right edge of the block under it. There is one
+ * ceiling now and it is on .form-panel above.
  */
 .form {
-  max-width: var(--size-form-max);
   display: flex;
   flex-direction: column;
   gap: var(--gap-form);
@@ -257,12 +301,9 @@ textarea:focus-visible {
 /*
  * The panel is allowed to shrink below the width of this row, so the row needs
  * somewhere to go: without wrapping it keeps its min-content width and paints
- * outside the card instead.
+ * outside the column instead.
  */
 .field-row {
-  /* The same ceiling as .form, because the rows on the queue screens stand outside one:
-     the fraud desk filters and the decision fields are a form in every way but the tag. */
-  max-width: var(--size-form-max);
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -288,6 +329,68 @@ textarea:focus-visible {
   border-color: var(--color-border-accent);
 }
 
+/*
+ * Widths by role, for every field that has one.
+ *
+ * .field-input on its own fills the row, which is what a field is worth on the sign-in
+ * dialog - the dialog is already the width of one short form, and a 160px box inside a 480px
+ * card would be a stump. Everywhere else that rule handed a control the space that happened
+ * to be left over: at 2560 the state filter was 1008px wide to hold the word New, and the
+ * assignee filter 1003px to hold analyst1. Each of the fields below is as wide as what a
+ * person puts into it and no wider, and the number is a token with its measurement written
+ * beside it.
+ *
+ * width rather than a flex basis. The automatic minimum size of a flex item is the control's
+ * own min-content width, and a text input reports that as the twenty characters the UA sizes
+ * it to, whatever the basis asks for - which is how the OTP box asked for 180px and rendered
+ * at 203. A specified width is its own minimum, so the token is what gets used. max-width
+ * keeps it from painting outside a row too narrow to hold it; the row wraps first, and this
+ * is what catches the window narrow enough that wrapping is not enough.
+ */
+#payment-source,
+#payment-target,
+.field-input--state,
+.field-input--amount,
+.field-input--login {
+  flex: none;
+  max-width: 100%;
+}
+
+/*
+ * The account and the beneficiary hold the same thing by role, a Czech IBAN, so they hold
+ * the same width. Their right edges landing together is a consequence of that and not a
+ * margin invented to produce it.
+ */
+#payment-source,
+#payment-target {
+  width: var(--size-field-account);
+}
+
+.field-input--state {
+  width: var(--size-field-state);
+}
+
+/*
+ * The same value as the amount on the payment form, so the same token. The pair must stay
+ * equal to each other: two unequal boxes read as two bounds of unequal importance.
+ */
+.field-input--amount {
+  width: var(--size-amount-field);
+}
+
+.field-input--login {
+  width: var(--size-field-login);
+}
+
+/*
+ * The browser gives a checkbox a left margin of its own, which would stand it 4px to the
+ * right of the fields above it and put a fourth left edge back in the column the labels
+ * have just been squared up into.
+ */
+.field-row input[type="checkbox"] {
+  margin-left: 0;
+}
+
 .field-side {
   white-space: nowrap;
   font-size: var(--text-3);
@@ -306,9 +409,18 @@ textarea:focus-visible {
   color: var(--color-text-primary);
 }
 
-/* Same reason as .field-row: a labelled control that is not inside a form. */
+/*
+ * A labelled control that is not inside a form. Every one of them holds a textarea, and a
+ * textarea is the one control with no content width to be measured: what it holds is prose,
+ * and prose has a measure instead. 140 characters set on one 1080px line read worse than the
+ * same 140 over two, which is the reason --size-prose-max already exists.
+ *
+ * The ceiling is on the column rather than on the textarea because the character counter
+ * under the message field is aligned to the end of this column, and a counter that stays at
+ * 1080 while its field stops at 66ch is no longer counting anything the reader can see.
+ */
 .field-column {
-  max-width: var(--size-form-max);
+  max-width: var(--size-prose-max);
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
@@ -334,8 +446,8 @@ textarea:focus-visible {
 /* Helper text (for hints, empty states, etc.) */
 
 .helper-text {
-  /* Sentences rather than data. Left to the card they would set one line across the whole
-     display, which is the width at which the eye stops finding the start of the next one. */
+  /* The one block that is not measured against the column: it is sentences rather than data,
+     and a line has a length past which the eye stops finding the start of the next one. */
   max-width: var(--size-prose-max);
   font-size: var(--text-3);
   color: var(--color-text-muted);
@@ -344,10 +456,6 @@ textarea:focus-visible {
 /* ====== Summary box (confirmation / error) ====== */
 
 .summary {
-  /* A notice about a form keeps the form's width, on the screens that have one and on the
-     queue screens that do not: a confirmation of six short facts stretched across a large
-     display reads as a banner rather than as an answer to what was just pressed. */
-  max-width: var(--size-form-max);
   margin-top: var(--space-4);
   padding: var(--space-5) var(--space-6);
   border-radius: var(--radius-inset);
@@ -524,6 +632,28 @@ textarea:focus-visible {
   border-bottom: var(--border-width-hairline) solid var(--color-border-divider);
 }
 
+/*
+ * th has no text-align of its own, so the browser centres it while every cell under it is
+ * left aligned: "Beneficiary IBAN" stood 87px to the right of the IBAN it labels at 1440,
+ * and further at every size above that.
+ */
+.table th {
+  text-align: left;
+}
+
+/*
+ * Amounts right aligned, so the digits line up by place. No cell carries a class, so the
+ * column has to be found by position, and the position depends on which table it is: the
+ * alert queue has nine columns and its amount is the fifth, the waiting list and the
+ * customer history have six and theirs is the third. Both shapes appear on the fraud desk
+ * at once, so the header count is what tells them apart. A column added to either table
+ * has to be counted again here.
+ */
+.table:has(thead th:nth-child(9)) :is(th, td):nth-child(5),
+.table:has(thead th:nth-child(6)):not(:has(thead th:nth-child(7))) :is(th, td):nth-child(3) {
+  text-align: right;
+}
+
 .table tbody tr:hover {
   background-color: var(--color-surface-hover);
 }
@@ -560,8 +690,15 @@ textarea:focus-visible {
   margin: var(--space-1) 0;
 }
 
+/*
+ * width, not a flex basis: the basis was 180px and the box drew at 203, because a text input
+ * whose width is left to the flex algorithm cannot go below the twenty characters the UA
+ * sizes it to. A one-time code is ten digits at the very most.
+ */
 .otp-input {
-  flex: 0 0 var(--size-otp-field);
+  flex: none;
+  width: var(--size-otp-field);
+  max-width: 100%;
   padding: var(--space-3) var(--space-5);
   border-radius: var(--radius-control);
   border: var(--border-width-hairline) solid var(--color-border);
@@ -601,7 +738,17 @@ textarea:focus-visible {
 
 /* The compact breakpoint. A media query prelude cannot read a custom property. */
 @media (max-width: 900px) {
-  .card {
+  .card--narrow {
+    padding: var(--space-8) var(--space-7) var(--space-9);
+  }
+
+  /* A narrow window has no width to spend on a gutter, and the page header is the first
+     thing that pays for one: a 38px title in a 390px window has none to give. */
+  .card:not(.card--narrow) > .card-header {
+    padding: var(--space-7);
+  }
+
+  .card:not(.card--narrow) > .card-body {
     padding: var(--space-8) var(--space-7) var(--space-9);
   }
 

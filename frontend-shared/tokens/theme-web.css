@@ -44,16 +44,18 @@
   --color-surface-canvas: #020617;
   --color-surface-sunken: #020617;    /* the table head, unchanged                  */
   --color-surface-field: #020617;     /* input, select and textarea wells           */
-  --color-surface-shell: #0f172a;     /* .card, was rgba(15,23,42,0.95)             */
+  --color-surface-shell: #0f172a;     /* the working page, edge to edge, and the
+                                         sign-in card. Was .card on both.           */
   --color-surface-raised: #1b2742;    /* .summary .details-card .table-wrapper
                                          .btn-secondary. All four were #0f172a, so
                                          the card measured 1.00:1 against them.     */
-  --color-surface-chrome: #253357;    /* no call site in this theme today. The web
-                                         app has no title bar. Declared because the
-                                         two theme files carry identical names, and
-                                         because the dark desktop title bar will
-                                         need it. In dark, furniture sits ABOVE
-                                         content; in light it sits below.           */
+  --color-surface-chrome: #253357;    /* the page header bar. The web app has no
+                                         title bar, but once the working screens run
+                                         to the edges of the window their header is
+                                         furniture rather than a block of content,
+                                         and it needs a surface to say so. In dark,
+                                         furniture sits ABOVE content; in light it
+                                         sits below.                                */
   --color-surface-hover: #22304f;     /* was three near values: #1d2736, #1e293b,
                                          #172236                                    */
   --color-surface-disabled: #1e2740;  /* only for controls whose rest fill is an
@@ -129,26 +131,41 @@
           0 0 0 1px rgb(15 23 42 / 0.6);
 
   /* ---- named fixed dimensions. Not on any scale. Named so the desktop customer
-   *      screens reuse them rather than invent a second set. --size-shell-max and the last
-   *      seven have no call site in this application; they are declared because the two
-   *      theme files carry identical name lists.
+   *      screens reuse them rather than invent a second set. --size-shell-max,
+   *      --size-form-max and the last seven have no call site in this application; they are
+   *      declared because the two theme files carry identical name lists.
    */
-  /* The shell no longer has a ceiling: the card takes the window, so this is left for the
-     desktop side of the contract. */
+  /* The shell no longer has a ceiling: the working screens take the window, so this is left
+     for the desktop side of the contract. */
   --size-shell-max: 1120px;
-  /* The width of a column of labelled controls, and the limit the card used to impose on
-     one. It is what the form panel measured inside the old 1120px card once its padding,
-     its navigation column and the gap were taken out, so the payment form keeps the width
-     it has always had; the IBAN field is left about 500px, twice a Czech IBAN. */
+  /* The one reading column. Everything on a working screen is measured against this: the
+     tables, the forms, the notices. Sized for the WIDER of the two things it has to hold,
+     the nine-column alert queue, which wants 924px of content today and needs room for a
+     longer reason or assignee; a line of prose is held to its own measure below instead of
+     being allowed to set this number. It is also what the content panel already measures at
+     1440, so nothing at or below that width moves. */
+  --size-content-max: 1080px;
+  /* No call site here any more. A block used to carry its own ceiling and the tables carried
+     none, which is what put the right edge of a table 1400px away from the right edge of the
+     block under it; the ceiling now sits on the column and the blocks fill it. Declared
+     because the two theme files carry identical name lists. */
   --size-form-max: 740px;
   /* A line of running text. In ch, so it tracks the text rather than fighting it: 66 sits
      inside the band where the eye still finds the start of the next line without help. */
   --size-prose-max: 66ch;
   --size-dialog-max: 480px;
   --size-nav-column: 260px;
-  --size-label-min: 60px;
-  --size-amount-field: 140px;
-  --size-otp-field: 180px;
+  /* The label column of a form row. It is a floor rather than a width, and it was set below
+     the labels that actually stand in it - Assignee is 65px, Username 73px, Withdrawn 80px -
+     so those three rows pushed their own field further right than the rows above them and the
+     column had three left edges. 5.5rem clears the longest of them. */
+  --size-label-min: 5.5rem;
+  /* The largest amount this bank writes, 1 234 567,89 in Czech grouping, measures 112px with
+     the field's border and padding. */
+  --size-amount-field: 8rem;
+  /* Ten digits, which is what the box accepts, measure 108px; the placeholder Enter OTP
+     measures 92px. */
+  --size-otp-field: 7rem;
   --size-textarea-min: 80px;
   --size-textarea-max: 200px;
   --size-window-height: 820px;

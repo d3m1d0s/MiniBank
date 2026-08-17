@@ -22,7 +22,7 @@ import { formatMoney } from './money';
  */
 const UNDER_REVIEW_TEXT =
     'The bank is reviewing this payment. You will be able to confirm it once the review is ' +
-    'finished, or you can cancel it below.';
+    'finished, or you can cancel it above.';
 
 interface Props {
     onNavigate: (view: 'new-payment' | 'waiting-auth' | 'fraud-desk') => void;
@@ -442,7 +442,7 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
                                 <input
                                     className="otp-input"
                                     type="text"
-                                    value={otp}
+                                    value={selectedUnderReview ? '' : otp}
                                     onChange={(e) => setOtp(e.target.value)}
                                     placeholder="Enter OTP"
                                     maxLength={10}

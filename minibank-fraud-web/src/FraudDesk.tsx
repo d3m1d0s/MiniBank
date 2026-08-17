@@ -372,23 +372,25 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
 
                                 {detail && !busyDetail && (
                                     <>
-                                        <div className="box">
+                                        {/* One block, not two: the same case stated twice over
+                                            was 170px of the panel and neither half had a title.
+                                            value-strong marks the two lines a verdict turns on,
+                                            so the weight sits on the value and not on the label
+                                            that is identical on every alert. */}
+                                        <div className="box box--case">
                                             <div><b>Transfer:</b> {detail.transfer.code}</div>
                                             <div><b>Status:</b> {detail.transfer.status}</div>
-                                        </div>
-
-                                        <div className="box">
                                             <div><b>Alert state:</b> {detail.alert.state}</div>
-                                            <div><b>Risk score:</b> {detail.alert.riskScore ?? '—'}</div>
+                                            <div className="value-strong"><b>Risk score:</b> {detail.alert.riskScore ?? '—'}</div>
                                             <div><b>Created:</b> {fmt(detail.alert.createdAt)}</div>
                                         </div>
 
-                                        <div className="box">
+                                        <div className="box box--facts">
                                             <div className="box-title">Facts</div>
                                             <ul className="facts">
                                                 <li><b>From:</b> {detail.transfer.fromIban} (balance {formatMoney(detail.transfer.fromBalance)})</li>
                                                 <li><b>To:</b> {detail.transfer.toIban}</li>
-                                                <li><b>Amount:</b> {formatMoney(detail.transfer.amount)}</li>
+                                                <li className="value-strong"><b>Amount:</b> {formatMoney(detail.transfer.amount)}</li>
                                                 <li><b>Fee:</b> {formatMoney(detail.transfer.feeAmount)}</li>
                                                 <li><b>Time:</b> {fmt(detail.transfer.createdAt)}</li>
                                                 <li><b>Auth:</b> {detail.transfer.authMethod ?? '—'}</li>
@@ -396,7 +398,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                             </ul>
                                         </div>
 
-                                        <div className="box">
+                                        <div className="box box--history">
                                             <div className="box-title">Customer & Transfer history (last 10)</div>
                                             <div className="history">
                                                 {detail.history.map(h => (
@@ -410,59 +412,66 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                                 {detail.history.length === 0 && <div className="hint">No history</div>}
                                             </div>
                                         </div>
-
-                                        <div className="box">
-                                            <div className="box-title">Decision</div>
-                                            <div className="row row--2">
-                                                <label>Reason</label>
-                                                <input value={decisionReason} onChange={(e) => setDecisionReason(e.target.value)} placeholder="optional reason" />
-                                            </div>
-                                            <div className="row row--2">
-                                                <label>Notes</label>
-                                                <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="internal notes" />
-                                            </div>
-
-                                            {decisionErr && <div className="error">{decisionErr}</div>}
-                                            {decisionMsg && <div className="hint">{decisionMsg}</div>}
-
-                                            {/* The buttons mirror the domain guards exactly, so
-                                                a click the server would refuse - taking the
-                                                typed notes down with it - is not reachable.
-                                                Approve only from NEW; Decline from anything but
-                                                SUSPICIOUS, which is what lets fraud confirmed
-                                                after the money left be recorded on an alert
-                                                that had already been cleared. */}
-                                            <div className="actions">
-                                                <button
-                                                    className="btn btn--primary"
-                                                    disabled={busyDecision || detail.alert.state !== 'NEW'}
-                                                    onClick={() => decide('APPROVE')}
-                                                >Approve: release to customer</button>
-                                                <button
-                                                    className="btn"
-                                                    disabled={busyDecision || detail.alert.state === 'SUSPICIOUS'}
-                                                    onClick={() => decide('DECLINE')}
-                                                >Decline: record fraud</button>
-                                                <button
-                                                    className="btn"
-                                                    disabled={busyDecision}
-                                                    onClick={() => decide('REQUEST_CONFIRMATION')}
-                                                >Save notes, no decision</button>
-                                            </div>
-
-                                            <div className="hint">
-                                                Approving does not send the money: it releases the
-                                                payment for the customer to confirm. Declining a
-                                                payment that has already been sent records the
-                                                verdict; it does not reverse it.
-                                            </div>
-                                        </div>
                                     </>
                                 )}
 
                             </div>
 
+                            {/*
+                              Outside the scroller on purpose. The verdict is why this screen
+                              exists and it was the one thing below the fold at every size but
+                              2560, so it is the panel's footer and the evidence scrolls past it.
+                              The condition is written a second time rather than widened: the
+                              wrapper above is the scroller, and the footer has to be its sibling.
+                            */}
+                            {detail && !busyDetail && (
+                                <div className="panel-foot">
+                                    <div className="box-title">Decision</div>
+                                    <div className="row row--2">
+                                        <label>Reason</label>
+                                        <input value={decisionReason} onChange={(e) => setDecisionReason(e.target.value)} placeholder="optional reason" />
+                                    </div>
+                                    <div className="row row--2">
+                                        <label>Notes</label>
+                                        <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="internal notes" />
+                                    </div>
 
+                                    {decisionErr && <div className="error">{decisionErr}</div>}
+                                    {decisionMsg && <div className="result">{decisionMsg}</div>}
+
+                                    {/* The buttons mirror the domain guards exactly, so
+                                        a click the server would refuse - taking the
+                                        typed notes down with it - is not reachable.
+                                        Approve only from NEW; Decline from anything but
+                                        SUSPICIOUS, which is what lets fraud confirmed
+                                        after the money left be recorded on an alert
+                                        that had already been cleared. */}
+                                    <div className="actions">
+                                        <button
+                                            className="btn btn--primary"
+                                            disabled={busyDecision || detail.alert.state !== 'NEW'}
+                                            onClick={() => decide('APPROVE')}
+                                        >Approve: release to customer</button>
+                                        <button
+                                            className="btn btn--danger"
+                                            disabled={busyDecision || detail.alert.state === 'SUSPICIOUS'}
+                                            onClick={() => decide('DECLINE')}
+                                        >Decline: record fraud</button>
+                                        <button
+                                            className="btn btn--quiet"
+                                            disabled={busyDecision}
+                                            onClick={() => decide('REQUEST_CONFIRMATION')}
+                                        >Save notes, no decision</button>
+                                    </div>
+
+                                    <div className="hint">
+                                        Approving does not send the money: it releases the
+                                        payment for the customer to confirm. Declining a
+                                        payment that has already been sent records the
+                                        verdict; it does not reverse it.
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
 
