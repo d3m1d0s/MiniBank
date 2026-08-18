@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
     fetchAlerts,
     fetchAlertDetail,
@@ -10,16 +10,178 @@ import {
     type AlertQueueItem,
     type ApiError,
     type FraudDecision,
+    type HistoryItem,
 } from './api';
 import { amountRangeProblem } from '@shared/alertFilters';
+import {
+    FIELD_LABEL,
+    type HistoryField,
+    type HistoryRowCells,
+    type QueueRowCells,
+} from '@shared/fields';
+import {
+    NOT_RECORDED,
+    formatAlertId,
+    formatDateTime,
+    formatIban,
+    formatTransferId,
+} from '@shared/format';
+import {
+    alertStateLabel,
+    alertStateTone,
+    authMethodLabel,
+    describeDeclineReason,
+    transferStatusLabel,
+    transferStatusTone,
+} from '@shared/glossary';
 
 /** The transfer status a withdrawn payment ends in. */
 const WITHDRAWN = 'DECLINED';
 
-function fmt(dt?: string | null) {
-    if (!dt) return '';
-    const d = new Date(dt);
-    return Number.isNaN(d.getTime()) ? dt : d.toLocaleString();
+/** Nobody has taken the case. Not an absent value: a card is not a data table. */
+const UNASSIGNED = 'unassigned';
+
+/**
+ * The five history fields the table gives a column of its own, and the classes that size and
+ * align them. The sixth, the decline reason, is prose and gets a row of its own under the payment
+ * it explains rather than a sixth column 60px wide.
+ *
+ * The amount is marked where the cell is built. Counting header cells to find the column to right
+ * align, which is what the customer application's stylesheet still does, breaks silently the day
+ * a column is added.
+ */
+const HISTORY_COLUMNS: readonly { field: HistoryField; col: string; cell?: string }[] = [
+    { field: 'id', col: 'col--id' },
+    { field: 'createdAt', col: 'col--created' },
+    { field: 'amount', col: 'col--amount', cell: 'cell--amount' },
+    { field: 'status', col: 'col--status' },
+    { field: 'toIban', col: 'col--to' },
+];
+
+/**
+ * A queue entry's nine fields, ready to be laid out.
+ *
+ * Built through the shared row type so that a field the server sends and this desk forgets is a
+ * build failure rather than something an analyst discovers is missing. The workstation reads a
+ * card down and the customer application reads a table across, so each builds its own cells and
+ * only the field set is shared.
+ */
+function queueCells(a: AlertQueueItem): QueueRowCells<ReactNode> {
+    return {
+        alertCode: a.alertCode,
+        transferCode: a.transferCode,
+        state: alertStateLabel(a.state),
+        transferStatus: transferStatusLabel(a.transferStatus, 'analyst'),
+        amount: formatMoney(a.amount),
+        shortReason: a.shortReason,
+        // The card has no column headers, so the two triage fields carry their own word.
+        riskScore: `Risk ${a.riskScore ?? NOT_RECORDED}`,
+        assignee: a.assignee || UNASSIGNED,
+        createdAt: formatDateTime(a.createdAt),
+    };
+}
+
+function historyCells(h: HistoryItem): HistoryRowCells<ReactNode> {
+    return {
+        id: formatTransferId(h.id),
+        createdAt: formatDateTime(h.createdAt),
+        amount: formatMoney(h.amount),
+        status: (
+            <span className={`tone-${transferStatusTone(h.status)}`}>
+                {transferStatusLabel(h.status, 'analyst')}
+            </span>
+        ),
+        toIban: formatIban(h.toIban),
+        declineReason: describeDeclineReason(h.declineReason),
+    };
+}
+
+/**
+ * Whether the person reading this screen writes a comma as the decimal point.
+ *
+ * Asked of the platform rather than kept as a list of locales: the only question is which of the
+ * two readings of `1,234` they expect, and the platform already knows.
+ */
+function commaIsDecimalHere(): boolean {
+    const locale = navigator.language || 'cs-CZ';
+    const parts = new Intl.NumberFormat(locale).formatToParts(1234.5);
+    return parts.find((p) => p.type === 'decimal')?.value === ',';
+}
+
+/**
+ * A typed amount as the plain decimal the query wants: the empty string for an empty box, null
+ * when it cannot be read at all.
+ *
+ * These two boxes were type="number", which refuses `10 001,00` - the exact string the queue
+ * beside them prints for the amount being filtered to. A number input reads the browser's own
+ * convention and reports anything else as an empty box, so the bound was silently dropped and the
+ * whole queue came back looking like a filtered one.
+ *
+ * The reading is the one the customer application's money.ts already settled for the payment
+ * field: spaces are noise, a mark that repeats is grouping, grouping runs in threes, and the one
+ * genuinely ambiguous shape - a single mark with exactly three digits behind it - is decided by
+ * the reader's own convention rather than guessed. It is written here because that parser sits in
+ * the other application's source; the two are one rule and belong in one function, which is a
+ * change to the shared layer rather than to this screen.
+ */
+function readAmount(typed: string): string | null {
+    const compact = typed.replace(/\s/g, '');
+    if (compact === '') {
+        return '';
+    }
+
+    const negative = compact.startsWith('-');
+    // Kept rather than refused, so that a negative bound is answered by the sentence naming it
+    // and not by the one about digits.
+    const body = negative ? compact.slice(1) : compact;
+    if (!/^[0-9.,]+$/.test(body)) {
+        return null;
+    }
+
+    const commas = (body.match(/,/g) ?? []).length;
+    const dots = (body.match(/\./g) ?? []).length;
+
+    let decimal: string | null;
+    if (commas > 0 && dots > 0) {
+        // Both kinds present, so one groups and the other divides, and the rightmost divides.
+        decimal = body.lastIndexOf(',') > body.lastIndexOf('.') ? ',' : '.';
+    } else if (commas + dots === 0 || commas > 1 || dots > 1) {
+        // A mark that repeats cannot be the decimal point.
+        decimal = null;
+    } else {
+        const mark = commas === 1 ? ',' : '.';
+        const before = body.indexOf(mark);
+        const after = body.length - before - 1;
+        decimal =
+            after === 3 && before > 0
+                ? (commaIsDecimalHere() === (mark === ',') ? mark : null)
+                : mark;
+    }
+
+    const cut = decimal === null ? body.length : body.lastIndexOf(decimal);
+    const grouped = body.slice(0, cut);
+    const fraction = decimal === null ? '' : body.slice(cut + 1);
+
+    // Whatever is left of the decimal point is grouping, and grouping runs in threes, so a
+    // mistyped 12.34.567 is refused rather than read as twelve million.
+    if (/[.,]/.test(grouped)) {
+        const groups = grouped.split(/[.,]/);
+        const wellGrouped =
+            groups[0].length >= 1 &&
+            groups[0].length <= 3 &&
+            groups.slice(1).every((g) => g.length === 3);
+        if (!wellGrouped) {
+            return null;
+        }
+    }
+
+    const whole = grouped.replace(/[.,]/g, '');
+    if (fraction.length > 2 || !/^\d*$/.test(fraction) || (whole === '' && fraction === '')) {
+        return null;
+    }
+
+    const digits = fraction ? `${whole || '0'}.${fraction}` : whole;
+    return negative ? `-${digits}` : digits;
 }
 
 /**
@@ -33,17 +195,18 @@ function fmt(dt?: string | null) {
  */
 function describeDecision(kind: FraudDecision, updated: AlertDetail): string {
     const status = updated.transfer.status;
+    const said = transferStatusLabel(status, 'analyst');
 
     if (kind === 'APPROVE') {
         return status === 'WAITING_AUTH'
             ? 'Alert cleared. The payment is released to the customer to confirm; no money has moved.'
-            : `Alert cleared. The transfer was already ${status}, so there was nothing to release.`;
+            : `Alert cleared. The transfer was already ${said}, so there was nothing to release.`;
     }
 
     if (kind === 'DECLINE') {
         return status === 'SENT'
             ? 'Recorded as confirmed fraud. The payment had already been sent and has NOT been reversed.'
-            : `Alert marked suspicious and the transfer is ${status}.`;
+            : `Alert marked as confirmed fraud and the transfer is ${said}.`;
     }
 
     return 'Notes, assignee and tags saved. No decision was taken: the alert is still open and the transfer is unchanged.';
@@ -71,6 +234,14 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [detail, setDetail] = useState<AlertDetail | null>(null);
 
+    /**
+     * What was typed into each amount box, kept beside the decimal the filter carries.
+     *
+     * Two states rather than one because they are two different things: the analyst sees what
+     * they wrote, in whatever convention they wrote it, and the query carries the plain decimal
+     * the server parses.
+     */
+    const [amountText, setAmountText] = useState({ min: '', max: '' });
     const [unreadable, setUnreadable] = useState({ min: false, max: false });
 
     const [listErr, setListErr] = useState<string | null>(null);
@@ -89,7 +260,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
 
     const selected = useMemo(() => alerts.find(a => a.id === selectedId) || null, [alerts, selectedId]);
 
-    // unreadable belongs in here beside filters. Typing something the box cannot read into an
+    // unreadable belongs in here beside filters. Typing something that cannot be read into an
     // already empty field leaves the value at '' and the filters untouched, so on filters alone
     // nothing would re-run and the analyst would be told nothing at all.
     useEffect(() => { void reloadList(); }, [filters, unreadable]);
@@ -205,15 +376,17 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
     }
 
     /**
-     * Records whether the browser could read what was typed into an amount box.
+     * Takes what was typed into an amount box and files it in both places.
      *
-     * A number input reports an unreadable value as the empty string, which is exactly what a
-     * cleared box reports, so without this the parameter would simply not be sent and the
-     * analyst would get the whole queue looking like a filtered one. Kept per box: fixing the
-     * upper bound must not silently forgive the lower one.
+     * The box that cannot be read is recorded per box on purpose: fixing the upper bound must not
+     * silently forgive the lower one, and a bound that is dropped without a word is the whole
+     * queue dressed up as a filtered one.
      */
-    function setAmountReadable(which: 'min' | 'max', input: HTMLInputElement) {
-        setUnreadable(prev => ({ ...prev, [which]: input.validity.badInput }));
+    function setAmountBound(which: 'min' | 'max', typed: string) {
+        const decimal = readAmount(typed);
+        setAmountText(prev => ({ ...prev, [which]: typed }));
+        setUnreadable(prev => ({ ...prev, [which]: decimal === null }));
+        setF(which === 'min' ? 'minAmount' : 'maxAmount', decimal ?? '');
     }
 
     return (
@@ -241,52 +414,44 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
 
                             <div className="filters">
                                 <div className="row row--2">
-                                    <label>State</label>
+                                    <label>{FIELD_LABEL.state}</label>
+                                    {/* The values are the server's, the words are the glossary's,
+                                        so the option a person picks reads the same as the state
+                                        printed on the cards below. */}
                                     <select value={filters.state ?? ''} onChange={(e) => setF('state', e.target.value)}>
                                         <option value="">All</option>
-                                        <option value="NEW">NEW</option>
-                                        <option value="SUSPICIOUS">SUSPICIOUS</option>
-                                        <option value="OK">OK</option>
+                                        <option value="NEW">{alertStateLabel('NEW')}</option>
+                                        <option value="SUSPICIOUS">{alertStateLabel('SUSPICIOUS')}</option>
+                                        <option value="OK">{alertStateLabel('OK')}</option>
                                     </select>
                                 </div>
 
                                 <div className="row row--3">
-                                    <label>Amount</label>
+                                    <label>{FIELD_LABEL.amount}</label>
                                     {/*
-                                      Numeric, with a floor, because the queue prints amounts
-                                      plainly - 1500.00 - and that is what an analyst copies in
-                                      here. The one thing a number box must not be allowed to do
-                                      quietly is report unreadable input as empty; that is what
-                                      setAmountReadable is for.
+                                      Text and not number: these boxes have to accept the string
+                                      the queue beside them prints, and a number input reads only
+                                      the browser's own convention. The two words stay short
+                                      because at 200 percent text the box is narrower than any
+                                      example that would be worth printing; what the boxes accept
+                                      is on the cards next to them.
                                     */}
                                     <input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
                                         inputMode="decimal"
                                         placeholder="min"
-                                        value={filters.minAmount ?? ''}
-                                        onChange={(e) => {
-                                            setAmountReadable('min', e.currentTarget);
-                                            setF('minAmount', e.currentTarget.value);
-                                        }}
+                                        value={amountText.min}
+                                        onChange={(e) => setAmountBound('min', e.target.value)}
                                     />
                                     <input
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
                                         inputMode="decimal"
                                         placeholder="max"
-                                        value={filters.maxAmount ?? ''}
-                                        onChange={(e) => {
-                                            setAmountReadable('max', e.currentTarget);
-                                            setF('maxAmount', e.currentTarget.value);
-                                        }}
+                                        value={amountText.max}
+                                        onChange={(e) => setAmountBound('max', e.target.value)}
                                     />
                                 </div>
 
                                 <div className="row row--2">
-                                    <label>Assignee</label>
+                                    <label>{FIELD_LABEL.assignee}</label>
                                     <input placeholder="name" value={filters.assignee ?? ''} onChange={(e) => setF('assignee', e.target.value)} />
                                 </div>
 
@@ -322,23 +487,32 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                             {busyList && <div className="hint">Loading…</div>}
 
                             <div className="list">
-                                {alerts.map(a => (
-                                    <button
-                                        key={a.id}
-                                        className={'list-item' + (a.id === selectedId ? ' list-item--active' : '')}
-                                        onClick={() => openDetail(a.id)}
-                                    >
-                                        <div className="li-top">
-                                            <div className="li-code">{a.alertCode}</div>
-                                            {/* The transfer's status next to the alert's: an
-                                                alert on money that has already gone used to
-                                                look exactly like one on money still held. */}
-                                            <div className="li-state">{a.state} • {a.transferStatus}</div>
-                                        </div>
-                                        <div className="li-mid">{a.transferCode} • {formatMoney(a.amount)}</div>
-                                        <div className="li-bot">{a.shortReason}</div>
-                                    </button>
-                                ))}
+                                {alerts.map(a => {
+                                    const cells = queueCells(a);
+                                    return (
+                                        <button
+                                            key={a.id}
+                                            className={'list-item' + (a.id === selectedId ? ' list-item--active' : '')}
+                                            onClick={() => openDetail(a.id)}
+                                        >
+                                            <div className="li-top">
+                                                <div className="li-code">{cells.alertCode}</div>
+                                                {/* The transfer's status next to the alert's: an
+                                                    alert on money that has already gone used to
+                                                    look exactly like one on money still held. */}
+                                                <div className="li-state">{cells.state} · {cells.transferStatus}</div>
+                                            </div>
+                                            {/* The two numbers a triage turns on, pushed to the
+                                                two edges so they form two columns down the tray. */}
+                                            <div className="li-mid">
+                                                <span>{cells.transferCode} · {cells.amount}</span>
+                                                <span>{cells.riskScore}</span>
+                                            </div>
+                                            <div className="li-bot">{cells.shortReason}</div>
+                                            <div className="li-foot">{cells.createdAt} · {cells.assignee}</div>
+                                        </button>
+                                    );
+                                })}
                                 {!busyList && alerts.length === 0 && <div className="hint">No alerts</div>}
                             </div>
 
@@ -346,14 +520,14 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                               These three count the WHOLE queue, not the list above them, and
                               the server means it that way: it counts before applying any
                               filter. That is the right design and the numbers were never
-                              wrong - what was missing is this sentence. NEW: 7 sitting over a
+                              wrong - what was missing is this sentence. New: 7 sitting over a
                               list of three reads as a contradiction unless the screen says
                               which number is which.
 
                               Counting the visible list instead would be worse: the desk opens
-                              filtered to NEW, so two of the three would be permanently zero,
-                              and watching SUSPICIOUS rise as you work is the whole point of
-                              having them.
+                              filtered to new alerts, so two of the three would be permanently
+                              zero, and watching confirmed fraud rise as you work is the whole
+                              point of having them.
 
                               The three states are the only three, so their sum is the queue.
                             */}
@@ -363,9 +537,9 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                         Whole queue,{' '}
                                         {counters.newCount + counters.suspiciousCount + counters.okCount}:
                                     </div>
-                                    <div>NEW: {counters.newCount}</div>
-                                    <div>SUSPICIOUS: {counters.suspiciousCount}</div>
-                                    <div>OK: {counters.okCount}</div>
+                                    <div>{alertStateLabel('NEW')}: {counters.newCount}</div>
+                                    <div>{alertStateLabel('SUSPICIOUS')}: {counters.suspiciousCount}</div>
+                                    <div>{alertStateLabel('OK')}: {counters.okCount}</div>
                                     <div>showing {alerts.length}</div>
                                 </div>
                             )}
@@ -386,45 +560,119 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
 
                                 {detail && !busyDetail && (
                                     <>
-                                        {/* One block, not two: the same case stated twice over
-                                            was 170px of the panel and neither half had a title.
-                                            value-strong marks the two lines a verdict turns on,
-                                            so the weight sits on the value and not on the label
-                                            that is identical on every alert. */}
-                                        <div className="box box--case">
-                                            <div><b>Transfer:</b> {detail.transfer.code}</div>
-                                            <div><b>Status:</b> {detail.transfer.status}</div>
-                                            <div><b>Alert state:</b> {detail.alert.state}</div>
-                                            <div className="value-strong"><b>Risk score:</b> {detail.alert.riskScore ?? '—'}</div>
-                                            <div><b>Created:</b> {fmt(detail.alert.createdAt)}</div>
+                                        {/* The pane's subject line, not a box: what stood here
+                                            was a bordered block with no title repeating the card
+                                            the analyst had just clicked. The order is the order a
+                                            decision is taken in - which case, the two numbers it
+                                            turns on, then the two states - and the pane never
+                                            named the alert it had open at all. */}
+                                        <div className="case-head">
+                                            <div className="case-id">
+                                                {formatAlertId(detail.alert.id)} · {detail.transfer.code}
+                                            </div>
+                                            <div className="figures">
+                                                <div className="figure">
+                                                    <div className="figure-label">{FIELD_LABEL.amount}</div>
+                                                    <div className="figure-value">{formatMoney(detail.transfer.amount)}</div>
+                                                </div>
+                                                <div className="figure">
+                                                    <div className="figure-label">{FIELD_LABEL.riskScore}</div>
+                                                    <div className="figure-value">
+                                                        {detail.alert.riskScore ?? NOT_RECORDED}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            <div className="case-state">
+                                                Alert:{' '}
+                                                <span className={`tone-${alertStateTone(detail.alert.state)}`}>
+                                                    {alertStateLabel(detail.alert.state)}
+                                                </span>
+                                                {' · '}
+                                                Payment:{' '}
+                                                <span className={`tone-${transferStatusTone(detail.transfer.status)}`}>
+                                                    {transferStatusLabel(detail.transfer.status, 'analyst')}
+                                                </span>
+                                            </div>
                                         </div>
 
                                         <div className="box box--facts">
                                             <div className="box-title">Facts</div>
-                                            <ul className="facts">
-                                                <li><b>From:</b> {detail.transfer.fromIban} (balance {formatMoney(detail.transfer.fromBalance)})</li>
-                                                <li><b>To:</b> {detail.transfer.toIban}</li>
-                                                <li className="value-strong"><b>Amount:</b> {formatMoney(detail.transfer.amount)}</li>
-                                                <li><b>Fee:</b> {formatMoney(detail.transfer.feeAmount)}</li>
-                                                <li><b>Time:</b> {fmt(detail.transfer.createdAt)}</li>
-                                                <li><b>Auth:</b> {detail.transfer.authMethod ?? '—'}</li>
-                                                <li><b>Reason:</b> {detail.alert.reason}</li>
-                                            </ul>
+                                            {/*
+                                              A definition list, and the two timestamps are named
+                                              after the objects they belong to. They used to be
+                                              "Created" in one block and "Time" in another, print
+                                              identically in the demo data, and neither word said
+                                              which of the alert and the payment it meant.
+                                            */}
+                                            <dl className="facts">
+                                                <dt>From</dt>
+                                                <dd>{formatIban(detail.transfer.fromIban)}</dd>
+                                                {/* The account number and the balance behind it are
+                                                    two facts; they used to share one line. */}
+                                                <dt>From balance</dt>
+                                                <dd className="num">{formatMoney(detail.transfer.fromBalance)}</dd>
+                                                <dt>{FIELD_LABEL.toIban}</dt>
+                                                <dd>{formatIban(detail.transfer.toIban)}</dd>
+                                                <dt>Fee</dt>
+                                                <dd className="num">{formatMoney(detail.transfer.feeAmount)}</dd>
+                                                <dt>Auth method</dt>
+                                                <dd>{authMethodLabel(detail.transfer.authMethod) || NOT_RECORDED}</dd>
+                                                <dt>Payment created</dt>
+                                                <dd>{formatDateTime(detail.transfer.createdAt)}</dd>
+                                                <dt>Alert raised</dt>
+                                                <dd>{formatDateTime(detail.alert.createdAt)}</dd>
+                                                <dt>{FIELD_LABEL.assignee}</dt>
+                                                <dd>{detail.alert.assignee || UNASSIGNED}</dd>
+                                                <dt>{FIELD_LABEL.shortReason}</dt>
+                                                <dd>{detail.alert.reason}</dd>
+                                            </dl>
                                         </div>
 
                                         <div className="box box--history">
-                                            <div className="box-title">Customer & Transfer history (last 10)</div>
-                                            <div className="history">
-                                                {detail.history.map(h => (
-                                                    <div key={h.id} className="history-row">
-                                                        <div>{fmt(h.createdAt)}</div>
-                                                        <div>{formatMoney(h.amount)}</div>
-                                                        <div>{h.status}</div>
-                                                        <div>{h.toIban}</div>
-                                                    </div>
-                                                ))}
-                                                {detail.history.length === 0 && <div className="hint">No history</div>}
-                                            </div>
+                                            <div className="box-title">Customer &amp; Transfer history (last 10)</div>
+                                            {detail.history.length === 0 ? (
+                                                <div className="hint">No history</div>
+                                            ) : (
+                                                <table className="history">
+                                                    <colgroup>
+                                                        {HISTORY_COLUMNS.map(c => (
+                                                            <col key={c.field} className={c.col} />
+                                                        ))}
+                                                    </colgroup>
+                                                    <thead>
+                                                        <tr>
+                                                            {HISTORY_COLUMNS.map(c => (
+                                                                <th key={c.field} scope="col">{FIELD_LABEL[c.field]}</th>
+                                                            ))}
+                                                        </tr>
+                                                    </thead>
+                                                    {detail.history.map(h => {
+                                                        const cells = historyCells(h);
+                                                        return (
+                                                            /* One row group per payment, so the
+                                                               reason a payment was refused stays
+                                                               part of the row it explains. */
+                                                            <tbody key={h.id}>
+                                                                <tr>
+                                                                    {HISTORY_COLUMNS.map(c => (
+                                                                        <td key={c.field} className={c.cell}>
+                                                                            {cells[c.field]}
+                                                                        </td>
+                                                                    ))}
+                                                                </tr>
+                                                                {h.declineReason && (
+                                                                    <tr className="history-note">
+                                                                        <td colSpan={HISTORY_COLUMNS.length}>
+                                                                            {FIELD_LABEL.declineReason}:{' '}
+                                                                            {cells.declineReason}
+                                                                        </td>
+                                                                    </tr>
+                                                                )}
+                                                            </tbody>
+                                                        );
+                                                    })}
+                                                </table>
+                                            )}
                                         </div>
                                     </>
                                 )}
@@ -456,10 +704,10 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                     {/* The buttons mirror the domain guards exactly, so
                                         a click the server would refuse - taking the
                                         typed notes down with it - is not reachable.
-                                        Approve only from NEW; Decline from anything but
-                                        SUSPICIOUS, which is what lets fraud confirmed
-                                        after the money left be recorded on an alert
-                                        that had already been cleared. */}
+                                        Approve only from a new alert; Decline from
+                                        anything not already recorded as fraud, which is
+                                        what lets fraud confirmed after the money left be
+                                        recorded on an alert that had already been cleared. */}
                                     <div className="actions">
                                         <button
                                             className="btn btn--primary"
@@ -471,10 +719,13 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                             disabled={busyDecision || detail.alert.state === 'SUSPICIOUS'}
                                             onClick={() => decide('DECLINE')}
                                         >Decline: record fraud</button>
+                                        {/* The token this posts was REQUEST_CONFIRMATION, which
+                                            named something it has never done: it asks nobody for
+                                            anything and takes no decision. */}
                                         <button
                                             className="btn btn--quiet"
                                             disabled={busyDecision}
-                                            onClick={() => decide('REQUEST_CONFIRMATION')}
+                                            onClick={() => decide('ANNOTATE')}
                                         >Save notes, no decision</button>
                                     </div>
 

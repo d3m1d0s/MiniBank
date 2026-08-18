@@ -12,15 +12,35 @@ import {
     type FraudDecision,
     type FraudDecisionRequest,
     type AlertCounters,
-    type ApiError,
 } from './api';
 import { amountRangeProblem } from '@shared/alertFilters';
-import { formatMoney } from './money';
+import { formatMoney, parseAmount, readerLocale } from './money';
+import { describeApiErrorLines } from '@shared/apiErrors';
+import {
+    alertStateLabel,
+    authMethodLabel,
+    describeDeclineReason,
+    transferStatusLabel,
+} from '@shared/glossary';
+import {
+    EMPTY_VALUE,
+    formatAlertId,
+    formatDateTime,
+    formatIban,
+    formatTransferId,
+    NOT_RECORDED,
+} from '@shared/format';
 import Nav from './Nav';
 import type { NavRole, NavView } from '@shared/navigation';
 
 /** The transfer status a withdrawn payment ends in. */
 const WITHDRAWN = 'DECLINED';
+
+/**
+ * Which amount bound the analyst is typing in. The two boxes are one control by role, so they
+ * are handled by one function and told apart by this.
+ */
+type AmountBound = 'min' | 'max';
 
 /*
  * The desk takes a navigation callback like the other two screens, although App still keeps the
@@ -36,13 +56,6 @@ interface Props {
     onNavigate: (view: NavView) => void;
 }
 
-function formatDate(value?: string | null): string {
-    if (!value) return '';
-    const d = new Date(value);
-    if (Number.isNaN(d.getTime())) return value;
-    return d.toLocaleString();
-}
-
 /**
  * What actually happened, read off the alert the server sent back rather than off the button
  * that was pressed. Deriving it from the button was safe only while every decision did the one
@@ -53,17 +66,20 @@ function formatDate(value?: string | null): string {
  */
 function describeDecision(kind: FraudDecision, updated: AlertDetail): string {
     const status = updated.transfer.status;
+    // Whatever the sentence says about the payment's state, it says in the same words the queue
+    // and the panel above it use. It used to interpolate the enum: "the transfer is WAITING_AUTH".
+    const state = transferStatusLabel(status, 'analyst').toLowerCase();
 
     if (kind === 'APPROVE') {
         return status === 'WAITING_AUTH'
             ? 'Alert cleared. The payment is released to the customer to confirm; no money has moved.'
-            : `Alert cleared. The transfer was already ${status}, so there was nothing to release.`;
+            : `Alert cleared. The transfer was already ${state}, so there was nothing to release.`;
     }
 
     if (kind === 'DECLINE') {
         return status === 'SENT'
             ? 'Recorded as confirmed fraud. The payment had already been sent and has NOT been reversed.'
-            : `Alert marked suspicious and the transfer is ${status}.`;
+            : `Alert recorded as confirmed fraud, and the transfer is ${state}.`;
     }
 
     return 'Notes, assignee and tags saved. No decision was taken: the alert is still open and the transfer is unchanged.';
@@ -91,11 +107,27 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
         excludeTransferStatus: [WITHDRAWN],
     });
 
-    const [unreadable, setUnreadable] = useState({ min: false, max: false });
+    /**
+     * The two amount bounds as they were typed, and what is wrong with each of them.
+     *
+     * The boxes hold text, not a number. They were type="number", which refuses the very string
+     * the queue prints above them - an analyst who copies `10 001,00` out of a row and pastes it
+     * here got an empty box - and one amount convention across both applications is the point:
+     * the same reader, the same parser and the same echo as the payment form.
+     *
+     * The reason is kept per box, because fixing the upper bound must not silently forgive the
+     * lower one, and because it names what is wrong with the string rather than that something
+     * was.
+     */
+    const [amountText, setAmountText] = useState({ min: '', max: '' });
+    const [amountReason, setAmountReason] = useState<Record<AmountBound, string | null>>({
+        min: null,
+        max: null,
+    });
 
-    const [listError, setListError] = useState<string | null>(null);
-    const [detailError, setDetailError] = useState<string | null>(null);
-    const [decisionError, setDecisionError] = useState<string | null>(null);
+    const [listError, setListError] = useState<string[] | null>(null);
+    const [detailError, setDetailError] = useState<string[] | null>(null);
+    const [decisionError, setDecisionError] = useState<string[] | null>(null);
     const [decisionMessage, setDecisionMessage] = useState<string | null>(null);
 
     const [loadingList, setLoadingList] = useState(false);
@@ -108,21 +140,41 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
     useEffect(() => {
         void loadAlerts();
         // eslint-disable-next-line react-hooks/exhaustive-deps
-        // unreadable belongs in here beside filters. Typing something the box cannot read into
-        // an already empty field leaves the value at '' and the filters untouched, so on filters
-        // alone nothing would re-run and the analyst would be told nothing at all.
-    }, [filters, unreadable]);
+        // amountReason belongs in here beside filters. Typing something the parser cannot read
+        // into an already empty box leaves the filters untouched, so on filters alone nothing
+        // would re-run and the analyst would be told nothing at all.
+    }, [filters, amountReason]);
 
     /**
-     * Records whether the browser could read what was typed into an amount box.
+     * Reads one amount bound the way the payment form reads its amount, and echoes it back.
      *
-     * A number input reports an unreadable value as the empty string, which is exactly what a
-     * cleared box reports, so without this the parameter would simply not be sent and the
-     * analyst would get the whole queue looking like a filtered one. Kept per box: fixing the
-     * upper bound must not silently forgive the lower one.
+     * A bound that cannot be read is not sent: an unsent parameter and a cleared box look the
+     * same to the endpoint, and an analyst who mistyped a bound would be handed the whole queue
+     * looking like a filtered one. So the refusal is held here and shown instead.
      */
-    function setAmountReadable(which: 'min' | 'max', input: HTMLInputElement) {
-        setUnreadable((prev) => ({ ...prev, [which]: input.validity.badInput }));
+    function changeAmountBound(which: AmountBound, raw: string) {
+        setAmountText((prev) => ({ ...prev, [which]: raw }));
+
+        const key = which === 'min' ? 'minAmount' : 'maxAmount';
+        if (raw.trim() === '') {
+            setAmountReason((prev) => ({ ...prev, [which]: null }));
+            setFilters((prev) => ({ ...prev, [key]: undefined }));
+            return;
+        }
+
+        // The endpoint takes a plain decimal, which is what the parser hands back; the Czech
+        // spelling of the same number goes into the box on blur, so the analyst sees which
+        // reading they got.
+        const parsed = parseAmount(raw, readerLocale());
+        setAmountReason((prev) => ({ ...prev, [which]: parsed.ok ? null : parsed.reason }));
+        setFilters((prev) => ({ ...prev, [key]: parsed.ok ? String(parsed.value) : undefined }));
+    }
+
+    function normalizeAmountBound(which: AmountBound) {
+        const parsed = parseAmount(amountText[which], readerLocale());
+        if (parsed.ok) {
+            setAmountText((prev) => ({ ...prev, [which]: parsed.czech }));
+        }
     }
 
     async function loadAlerts(keepSelection = false) {
@@ -130,11 +182,19 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
         // which two numbers are the wrong way round; the server cannot, because no handler
         // echoes an exception message. The server half exists because the endpoint is reachable
         // without this screen.
-        const problem = amountRangeProblem(filters, unreadable);
+        //
+        // A box the parser refused is answered with the parser's own sentence, which says what
+        // is wrong with that string. The shared guard's unreadable branch is the answer for a
+        // caller that has no sentence of its own, so by the time it runs both bounds are either
+        // readable or empty.
+        const problem =
+            amountReason.min ??
+            amountReason.max ??
+            amountRangeProblem(filters, { min: false, max: false });
         if (problem) {
             setAlerts([]);
             setCounters(null);
-            setListError(problem);
+            setListError([problem]);
             return;
         }
 
@@ -151,7 +211,7 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                 setDetail(null);
             }
         } catch (e) {
-            setListError((e as Error).message || 'Failed to load alerts.');
+            setListError(describeApiErrorLines(e, 'alert-queue'));
         } finally {
             setLoadingList(false);
         }
@@ -169,9 +229,7 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
             const d = await fetchAlertDetail(id);
             setDetail(d);
         } catch (e) {
-            setDetailError(
-                (e as Error).message || 'Failed to load alert details.',
-            );
+            setDetailError(describeApiErrorLines(e, 'alert-details'));
         } finally {
             setLoadingDetail(false);
         }
@@ -201,15 +259,9 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
             // panel that shows what the decision did.
             await loadAlerts(true);
         } catch (e) {
-            const err = e as ApiError;
-
-            // Re-read before reporting, so the panel matches the server. The 409 wording had to
-            // change outright: it used to name "already sent", which is now the one case that
-            // succeeds. What produces a 409 here is a state guard - the alert was decided by
-            // somebody else, or the transfer moved out from under the decision - and neither is
-            // distinguishable in the body, so the sentence names the one thing certainly true
-            // and points at the refreshed panel. Kept identical to the wording in
-            // minibank-fraud-web, so the two desks do not disagree.
+            // Re-read before reporting, so what is on screen matches the server. The shared
+            // table's sentence for a refused decision promises exactly that, and it names no
+            // position on the screen: the two desks put this panel in different places.
             await loadAlerts(true);
             try {
                 setDetail(await fetchAlertDetail(selectedId));
@@ -217,13 +269,7 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                 // The alert may no longer be readable; the message does not depend on it.
             }
 
-            setDecisionError(
-                err.code === 'CONFLICT'
-                    ? 'This decision was not applied: the alert or its transfer has already changed state. The panel above has been refreshed.'
-                    : err.code === 'NOT_FOUND'
-                        ? 'This alert no longer exists.'
-                        : err.message || 'Failed to apply decision.',
-            );
+            setDecisionError(describeApiErrorLines(e, 'alert-decision'));
         } finally {
             setLoadingDecision(false);
         }
@@ -258,53 +304,53 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                         <section className="section">
                             <h2 className="section-title">Alerts queue</h2>
 
+                            {/*
+                              A caption under the heading, not a panel above the queue. The four
+                              numbers were set in a bordered box with a fill, which made them the
+                              largest and lightest object on the screen and left the queue itself
+                              the fourth thing the eye reached; they carry neither now, and the
+                              queue is the only thing in this section with a shape of its own.
+
+                              The numbers themselves are unchanged and so is what they mean. They
+                              count the WHOLE queue, not the list below, because the server counts
+                              before applying any filter: New 7 over a list of three reads as a
+                              contradiction until the line says which number is which. Counting
+                              the visible list instead would be worse, since this page opens
+                              filtered to New and two of the three would be permanently zero.
+                              The three states are the only three, so their sum is the queue.
+
+                              The states are named in the words the queue below uses, and no
+                              longer as OK and Suspicious beside rows that say Cleared and
+                              Confirmed fraud.
+                            */}
                             {counters && (
-                                <div className="summary gap-below-sm">
-                                    {/*
-                                      "Overview" was nearly right and too vague to settle the
-                                      question these numbers raise. They count the WHOLE queue,
-                                      not the list below, and the server means it that way: it
-                                      counts before applying any filter. New: 7 over a list of
-                                      three reads as a contradiction until the screen says which
-                                      number is which.
-
-                                      Counting the visible list instead would be worse: this
-                                      page opens filtered to New, so two of the three would be
-                                      permanently zero, and watching Suspicious rise as you work
-                                      is the whole point of having them.
-
-                                      The three states are the only three, so their sum is the
-                                      queue.
-                                    */}
-                                    <div className="summary-title">
-                                        Whole queue,{' '}
-                                        {counters.newCount +
-                                            counters.suspiciousCount +
-                                            counters.okCount}{' '}
-                                        alerts
-                                    </div>
-                                    <ul>
-                                        <li>New: {counters.newCount}</li>
-                                        <li>
-                                            Suspicious:{' '}
-                                            {counters.suspiciousCount}
-                                        </li>
-                                        <li>OK: {counters.okCount}</li>
-                                    </ul>
-                                    <div>
-                                        Showing {alerts.length} with the filters
-                                        below.
-                                    </div>
-                                </div>
+                                <p className="section-caption">
+                                    Whole queue:{' '}
+                                    {counters.newCount +
+                                        counters.suspiciousCount +
+                                        counters.okCount}{' '}
+                                    alerts. New {counters.newCount}, confirmed fraud{' '}
+                                    {counters.suspiciousCount}, cleared {counters.okCount}.
+                                    Showing {alerts.length} with the filters below.
+                                </p>
                             )}
 
-                            {/* Filters for the queue */}
-                            <div className="section-block">
-                                <div className="field-row">
-                                    <label className="field-label">
+                            {/*
+                              The filters of a queue, on one wrapping row rather than four
+                              stacked rows of their own. Stacked, they pushed the queue 220px
+                              down the page and off the first fold, so the desk opened as a form
+                              about a queue instead of as the queue. Each label stands above the
+                              control it names, and each control is as wide as what goes into it.
+                            */}
+                            <div className="section-block filter-bar">
+                                <div className="filter-field">
+                                    <label className="field-label" htmlFor="filter-state">
                                         State
                                     </label>
+                                    {/* The options say what the queue and the panel below say:
+                                        the two verdicts are what an analyst wrote, not moods. */}
                                     <select
+                                        id="filter-state"
                                         className="field-input field-input--state"
                                         value={filters.state ?? ''}
                                         onChange={(e) =>
@@ -315,59 +361,64 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                         }
                                     >
                                         <option value="">All</option>
-                                        <option value="NEW">New</option>
+                                        <option value="NEW">{alertStateLabel('NEW')}</option>
                                         <option value="SUSPICIOUS">
-                                            Suspicious
+                                            {alertStateLabel('SUSPICIOUS')}
                                         </option>
-                                        <option value="OK">OK</option>
+                                        <option value="OK">{alertStateLabel('OK')}</option>
                                     </select>
                                 </div>
 
-                                <div className="field-row">
-                                    <label className="field-label">
-                                        Amount
+                                {/*
+                                  Text, and read by the same parser as the payment amount, so
+                                  the string the queue prints one row above is a string this box
+                                  accepts. It was type="number", which reports anything it cannot
+                                  interpret as the empty string, and `10 001,00` is exactly that.
+                                  The Czech spelling is written back on blur, so the reading the
+                                  parser took is the one on screen.
+                                */}
+                                <div className="filter-field">
+                                    <label className="field-label" htmlFor="filter-amount-min">
+                                        Amount from
                                     </label>
-                                    {/*
-                                      Numeric, with a floor, because the queue prints amounts
-                                      plainly - 1500.00 - and that is what an analyst copies in
-                                      here. The one thing a number box must not be allowed to do
-                                      quietly is report unreadable input as empty; that is what
-                                      setAmountReadable is for.
-                                    */}
                                     <input
+                                        id="filter-amount-min"
                                         className="field-input field-input--amount"
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
+                                        type="text"
                                         inputMode="decimal"
-                                        placeholder="Min"
-                                        value={filters.minAmount ?? ''}
-                                        onChange={(e) => {
-                                            setAmountReadable('min', e.currentTarget);
-                                            updateFilter('minAmount', e.currentTarget.value);
-                                        }}
-                                    />
-                                    <div className="field-side">-</div>
-                                    <input
-                                        className="field-input field-input--amount"
-                                        type="number"
-                                        min="0"
-                                        step="0.01"
-                                        inputMode="decimal"
-                                        placeholder="Max"
-                                        value={filters.maxAmount ?? ''}
-                                        onChange={(e) => {
-                                            setAmountReadable('max', e.currentTarget);
-                                            updateFilter('maxAmount', e.currentTarget.value);
-                                        }}
+                                        placeholder="0,00"
+                                        value={amountText.min}
+                                        onChange={(e) =>
+                                            changeAmountBound('min', e.currentTarget.value)
+                                        }
+                                        onBlur={() => normalizeAmountBound('min')}
                                     />
                                 </div>
 
-                                <div className="field-row">
-                                    <label className="field-label">
+                                <div className="filter-field">
+                                    <label className="field-label" htmlFor="filter-amount-max">
+                                        Amount to
+                                    </label>
+                                    <input
+                                        id="filter-amount-max"
+                                        className="field-input field-input--amount"
+                                        type="text"
+                                        inputMode="decimal"
+                                        placeholder="0,00"
+                                        value={amountText.max}
+                                        onChange={(e) =>
+                                            changeAmountBound('max', e.currentTarget.value)
+                                        }
+                                        onBlur={() => normalizeAmountBound('max')}
+                                    />
+                                </div>
+
+                                <div className="filter-field">
+                                    <label className="field-label" htmlFor="filter-assignee">
                                         Assignee
                                     </label>
                                     <input
+                                        id="filter-assignee"
                                         className="field-input field-input--login"
                                         type="text"
                                         placeholder="e.g. analyst1"
@@ -381,45 +432,45 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                     />
                                 </div>
 
-                                <div className="field-row">
-                                    <label className="field-label">
-                                        Withdrawn
-                                    </label>
-                                    <label>
-                                        <input
-                                            type="checkbox"
-                                            checked={
-                                                !filters.excludeTransferStatus?.includes(
-                                                    WITHDRAWN,
-                                                )
-                                            }
-                                            /*
-                                              Read before the updater runs, not inside it. React
-                                              clears currentTarget once the handler returns, and
-                                              an updater passed to setState runs later, on the
-                                              render pass: reading the event in there dereferenced
-                                              null and took the whole screen down with it.
-                                            */
-                                            onChange={(e) => {
-                                                const showWithdrawn = e.currentTarget.checked;
-                                                setFilters((prev) => ({
-                                                    ...prev,
-                                                    excludeTransferStatus: showWithdrawn
-                                                        ? undefined
-                                                        : [WITHDRAWN],
-                                                }));
-                                            }}
-                                        />{' '}
-                                        Show alerts on cancelled payments
-                                    </label>
-                                </div>
+                                {/* A checkbox carries its label to its right, so it has none
+                                    above it and stands on the line of the fields, not of their
+                                    labels. */}
+                                <label className="filter-check">
+                                    <input
+                                        type="checkbox"
+                                        checked={
+                                            !filters.excludeTransferStatus?.includes(
+                                                WITHDRAWN,
+                                            )
+                                        }
+                                        /*
+                                          Read before the updater runs, not inside it. React
+                                          clears currentTarget once the handler returns, and
+                                          an updater passed to setState runs later, on the
+                                          render pass: reading the event in there dereferenced
+                                          null and took the whole screen down with it.
+                                        */
+                                        onChange={(e) => {
+                                            const showWithdrawn = e.currentTarget.checked;
+                                            setFilters((prev) => ({
+                                                ...prev,
+                                                excludeTransferStatus: showWithdrawn
+                                                    ? undefined
+                                                    : [WITHDRAWN],
+                                            }));
+                                        }}
+                                    />
+                                    Show alerts on cancelled payments
+                                </label>
                             </div>
 
                             {listError && (
                                 <div className="summary summary--danger gap-above-sm">
                                     <div className="summary-title">Error</div>
                                     <ul>
-                                        <li>{listError}</li>
+                                        {listError.map((line) => (
+                                            <li key={line}>{line}</li>
+                                        ))}
                                     </ul>
                                 </div>
                             )}
@@ -444,9 +495,9 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                                 has already gone used to look exactly like one
                                                 on money still held. */}
                                             <th>Transfer status</th>
-                                            <th>Amount</th>
+                                            <th className="cell--amount">Amount</th>
                                             <th>Reason</th>
-                                            <th>Risk</th>
+                                            <th>Risk score</th>
                                             <th>Assignee</th>
                                             <th>Created</th>
                                         </tr>
@@ -466,20 +517,25 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                             >
                                                 <td>{a.alertCode}</td>
                                                 <td>{a.transferCode}</td>
-                                                <td>{a.state}</td>
-                                                <td>{a.transferStatus}</td>
-                                                <td>{formatMoney(a.amount)}</td>
+                                                <td>{alertStateLabel(a.state)}</td>
+                                                <td>
+                                                    {transferStatusLabel(
+                                                        a.transferStatus,
+                                                        'analyst',
+                                                    )}
+                                                </td>
+                                                <td className="cell--amount">
+                                                    {formatMoney(a.amount)}
+                                                </td>
                                                 <td>{a.shortReason}</td>
                                                 <td>
-                                                    {a.riskScore ?? '—'}
+                                                    {a.riskScore ?? EMPTY_VALUE}
                                                 </td>
                                                 <td>
-                                                    {a.assignee || '—'}
+                                                    {a.assignee || EMPTY_VALUE}
                                                 </td>
                                                 <td>
-                                                    {formatDate(
-                                                        a.createdAt,
-                                                    )}
+                                                    {formatDateTime(a.createdAt)}
                                                 </td>
                                             </tr>
                                         ))}
@@ -497,7 +553,9 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                 <div className="summary summary--danger gap-below-sm">
                                     <div className="summary-title">Error</div>
                                     <ul>
-                                        <li>{detailError}</li>
+                                        {detailError.map((line) => (
+                                            <li key={line}>{line}</li>
+                                        ))}
                                     </ul>
                                 </div>
                             )}
@@ -516,67 +574,105 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
 
                             {detail && !loadingDetail && (
                                 <div className="section-block">
+                                    {/*
+                                      The labels were <strong>, which is 700, under a section
+                                      heading at 600: every word naming a fact outweighed the
+                                      fact it named. They step down in colour instead, and the
+                                      two figures a decision turns on - the amount and the risk
+                                      score - take the lead rung.
+
+                                      The alert says the code the queue row above says. It read
+                                      "Alert: 2 (NEW)" eight lines under a row saying ALERT-2.
+                                    */}
                                     <div className="details-card">
                                         <p>
-                                            <strong>Alert:</strong>{' '}
-                                            {detail.alert.id} (
-                                            {detail.alert.state})
+                                            <span className="fact-label">Alert:</span>{' '}
+                                            <span className="fact-value">
+                                                {formatAlertId(detail.alert.id)} (
+                                                {alertStateLabel(detail.alert.state)})
+                                            </span>
                                         </p>
                                         <p>
-                                            <strong>Reason:</strong>{' '}
-                                            {detail.alert.reason}
+                                            <span className="fact-label">Reason:</span>{' '}
+                                            <span className="fact-value">
+                                                {detail.alert.reason}
+                                            </span>
                                         </p>
                                         <p>
-                                            <strong>Risk score:</strong>{' '}
-                                            {detail.alert.riskScore ?? '—'}
+                                            <span className="fact-label">Risk score:</span>{' '}
+                                            <span className="fact-value fact-value--lead">
+                                                {detail.alert.riskScore ?? EMPTY_VALUE}
+                                            </span>
                                         </p>
                                         <p>
-                                            <strong>Assignee:</strong>{' '}
-                                            {detail.alert.assignee || '—'}
+                                            <span className="fact-label">Assignee:</span>{' '}
+                                            <span className="fact-value">
+                                                {detail.alert.assignee || 'unassigned'}
+                                            </span>
                                         </p>
                                         <p>
-                                            <strong>Created:</strong>{' '}
-                                            {formatDate(
-                                                detail.alert.createdAt,
-                                            )}
+                                            <span className="fact-label">Alert raised:</span>{' '}
+                                            <span className="fact-value">
+                                                {formatDateTime(detail.alert.createdAt)}
+                                            </span>
                                         </p>
                                     </div>
 
                                     <div className="details-card gap-above-lg">
                                         <p>
-                                            <strong>Transfer:</strong>{' '}
-                                            {detail.transfer.code}
+                                            <span className="fact-label">Transfer:</span>{' '}
+                                            <span className="fact-value">
+                                                {detail.transfer.code}
+                                            </span>
                                         </p>
                                         <p>
-                                            <strong>Status:</strong>{' '}
-                                            {detail.transfer.status}
+                                            <span className="fact-label">Status:</span>{' '}
+                                            <span className="fact-value">
+                                                {transferStatusLabel(
+                                                    detail.transfer.status,
+                                                    'analyst',
+                                                )}
+                                            </span>
                                         </p>
                                         <p>
-                                            <strong>From:</strong>{' '}
-                                            {detail.transfer.fromIban} (Balance:{' '}
-                                            {formatMoney(detail.transfer.fromBalance)})
+                                            <span className="fact-label">From:</span>{' '}
+                                            <span className="fact-value">
+                                                {formatIban(detail.transfer.fromIban)} (Balance:{' '}
+                                                {formatMoney(detail.transfer.fromBalance)})
+                                            </span>
                                         </p>
                                         <p>
-                                            <strong>To:</strong>{' '}
-                                            {detail.transfer.toIban}
+                                            <span className="fact-label">To:</span>{' '}
+                                            <span className="fact-value">
+                                                {formatIban(detail.transfer.toIban)}
+                                            </span>
                                         </p>
                                         <p>
-                                            <strong>Amount:</strong>{' '}
-                                            {formatMoney(detail.transfer.amount)}
+                                            <span className="fact-label">Amount:</span>{' '}
+                                            <span className="fact-value fact-value--lead">
+                                                {formatMoney(detail.transfer.amount)}
+                                            </span>
                                         </p>
                                         <p>
-                                            <strong>Fee:</strong>{' '}
-                                            {formatMoney(detail.transfer.feeAmount)}
+                                            <span className="fact-label">Fee:</span>{' '}
+                                            <span className="fact-value">
+                                                {formatMoney(detail.transfer.feeAmount)}
+                                            </span>
+                                        </p>
+                                        {/* Two timestamps on one panel, and neither label used
+                                            to say which object it belonged to. */}
+                                        <p>
+                                            <span className="fact-label">Payment created:</span>{' '}
+                                            <span className="fact-value">
+                                                {formatDateTime(detail.transfer.createdAt)}
+                                            </span>
                                         </p>
                                         <p>
-                                            <strong>Created:</strong>{' '}
-                                            {formatDate(
-                                                detail.transfer.createdAt,
-                                            )}
-                                        </p>
-                                        <p>
-                                            <strong>Auth method:</strong>{' '}
-                                            {detail.transfer.authMethod || '—'}
+                                            <span className="fact-label">Auth method:</span>{' '}
+                                            <span className="fact-value">
+                                                {authMethodLabel(detail.transfer.authMethod) ||
+                                                    NOT_RECORDED}
+                                            </span>
                                         </p>
                                     </div>
 
@@ -598,7 +694,9 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                                     <tr>
                                                         <th>ID</th>
                                                         <th>Created</th>
-                                                        <th>Amount</th>
+                                                        <th className="cell--amount">
+                                                            Amount
+                                                        </th>
                                                         <th>Status</th>
                                                         <th>To</th>
                                                         <th>
@@ -613,31 +711,35 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                                                 key={h.id}
                                                             >
                                                                 <td>
-                                                                    {h.id}
+                                                                    {formatTransferId(h.id)}
                                                                 </td>
                                                                 <td>
-                                                                    {formatDate(
+                                                                    {formatDateTime(
                                                                         h.createdAt,
                                                                     )}
                                                                 </td>
-                                                                <td>
+                                                                <td className="cell--amount">
                                                                     {formatMoney(
                                                                         h.amount,
                                                                     )}
                                                                 </td>
                                                                 <td>
-                                                                    {
-                                                                        h.status
-                                                                    }
+                                                                    {transferStatusLabel(
+                                                                        h.status,
+                                                                        'analyst',
+                                                                    )}
                                                                 </td>
                                                                 <td>
-                                                                    {
-                                                                        h.toIban
-                                                                    }
+                                                                    {formatIban(h.toIban)}
                                                                 </td>
+                                                                {/* The same sentence the
+                                                                    customer is now shown for
+                                                                    their own declined payment,
+                                                                    from the same function. */}
                                                                 <td>
-                                                                    {h.declineReason ||
-                                                                        '—'}
+                                                                    {describeDeclineReason(
+                                                                        h.declineReason,
+                                                                    ) || EMPTY_VALUE}
                                                                 </td>
                                                             </tr>
                                                         ),
@@ -704,7 +806,14 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                             is not reachable. Approve only from NEW; Decline
                                             from anything but SUSPICIOUS, which is what lets
                                             fraud confirmed after the money left be recorded on
-                                            an alert that was already cleared. */}
+                                            an alert that was already cleared.
+
+                                            Three consequences, three shapes. Declining records
+                                            a verdict against a customer and cannot be taken
+                                            back, so it is the destructive edge; saving notes
+                                            decides nothing, so it carries no shape and the gap
+                                            in front of it says it is not one of the pair. The
+                                            last two were the same two white rectangles. */}
                                         <div className="actions gap-above-lg">
                                             <button
                                                 type="button"
@@ -723,7 +832,7 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                             </button>
                                             <button
                                                 type="button"
-                                                className="btn-secondary"
+                                                className="btn-secondary btn-secondary--danger"
                                                 disabled={
                                                     loadingDecision ||
                                                     detail.alert.state === 'SUSPICIOUS'
@@ -734,14 +843,15 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                             >
                                                 Decline: record confirmed fraud
                                             </button>
+                                            {/* ANNOTATE. The token used to be called
+                                                REQUEST_CONFIRMATION, which named something it
+                                                has never done: it asks nobody for anything. */}
                                             <button
                                                 type="button"
-                                                className="btn-secondary"
+                                                className="btn-quiet push-end"
                                                 disabled={loadingDecision}
                                                 onClick={() =>
-                                                    handleDecision(
-                                                        'REQUEST_CONFIRMATION',
-                                                    )
+                                                    handleDecision('ANNOTATE')
                                                 }
                                             >
                                                 Save notes, no decision
@@ -762,7 +872,9 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                                 Error
                                             </div>
                                             <ul>
-                                                <li>{decisionError}</li>
+                                                {decisionError.map((line) => (
+                                                    <li key={line}>{line}</li>
+                                                ))}
                                             </ul>
                                         </div>
                                     )}

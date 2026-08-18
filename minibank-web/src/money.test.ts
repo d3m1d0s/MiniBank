@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { parseAmount, formatCzech, formatMoney } from './money';
+import { EMPTY_VALUE } from '@shared/format';
 
 /**
  * The amount a customer types is the one place in this application where the same string means
@@ -229,7 +230,7 @@ describe('the edges of what a payment can be', () => {
 
 describe('showing an amount the server has already decided', () => {
     it('prints the amount and its currency together', () => {
-        expect(formatMoney({ amount: '1500.00', currency: 'CZK' })).toBe('1500.00 CZK');
+        expect(formatMoney({ amount: '1500.00', currency: 'CZK' })).toBe(`1${NBSP}500,00 CZK`);
     });
 
     it('never prints an amount without its unit, which is the defect it exists to prevent', () => {
@@ -244,14 +245,45 @@ describe('showing an amount the server has already decided', () => {
     it('shows a dash for an absent value rather than an empty gap', () => {
         // Null is meaningful here: a payment that has not settled has been charged nothing,
         // which is a different fact from a charge of zero.
-        expect(formatMoney(null)).toBe('—');
-        expect(formatMoney(undefined)).toBe('—');
+        expect(formatMoney(null)).toBe(EMPTY_VALUE);
+        expect(formatMoney(undefined)).toBe(EMPTY_VALUE);
     });
 
-    it('leaves the digits exactly as the server wrote them', () => {
-        // Not run through formatCzech: these are amounts the bank has decided, not amounts a
-        // person is typing, and regrouping them here would be a second formatting rule on one
-        // value.
-        expect(formatMoney({ amount: '999999.99', currency: 'CZK' })).toBe('999999.99 CZK');
+    it('groups the digits the Czech way, which is what the dates beside them already do', () => {
+        // 10001.00 CZK used to be printed one line above 13. 8. 2026 20:52, so the page carried
+        // two conventions and the amount was the half in neither.
+        expect(formatMoney({ amount: '10001.00', currency: 'CZK' })).toBe(`10${NBSP}001,00 CZK`);
+        expect(formatMoney({ amount: '999999.99', currency: 'CZK' })).toBe(
+            `999${NBSP}999,99 CZK`,
+        );
+        expect(formatMoney({ amount: '50.00', currency: 'CZK' })).toBe('50,00 CZK');
+    });
+
+    it('regroups rather than reparses, so the digits are still the ones the server sent', () => {
+        // Past what a double can hold. Nothing here goes through Number(), so nothing rounds.
+        expect(formatMoney({ amount: '12345678901234567.89', currency: 'CZK' })).toBe(
+            `12${NBSP}345${NBSP}678${NBSP}901${NBSP}234${NBSP}567,89 CZK`,
+        );
+        // The scale is the server's. Two decimals are not invented for a whole number, and a
+        // third is not thrown away.
+        expect(formatMoney({ amount: '1500', currency: 'CZK' })).toBe(`1${NBSP}500 CZK`);
+        expect(formatMoney({ amount: '1.005', currency: 'CZK' })).toBe('1,005 CZK');
+    });
+
+    it('keeps the currency as the code the server chose', () => {
+        // Czech convention decides the numerals. The unit is the server's own value, and Kč
+        // would be a wrong word rather than a translated one the day a second currency appears.
+        expect(formatMoney({ amount: '10.00', currency: 'EUR' })).toBe('10,00 EUR');
+    });
+
+    it('prints an amount it cannot read as it arrived, rather than as NaN', () => {
+        expect(formatMoney({ amount: 'unknown', currency: 'CZK' })).toBe('unknown CZK');
+    });
+
+    it('reads back through the input parser, so the echo and the receipt agree', () => {
+        // The amount field writes 1 500,00 into the box; the confirmation beneath it prints
+        // 1 500,00 CZK. One convention, so the customer is not asked to match two.
+        const shown = formatMoney({ amount: '1500.00', currency: 'CZK' });
+        expect(value(shown.replace(' CZK', ''), CZ)).toBe(1500);
     });
 });

@@ -5,7 +5,6 @@ import {
     fetchWaitingTransfers,
     fetchTransferDetails,
     confirmAuthorization,
-    type ApiError,
     type WaitingTransferItem,
     type TransferDetails,
     type AuthorizePaymentResult,
@@ -13,18 +12,26 @@ import {
     isUnderReview,
 } from './api';
 import { formatMoney } from './money';
+import { describeApiErrorLines } from '@shared/apiErrors';
+import { authMethodLabel, describeDeclineReason, transferStatusLabel } from '@shared/glossary';
+import { formatDateTime, formatIban, formatTransferId, NOT_RECORDED } from '@shared/format';
 import Nav from './Nav';
 import type { NavRole, NavView } from '@shared/navigation';
 
 /**
- * The one sentence a customer whose payment is held needs, kept identical to the server's
- * TRANSFER_UNDER_REVIEW message. It is rendered under the disabled Confirm button rather than
- * only as an error, because the button they would have to press to see the error is the one
- * that is disabled - so as an error alone it would be copy nobody ever reads.
+ * The one sentence a customer whose payment is held needs. It is rendered under the disabled
+ * Confirm button rather than only as an error, because the button they would have to press to
+ * see the error is the one that is disabled - so as an error alone it would be copy nobody ever
+ * reads.
+ *
+ * Word for word the TRANSFER_UNDER_REVIEW entry of the shared error table, which is where the
+ * same sentence is written for the case where the server does refuse a confirmation. It cannot
+ * be read from there without inventing a failure that did not happen, so it is kept here and
+ * kept identical, and it names no position on the screen for the reason that table gives.
  */
 const UNDER_REVIEW_TEXT =
     'The bank is reviewing this payment. You will be able to confirm it once the review is ' +
-    'finished, or you can cancel it above.';
+    'finished, or you can cancel it.';
 
 interface Props {
     role: NavRole;
@@ -35,74 +42,6 @@ interface Props {
     onNavigate: (view: NavView) => void;
 }
 
-function mapDeclineReason(reason: string): string {
-    const r = reason.toLowerCase();
-
-    if (r.includes('otp failed') || r.includes('wrong otp')) {
-        return 'Wrong one-time password (OTP). Please check the code and try again.';
-    }
-
-    if (r.includes('too many') || r.includes('attempts exceeded')) {
-        return 'Too many incorrect OTP attempts - this transfer was declined for security reasons.';
-    }
-
-    if (r.includes('expired') || r.includes('authorization window')) {
-        return 'Authorization time window has expired. Please create a new transfer if you still want to send money.';
-    }
-
-    if (r.includes('insufficient funds')) {
-        return 'Insufficient balance - top up your account or cancel this transfer.';
-    }
-
-    if (r.includes('canceled by customer') || r.includes('cancelled by customer') || r.includes('canceled')) {
-        return 'The transfer was canceled by the customer.';
-    }
-
-    return reason;
-}
-
-/**
- * Turns the server's error codes into one sentence for the customer. Every code below is
- * reachable on POST /api/transfers/{id}/authorize; there is no matching on message text,
- * which used to misfire whenever an unrelated message happened to contain "expired".
- *
- * The branches this replaces named WRONG_OTP, OTP_ATTEMPTS_EXCEEDED and OTP_EXPIRED -
- * three codes the backend has never sent, and none of them spelled the way INVALID_OTP is.
- */
-function describeAuthorizationError(err: ApiError, triesLeft?: number): string {
-    switch (err.code) {
-        case 'INVALID_OTP': {
-            const extra =
-                triesLeft !== undefined && triesLeft !== null
-                    ? ` You have ${triesLeft} attempt${triesLeft === 1 ? '' : 's'} left.`
-                    : '';
-            return 'Wrong one-time password (OTP). Please check the code and try again.' + extra;
-        }
-        case 'INSUFFICIENT_FUNDS':
-            return 'Insufficient balance – top up your account and try again or cancel this transfer.';
-        // Reachable for an API caller and for a customer whose payment was held between the
-        // page loading and their pressing Confirm. Without this case it falls to `default`,
-        // which renders the catalogue sentence but also leaves CONFLICT's "refresh the list"
-        // advice as the nearest thing on screen, and refreshing shows nothing new.
-        case 'TRANSFER_UNDER_REVIEW':
-            return UNDER_REVIEW_TEXT;
-        // A refused write, and it must sit above CONFLICT rather than fall through to `default`. The
-        // catalogue sentence would render either way, but CONFLICT's "refresh the list" advice
-        // is the nearest thing on screen and refreshing shows the transfer still waiting -
-        // whereas the right action here is simply to confirm again.
-        case 'CONCURRENT_MODIFICATION':
-            return 'Another change was applied to this account first. Nothing was charged - please confirm again.';
-        case 'CONFLICT':
-            return 'This transfer can no longer be confirmed. Refresh the list to see its current state.';
-        case 'NOT_FOUND':
-            return 'This transfer is no longer available.';
-        case 'VALIDATION_ERROR':
-            return 'Please enter the one-time password before confirming.';
-        default:
-            return err.message || 'Authorization failed.';
-    }
-}
-
 export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }: Props) {
     const [items, setItems] = useState<WaitingTransferItem[]>([]);
     const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -110,9 +49,11 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
     const [otp, setOtp] = useState('');
     const [result, setResult] = useState<AuthorizePaymentResult | null>(null);
 
-    // Separate errors for list/details and for authorization confirmation
-    const [listError, setListError] = useState<string | null>(null);
-    const [confirmError, setConfirmError] = useState<string | null>(null);
+    // Separate errors for list/details and for authorization confirmation. Sentences rather than
+    // one string: the shared table answers with a statement of what happened and, where there is
+    // one, the action to take, and the box below renders them as the separate lines they are.
+    const [listError, setListError] = useState<string[] | null>(null);
+    const [confirmError, setConfirmError] = useState<string[] | null>(null);
 
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -126,8 +67,7 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
     // `details`, which may not have loaded yet.
     const selectedItem = items.find((x) => x.id === selectedId) ?? null;
     const selectedUnderReview =
-        isUnderReview(selectedItem?.status as string | undefined) ||
-        isUnderReview(details?.status);
+        isUnderReview(selectedItem?.status) || isUnderReview(details?.status);
 
     /**
      * Manual refresh. A held payment is released by somebody else, at a time the customer is
@@ -164,7 +104,7 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                 setDetails(null);
             }
         } catch (e) {
-            setListError((e as Error).message);
+            setListError(describeApiErrorLines(e, 'payments-waiting'));
         }
     }
 
@@ -176,7 +116,7 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
             const d = await fetchTransferDetails(id);
             setDetails(d);
         } catch (e) {
-            setListError((e as Error).message);
+            setListError(describeApiErrorLines(e, 'payment-details'));
         }
     }
 
@@ -208,24 +148,22 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
             // attempt and an expired window still arrive as 200 DECLINED, which is why that
             // branch stays.
             if (res.status === 'DECLINED') {
-                setConfirmError(
+                setConfirmError([
                     res.declineReason
-                        ? mapDeclineReason(res.declineReason)
+                        ? describeDeclineReason(res.declineReason)
                         : 'Authorization was declined.',
-                );
+                ]);
             } else {
                 setConfirmError(null);
             }
         } catch (e) {
-            const err = e as ApiError;
-
             // A refused authorization still changed the transfer: a wrong code costs one of
             // the three attempts. Refresh before reporting, so the "Tries left" readout and
             // the count inside the message are the ones the server now holds. Without this,
             // moving the wrong OTP off the 200 path would freeze the counter at its
             // pre-attempt value, because the refresh above is skipped on the throw.
             await loadList();
-            let triesLeft: number | undefined;
+            let triesLeft: number | null | undefined;
             try {
                 const d = await fetchTransferDetails(selectedId);
                 setDetails(d);
@@ -234,7 +172,7 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                 // Details may no longer be readable; the message does not depend on them.
             }
 
-            setConfirmError(describeAuthorizationError(err, triesLeft));
+            setConfirmError(describeApiErrorLines(e, 'payment-authorize', { triesLeft }));
         } finally {
             // Cleared on every outcome, including the refusal. It used to sit in the try,
             // so once a wrong code throws, the known-bad code would stay in the box with
@@ -265,14 +203,7 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                 setDetails(null);
             }
         } catch (e) {
-            const err = e as ApiError;
-            setConfirmError(
-                err.code === 'CONFLICT'
-                    ? 'This transfer can no longer be canceled – it has already been sent.'
-                    : err.code === 'NOT_FOUND'
-                        ? 'This transfer is no longer available.'
-                        : err.message || 'Failed to cancel transfer.',
-            );
+            setConfirmError(describeApiErrorLines(e, 'payment-cancel'));
         } finally {
             setLoading(false);
         }
@@ -297,10 +228,12 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                         <section className="section">
                             <h2 className="section-title">Waiting transfers</h2>
 
+                            {/* Refreshing decides nothing, so it carries no shape of its own.
+                                With no row selected it used to be the loudest control here. */}
                             <div className="section-block inline">
                                 <button
                                     type="button"
-                                    className="btn-secondary"
+                                    className="btn-quiet"
                                     onClick={handleRefresh}
                                     disabled={refreshing}
                                 >
@@ -313,7 +246,9 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                 <div className="summary summary--danger gap-below-sm">
                                     <div className="summary-title">Error</div>
                                     <ul>
-                                        <li>{listError}</li>
+                                        {listError.map((line) => (
+                                            <li key={line}>{line}</li>
+                                        ))}
                                     </ul>
                                 </div>
                             )}
@@ -327,7 +262,7 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                         <tr>
                                             <th>ID</th>
                                             <th>Beneficiary IBAN</th>
-                                            <th>Amount</th>
+                                            <th className="cell--amount">Amount</th>
                                             <th>Created</th>
                                             <th>Auth</th>
                                             <th>Status</th>
@@ -342,21 +277,18 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                                     selectedId === it.id ? 'table-row--selected' : ''
                                                 }
                                             >
-                                                <td>{it.id}</td>
-                                                <td>{it.targetIban || (it as any).beneficiaryIban}</td>
-                                                <td>{formatMoney(it.amount)}</td>
-                                                <td>
-                                                    {it.createdAt
-                                                        ? new Date(it.createdAt).toLocaleString()
-                                                        : ''}
+                                                <td>{formatTransferId(it.id)}</td>
+                                                <td>{formatIban(it.beneficiaryIban)}</td>
+                                                <td className="cell--amount">
+                                                    {formatMoney(it.amount)}
                                                 </td>
-                                                <td>{it.authMethod}</td>
+                                                <td>{formatDateTime(it.createdAt)}</td>
+                                                <td>{authMethodLabel(it.authMethod)}</td>
+                                                {/* The two sentences this column used to write
+                                                    itself are the glossary's now, and they are
+                                                    the wording it was built out from. */}
                                                 <td>
-                                                    {isUnderReview(
-                                                        it.status as string | undefined,
-                                                    )
-                                                        ? 'Under review'
-                                                        : 'Waiting for your code'}
+                                                    {transferStatusLabel(it.status, 'customer')}
                                                 </td>
                                             </tr>
                                         ))}
@@ -371,30 +303,80 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                             <h2 className="section-title">Selected transfer details</h2>
                             <div className="section-block">
                                 {details ? (
+                                    /*
+                                     * A label names its fact, it does not outweigh it. These were
+                                     * <strong>, which is 700, under a section heading at 600: the
+                                     * word "Amount:" was heavier than the amount. The label steps
+                                     * down in colour instead, and the one figure the screen is
+                                     * about takes the lead rung.
+                                     */
                                     <div>
                                         <p>
-                                            <strong>From:</strong> {details.fromIban}{' '}
-                                            {details.fromBalance &&
-                                                `(Balance: ${formatMoney(details.fromBalance)})`}
+                                            <span className="fact-label">From:</span>{' '}
+                                            <span className="fact-value">
+                                                {formatIban(details.fromIban)}
+                                            </span>{' '}
+                                            {details.fromBalance && (
+                                                <span className="fact-value">
+                                                    (Balance: {formatMoney(details.fromBalance)})
+                                                </span>
+                                            )}
                                         </p>
                                         <p>
-                                            <strong>To:</strong> {details.toIban}</p>
-                                        <p>
-                                            <strong>Amount:</strong> {formatMoney(details.amount)}
+                                            <span className="fact-label">To:</span>{' '}
+                                            <span className="fact-value">
+                                                {formatIban(details.toIban)}
+                                            </span>
                                         </p>
                                         <p>
-                                            <strong>Fee:</strong> {formatMoney(details.feeAmount)}</p>
-                                        <p>
-                                            <strong>Created:</strong>{' '}
-                                            {details.createdAt
-                                                ? new Date(details.createdAt).toLocaleString()
-                                                : ''}
+                                            <span className="fact-label">Amount:</span>{' '}
+                                            <span className="fact-value fact-value--lead">
+                                                {formatMoney(details.amount)}
+                                            </span>
                                         </p>
                                         <p>
-                                            <strong>Status:</strong> {details.status}</p>
-                                        <p>
-                                            <strong>Auth method:</strong> {details.authMethod || '—'}
+                                            <span className="fact-label">Fee:</span>{' '}
+                                            <span className="fact-value">
+                                                {formatMoney(details.feeAmount)}
+                                            </span>
                                         </p>
+                                        <p>
+                                            <span className="fact-label">Created:</span>{' '}
+                                            <span className="fact-value">
+                                                {formatDateTime(details.createdAt)}
+                                            </span>
+                                        </p>
+                                        <p>
+                                            <span className="fact-label">Status:</span>{' '}
+                                            <span className="fact-value">
+                                                {transferStatusLabel(details.status, 'customer')}
+                                            </span>
+                                        </p>
+                                        <p>
+                                            <span className="fact-label">Auth method:</span>{' '}
+                                            <span className="fact-value">
+                                                {authMethodLabel(details.authMethod) ||
+                                                    NOT_RECORDED}
+                                            </span>
+                                        </p>
+                                        {/*
+                                          Why the payment was stopped, in the customer's own
+                                          words for it. The analyst has been able to read this
+                                          string in the alert history of this very transfer all
+                                          along; its owner could not read it anywhere. It is
+                                          reached from this screen by cancelling, and by a third
+                                          wrong code, both of which leave the transfer selected.
+                                        */}
+                                        {details.declineReason && (
+                                            <p>
+                                                <span className="fact-label">
+                                                    Why it was stopped:
+                                                </span>{' '}
+                                                <span className="fact-value">
+                                                    {describeDeclineReason(details.declineReason)}
+                                                </span>
+                                            </p>
+                                        )}
                                     </div>
                                 ) : (
                                     <p className="helper-text">No transfer selected.</p>
@@ -428,10 +410,16 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
 
                                 {/* Never disabled by the review: a held payment has no expiry
                                     of its own, so this is the customer's only way out of the
-                                    queue if nobody works it. */}
+                                    queue if nobody works it.
+
+                                    Destructive, and drawn as one: an edge and a label, never a
+                                    fill. It is also pushed to the far end of the row, so the gap
+                                    itself says it is not one of the pair that finishes the
+                                    payment - and that is where the confirmation step will
+                                    attach. */}
                                 <button
                                     type="button"
-                                    className="btn-secondary"
+                                    className="btn-secondary btn-secondary--danger push-end"
                                     onClick={handleCancel}
                                     disabled={!selectedId || loading}
                                 >
@@ -443,25 +431,39 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                 <p className="helper-text">{UNDER_REVIEW_TEXT}</p>
                             )}
 
-                            <div className="helper-text">
-                                <p>
-                                    <strong>Tries left:</strong>{' '}
-                                    {details?.triesLeft ?? '—'}
-                                </p>
-                                <p>
-                                    <strong>Will be expired after:</strong>{' '}
-                                    {details?.authValidUntil
-                                        ? new Date(details.authValidUntil).toLocaleString()
-                                        : '—'}
-                                </p>
-                            </div>
+                            {/*
+                              Both facts belong to a transfer that is asking for a code, and the
+                              server now sends them as null on one that is not. Drawn only when
+                              there is something to say: a held payment used to report three
+                              attempts beside a Confirm button it will not take, and after the
+                              third wrong code the pair would have read "0" and a deadline for a
+                              transfer that is already declined.
+                            */}
+                            {(details?.triesLeft != null || details?.authValidUntil != null) && (
+                                <div className="helper-text">
+                                    <p>
+                                        <span className="fact-label">Tries left:</span>{' '}
+                                        <span className="fact-value">{details.triesLeft}</span>
+                                    </p>
+                                    <p>
+                                        <span className="fact-label">
+                                            Will be expired after:
+                                        </span>{' '}
+                                        <span className="fact-value">
+                                            {formatDateTime(details.authValidUntil)}
+                                        </span>
+                                    </p>
+                                </div>
+                            )}
 
                             {/* Errors related to authorization confirmation */}
                             {confirmError && (
                                 <div className="summary summary--danger gap-above-sm">
                                     <div className="summary-title">Error</div>
                                     <ul>
-                                        <li>{confirmError}</li>
+                                        {confirmError.map((line) => (
+                                            <li key={line}>{line}</li>
+                                        ))}
                                     </ul>
                                 </div>
                             )}
@@ -474,8 +476,11 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                             : 'Authorization result'}
                                     </div>
                                     <ul>
-                                        <li>Transfer ID: {result.transferId}</li>
-                                        <li>Status: {result.status}</li>
+                                        <li>Transfer: {formatTransferId(result.transferId)}</li>
+                                        <li>
+                                            Status:{' '}
+                                            {transferStatusLabel(result.status, 'customer')}
+                                        </li>
 
                                         {/* Show charged amount only if funds were actually debited */}
                                         {result.chargedAmount && (
@@ -490,7 +495,10 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
 
                                         {/* Decline reason, if present */}
                                         {result.declineReason && (
-                                            <li>Reason: {mapDeclineReason(result.declineReason)}</li>
+                                            <li>
+                                                Reason:{' '}
+                                                {describeDeclineReason(result.declineReason)}
+                                            </li>
                                         )}
                                     </ul>
                                 </div>

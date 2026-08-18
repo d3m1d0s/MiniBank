@@ -152,12 +152,18 @@ public class AuthorizationController {
         // of whichever FeePolicy bean is wired today.
         var fee = t.feeFor(feePolicy);
 
-        int maxAttempts = TransferApplicationService.MAX_OTP_ATTEMPTS;
-        int triesLeft = Math.max(0, maxAttempts - t.authAttempts());
-
+        // Both are answers to "how do I finish authorizing this", so they exist only while the
+        // transfer is actually asking for a code. Sent unconditionally, a held transfer reported
+        // "Tries left: 3" next to a Confirm button it will not accept, and a CREATED one carried
+        // a full allowance for a step it had not reached. Null is the honest reading, and both
+        // clients already treat these two as optional.
+        Integer triesLeft = null;
         String authValidUntilStr = null;
-        if (t.authValidUntil() != null) {
-            authValidUntilStr = t.authValidUntil().toString();
+        if (t.status() == TransferStatus.WAITING_AUTH) {
+            triesLeft = Math.max(0, TransferApplicationService.MAX_OTP_ATTEMPTS - t.authAttempts());
+            if (t.authValidUntil() != null) {
+                authValidUntilStr = t.authValidUntil().toString();
+            }
         }
 
         return new TransferDetailsDto(
@@ -171,6 +177,7 @@ public class AuthorizationController {
                 t.createdAt().toString(),
                 t.settledAt() != null ? t.settledAt().toString() : null,
                 t.message(),
+                t.declineReason(),
                 authMethodOf(t),
                 triesLeft,
                 authValidUntilStr

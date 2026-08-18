@@ -163,10 +163,12 @@ public class FraudApplicationService {
      * overwrote the risk reason the rules produced, which was the only record of why the alert
      * existed.
      *
-     * Over HTTP this is now the metadata-only action: the switch branch changes no state and
-     * the assignee/tags/notes block after it runs and commits. That makes it the one route by
-     * which an analyst can annotate an already-decided alert, since approve() and
-     * markSuspicious() both refuse a second verdict and take the metadata down with them.
+     * Over HTTP the same idea is the ANNOTATE branch of {@link #decideAndUpdateAlert}: it
+     * changes no state and the assignee/tags/notes block after it runs and commits. That makes
+     * it the one route by which an analyst can annotate an already-decided alert, since
+     * approve() and markSuspicious() both refuse a second verdict and take the metadata down
+     * with them. This method is the console's half of it and keeps the use case's name; only
+     * the token on the wire was renamed.
      *
      * The console carries no metadata, so this method has nothing left to do but prove the
      * alert exists. No unit of work: both backends serve a read with no ambient one.
@@ -245,15 +247,18 @@ public class FraudApplicationService {
                         transfers.save(t);
                     }
                 }
-                case "REQUEST_CONFIRMATION" -> {
-                    // Not a verdict, and deliberately a no-op on both aggregates. The
-                    // confirmation step this asks for is the one APPROVE unlocks, so resolving
-                    // the alert here would strand the transfer held with nothing able to
-                    // release it, and it destroyed the risk reason that says why it was raised.
+                case "ANNOTATE", "REQUEST_CONFIRMATION" -> {
+                    // Not a verdict, and deliberately a no-op on both aggregates. Resolving the
+                    // alert here would strand the transfer held with nothing able to release it -
+                    // only APPROVE unlocks the customer's confirmation step - and marking it
+                    // suspicious destroyed the risk reason that says why it was raised.
                     //
                     // What it does do is fall through to the metadata block below, which is why
                     // it survives: it is the only route that can attach an assignee, tags or
-                    // notes to an alert that has already been decided.
+                    // notes to an alert that has already been decided. ANNOTATE is that and
+                    // nothing else, which is why REQUEST_CONFIRMATION lost the name: it asked
+                    // for a confirmation nobody was ever sent. The old spelling stays accepted
+                    // so the rename can reach the two desks in either order.
                 }
                 default -> throw new ValidationException("Unsupported decision: " + decisionRaw);
             }

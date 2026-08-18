@@ -3,44 +3,12 @@
 export type { ApiError, LoginRequest, LoginResponse } from '@shared/http';
 export { isApiError, setSessionId, setSessionExpiredHandler, login, logoutSession } from '@shared/http';
 
-import type { ApiError } from '@shared/http';
 import { API_BASE, apiFetch, handle } from '@shared/http';
 
-export function mapPaymentError(error: ApiError): string[] {
-    // No JSON re-parse of the message any more: that only existed to dig the code back out
-    // of a string that handle() had mangled, and handle() no longer mangles it.
-    switch (error.code) {
-        case 'INVALID_IBAN':
-            return [
-                'The IBAN is not valid.',
-                'Please check the country code and all digits.',
-            ];
-        case 'INSUFFICIENT_FUNDS':
-            return [
-                'There are not enough funds on the selected account.',
-                'Try lowering the amount or use a different account.',
-            ];
-        case 'VALIDATION_ERROR':
-            return [
-                'Some of the payment details are not valid.',
-                'Check the amount and the beneficiary IBAN.',
-            ];
-        case 'NOT_FOUND':
-            return ['The selected account is not available. Reload the page and try again.'];
-        case 'FORBIDDEN':
-            return ['You are not allowed to send a payment from this account.'];
-        // Another transaction changed one of the accounts this payment touches between the
-        // server reading a balance and writing the new one, so the write was refused. Resending
-        // is the right action, which is what makes this different from CONFLICT.
-        case 'CONCURRENT_MODIFICATION':
-            return [
-                'Another change was applied to this payment first.',
-                'Nothing was charged. Please send the payment again.',
-            ];
-        default:
-            return [error.message || 'Unexpected error while creating payment.'];
-    }
-}
+// The sentence for a failed call used to be written here, in mapPaymentError, and again twice on
+// the authorization screen and again in the fraud desk's catch blocks. Four tables that did not
+// carry the same branches. They are one table now, in @shared/apiErrors, and a screen asks it for
+// the words with the name of the call it made.
 
 /** Shared with the analyst app. Re-exported so call sites in this app import from one place. */
 export type { Money } from '@shared/money';
@@ -68,19 +36,32 @@ export interface NewPaymentResult {
     authorizationRequired: boolean;
 }
 
-// === UC05 DTOs (keep types flexible so minor backend differences do not break the UI) ===
+// === UC05 DTOs ===
 
+/**
+ * A row of GET /api/me/waiting-transfers, field for field as WaitingTransferItemDto sends it.
+ *
+ * It used to be a guess: `targetIban` and `sourceIban` were declared, the server sends
+ * `beneficiaryIban` and has never sent a source at all, everything was optional, and an index
+ * signature caught whatever else arrived. The screen then read the beneficiary through a cast to
+ * any - the one line eslint reported - because the field it wanted was not on the type it had.
+ * A type that describes the wire needs no cast and no fallback, and a field the server stops
+ * sending becomes a compile error instead of a blank column.
+ *
+ * `beneficiaryIban` is the server's own name for it and the only DTO on this wire that does not
+ * call this field `toIban`; renaming it there is the backend's to do, not something to paper over
+ * with two names here.
+ */
 export interface WaitingTransferItem {
     id: number;
-    sourceIban?: string;
-    targetIban?: string;
-    amount?: Money;
-    createdAt?: string;
-    authMethod?: string;
+    beneficiaryIban: string;
+    amount: Money;
+    createdAt: string;
+    /** Null on a transfer with no authorization method recorded. */
+    authMethod: string | null;
     // 'WAITING_AUTH' or 'HELD_FOR_REVIEW'. Left as a plain string like every other status on
     // this wire, so an unrecognised value renders rather than failing to parse.
-    status?: string;
-    [key: string]: unknown;
+    status: string;
 }
 
 /** True when the bank is still reviewing this payment, so the customer cannot confirm it yet. */
@@ -110,9 +91,20 @@ export interface TransferDetails {
      * along; this is the first time it can be read back.
      */
     message?: string | null;
+    /**
+     * Why the payment was stopped, or null while it still might go through. The analyst could
+     * already read this string in the alert history of the very same transfer; its owner could
+     * not read it anywhere, which is what this field is here to end.
+     */
+    declineReason?: string | null;
     authMethod?: string;
-    triesLeft?: number;
-    authValidUntil?: string;
+    /**
+     * How many one time codes are left, and the deadline for using one. Both are null unless the
+     * transfer is WAITING_AUTH: they answer "how do I finish authorizing this", and a held
+     * transfer was reporting three attempts beside a Confirm button that will not take one.
+     */
+    triesLeft?: number | null;
+    authValidUntil?: string | null;
 }
 
 export interface AuthorizePaymentRequest {

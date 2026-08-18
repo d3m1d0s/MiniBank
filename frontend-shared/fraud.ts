@@ -86,7 +86,20 @@ export interface AlertDetail {
     history: HistoryItem[];
 }
 
-export type FraudDecision = 'APPROVE' | 'DECLINE' | 'REQUEST_CONFIRMATION';
+/**
+ * What an analyst can post about an alert.
+ *
+ * The third was called REQUEST_CONFIRMATION, which named something it has never done: it asks
+ * nobody for anything, it writes the assignee, the tags and the notes, and it takes no decision.
+ * The server accepts both spellings so the rename can reach the two desks in any order, but only
+ * ANNOTATE is on this list: the list is what a client may send, and leaving the old name here is
+ * what would let a screen go on sending it.
+ *
+ * Rows written before the rename keep the old spelling in the database forever. Reading one back
+ * is the glossary's problem and it is handled there, in decisionLabel, which gives both spellings
+ * the same words.
+ */
+export type FraudDecision = 'APPROVE' | 'DECLINE' | 'ANNOTATE';
 
 export interface FraudDecisionRequest {
     decision: FraudDecision;

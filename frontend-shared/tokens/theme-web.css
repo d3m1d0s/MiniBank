@@ -178,6 +178,13 @@
   /* The largest amount this bank writes, 1 234 567,89 in Czech grouping, measures 112px with
      the field's border and padding. */
   --size-amount-field: 8rem;
+  /* The same amount at the lead rung of the type scale, where the payment form sets it: the
+     digits measure 124px, plus the padding and the two hairlines, plus a little slack past the
+     longest content the bank writes. */
+  --size-amount-field-lead: 10rem;
+  /* A short optional note, not a document. Held to a measure so that the least important field
+     on the payment form stops being the largest object on it. In ch, so it tracks the text. */
+  --size-note-max: 47ch;
   /* Ten digits, which is what the box accepts, measure 108px; the placeholder Enter OTP
      measures 92px. */
   --size-otp-field: 7rem;

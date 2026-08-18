@@ -292,7 +292,14 @@ h2.panel-title {
     background: var(--color-surface-canvas);
 }
 
-.list > .hint {
+/*
+ * An empty tray and an empty case pane say the same thing the same way. The detail pane is the
+ * larger half of the first frame an analyst meets, and a 12px sentence in the top left corner of
+ * it left "Sign out" as the only marked object on the screen: the opening frame pointed at the
+ * way out. Centred in the space it is talking about, it is what the eye lands on instead.
+ */
+.list > .hint,
+.panel-scroll > .hint {
     height: 100%;
     display: flex;
     align-items: center;
@@ -331,8 +338,31 @@ h2.panel-title {
 .li-top { display: flex; justify-content: space-between; gap: var(--space-5); }
 .li-code { font-weight: var(--weight-bold); }
 .li-state { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
-.li-mid { margin-top: var(--space-2); font-size: var(--text-2); line-height: var(--leading-dense); }
+
+/*
+ * A card is read down, so the nine fields of a queue entry land in four lines rather than in the
+ * nine columns the web gives them. This line carries the two numbers, and it is split rather than
+ * run together: pushed to the two edges of the card they form two columns down the whole tray, so
+ * a queue can be triaged by amount or by risk at a glance instead of one row at a time. Tabular
+ * figures for the same reason, and they cost nothing on the transfer code beside them.
+ */
+.li-mid {
+    margin-top: var(--space-2);
+    display: flex;
+    justify-content: space-between;
+    gap: var(--space-5);
+    font-size: var(--text-2);
+    line-height: var(--leading-dense);
+    font-variant-numeric: tabular-nums;
+}
+
 .li-bot { margin-top: var(--space-3); font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-secondary); }
+
+/*
+ * When the alert was raised and who has it. The rung under the reason above it: this is what an
+ * analyst reads when they are choosing between two cards, never when they are reading one.
+ */
+.li-foot { margin-top: var(--space-3); font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
 
 /*
  * A status line under the list, and it wraps: at 200 percent text the last counter was cut
@@ -363,68 +393,198 @@ h2.panel-title {
 .box-title { font-weight: var(--weight-bold); margin-bottom: var(--space-4); }
 
 /*
- * The bold was on the labels, which are identical on every alert, and not on the values,
- * which are why the panel is open. Two values carry the decision and stay bold by name.
+ * THE CASE HEAD. Not a .box, and that is the point.
+ *
+ * What stood here was a bordered block with no title carrying five lines in the largest body
+ * type on the pane, four of which repeated the card the analyst had just clicked two hundred
+ * pixels to its left. Giving it a title would have made it worse: the only honest title is
+ * "Case", which says nothing the pane's own name does not. This material is not evidence, it is
+ * the subject, and a subject does not sit in a bordered box beside the evidence. So the border,
+ * the fill and the padding go, every remaining block on the pane is headed, and what is left is
+ * the pane's subject line, the way .panel-title is the pane's name.
+ *
+ * The order is the order a decision is taken in: which case, then the two numbers it turns on,
+ * then the two states. The numbers were the two things never marked out - the amount was the
+ * third bullet of a list at 13px and the risk score was one line of five at 16px - and they are
+ * now the largest text on the screen at --text-6. Nothing else on a working desktop screen uses
+ * that rung, and the one above it would read as marketing in a light window.
  */
-.box b {
-    font-weight: var(--weight-regular);
+.case-head { margin-bottom: var(--space-6); }
+
+.case-id {
+    font-size: var(--text-2);
+    line-height: var(--leading-dense);
     color: var(--color-text-secondary);
 }
 
-.value-strong {
+/*
+ * Flex and not two grid tracks: a 1fr grid would stand "80" five hundred pixels away from the
+ * amount on a wide display, and a figure is sized by what goes into it.
+ */
+.figures {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-9);
+    margin: var(--space-3) 0;
+}
+
+.figure-label {
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+    color: var(--color-text-secondary);
+}
+
+.figure-value {
+    font-size: var(--text-6);
+    line-height: var(--leading-tight);
     font-weight: var(--weight-bold);
     font-variant-numeric: tabular-nums;
 }
 
-.facts { margin: 0; padding-left: var(--space-7); font-size: var(--text-2); line-height: var(--leading-dense); }
-.history { display: grid; gap: 0; }
+.case-state {
+    font-size: var(--text-2);
+    line-height: var(--leading-dense);
+    color: var(--color-text-secondary);
+}
+
 /*
- * The four tracks share the row in proportion. Fixed widths gave the row a minimum of
- * about 470px that the pane could not go under, and a full length IBAN then pushed the
- * whole detail pane past the edge of the window. A single 1fr track cannot replace them:
- * it is sized from what the others leave over, which at a narrow width is nothing, and
- * the IBAN column collapsed to zero. Only the status track keeps a floor, because it is
- * the one cell whose value has no break opportunity in it and still has to be read:
- * 6.5rem is 104px, resolved against the root size rather than the 12px of the row, and
- * the longest status needs 102px. The other three break at a space and can go on sharing.
+ * THE THREE TREATMENTS. Which one a value takes is decided once, by the shared glossary, and
+ * spelled here in this theme's palette and in the web's in its own; same three names, two skins.
+ *
+ * The ordinary outcome is quiet and the exceptional outcome is marked. Nine Sent rows wearing a
+ * badge each would be nine pieces of noise, and it was the absence of any mark at all that let
+ * Declined read as Sent in a column of twelve pixel text. No fill and no border: a window does
+ * not do pills, and colour plus a half step of weight is enough on a light ground where the
+ * danger text is 9.49:1 and the warning text clears 4.5:1 on both row grounds.
  */
-.history-row {
+.tone-settled { color: var(--color-text-secondary); }
+.tone-blocked { color: var(--color-danger-text); font-weight: var(--weight-medium); }
+.tone-pending { color: var(--color-warning-text); font-weight: var(--weight-medium); }
+
+/* A figure that is read against the one above or below it. Cheap enough to hand out by name. */
+.num { font-variant-numeric: tabular-nums; }
+
+/*
+ * FACTS, as a definition list rather than a bulleted list.
+ *
+ * A bulleted list is the shape of a page somebody reads once. This is a panel somebody reads
+ * forty times a day, always looking for one row, and the window idiom's answer to that is a
+ * two column grid. The label track is --size-row-label, which is what the filter rows and the
+ * decision footer already use, so the labels of the evidence and the labels of the controls
+ * stand on one vertical line down the whole pane.
+ *
+ * Baselines and not boxes: the label rung is a step under the value rung, and aligning the tops
+ * of two unequal line boxes would leave every label sitting slightly high.
+ */
+.facts {
+    margin: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr) minmax(var(--size-status-column), 1.1fr) minmax(0, 1.7fr);
-    gap: var(--space-5);
+    grid-template-columns: var(--size-row-label) minmax(0, 1fr);
+    align-items: baseline;
+    row-gap: var(--space-3);
+    column-gap: var(--space-5);
+    font-size: var(--text-2);
+    line-height: var(--leading-dense);
+}
+
+.facts dt {
+    font-size: var(--text-1);
+    color: var(--color-text-secondary);
+}
+
+/*
+ * The shared formatter groups an IBAN in fours, so the spaces are the break opportunities and
+ * the value column has nothing unbreakable in it. overflow-wrap is the floor under that: an
+ * account number that ever arrives ungrouped wraps rather than running out of the pane.
+ */
+.facts dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+/*
+ * THE HISTORY TABLE. A real table, with a real head.
+ *
+ * Four unlabelled columns asked a reader to work out that the last one is the beneficiary's
+ * account and not the sender's, and that the first is a timestamp and not a value date. The
+ * structure is what the customer application already gives the same data, which is the standing
+ * rule: the two platforms share structure and semantics and differ only in skin.
+ *
+ * table-layout: fixed and percentage columns, which the div grid it replaces could not risk
+ * while a status was a single unbreakable token: HELD_FOR_REVIEW needed a 104px floor of its
+ * own. The glossary spends that word on "Under review", every status now has a space in it, and
+ * the floor has no justification left. The percentages are sized from what goes into each
+ * column at 12px: a grouped IBAN is the widest thing here and takes a third of the row.
+ */
+.history {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
     font-size: var(--text-1);
     line-height: var(--leading-dense);
+}
+
+.history th,
+.history td {
     padding: var(--space-3) var(--space-4);
-    border: var(--border-width-hairline) solid var(--color-border-divider);
-    border-radius: var(--radius-inset);
-    background: var(--color-surface-sunken);
+    text-align: left;
+    vertical-align: top;
+    /* An IBAN has no break opportunity in it unless it was grouped. */
+    overflow-wrap: anywhere;
+}
+
+.history col.col--id { width: 9%; }
+.history col.col--created { width: 19%; }
+.history col.col--amount { width: 17%; }
+.history col.col--status { width: 22%; }
+.history col.col--to { width: 33%; }
+
+.history thead th {
+    font-weight: var(--weight-semibold);
+    color: var(--color-text-secondary);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-container);
 }
 
 /*
- * Ten bordered cards in a column are an ornament that costs about 8px a row. A hairline and
- * an alternating ground read as a table, which is what this is.
+ * One row group per payment, so a decline reason stays part of the row it explains: the ground
+ * alternates by record and not by line, and a reason cannot end up striped against its own row.
+ *
+ * Ten bordered cards in a column were an ornament that cost about 8px a row. A hairline and an
+ * alternating ground read as a table, which is what this is.
  */
-.history-row {
-    border: 0;
-    border-radius: 0;
+.history tbody {
+    color: var(--color-text-secondary);
     border-bottom: var(--border-width-hairline) solid var(--color-border-divider);
-    background: transparent;
 }
 
-.history-row:last-child { border-bottom: 0; }
-.history-row:nth-child(even) { background: var(--color-surface-sunken); }
+.history tbody:last-child { border-bottom: 0; }
+.history tbody:nth-of-type(even) { background: var(--color-surface-sunken); }
 
-/* The amount column. Digits of 50.00, 1500.00 and 10001.00 line up by place or they are read one by one. */
-.history-row > :nth-child(2) {
+/*
+ * The amount is the spine of the table: the one column read down rather than across, so it is
+ * the one that keeps the primary colour while the timestamps and the account numbers step back.
+ * Right aligned and tabular, or the digits of 50.00, 1500.00 and 10001.00 are read one by one.
+ *
+ * A class and not :nth-child. The cell is marked where it is built, so adding a column can never
+ * silently move the alignment onto the wrong one. The head cell carries it too, or the word
+ * Amount stands over the left edge of a column whose digits end at its right edge; the colour is
+ * the one thing the head does not take, because a heading is not a value.
+ */
+.history .cell--amount {
     text-align: right;
     font-variant-numeric: tabular-nums;
 }
 
-/* Two floors to remove: the item's automatic minimum size, and an IBAN with no break opportunity in it. */
-.history-row > * {
-    min-width: 0;
-    overflow-wrap: anywhere;
-}
+.history tbody .cell--amount { color: var(--color-text-primary); }
+
+/*
+ * Why an earlier payment was refused: prose, and prose does not want a sixth column 60px wide in
+ * a pane whose floor is 360. It runs the width of its own row group, under the row it belongs
+ * to, and a payment that was not declined simply has no such row, so the empty value is never
+ * drawn at all.
+ */
+.history-note td { padding-top: 0; }
 
 .actions { display: flex; flex-wrap: wrap; gap: var(--gap-actions); margin-top: var(--gap-actions-top); }
 

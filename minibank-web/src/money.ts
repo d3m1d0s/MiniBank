@@ -44,6 +44,21 @@ export type ParsedAmount =
  */
 export { formatMoney } from '@shared/money';
 
+/**
+ * The locale an ambiguous amount is read in.
+ *
+ * Only `1,234` needs it: the one string that is a valid number under both the Czech and the
+ * English convention and means two different things under them. Everything the reader is shown
+ * is Czech whatever this returns.
+ *
+ * It lives here rather than beside one of the boxes because there are three of them now, on two
+ * screens - the payment amount and the analyst's two amount bounds - and every field that reads
+ * an amount has to read it the same way.
+ */
+export function readerLocale(): string {
+    return navigator.language || 'cs-CZ';
+}
+
 /** Formats an amount the Czech way: `1 234,56`. */
 export function formatCzech(value: number): string {
     return new Intl.NumberFormat('cs-CZ', {

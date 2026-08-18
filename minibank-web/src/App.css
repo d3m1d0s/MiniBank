@@ -188,7 +188,14 @@ textarea:focus-visible {
   flex: none;
   width: var(--text-7);
   height: var(--text-7);
-  border-radius: var(--radius-field);
+  /*
+   * A share of the mark rather than one of the radius roles, because the mark is drawn at
+   * two sizes: 38px in the dialog and 22px in the header band. A role token is a fixed
+   * count of pixels, and the 10px that reads as a rounded square at 38px is almost the
+   * whole of the corner at 22px, so the header mark came out round while the dialog one
+   * did not. A share keeps one shape at every size.
+   */
+  border-radius: 25%;
   background-color: var(--color-accent);
   background-image: var(--brand-mark);
   background-repeat: no-repeat;
@@ -420,9 +427,20 @@ textarea:focus-visible {
   max-width: var(--size-content-max);
 }
 
-.form-panel h2 {
+/*
+ * The name of the screen, and the top rung: it is the one place on a working screen where
+ * the bold weight is spent. Everything below it separates by size and by colour instead, so
+ * that a field label can never come out heavier than the heading it stands under, which is
+ * what was happening where a fact label was set in bold under a semibold heading.
+ *
+ * The child combinator is what keeps this off the section headings, which are h2 as well and
+ * are deliberately a rung down. The body leading is far too loose at this size.
+ */
+.form-panel > h2 {
   margin: 0 0 var(--space-7);
   font-size: var(--text-6);
+  line-height: var(--leading-tight);
+  font-weight: var(--weight-bold);
 }
 
 /* ====== Sections inside a panel ====== */
@@ -435,11 +453,35 @@ textarea:focus-visible {
   margin-bottom: 0;
 }
 
-/* Outranks `.form-panel h2` above, which is the page-level heading of a panel. */
+/*
+ * The heading of a section: one rung under the name of the screen, and above everything
+ * inside the section, which is what the labels and the table cells below have been dropped
+ * to --text-3 to make room for.
+ */
 .form-panel .section-title {
   margin: 0 0 var(--space-6);
   font-size: var(--text-5);
   font-weight: var(--weight-semibold);
+}
+
+/*
+ * A line under a heading that says something about the section as a whole: how many alerts
+ * the queue holds, how many of them are showing. It is a caption and not a panel. Set as a
+ * bordered box with a fill, the four queue counters were the largest and lightest object on
+ * the fraud desk and the queue itself was the fourth thing the eye reached; carrying neither
+ * a surface nor an edge, they read as what they are, and the queue is the only object in the
+ * section with a shape of its own.
+ *
+ * The heading pulls its own gap in when a caption follows, so the two read as one block.
+ */
+.section-caption {
+  margin: 0 0 var(--space-6);
+  font-size: var(--text-2);
+  color: var(--color-text-muted);
+}
+
+.form-panel .section-title:has(+ .section-caption) {
+  margin-bottom: var(--space-2);
 }
 
 .section-block {
@@ -480,9 +522,19 @@ textarea:focus-visible {
   gap: var(--gap-field-row);
 }
 
+/*
+ * A label names its field, it does not compete with it. At the inherited 16px every label on
+ * a form stood at the size of the section heading above it and one step under it in weight
+ * only, so the type ladder on a working screen was 22 / 16 / 16 / 16 and the headings had
+ * nothing to be above. It steps down in size and in colour here; the value it labels keeps
+ * the primary text. The floor is unchanged and still clears the longest label in the column,
+ * which is now narrower than the 80px it was measured against.
+ */
 .field-label {
   min-width: var(--size-label-min);
+  font-size: var(--text-3);
   font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
 }
 
 .field-input {
@@ -561,18 +613,79 @@ textarea:focus-visible {
   margin-left: 0;
 }
 
+/*
+ * The filters of a queue, on one wrapping row rather than one stacked row each. Four rows of
+ * label-then-control pushed the queue itself 220px down the page and off the first fold of a
+ * 900px window: the desk opened as a form about a queue instead of as the queue. Each control
+ * keeps the width its own content decides, and the labels stand above them, which is what lets
+ * four fields and a checkbox share about 800px.
+ *
+ * align-items: flex-end so the controls sit on one line whatever their labels wrap to.
+ */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--gap-field-row) var(--gap-inline);
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/*
+ * The label column floor belongs to a row where the label stands beside its control. Above
+ * one, it would hold a 128px field open to nothing and put a gap in the row that reads as a
+ * missing field.
+ */
+.filter-field > .field-label {
+  min-width: 0;
+}
+
+/*
+ * A checkbox and its sentence, which is a control with its label to the right of it and so
+ * has no label above. The minimum height is what stands it on the same line as the fields
+ * beside it rather than on their labels.
+ */
+.filter-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--control-min-height);
+  font-size: var(--text-3);
+  color: var(--color-text-secondary);
+}
+
+.filter-check input[type="checkbox"] {
+  margin: 0;
+}
+
 .field-side {
   white-space: nowrap;
   font-size: var(--text-3);
   color: var(--color-text-secondary);
 }
 
+/*
+ * The amount, which is the one figure on the payment form that decides anything. It was a
+ * 128px box at body size tucked on the end of the beneficiary row, beside an optional message
+ * measuring 569 by 90: the weight on the screen was the inverse of the meaning. It takes the
+ * lead rung here, right aligned and tabular so the places line up as the digits are typed, and
+ * the padding matches the fields above so the rows are the same height.
+ *
+ * The width is 1 234 567,89 at this size, which measures 124px, plus 10px of padding each side
+ * and two hairlines: 146px, and the field wants a little slack past its longest content.
+ */
 .amount-input {
-  margin-left: var(--space-3);
-  width: var(--size-amount-field);
-  /* Its label is one rung down, and font: inherit would hand that down to the control. */
-  font-size: var(--text-5);
-  padding: var(--space-3) var(--space-5);
+  flex: none;
+  max-width: 100%;
+  width: var(--size-amount-field-lead);
+  font-size: var(--text-6);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  padding: var(--space-4) var(--space-5);
   border-radius: var(--radius-field);
   border: var(--border-width-hairline) solid var(--color-border);
   background: var(--color-surface-field);
@@ -594,6 +707,18 @@ textarea:focus-visible {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+/*
+ * Held to a measure, and held there by the column rather than by the box itself: the character
+ * counter under it is aligned to the end of the column, so constraining only the box would leave
+ * the counter behind at the old edge.
+ *
+ * The note is optional and the amount beside it is not, so a box that runs the whole width of the
+ * panel while the amount sits in a corner puts the weight on the wrong one.
+ */
+.field-column:has(> .textarea) {
+  max-width: var(--size-note-max);
 }
 
 .textarea {
@@ -681,8 +806,16 @@ textarea:focus-visible {
   margin-top: var(--space-7);
 }
 
+/*
+ * Three levels, and the reason there are three: a row of controls with two shapes in it can
+ * only say "this one" and "the rest", and the rows on these screens hold three consequences.
+ * The one that does the work is filled, the one that destroys something is an edge, and the
+ * one that changes nothing carries no shape at all and is set apart by the gap in front of it.
+ * The same three levels, in the same order, as the analyst's window; only the palette differs.
+ */
 .btn-primary,
-.btn-secondary {
+.btn-secondary,
+.btn-quiet {
   padding: var(--space-4) var(--space-7);
   border-radius: var(--radius-control);
   font-size: var(--text-4);
@@ -730,6 +863,60 @@ textarea:focus-visible {
   transform: translateY(1px);
 }
 
+/*
+ * The secondary that destroys something: cancelling a payment, recording a verdict against a
+ * customer. It is a modifier and is written beside .btn-secondary, not instead of it.
+ *
+ * An edge and a label, never a fill. A filled red would out shout the primary and turn an
+ * ordinary working outcome into an alarm, which is precisely the failure this is undoing: on
+ * the authorization screen the brightest control on the row was the one that cancels the
+ * payment, while the control the screen exists for waited grey beside it. The two are the same
+ * pixels no longer.
+ *
+ * No lift on hover. The fill is what answers here, and lifting the destructive control towards
+ * the pointer is an invitation the primary should be making.
+ */
+.btn-secondary--danger {
+  border-color: var(--color-danger-accent);
+  color: var(--color-danger-text);
+}
+
+.btn-secondary--danger:hover:not(:disabled, [aria-busy="true"], .planned-item) {
+  background-color: var(--color-danger-surface);
+  transform: none;
+}
+
+.btn-secondary--danger:active:not(:disabled, [aria-busy="true"], .planned-item) {
+  background-color: var(--color-danger-surface);
+  transform: translateY(1px);
+}
+
+/*
+ * The third level: a control that decides nothing. Refreshing a list, saving notes without
+ * taking a decision. No fill and no edge, so it is a control only while the pointer is on it,
+ * which is what the header's own exit control already does for the same reason. With nothing
+ * selected on the authorization screen, Refresh was the loudest thing on the page.
+ *
+ * A disabled one recedes by its label alone, which is all it has; the shared rule below is
+ * what colours it.
+ */
+.btn-quiet {
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.btn-quiet:hover:not(:disabled, [aria-busy="true"], .planned-item) {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  transform: var(--lift-hover);
+}
+
+.btn-quiet:active:not(:disabled, [aria-busy="true"], .planned-item) {
+  background-color: var(--color-surface-hover);
+  transform: translateY(1px);
+}
+
 /* ====== Unavailable controls: disabled, busy, planned ====== */
 
 /*
@@ -744,6 +931,7 @@ textarea:focus-visible {
  */
 .btn-primary:disabled,
 .btn-secondary:disabled,
+.btn-quiet:disabled,
 .field-input:disabled,
 .amount-input:disabled,
 .textarea:disabled,
@@ -754,9 +942,20 @@ textarea:focus-visible {
   cursor: not-allowed;
 }
 
+/*
+ * The primary while it waits for something: a code that has not been typed, a row that has not
+ * been picked. It loses its fill, for the reason above, but it keeps its accent edge, and that
+ * is the whole of the repair on the authorization screen. At the disabled edge the button had
+ * stopped being a shape at all - 2.09:1 against the page, against 4.27:1 for the secondary
+ * beside it - so the eye went to the control that cancels the payment. The edge holds the rank
+ * while the dead fill and the muted label say "not yet"; muted rather than disabled text,
+ * because on this fill that is the pairing that clears 4.5:1.
+ */
 .btn-primary:disabled,
 .btn-primary[aria-disabled="true"] {
   background-color: var(--color-surface-disabled);
+  border-color: var(--color-border-accent);
+  color: var(--color-text-muted);
 }
 
 /*
@@ -825,16 +1024,22 @@ textarea:focus-visible {
 }
 
 /*
- * Amounts right aligned, so the digits line up by place. No cell carries a class, so the
- * column has to be found by position, and the position depends on which table it is: the
- * alert queue has nine columns and its amount is the fifth, the waiting list and the
- * customer history have six and theirs is the third. Both shapes appear on the fraud desk
- * at once, so the header count is what tells them apart. A column added to either table
- * has to be counted again here.
+ * Amounts right aligned and tabular, so the digits line up by place and by width.
+ *
+ * .cell--amount is the way to say so: it names the cell, and it is the only one of the two
+ * rules below that survives a column being added. The counting selectors under it find the
+ * column by position instead, because no cell carried a class when they were written: the
+ * alert queue has nine columns and its amount is the fifth, the waiting list and the customer
+ * history have six and theirs is the third. Both shapes appear on the fraud desk at once, so
+ * the header count is what tells them apart, and a column added to either table has to be
+ * counted again here. They are kept only until every amount cell carries the class, and they
+ * are to be deleted then, not extended.
  */
+.table .cell--amount,
 .table:has(thead th:nth-child(9)) :is(th, td):nth-child(5),
 .table:has(thead th:nth-child(6)):not(:has(thead th:nth-child(7))) :is(th, td):nth-child(3) {
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .table tbody tr:hover {
@@ -871,6 +1076,47 @@ textarea:focus-visible {
 
 .details-card p {
   margin: var(--space-1) 0;
+}
+
+/*
+ * A block of facts about one thing, wherever it stands: inside a details card, which already
+ * carries this size, or on its own. The details block on the authorization screen carried no
+ * class at all and so inherited the root size, which is how a fact label came to be set larger
+ * and heavier than the heading of the section holding it.
+ */
+.facts {
+  font-size: var(--text-3);
+}
+
+.facts p {
+  margin: var(--space-1) 0;
+}
+
+/*
+ * A fact and the word that names it. The label was drawn as <strong>, which is 700, under a
+ * heading at 600: the labels of the facts were the heaviest text in the section and the amount
+ * they labelled was ordinary body text. A label steps down in colour here, never up in weight,
+ * and the value keeps the primary text; --weight-bold belongs to the name of the screen alone.
+ *
+ * .fact-value--lead is for the one or two figures a decision actually turns on, the amount and
+ * the risk score. Tabular, because a figure that is read against another figure has to line up
+ * with it.
+ */
+.fact-label {
+  font-size: var(--text-3);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.fact-value {
+  font-size: var(--text-3);
+  color: var(--color-text-primary);
+}
+
+.fact-value--lead {
+  font-size: var(--text-5);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
 }
 
 /*
@@ -911,6 +1157,17 @@ textarea:focus-visible {
 
 .gap-below-sm {
   margin-bottom: var(--space-4);
+}
+
+/*
+ * Everything that is left of a row goes in front of this control. It is what sets a control
+ * apart from the ones it stands beside without giving it a colour: the pair that decides sits
+ * together, and the one that decides nothing, or the one that undoes everything, is pushed to
+ * the far end. On a row too narrow to hold them all the control simply takes the next line,
+ * which is the same statement made downwards.
+ */
+.push-end {
+  margin-inline-start: auto;
 }
 
 .text-danger {

@@ -8,26 +8,16 @@ import {
     type AccountSummary,
     type NewPaymentRequest,
     type NewPaymentResult,
-    isApiError,
     isUnderReview,
-    mapPaymentError,
 } from './api';
-import { formatMoney, parseAmount } from './money';
+import { formatMoney, parseAmount, readerLocale } from './money';
+import { describeApiError, describeApiErrorLines } from '@shared/apiErrors';
+import { transferStatusLabel } from '@shared/glossary';
+import { formatTransferId } from '@shared/format';
 import Nav from './Nav';
 import type { NavRole, NavView } from '@shared/navigation';
 
 const MAX_MESSAGE_LENGTH = 140;
-
-/**
- * The locale to read an ambiguous amount in.
- *
- * Only `1,234` needs it - the one string that is a valid number under both the Czech and the
- * English convention and means two different things. Everything the customer sees is Czech
- * whatever this returns.
- */
-function readerLocale(): string {
-    return navigator.language || 'cs-CZ';
-}
 
 type InfoState =
     | { type: 'none' }
@@ -73,7 +63,7 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                 }
             } catch (e) {
                 if (cancelled) return;
-                setAccountsError((e as Error).message);
+                setAccountsError(describeApiError(e, 'accounts'));
             } finally {
                 if (!cancelled) setLoadingAccounts(false);
             }
@@ -149,17 +139,10 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                 // confirmation still shows the authoritative new balance.
             }
         } catch (e) {
-            if (isApiError(e)) {
-                setInfo({
-                    type: 'error',
-                    messages: mapPaymentError(e),
-                });
-            } else {
-                setInfo({
-                    type: 'error',
-                    messages: ['Unexpected error. Please try again later.'],
-                });
-            }
+            // One table, asked for the words by the name of the call. It answers a failure with
+            // no response at all as well, which is why there is no isApiError branch here any
+            // more: that branch rendered the browser's own "Failed to fetch".
+            setInfo({ type: 'error', messages: describeApiErrorLines(e, 'payment-create') });
         } finally {
             setSubmitting(false);
         }
@@ -216,7 +199,7 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                     </div>
                                 </div>
 
-                                {/* Target IBAN + amount */}
+                                {/* Target IBAN */}
                                 <div className="field-row">
                                     <label className="field-label" htmlFor="payment-target">
                                         To:
@@ -229,36 +212,50 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                         value={targetIban}
                                         onChange={(e) => setTargetIban(e.target.value)}
                                     />
-                                    <label className="field-side" htmlFor="payment-amount">
-                                        Amount:
-                                        {/*
-                                          Stays type="text". A Czech amount is written
-                                          `1 500,00`, which type="number" refuses outright -
-                                          it reports .value as the empty string for anything
-                                          it cannot interpret, so the field would go blank
-                                          on a perfectly good amount.
+                                </div>
 
-                                          Normalized on blur rather than on every keystroke:
-                                          rewriting while someone is still typing moves the
-                                          caret out from under them, and half an amount is
-                                          not yet an amount.
-                                        */}
-                                        <input
-                                            id="payment-amount"
-                                            className="amount-input"
-                                            type="text"
-                                            inputMode="decimal"
-                                            placeholder="0,00"
-                                            value={amount}
-                                            onChange={(e) => setAmount(e.target.value)}
-                                            onBlur={() => {
-                                                const parsed = parseAmount(amount, readerLocale());
-                                                if (parsed.ok) {
-                                                    setAmount(parsed.czech);
-                                                }
-                                            }}
-                                        />
+                                {/*
+                                  The amount gets a row of its own. It was tucked on the end of
+                                  the beneficiary row with its name set as an aside - the same
+                                  class as the balance readout beside it - so the one figure that
+                                  decides what this form does was labelled more quietly than the
+                                  fields it stood next to, and measured a fifth of the optional
+                                  message below it. Its label is a field label like the two
+                                  above, and the currency is stated beside the box rather than
+                                  inside it, where it is not something anyone types.
+                                */}
+                                <div className="field-row">
+                                    <label className="field-label" htmlFor="payment-amount">
+                                        Amount:
                                     </label>
+                                    {/*
+                                      Stays type="text". A Czech amount is written
+                                      `1 500,00`, which type="number" refuses outright -
+                                      it reports .value as the empty string for anything
+                                      it cannot interpret, so the field would go blank
+                                      on a perfectly good amount.
+
+                                      Normalized on blur rather than on every keystroke:
+                                      rewriting while someone is still typing moves the
+                                      caret out from under them, and half an amount is
+                                      not yet an amount.
+                                    */}
+                                    <input
+                                        id="payment-amount"
+                                        className="amount-input"
+                                        type="text"
+                                        inputMode="decimal"
+                                        placeholder="0,00"
+                                        value={amount}
+                                        onChange={(e) => setAmount(e.target.value)}
+                                        onBlur={() => {
+                                            const parsed = parseAmount(amount, readerLocale());
+                                            if (parsed.ok) {
+                                                setAmount(parsed.czech);
+                                            }
+                                        }}
+                                    />
+                                    <div className="field-side">CZK</div>
                                 </div>
 
                                 {/* Message for recipient */}
@@ -309,8 +306,17 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                             </p>
                                         )}
                                         <ul>
-                                            <li>Transfer ID: {info.result.transferId}</li>
-                                            <li>Status: {info.result.status}</li>
+                                            <li>
+                                                Transfer:{' '}
+                                                {formatTransferId(info.result.transferId)}
+                                            </li>
+                                            <li>
+                                                Status:{' '}
+                                                {transferStatusLabel(
+                                                    info.result.status,
+                                                    'customer',
+                                                )}
+                                            </li>
 
                                             {/*
                                               chargedAmount is amount plus fee for every
