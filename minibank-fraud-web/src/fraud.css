@@ -142,9 +142,91 @@ textarea:focus-visible {
     min-width: 0;
 }
 
+/*
+ * The class is a label on the working screens and a heading on the screen a person reaches
+ * when this workstation has nothing for their account, so it now states both things the UA
+ * would otherwise decide for a heading element: the top margin, which pushed the title off
+ * the panel's own padding, and the size, which arrived at 24px from h2 while the identical
+ * class on the queue panel renders at 16px. The rung is the one the name on the sign-in
+ * window takes, so the two windows a person meets before they are inside agree.
+ */
 .panel-title {
     font-weight: var(--weight-bold);
-    margin-bottom: var(--space-5);
+    margin: 0 0 var(--space-5);
+}
+
+h2.panel-title {
+    font-size: var(--text-6);
+}
+
+/*
+ * A paragraph placed straight into a panel is prose rather than data, and the one on the
+ * no-screens window is the whole content of it. Secondary rather than primary, so the
+ * sentence sits under its heading instead of competing with it, and on the panel's own
+ * rungs rather than the UA's 1em, so the heading above and the action below keep one
+ * rhythm. It needs no measure of its own: that window is capped at --size-dialog-max.
+ */
+.panel > p {
+    margin: 0 0 var(--space-6);
+    color: var(--color-text-secondary);
+}
+
+/*
+ * The name of the bank, on the one screen that has to carry it. Without this the first
+ * frame of the workstation is two unnamed fields in a small window, which describes a
+ * form template and not the door of a bank.
+ *
+ * The lockup is sized from the name outwards: .brand sets the type size once and the
+ * mark takes its own from it, so the tile keeps its proportion to the word beside it at
+ * any text size instead of shrinking into a dot at 200 percent. It wraps for the same
+ * reason, because the window will not.
+ *
+ * background-image on its own line, not folded into the background shorthand: a theme
+ * that has not declared --brand-mark loses the letter and keeps the accent tile, rather
+ * than losing the tile as well and leaving the name standing beside nothing.
+ */
+.brand {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-5);
+    font-size: var(--text-6);
+}
+
+.brand-mark {
+    flex: none;
+    inline-size: 1.5em;
+    block-size: 1.5em;
+    border-radius: var(--radius-control);
+    background-color: var(--color-accent);
+    background-image: var(--brand-mark);
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+}
+
+.brand-name {
+    margin: 0;
+    font-size: inherit;
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+}
+
+.brand-line {
+    margin: var(--space-4) 0 0;
+    font-size: var(--text-3);
+    line-height: var(--leading-dense);
+    color: var(--color-text-muted);
+}
+
+/*
+ * The name of the bank is what the form is under, not its first row. At the bare --gap-form
+ * it stood the same distance from Username as Username stands from Password, and a block
+ * spaced like a row is read as one. The step is the one the action already takes at the
+ * other end, so the rows of the form are bracketed by the same gap top and bottom.
+ */
+.form > header {
+    margin-bottom: var(--gap-actions-top);
 }
 
 .filters { display: grid; gap: var(--space-4); margin-bottom: var(--space-5); }

@@ -1,5 +1,5 @@
 // src/WaitingAuthorizationsPage.tsx
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import './App.css';
 import {
     fetchWaitingTransfers,
@@ -13,6 +13,8 @@ import {
     isUnderReview,
 } from './api';
 import { formatMoney } from './money';
+import Nav from './Nav';
+import type { NavRole, NavView } from '@shared/navigation';
 
 /**
  * The one sentence a customer whose payment is held needs, kept identical to the server's
@@ -25,7 +27,12 @@ const UNDER_REVIEW_TEXT =
     'finished, or you can cancel it above.';
 
 interface Props {
-    onNavigate: (view: 'new-payment' | 'waiting-auth' | 'fraud-desk') => void;
+    role: NavRole;
+    /* The mark and the name of the application, built by App and rendered here as it arrives. */
+    brand?: ReactNode;
+    /* Who is signed in and the way out, built by App and rendered here as it arrives. */
+    identity?: ReactNode;
+    onNavigate: (view: NavView) => void;
 }
 
 function mapDeclineReason(reason: string): string {
@@ -96,7 +103,7 @@ function describeAuthorizationError(err: ApiError, triesLeft?: number): string {
     }
 }
 
-export function WaitingAuthorizationsPage({ onNavigate }: Props) {
+export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }: Props) {
     const [items, setItems] = useState<WaitingTransferItem[]>([]);
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [details, setDetails] = useState<TransferDetails | null>(null);
@@ -275,57 +282,17 @@ export function WaitingAuthorizationsPage({ onNavigate }: Props) {
         <div className="app-shell">
             <div className="card">
                 <header className="card-header">
-                    <h1>Authorize Payment</h1>
+                    {brand}
+                    {identity}
                 </header>
 
                 <div className="card-body layout">
-                    {/* Left: navigation for customer views */}
-                    <nav className="nav">
-                        <div className="nav-title">Navigation</div>
-                        <ul>
-                            <li>
-                                <button type="button" className="nav-link">
-                                    Dashboard
-                                </button>
-                            </li>
-                            <li>
-                                <button type="button" className="nav-link">
-                                    Accounts
-                                </button>
-                            </li>
-                            <li>
-                                <button
-                                    type="button"
-                                    className="nav-link"
-                                    onClick={() => onNavigate('new-payment')}
-                                >
-                                    New payment
-                                </button>
-                            </li>
-                            <li>
-                                <button type="button" className="nav-link">
-                                    History & Statements
-                                </button>
-                            </li>
-                            <li>
-                                <button
-                                    type="button"
-                                    className="nav-link nav-link--active"
-                                    onClick={() => onNavigate('waiting-auth')}
-                                >
-                                    Waiting authorizations
-                                </button>
-                            </li>
-                            <li>
-                                <button type="button" className="nav-link">
-                                    Settings
-                                </button>
-                            </li>
-                        </ul>
-                    </nav>
+                    <Nav role={role} current="waiting-auth" onNavigate={onNavigate} />
 
                     {/* Right: waiting transfers table, details and authorization controls */}
                     <main className="form-panel">
+                        <h2>Authorize Payment</h2>
+
                         {/* Section: list of waiting transfers */}
                         <section className="section">
                             <h2 className="section-title">Waiting transfers</h2>

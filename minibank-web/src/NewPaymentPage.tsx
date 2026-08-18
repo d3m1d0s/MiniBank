@@ -1,6 +1,6 @@
 // src/NewPaymentPage.tsx
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import './App.css';
 import {
     getMyAccounts,
@@ -13,6 +13,8 @@ import {
     mapPaymentError,
 } from './api';
 import { formatMoney, parseAmount } from './money';
+import Nav from './Nav';
+import type { NavRole, NavView } from '@shared/navigation';
 
 const MAX_MESSAGE_LENGTH = 140;
 
@@ -33,10 +35,15 @@ type InfoState =
     | { type: 'error'; messages: string[] };
 
 interface Props {
-    onNavigate: (view: 'new-payment' | 'waiting-auth' | 'fraud-desk') => void;
+    role: NavRole;
+    /* The mark and the name of the application, built by App and rendered here as it arrives. */
+    brand?: ReactNode;
+    /* Who is signed in and the way out, built by App and rendered here as it arrives. */
+    identity?: ReactNode;
+    onNavigate: (view: NavView) => void;
 }
 
-export default function NewPaymentPage({ onNavigate }: Props) {
+export default function NewPaymentPage({ role, brand, identity, onNavigate }: Props) {
     const [accounts, setAccounts] = useState<AccountSummary[]>([]);
     const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
 
@@ -163,81 +170,16 @@ export default function NewPaymentPage({ onNavigate }: Props) {
         <div className="app-shell">
             <div className="card">
                 <header className="card-header">
-                    <h1>New Payment</h1>
+                    {brand}
+                    {identity}
                 </header>
 
                 <div className="card-body layout">
-                    {/*
-                      Navigation for customer views. Entries without a screen stay
-                      to show the product this page lives in, but are marked
-                      planned: muted, inert, and saying so in the title.
-                    */}
-                    <nav className="nav">
-                        <div className="nav-title">Navigation</div>
-                        <ul>
-                            <li>
-                                <button
-                                    type="button"
-                                    className="nav-link planned-item"
-                                    aria-disabled="true"
-                                    title="Planned - not part of this showcase"
-                                >
-                                    Dashboard
-                                </button>
-                            </li>
-                            <li>
-                                <button
-                                    type="button"
-                                    className="nav-link planned-item"
-                                    aria-disabled="true"
-                                    title="Planned - not part of this showcase"
-                                >
-                                    Accounts
-                                </button>
-                            </li>
-                            <li>
-                                <button
-                                    type="button"
-                                    className="nav-link nav-link--active"
-                                >
-                                    New payment
-                                </button>
-                            </li>
-                            <li>
-                                <button
-                                    type="button"
-                                    className="nav-link planned-item"
-                                    aria-disabled="true"
-                                    title="Planned - not part of this showcase"
-                                >
-                                    History & Statements
-                                </button>
-                            </li>
-                            <li>
-                                <button
-                                    type="button"
-                                    className="nav-link"
-                                    onClick={() => onNavigate('waiting-auth')}
-                                >
-                                    Waiting authorizations
-                                </button>
-                            </li>
-                            <li>
-                                <button
-                                    type="button"
-                                    className="nav-link planned-item"
-                                    aria-disabled="true"
-                                    title="Planned - not part of this showcase"
-                                >
-                                    Settings
-                                </button>
-                            </li>
-                        </ul>
-                    </nav>
+                    <Nav role={role} current="new-payment" onNavigate={onNavigate} />
 
                     {/* Main payment form */}
                     <main className="form-panel">
-                        <h2>Form – New payment</h2>
+                        <h2>New Payment</h2>
 
                         {loadingAccounts && <p>Loading accounts…</p>}
                         {accountsError && (
@@ -413,6 +355,12 @@ export default function NewPaymentPage({ onNavigate }: Props) {
                                     >
                                         {submitting ? 'Sending…' : 'Send now'}
                                     </button>
+                                    {/*
+                                      A draft is a thing you would press, so it is drawn as one:
+                                      dashed rather than filled, and inert. The pointer is told
+                                      what it is, and the form is spared a sentence explaining
+                                      what is not there.
+                                    */}
                                     <button
                                         type="button"
                                         className="btn-secondary planned-item"

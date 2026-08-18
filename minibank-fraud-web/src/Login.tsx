@@ -1,8 +1,13 @@
 import { useState } from 'react';
-import { login, type LoginResponse } from './api';
+import { login } from './api';
 
 export default function Login(props: {
-    onLoggedIn: (info: { username: string; role: LoginResponse['role']; customerId: number | null }) => void;
+    /*
+     * The role is a plain string, and not the union the response declares. The response is cast
+     * rather than validated, so a role the server adds later arrives here whatever this says;
+     * the shell decides which of them it has screens for and answers the rest with one.
+     */
+    onLoggedIn: (info: { username: string; role: string; customerId: number | null }) => void;
     /** Why the analyst is looking at this screen, when they did not ask to be. */
     notice?: string | null;
 }) {
@@ -31,12 +36,31 @@ export default function Login(props: {
     return (
         <div className="shell">
             <div className="window window--login">
+                {/*
+                  * Titled by its purpose. The bar used to carry a third spelling of the product
+                  * name as well, which the body now says directly below, and the window is a
+                  * door either way: repeating the name in the chrome added nothing.
+                  */}
                 <div className="titlebar">
-                    <div className="title">MiniBank Fraud — Sign in</div>
+                    <div className="title">Sign in</div>
                 </div>
 
                 <div className="content">
                     <form className="panel form" onSubmit={submit}>
+                        {/*
+                          * The entrance says whose bank this is, the same lockup the customer
+                          * application carries and in this skin's palette. Without it the first
+                          * frame of the workstation is two unnamed fields in a small window,
+                          * which describes a form template rather than the door of a bank.
+                          */}
+                        <header>
+                            <div className="brand">
+                                <span className="brand-mark" aria-hidden="true" />
+                                <h1 className="brand-name">MiniBank</h1>
+                            </div>
+                            <p className="brand-line">Payments and fraud review</p>
+                        </header>
+
                         {props.notice && !error && <div className="hint">{props.notice}</div>}
                         <div className="row">
                             <label>Username</label>

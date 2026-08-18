@@ -38,7 +38,9 @@
   --color-surface-shell: #f7f7f7;
   --color-surface-raised: #ffffff;
   --color-surface-chrome: #e2e2e2;    /* .titlebar */
-  --color-surface-hover: #ededed;     /* this stylesheet has no :hover rule at all today */
+  --color-surface-chrome-hover: #cfcfcf; /* the title bar, which is darker than the shell and
+                                         so cannot take the surface hover below         */
+  --color-surface-hover: #ededed;
   --color-surface-disabled: #e9e9e9;
 
   /* ---- borders. The same split as the dark theme: --color-border is the boundary
@@ -74,6 +76,10 @@
   --color-text-disabled: #6f6f6f;     /* fraud.css never styled :disabled, so the UA drew
                                          the label at 2.01:1                             */
   --color-text-on-accent: #ffffff;
+
+  /* The same monogram the web theme carries, in this theme's on-accent colour. Drawn rather
+     than fetched, so a showcase repository does not grow a binary for one letter. */
+  --brand-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M5 19V5l7 8 7-8v14' fill='none' stroke='%23ffffff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 
   /* ---- accent. One blue does both jobs here: #1f5eff carries a white label at 5.12:1
    *      AND clears 3:1 against all five surfaces (3.95:1 worst case, on the title bar).

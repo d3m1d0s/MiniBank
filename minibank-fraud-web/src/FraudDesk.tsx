@@ -220,10 +220,16 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
         <div className="shell">
             <div className="window">
                 <div className="titlebar">
-                    <div className="title">MiniBank Fraud Desk</div>
+                    {/*
+                      * One product name, qualified by the screen and not by the role: this
+                      * window carries the customer screens too once they exist, and the same
+                      * screen is named the same way in the customer application.
+                      */}
+                    <div className="title">MiniBank · Fraud Desk</div>
                     <div className="titlebar-right">
                         <div className="user">{props.username}</div>
-                        <button className="btn" onClick={props.onLogout}>Logout</button>
+                        {/* The action paired with "Sign in" is "Sign out". One product, one verb. */}
+                        <button className="btn" onClick={props.onLogout}>Sign out</button>
                     </div>
                 </div>
 
@@ -369,7 +375,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                     {/* RIGHT: detail */}
                     <div className="right">
                         <div className="panel">
-                            <div className="panel-title">Alert Detail — Review Suspicious Transaction</div>
+                            <div className="panel-title">Alert Detail: Review Suspicious Transaction</div>
 
                             <div className="panel-scroll">
 

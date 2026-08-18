@@ -1,6 +1,6 @@
 // src/FraudDeskPage.tsx
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import './App.css';
 import {
     fetchAlerts,
@@ -16,12 +16,25 @@ import {
 } from './api';
 import { amountRangeProblem } from '@shared/alertFilters';
 import { formatMoney } from './money';
+import Nav from './Nav';
+import type { NavRole, NavView } from '@shared/navigation';
 
 /** The transfer status a withdrawn payment ends in. */
 const WITHDRAWN = 'DECLINED';
 
-// The fraud desk takes no navigation callback: only a FRAUD_ANALYST reaches it,
-// and App restricts that role to this view.
+/*
+ * The desk takes a navigation callback like the other two screens, although App still keeps the
+ * analyst on this one view. The column is drawn from the same list everywhere, so the entry a
+ * person is standing on stays a button here as well, and the caller decides what pressing it does.
+ */
+interface Props {
+    role: NavRole;
+    /* The mark and the name of the application, built by App and rendered here as it arrives. */
+    brand?: ReactNode;
+    /* Who is signed in and the way out, built by App and rendered here as it arrives. */
+    identity?: ReactNode;
+    onNavigate: (view: NavView) => void;
+}
 
 function formatDate(value?: string | null): string {
     if (!value) return '';
@@ -56,7 +69,7 @@ function describeDecision(kind: FraudDecision, updated: AlertDetail): string {
     return 'Notes, assignee and tags saved. No decision was taken: the alert is still open and the transfer is unchanged.';
 }
 
-export default function FraudDeskPage() {
+export default function FraudDeskPage({ role, brand, identity, onNavigate }: Props) {
     const [alerts, setAlerts] = useState<AlertQueueItem[]>([]);
     const [counters, setCounters] = useState<AlertCounters | null>(null);
     const [selectedId, setSelectedId] = useState<number | null>(null);
@@ -230,37 +243,17 @@ export default function FraudDeskPage() {
         <div className="app-shell">
             <div className="card">
                 <header className="card-header">
-                    <h1>Fraud Desk</h1>
+                    {brand}
+                    {identity}
                 </header>
 
                 <div className="card-body layout">
-                    {/* Left: main navigation for the fraud analyst workspace */}
-                    <nav className="nav">
-                        <div className="nav-title">Navigation</div>
-                        <ul>
-                            <li>
-                                <button type="button" className="nav-link">
-                                    Dashboard
-                                </button>
-                            </li>
-                            <li>
-                                <button type="button" className="nav-link">
-                                    Settings
-                                </button>
-                            </li>
-                            <li>
-                                <button
-                                    type="button"
-                                    className="nav-link nav-link--active"
-                                >
-                                    Fraud desk
-                                </button>
-                            </li>
-                        </ul>
-                    </nav>
+                    <Nav role={role} current="fraud-desk" onNavigate={onNavigate} />
 
                     {/* Right: queue, alert details and decision controls */}
                     <main className="form-panel">
+                        <h2>Fraud Desk</h2>
+
                         {/* Alerts queue */}
                         <section className="section">
                             <h2 className="section-title">Alerts queue</h2>

@@ -83,6 +83,13 @@
   --color-text-disabled: #828b9e;     /* was opacity 0.6 on the whole control */
   --color-text-on-accent: #f9fafb;
 
+  /* The monogram on the sign-in tile, drawn rather than fetched: a showcase repository should
+     not carry a binary for one letter, and an inline document cannot be missing at run time.
+     The stroke is the on-accent colour because the tile behind it is --color-accent. The
+     viewBox carries its own padding, so background-size: contain still leaves the letter
+     breathing inside the tile. */
+  --brand-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M5 19V5l7 8 7-8v14' fill='none' stroke='%23f9fafb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
   /* ---- accent, split by job. --color-accent is the LIGHTEST blue that keeps a
    *      #f9fafb label at 4.5:1 (measured 4.95:1; #3b82f6 gives only 3.52:1). It
    *      is therefore too dark to be a 3:1 boundary against the raised surface
@@ -93,6 +100,10 @@
    *      hover does not change at all.
    */
   --color-accent: #2563eb;
+  /* The hover step for the header bar, which is chrome rather than a control surface and so
+     does not take --color-surface-hover: that value is mixed against the shell, and against
+     the darker chrome it barely moves. */
+  --color-surface-chrome-hover: #384c7c;
   --color-accent-hover: #1d4ed8;
   --color-accent-active: #1a43bd;
   --color-accent-line: #3b82f6;       /* focus ring, focused field edge, primary edge */
@@ -154,6 +165,10 @@
      inside the band where the eye still finds the start of the next line without help. */
   --size-prose-max: 66ch;
   --size-dialog-max: 480px;
+  /* The height the sign-in dialog actually has, which is what the shell offsets it by to
+     hold it still while a message grows under the password field. It is not --size-dialog-max:
+     that is the width, and standing in for the height put the dialog 68px above centre. */
+  --size-dialog-nominal: 344px;
   --size-nav-column: 260px;
   /* The label column of a form row. It is a floor rather than a width, and it was set below
      the labels that actually stand in it - Assignee is 65px, Username 73px, Withdrawn 80px -

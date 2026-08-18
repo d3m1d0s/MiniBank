@@ -63,7 +63,7 @@ textarea:focus-visible {
   /*
    * stretch, so a working screen is as tall as the window rather than as tall as what is in
    * it. The size of the shell is the window's to decide on both axes; the sign-in dialog is
-   * the one exception, and it opts out through its own auto margins below.
+   * the one exception and the rule below takes it out of the stretch.
    */
   align-items: stretch;
 }
@@ -71,9 +71,23 @@ textarea:focus-visible {
 /*
  * The one screen that keeps canvas around it, and the only gutter left in this stylesheet
  * that is not simply keeping text off the glass.
+ *
+ * Anchored rather than centred on its own height. Centred, the dialog split every growth
+ * across both of its edges: the message under the password field pushed the two fields up
+ * 46px and the button down 46px, out from under the pointer that had just pressed it, and
+ * sprang the other way on the next submit when the message was cleared. The offset below
+ * is the window's business alone, so the fields hold still and only what stands under the
+ * message can move. If the offset drifts from the true height of the dialog the dialog
+ * sits a few pixels off centre, which is the whole of the failure.
+ *
+ * max() keeps a gutter on a window too short to centre in; below that the page scrolls,
+ * which is what it should do and is not a jump.
  */
 .app-shell:has(.card--narrow) {
-  padding: var(--space-7);
+  align-items: flex-start;
+  padding: max(var(--space-10),
+               calc((100vh - var(--size-dialog-nominal, var(--size-dialog-max))) / 2))
+           var(--space-7) var(--space-7);
 }
 
 /*
@@ -93,15 +107,12 @@ textarea:focus-visible {
  * dialog, it stays a dialog on an empty field, and that is what signing in looks like
  * everywhere.
  *
- * The auto margins do two things. A cross-axis auto margin only takes space that is
- * already free, so a short dialog sits in the middle of a tall window while a dialog
- * taller than the window keeps the shell's top padding and stays reachable. And a flex
- * item with an auto cross-axis margin is never stretched, which is how this one card
- * steps out of the stretch the shell applies to every other screen.
+ * The auto block margins it used to carry are gone. They centred it on its own height,
+ * which is the whole of the jump described above; the shell holds it at the top now and
+ * stretch is off there, so nothing is left for them to do.
  */
 .card--narrow {
   max-width: var(--size-dialog-max);
-  margin-block: auto;
   border-radius: var(--radius-shell);
   padding: var(--space-9) var(--space-10) var(--space-10);
   border: var(--border-width-hairline) solid var(--color-border-container);
@@ -121,6 +132,11 @@ textarea:focus-visible {
  * things that tell a reader where the page begins.
  */
 .card:not(.card--narrow) > .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-7);
   padding: var(--space-8) var(--space-10);
   margin-bottom: 0;
   background: var(--color-surface-chrome);
@@ -141,6 +157,135 @@ textarea:focus-visible {
   line-height: var(--leading-tight);
   font-weight: var(--weight-bold);
   letter-spacing: var(--tracking-wide);
+}
+
+/* ====== The name of the application ====== */
+
+/*
+ * The mark, the name and one line saying what the place is. The lockup stands on the
+ * sign-in dialog and, without the line, at the left end of the header band of every
+ * working screen. The mark is a background image so that each skin sets its own from
+ * its theme file, and it is sized off the type scale rather than a fixed pixel count:
+ * at 200 percent text it grows with the name it stands beside instead of shrinking
+ * into a dot.
+ *
+ * background-image alone, so that a theme which has not declared --brand-mark yet loses
+ * the image and keeps the tile rather than losing the whole shorthand.
+ *
+ * It wraps because the dialog does not. At 200 percent text the mark and the name measure
+ * 448px inside a 414px card and the last letter of the name was cut off by the card's own
+ * edge; wrapped, the mark takes a line of its own and the name is whole. The lockup is
+ * stacked rather than clipped, which is the way round it has to be.
+ */
+.brand {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-6);
+}
+
+.brand-mark {
+  flex: none;
+  width: var(--text-7);
+  height: var(--text-7);
+  border-radius: var(--radius-field);
+  background-color: var(--color-accent);
+  background-image: var(--brand-mark);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+
+/*
+ * Header size, not dialog size. The band is furniture, and the largest thing on a
+ * working screen should be the work: at the dialog's 38px the name of the application
+ * would outweigh everything in the panel beside it. A type token rather than a pixel
+ * count, so the mark still grows with the name at 200 percent text.
+ */
+.card:not(.card--narrow) > .card-header .brand-name {
+  font-size: var(--text-6);
+}
+
+.card:not(.card--narrow) > .card-header .brand-mark {
+  width: var(--text-6);
+  height: var(--text-6);
+}
+
+.brand-line {
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-4);
+  color: var(--color-text-muted);
+}
+
+/* ====== Who is signed in, and the way out ====== */
+
+/*
+ * At the right end of the header band, because that band is the only furniture a web
+ * screen has above the fold and this is furniture rather than content. The foot of the
+ * navigation column was the alternative and it is not a place: that column is stretched
+ * to whatever the panel beside it happens to be, so its foot moves by a hundred pixels
+ * between two screens and disappears entirely below 900px.
+ */
+.identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  margin-left: auto;
+}
+
+.identity-who {
+  font-size: var(--text-3);
+  line-height: var(--leading-dense);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.identity-role {
+  font-size: var(--text-1);
+  color: var(--color-text-muted);
+}
+
+.identity-role::before {
+  content: "·";
+  margin: 0 var(--space-3);
+}
+
+/*
+ * A control with no shape of its own, for the same reason a navigation entry has none:
+ * an outline in the header band would be the brightest thing on a working screen, and
+ * this is the control a person presses last. The hover fill is what says it is a
+ * control. The desktop window draws the same control as a white box on grey and it is
+ * the first thing the eye finds there, which is what this is avoiding.
+ */
+.identity-exit {
+  padding: var(--space-3) var(--space-6);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-3);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease),
+              color var(--motion-fast) var(--ease),
+              transform var(--motion-instant) var(--ease);
+}
+
+/*
+ * --color-surface-hover is three points from the band on every channel, so a hover built
+ * from it would not be visible at all. The band needs a hover surface of its own, one
+ * step LIGHTER than itself; --color-surface-chrome-hover is that name and no theme
+ * declares it yet, so the container edge stands in until one does.
+ */
+.identity-exit:hover {
+  background-color: var(--color-surface-chrome-hover, var(--color-border-container));
+  color: var(--color-text-primary);
+  transform: var(--lift-hover);
+}
+
+.identity-exit:active {
+  background-color: var(--color-surface-chrome-hover, var(--color-border-container));
+  transform: translateY(1px);
 }
 
 /* ====== Main layout: left navigation, right content ====== */
@@ -183,47 +328,72 @@ textarea:focus-visible {
   gap: var(--gap-nav);
 }
 
-.nav-link {
+/*
+ * The shape every entry shares, and the whole of it. Nothing is drawn at rest, so an
+ * entry that goes nowhere cannot carry the frame of one that does; what it costs is
+ * that the current entry has to be marked by a fill rather than by an outline.
+ *
+ * The transparent leading border is what squares the column up. It is 2px of layout on
+ * every row, coloured on one of them, so all six labels start on one vertical line
+ * instead of the bordered row standing 2px right of the others. display: block because
+ * half these rows are a span, and an inline span ignores width and vertical padding.
+ *
+ * The rest colour is the primary text, not the secondary it used to be. The first cut
+ * this column makes has to be live against planned: at the secondary step the working
+ * entry read as slightly less grey than the dead ones rather than as the one that goes
+ * somewhere. It costs no pixels, which is the point, since the entry that needed the
+ * help may not take a shape of its own without borrowing the current entry's.
+ */
+.nav-item {
+  display: block;
   width: 100%;
   text-align: left;
   padding: var(--space-4) var(--space-6);
-  border-radius: var(--radius-control);
   border: none;
+  border-inline-start: var(--border-width-marker) solid transparent;
+  border-radius: var(--radius-field);
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   font-size: var(--text-4);
   font-weight: var(--weight-medium);
   cursor: pointer;
   transition: background-color var(--motion-fast) var(--ease),
-              border-color var(--motion-fast) var(--ease),
               color var(--motion-fast) var(--ease),
               transform var(--motion-instant) var(--ease);
 }
 
 /*
- * Hover writes background-color and nothing else, because the active marker below is
- * drawn with box-shadow. Two channels that never reach into each other, so passing the
- * pointer over the current entry can no longer take its marker away.
+ * The current entry is excluded by name. Hover and "you are here" now write the same
+ * property, so without this the pointer passing over the current entry would take its
+ * fill away. A planned entry is not a control and must not answer like one.
  */
-.nav-link:hover:not(:disabled, [aria-busy="true"], .planned-item) {
+.nav-item:hover:not(.nav-item--current, .nav-item--planned) {
   background-color: var(--color-surface-hover);
   transform: var(--lift-hover);
 }
 
-.nav-link:active:not(:disabled, [aria-busy="true"], .planned-item) {
+.nav-item:active:not(.nav-item--current, .nav-item--planned) {
   background-color: var(--color-surface-hover);
   transform: translateY(1px);
 }
 
 /*
- * A full ring rather than a leading bar: the pill radius would clip a bar into a
- * crescent. The tint says which entry, the ring is what carries the contrast.
+ * A fill and a leading bar, and no ring. The ring is the keyboard's device: when this
+ * was drawn as one, the first Tab stop wore the same blue outline at the same radius as
+ * the current page and neither could be told from the other. The fill alone measures
+ * 1.37:1 on the shell, which is a tint rather than a statement, so the bar carries the
+ * contrast at 7.1:1.
  */
-.nav-link--active {
-  box-shadow:
-          inset 0 0 0 var(--border-width-marker) var(--color-selected-marker),
-          inset 0 0 0 9999px var(--color-selected-surface);
+.nav-item--current {
+  background-color: var(--color-selected-surface);
+  border-inline-start-color: var(--color-selected-marker);
   color: var(--color-text-primary);
+}
+
+.nav-item--planned {
+  color: var(--color-text-planned);
+  font-weight: var(--weight-regular);
+  cursor: default;
 }
 
 /* ====== Right column (form / content) ====== */
@@ -500,6 +670,17 @@ textarea:focus-visible {
   margin-top: var(--gap-actions-top);
 }
 
+/*
+ * The dialog's own separation. At the shared 4px the button stood 20px under the password
+ * against 16px between the two fields, which is not a gap: it read as a third row of the
+ * form rather than as the thing the form is for. The token is 4px on every other web form
+ * too and is wrong there for the same reason, but raising it would move screens that are
+ * not this block's.
+ */
+.card--narrow .actions {
+  margin-top: var(--space-7);
+}
+
 .btn-primary,
 .btn-secondary {
   padding: var(--space-4) var(--space-7);
@@ -561,7 +742,6 @@ textarea:focus-visible {
  * that fill, because a control that cannot be pressed must not look like the one
  * that can.
  */
-.nav-link:disabled,
 .btn-primary:disabled,
 .btn-secondary:disabled,
 .field-input:disabled,
@@ -589,11 +769,14 @@ textarea:focus-visible {
 }
 
 /*
- * Nav entries and buttons that sketch the product around this showcase but are
- * not built. A dashed edge rather than a dimmed one, so it reads without colour and
- * stops looking like a control that is merely unavailable for now. Pointer events
- * stay on so the title can explain why on hover; the hover and active rules above
- * already stand back from this class.
+ * A button that sketches the product around this showcase but is not built. A dashed edge
+ * rather than a dimmed one, so it reads without colour and stops looking like a control
+ * that is merely unavailable for now. Pointer events stay on so the title can explain why
+ * on hover; the hover and active rules above already stand back from this class.
+ *
+ * Buttons only. The navigation column does not use it: an outline there gave four entries
+ * that go nowhere the shape of a target while the entry that worked had none, so a dead
+ * entry in that column is muted text and nothing else.
  */
 .planned-item[aria-disabled="true"] {
   background-color: transparent;
@@ -743,9 +926,18 @@ textarea:focus-visible {
   }
 
   /* A narrow window has no width to spend on a gutter, and the page header is the first
-     thing that pays for one: a 38px title in a 390px window has none to give. */
+     thing that pays for one. */
   .card:not(.card--narrow) > .card-header {
     padding: var(--space-7);
+  }
+
+  /* Identity is two lines of text and a control, and the band at 390 cannot hold it beside
+     the name of the application without cutting one of them. It takes its own row above
+     rather than sharing: width: 100% is what forces the stack, whatever the name measures. */
+  .identity {
+    order: -1;
+    width: 100%;
+    justify-content: flex-end;
   }
 
   .card:not(.card--narrow) > .card-body {

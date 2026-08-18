@@ -5,7 +5,12 @@ import { login, type LoginResponse } from './api';
 interface Props {
     onLoggedIn: (info: {
         username: string;
-        role: LoginResponse['role'];
+        /*
+         * A plain string, and not the union the response declares. The response is cast rather
+         * than validated, so a role the server adds later arrives here whatever this says; the
+         * shell decides which of them it has screens for and answers the rest with one.
+         */
+        role: string;
         customerId: number | null;
     }) => void;
     /** Why the user is looking at this screen, when they did not ask to be. */
@@ -40,8 +45,21 @@ export default function LoginDialog({ onLoggedIn, notice }: Props) {
     return (
         <div className="app-shell">
             <div className="card card--narrow">
+                {/*
+                  * The entrance says whose bank this is. Without it the first frame of the
+                  * application is a heading reading "Sign in" over two unnamed fields, which
+                  * describes a form template rather than the door of a bank, and on a large
+                  * screen it is a small box correctly centred with nothing to say. The mark is
+                  * a background image on one empty span so the same lockup can be set per skin
+                  * from the theme files, and it is hidden from the reader because the name
+                  * beside it already carries the meaning.
+                  */}
                 <header className="card-header">
-                    <h1>Sign in</h1>
+                    <div className="brand">
+                        <span className="brand-mark" aria-hidden="true" />
+                        <h1 className="brand-name">MiniBank</h1>
+                    </div>
+                    <p className="brand-line">Payments and fraud review</p>
                 </header>
                 <div className="card-body">
                     {notice && !error && (
