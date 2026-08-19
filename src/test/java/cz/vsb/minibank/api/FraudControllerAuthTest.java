@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -98,8 +99,14 @@ class FraudControllerAuthTest {
                 Money.czk(1000)                   // amount
         );
 
-        when(alerts.all()).thenReturn(List.of(alert));
-        when(transfers.byId(10)).thenReturn(Optional.of(transfer));
+        // The queue asks the store for a page of rows, for how many the filter matched, and for
+        // the whole queue by state. Three answers, and the last is deliberately not derived from
+        // the first two.
+        when(alerts.queuePage(any(), anyInt(), anyInt())).thenReturn(List.of(
+                new FraudAlertRepository.QueueRow(alert, transfer.id(), transfer.status(),
+                        transfer.amount())));
+        when(alerts.queueTotal(any())).thenReturn(1);
+        when(alerts.countByState()).thenReturn(Map.of(FraudAlertState.NEW, 1));
 
         FraudController ctrl = new FraudController(
                 alerts,
@@ -111,11 +118,12 @@ class FraudControllerAuthTest {
         );
 
         // act
-        var resp = ctrl.listAlerts(null, null, null, null, null, null, null);
+        var resp = ctrl.listAlerts(null, null, null, null, null, null, null, null, null);
 
         // assert: call succeeds and the alert is included in the result
         assertNotNull(resp);
-        assertEquals(1, resp.items().size());
+        assertEquals(1, resp.alerts().items().size());
+        assertEquals(1, resp.alerts().total());
         assertEquals(1, resp.counters().newCount()); // extra check on counters
     }
 
@@ -142,7 +150,7 @@ class FraudControllerAuthTest {
         // act + assert
         assertThrows(
                 AccessDeniedException.class,
-                () -> ctrl.listAlerts(null, null, null, null, null, null, null)
+                () -> ctrl.listAlerts(null, null, null, null, null, null, null, null, null)
         );
     }
 

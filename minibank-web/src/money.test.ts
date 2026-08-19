@@ -1,11 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { parseAmount, formatCzech, formatMoney } from './money';
+import { parseAmount, formatCzech, formatMoney } from '@shared/money';
 import { EMPTY_VALUE } from '@shared/format';
 
 /**
- * The amount a customer types is the one place in this application where the same string means
+ * The amount a customer types is the one place in these applications where the same string means
  * two different numbers depending on who is reading it, and where getting it wrong moved money.
  * `1,000` used to be accepted and paid 1.00 CZK behind a success panel.
+ *
+ * The subject is the shared module rather than this application's own. The parser was written
+ * twice, once per application, and it is one function now; these assertions moved with it and are
+ * the only ones the second copy ever had. They stay in this project because it is the one that
+ * runs a test command - the workstation has none - and they sit beside the other five files that
+ * test the shared layer.
  *
  * Locales are passed explicitly everywhere below rather than read from the environment, so these
  * assertions say what they mean on any machine.

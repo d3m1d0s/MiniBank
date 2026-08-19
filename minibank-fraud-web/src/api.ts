@@ -20,7 +20,20 @@ export {
 } from '@shared/http';
 
 export type { Money } from '@shared/money';
-export { formatMoney } from '@shared/money';
+/*
+ * The reader as well as the writer now. parseAmount used to be the customer application's alone,
+ * and this desk carried a second copy of it under the name readAmount because one application may
+ * not import another's src/: two parsers for the one convention that decides whether 1,000 is a
+ * thousand crowns or one. There is one, it is shared, and both amount boxes on this desk read
+ * exactly what the payment form reads.
+ */
+export { formatMoney, parseAmount } from '@shared/money';
+
+/*
+ * A page of a list as the API sends one, which is how the alert queue now arrives: the rows, the
+ * page and size that were asked for, and the total behind the filters.
+ */
+export type { Page } from '@shared/paging';
 
 export type {
     AlertQueueItem,

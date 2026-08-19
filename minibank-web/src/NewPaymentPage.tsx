@@ -5,15 +5,18 @@ import './App.css';
 import {
     getMyAccounts,
     createPayment,
+    fetchMyBeneficiaries,
     type AccountSummary,
+    type Beneficiary,
     type NewPaymentRequest,
     type NewPaymentResult,
     isUnderReview,
 } from './api';
-import { formatMoney, parseAmount, readerLocale } from './money';
+import { formatMoney, readerLocale } from './money';
+import { parseAmount } from '@shared/money';
 import { describeApiError, describeApiErrorLines } from '@shared/apiErrors';
-import { transferStatusLabel } from '@shared/glossary';
-import { formatTransferId } from '@shared/format';
+import { transferStatusLabel, transferStatusTone } from '@shared/glossary';
+import { formatIban, formatTransferId } from '@shared/format';
 import Nav from './Nav';
 import type { NavRole, NavView } from '@shared/navigation';
 
@@ -40,6 +43,21 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
     const [targetIban, setTargetIban] = useState('');
     const [amount, setAmount] = useState('');
     const [message, setMessage] = useState('');
+
+    /**
+     * The customer's saved payees, and which one is chosen.
+     *
+     * Two ways to name a destination and both stay: choosing a name sends its id, which is what
+     * reaches the trusted branch of the risk rules, and typing an account number sends the number,
+     * which has no payee behind it and never can. Last touched wins, so editing the field below
+     * clears the choice; there is no control for undoing a choice because the field is one.
+     *
+     * The list failing is not the form failing, so it has a flag of its own rather than sharing
+     * the accounts error, which kills the form: a payment can still be made by typing an IBAN.
+     */
+    const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>([]);
+    const [beneficiaryId, setBeneficiaryId] = useState<number | null>(null);
+    const [beneficiariesFailed, setBeneficiariesFailed] = useState(false);
 
     const [loadingAccounts, setLoadingAccounts] = useState(true);
     const [accountsError, setAccountsError] = useState<string | null>(null);
@@ -69,11 +87,46 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
             }
         }
 
+        /**
+         * The address book, fetched beside the accounts and gating nothing.
+         *
+         * A slow list of payees must not delay a payment, so this has no loading line of its own:
+         * the row simply is not there until the names arrive, and "Loading accounts…" stays the
+         * form's only such sentence.
+         */
+        async function loadBeneficiaries() {
+            try {
+                const saved = await fetchMyBeneficiaries();
+                if (cancelled) return;
+                setBeneficiaries(saved);
+                setBeneficiariesFailed(false);
+            } catch {
+                if (cancelled) return;
+                setBeneficiaries([]);
+                setBeneficiariesFailed(true);
+            }
+        }
+
         load();
+        void loadBeneficiaries();
         return () => {
             cancelled = true;
         };
     }, []);
+
+    /**
+     * A name was chosen, or the choice was given up.
+     *
+     * The IBAN below is filled in with the grouped form, so the customer reads the account number
+     * they are about to pay rather than being told a name and shown nothing. The field stays
+     * editable: the grouped value is safe to send, because the server's IBAN constructor strips
+     * whitespace before it validates.
+     */
+    function chooseBeneficiary(raw: string) {
+        const chosen = beneficiaries.find((b) => String(b.id) === raw) ?? null;
+        setBeneficiaryId(chosen?.id ?? null);
+        setTargetIban(chosen ? formatIban(chosen.iban) : '');
+    }
 
     const selectedAccount = selectedAccountId != null
         ? accounts.find((a) => a.id === selectedAccountId) ?? null
@@ -103,8 +156,11 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
         }
         const amountValue = parsed.value;
 
-        // Basic IBAN check
-        if (!targetIban.trim()) {
+        // Basic IBAN check, skipped explicitly rather than by luck when a saved payee names the
+        // destination instead. The two are never both sent: the server refuses a request that
+        // names both, and a request that named both would be this form having lost track of
+        // which destination the customer meant.
+        if (beneficiaryId == null && !targetIban.trim()) {
             setInfo({
                 type: 'error',
                 messages: ['Target IBAN is required.'],
@@ -112,12 +168,19 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
             return;
         }
 
-        const payload: NewPaymentRequest = {
-            sourceAccountId: selectedAccountId,
-            targetIban: targetIban.trim(),
-            amountCzk: amountValue,
-            message: message.trim(),
-        };
+        const payload: NewPaymentRequest = beneficiaryId != null
+            ? {
+                sourceAccountId: selectedAccountId,
+                beneficiaryId,
+                amountCzk: amountValue,
+                message: message.trim(),
+            }
+            : {
+                sourceAccountId: selectedAccountId,
+                targetIban: targetIban.trim(),
+                amountCzk: amountValue,
+                message: message.trim(),
+            };
 
         try {
             setSubmitting(true);
@@ -126,7 +189,10 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
 
             // The fields have done their job; a form that keeps them re-sends the
             // same payment on one stray Enter. The confirmation panel stays.
+            // The chosen payee is cleared with them: left standing, the next payment
+            // would go to the same person from behind an apparently blank form.
             setTargetIban('');
+            setBeneficiaryId(null);
             setAmount('');
             setMessage('');
 
@@ -188,9 +254,18 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                             setSelectedAccountId(Number(e.target.value))
                                         }
                                     >
+                                        {/*
+                                          Grouped in fours like every other account number on
+                                          either application. This was the last ungrouped
+                                          identifier on any screen: one unbroken run of
+                                          twenty-four characters beside a grouped balance and
+                                          above a grouped destination. The field was re-measured
+                                          for it, and for the arrow a select draws and an input
+                                          does not.
+                                        */}
                                         {accounts.map((acc) => (
                                             <option key={acc.id} value={acc.id}>
-                                                {acc.iban}
+                                                {formatIban(acc.iban)}
                                             </option>
                                         ))}
                                     </select>
@@ -199,18 +274,88 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                     </div>
                                 </div>
 
+                                {/*
+                                  The saved payees, above the field they fill in, so cause sits
+                                  above effect: a name is chosen and the account number appears
+                                  one row below.
+
+                                  An option carries the name and nothing else. The IBAN is not
+                                  repeated into it because it is about to be shown in full
+                                  underneath, and the trusted flag that decides whether a payment
+                                  is reviewed is not on this wire at all: a customer who can see
+                                  which payee escapes the check has been shown how to walk past it.
+
+                                  Absent entirely when there is nothing in the address book.
+                                  Creating a payee is not part of this application, so an empty
+                                  control would be furniture a customer can never fill, on the one
+                                  form that moves money.
+                                */}
+                                {beneficiaries.length > 0 && (
+                                    <div className="field-row">
+                                        {/*
+                                          One word, not "Saved beneficiary:". The label track is
+                                          5.5rem and every other label on this form fits inside
+                                          it; that one measures 115px and pushed its own control
+                                          27px right of the three it stands with, so the form had
+                                          four rows and two left edges. What is saved is said by
+                                          the control being a closed list of the customer's own
+                                          payees with None at its head.
+                                        */}
+                                        <label
+                                            className="field-label"
+                                            htmlFor="payment-beneficiary"
+                                        >
+                                            Beneficiary:
+                                        </label>
+                                        <select
+                                            id="payment-beneficiary"
+                                            className="field-input"
+                                            value={beneficiaryId ?? ''}
+                                            onChange={(e) => chooseBeneficiary(e.target.value)}
+                                        >
+                                            <option value="">None</option>
+                                            {beneficiaries.map((b) => (
+                                                <option key={b.id} value={b.id}>
+                                                    {b.name}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                )}
+
+                                {/* Quieter than the accounts failure, which uses .text-danger and
+                                    takes the form down with it, because this one takes nothing
+                                    down: the payment can still be made by typing the number. */}
+                                {beneficiariesFailed && (
+                                    <p className="helper-text">
+                                        Saved beneficiaries could not be loaded. Enter an IBAN
+                                        below.
+                                    </p>
+                                )}
+
                                 {/* Target IBAN */}
                                 <div className="field-row">
                                     <label className="field-label" htmlFor="payment-target">
                                         To:
                                     </label>
+                                    {/*
+                                      Editable at all times, including while a payee is chosen.
+                                      Made read-only it would leave no way back to typing, since
+                                      the control that would give one does not exist. Touching it
+                                      gives the choice up, silently: the customer has just named a
+                                      different destination and saying so would be an argument
+                                      about which of the two they meant.
+                                    */}
                                     <input
                                         id="payment-target"
                                         className="field-input"
                                         type="text"
                                         placeholder="IBAN"
                                         value={targetIban}
-                                        onChange={(e) => setTargetIban(e.target.value)}
+                                        onChange={(e) => {
+                                            setTargetIban(e.target.value);
+                                            setBeneficiaryId(null);
+                                        }}
                                     />
                                 </div>
 
@@ -310,12 +455,22 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                                 Transfer:{' '}
                                                 {formatTransferId(info.result.transferId)}
                                             </li>
+                                            {/* The word carries its treatment here too. This
+                                                panel is where a customer first learns a payment
+                                                is under review rather than sent, and the two
+                                                read alike set in one colour. */}
                                             <li>
                                                 Status:{' '}
-                                                {transferStatusLabel(
-                                                    info.result.status,
-                                                    'customer',
-                                                )}
+                                                <span
+                                                    className={`tone-${transferStatusTone(
+                                                        info.result.status,
+                                                    )}`}
+                                                >
+                                                    {transferStatusLabel(
+                                                        info.result.status,
+                                                        'customer',
+                                                    )}
+                                                </span>
                                             </li>
 
                                             {/*

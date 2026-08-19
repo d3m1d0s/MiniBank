@@ -136,6 +136,23 @@
   --color-warning-border: #fbbf24;
   --color-warning-text: #fcd34d;
 
+  /* The refused tone, and the one of the three that needed a value of its own.
+   *
+   * A status word stands on four grounds here, because a selected queue row paints a tint over
+   * every one of its cells: the raised row #1b2742, its hover #22304f, and each of those again
+   * under the selection. The danger salmon #fa8072 measures 5.9, 5.2, 4.4 and 3.96 across them,
+   * so a Declined row fails 4.5:1 exactly while it is the row being read. This lighter red
+   * measures 7.8, 6.9, 5.9 and 5.2 and clears everywhere. It is the same trap
+   * --color-selected-marker was pulled out of, and for the same reason.
+   *
+   * Not a change to --color-danger-text: that value carries the error box and its edge, where
+   * it sits on the tinted danger surface and is not what fails. One role, one value. */
+  --color-tone-blocked: #fca5a5;
+  /* The open tone, which is the success green rather than a fifth colour: an alert nobody has
+     picked up is not an error and not a warning, and this palette already carries a green that
+     clears 4.5:1 on every surface a status word lands on. */
+  --color-tone-open: var(--color-success-text);
+
   /* ---- shadow ---- */
   --shadow-shell:
           0 28px 80px rgb(0 0 0 / 0.75),
@@ -196,7 +213,6 @@
   --size-queue-min: 320px;
   --size-queue-max: 420px;
   --size-detail-min: 360px;
-  --size-status-column: 6.5rem;
 }
 
 /* The durations are zeroed in scale.css, which is loaded first. --lift-hover is declared

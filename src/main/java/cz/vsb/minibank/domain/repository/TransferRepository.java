@@ -1,6 +1,7 @@
 package cz.vsb.minibank.domain.repository;
 
 import cz.vsb.minibank.domain.Transfer;
+import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.value.Money;
 
 import java.time.Instant;
@@ -37,6 +38,54 @@ public interface TransferRepository {
      * Returns all transfers originating from the given account.
      */
     List<Transfer> bySourceAccount(int accountId);
+
+    /**
+     * One page of the transfers sent from a set of accounts, newest first.
+     *
+     * The set is the accounts one CUSTOMER holds, the same shape and for the same reason
+     * {@link #sentTotalToIbanBetween} takes: a customer's payment history is one list across their
+     * accounts, and asking per account and merging in Java would order the result by account and
+     * then by date, which is not an order anybody asked for.
+     *
+     * WHY IT IS PAGED AT ALL. {@link #bySourceAccount} answers with every row an account has ever
+     * sent and every caller then took what it wanted from that, which is a query whose cost grows
+     * with the customer's history to draw one screenful. The bound belongs in the store, so the
+     * page is what is read rather than what is kept.
+     *
+     * NEWEST FIRST, AND TOTALLY ORDERED. created_at descending with the id descending behind it.
+     * The tie-break is not decoration: two payments created in the same instant, or with the same
+     * stored timestamp, leave the sort undecided, and an undecided sort under offset paging shows
+     * one row twice on page two and drops another entirely. bySourceAccount's ascending id order
+     * is left alone - the sweep and the waiting screen it serves want it.
+     *
+     * @param accountIds the accounts to read from, in any order; an empty collection answers with
+     *                   an empty list without touching the store
+     * @param statuses   the statuses to include; AN EMPTY COLLECTION MEANS EVERY STATUS, which is
+     *                   what the customer's own history asks for. The waiting list passes the two
+     *                   it can act on, so both lists page through one query rather than through a
+     *                   query and a filter applied afterwards - a filter applied after the page
+     *                   would answer a page of three rows and call it a page of twenty-five
+     * @param offset     how many rows to skip; zero or more
+     * @param limit      how many rows to return; zero or fewer answers with an empty list
+     */
+    List<Transfer> bySourceAccountsNewestFirst(Collection<Integer> accountIds,
+                                               Collection<TransferStatus> statuses,
+                                               int offset,
+                                               int limit);
+
+    /**
+     * How many rows the page above is taken out of.
+     *
+     * Counted in the store rather than by measuring a list this application has loaded, which is
+     * the whole point of the pair: the foot of a list reads "Showing 25 of 137" and the second
+     * number cannot come from the twenty-five rows on screen. The predicate is the page query's,
+     * to the letter, so the two can never describe different sets.
+     *
+     * @param accountIds as above; empty counts zero without touching the store
+     * @param statuses   as above; empty counts every status
+     */
+    int countBySourceAccounts(Collection<Integer> accountIds,
+                              Collection<TransferStatus> statuses);
 
     /**
      * Every transfer that has settled out of this bank and that no gateway has been handed yet,

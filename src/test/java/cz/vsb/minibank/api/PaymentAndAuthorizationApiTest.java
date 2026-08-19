@@ -128,7 +128,8 @@ public class PaymentAndAuthorizationApiTest {
                 VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, "CZ2001000000000012345678",
                 WAITING_TRANSFER_AMOUNT, "victim's own").transferId();
 
-        paymentController = new PaymentController(transferService, accounts);
+        paymentController = new PaymentController(transferService, accounts,
+                services.ownershipGuard);
 
         authorizationController = new AuthorizationController(
                 transferService,
@@ -148,6 +149,7 @@ public class PaymentAndAuthorizationApiTest {
         NewPaymentRequest req = new NewPaymentRequest(
                 acc.id(),
                 "CZ2001000000000012345678",
+                null,
                 WAITING_TRANSFER_AMOUNT,
                 "Test waiting transfer"
         );
@@ -181,7 +183,9 @@ public class PaymentAndAuthorizationApiTest {
     void listWaitingTransfers_forCustomer2_containsNewWaitingTransfer() {
         int transferId = createWaitingTransferForCustomer2();
 
-        List<WaitingTransferItemDto> waiting = authorizationController.listMyWaiting();
+        // Explicitly the first page and a size that covers the fixture, so this asserts about the
+        // list and not about where the default page size happens to fall.
+        List<WaitingTransferItemDto> waiting = authorizationController.listMyWaiting(0, 25).items();
         assertFalse(waiting.isEmpty(), "Expected at least one waiting transfer for customer 2");
 
         WaitingTransferItemDto item = waiting.stream()
@@ -316,7 +320,7 @@ public class PaymentAndAuthorizationApiTest {
     @Test
     void createPayment_withAnUnknownSourceAccount_isNotFound() {
         NewPaymentRequest req = new NewPaymentRequest(
-                999_999, "CZ2001000000000012345678", 1000.0, "no such account");
+                999_999, "CZ2001000000000012345678", null, 1000.0, "no such account");
 
         assertThrows(NotFoundException.class, () -> paymentController.createPayment(req));
     }
@@ -352,7 +356,7 @@ public class PaymentAndAuthorizationApiTest {
     @Test
     void createPayment_fromAnotherCustomersAccount_isNotFoundAndMovesNothing() {
         NewPaymentRequest req = new NewPaymentRequest(
-                VICTIM_ACCOUNT_ID, "CZ2001000000000012345678", 900.0, "not my account");
+                VICTIM_ACCOUNT_ID, "CZ2001000000000012345678", null, 900.0, "not my account");
 
         assertThrows(NotFoundException.class, () -> paymentController.createPayment(req));
 
@@ -450,6 +454,7 @@ public class PaymentAndAuthorizationApiTest {
         NewPaymentRequest req = new NewPaymentRequest(
                 accBefore.id(),
                 "CZ2001000000000012345678",
+                null,
                 1000.0,
                 "JUnit REST payment"
         );

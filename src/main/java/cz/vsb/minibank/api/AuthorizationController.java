@@ -2,7 +2,9 @@ package cz.vsb.minibank.api;
 
 import cz.vsb.minibank.api.dto.AuthorizePaymentRequest;
 import cz.vsb.minibank.api.dto.AuthorizePaymentResult;
+import cz.vsb.minibank.api.dto.HistoryItemDto;
 import cz.vsb.minibank.api.dto.MoneyDto;
+import cz.vsb.minibank.api.dto.PageDto;
 import cz.vsb.minibank.api.dto.TransferDetailsDto;
 import cz.vsb.minibank.api.dto.WaitingTransferItemDto;
 import cz.vsb.minibank.application.OwnershipGuard;
@@ -22,8 +24,10 @@ import cz.vsb.minibank.application.PaymentOutcome;
 
 import org.springframework.web.bind.annotation.*;
 
-import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
+import java.util.function.Function;
 
 import static cz.vsb.minibank.api.AuthHelpers.requireCustomerId;
 
@@ -41,7 +45,7 @@ public class AuthorizationController {
     private final OwnershipGuard ownershipGuard;
 
     /**
-     * Opens the unit of work the two read endpoints run inside.
+     * Opens the unit of work the three read endpoints run inside.
      *
      * Not used by authorize or cancel, and they no longer need it: the application service opens
      * its own and now hands back a {@link PaymentOutcome} read off the aggregates inside it. Both
@@ -65,6 +69,29 @@ public class AuthorizationController {
     }
 
     /**
+     * The two statuses the waiting screen is about: a payment waiting for the customer's code,
+     * and one the bank is still reviewing.
+     *
+     * Held transfers belong in this list. Filtering them out would make a customer's payment
+     * disappear from the only screen that mentions it, with nothing on any screen to say where
+     * it went. The set is passed into the query rather than applied to its answer, because a
+     * filter applied after a page has been cut would answer three rows and call them a page of
+     * twenty-five.
+     */
+    private static final Set<TransferStatus> STILL_OPEN =
+            EnumSet.of(TransferStatus.WAITING_AUTH, TransferStatus.HELD_FOR_REVIEW);
+
+    /**
+     * Every status, which is what a customer's own history shows.
+     *
+     * Empty means all, and that is the repository's contract rather than an oversight here: a
+     * history that listed the statuses it wanted would quietly stop showing one the day a status
+     * was added, and a payment vanishing from the only complete list of them is the defect this
+     * screen exists to close.
+     */
+    private static final Set<TransferStatus> EVERY_STATUS = Set.of();
+
+    /**
      * Lists the current customer's transfers that have not settled and have not been stopped:
      * the ones waiting for their code, and the ones the bank is still reviewing.
      *
@@ -74,43 +101,162 @@ public class AuthorizationController {
      * free, which is exactly the disclosure the 404s elsewhere exist to prevent.
      */
     @GetMapping("/me/waiting-transfers")
-    public List<WaitingTransferItemDto> listMyWaiting() {
+    public PageDto<WaitingTransferItemDto> listMyWaiting(
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size) {
+
         int customerId = requireCustomerId();
 
-        // The same N+1 the alert queue had, on a screen that is polled far more often: one
-        // lookup for the customer's accounts, then one per account for its transfers. Without a
-        // unit of work each of those opens and tears down its own JDBC connection, because this
+        // Validated before a connection is opened for it, following the alert queue's filters: a
+        // page nobody can serve is a mistake in the request, not an empty answer.
+        int wantedPage = requirePage(page);
+        int wantedSize = requireSize(size);
+
+        // One lookup for the caller and two statements for the page, where this used to ask for
+        // the customer's accounts and then for every transfer of each of them. Without a unit of
+        // work each of those calls opens and tears down its own JDBC connection, because this
         // project has no connection pool.
         try (UowScope scope = new UowScope(uowFactory.begin())) {
-            return waitingFor(customerId);
+            return pageOf(customerId, STILL_OPEN, wantedPage, wantedSize,
+                    AuthorizationController::toWaitingItem);
         }
     }
 
     /**
-     * Called only from {@link #listMyWaiting}, inside its unit of work.
+     * The customer's own payment history: every payment from every account they hold, newest
+     * first, whatever became of it.
+     *
+     * The screen this serves is the one a customer had no way to reach. A payment left their
+     * world the moment it was sent or declined - the waiting list holds only the two open
+     * statuses, and {@link #transferDetails} answers for any of their transfers but only to
+     * somebody who already has the id. The analyst could read the last ten payments of the same
+     * customer and the customer could not read their own.
+     *
+     * NO ID COMES FROM THE CALLER, so there is nothing here for requireOwnedTransfer to guard.
+     * The caller is resolved from the session and the query is bounded to the account ids on
+     * their own customer row, which is where every other ownership decision in this application
+     * is taken from - the scope is a property of the query rather than a check applied to its
+     * answer, which is the stronger of the two.
      */
-    private List<WaitingTransferItemDto> waitingFor(int customerId) {
-        List<WaitingTransferItemDto> result = new ArrayList<>();
+    @GetMapping("/me/transfers")
+    public PageDto<HistoryItemDto> listMyTransfers(
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size) {
 
-        for (Account acc : accounts.byCustomerId(customerId)) {
-            for (Transfer t : transfers.bySourceAccount(acc.id())) {
-                // Held transfers belong in this list. Filtering them out would make a
-                // customer's payment disappear from the only screen that mentions it, with
-                // nothing on any screen to say where it went.
-                if (t.status() == TransferStatus.WAITING_AUTH
-                        || t.status() == TransferStatus.HELD_FOR_REVIEW) {
-                    result.add(new WaitingTransferItemDto(
-                            t.id(),
-                            t.targetIbanSnapshot(),
-                            MoneyDto.of(t.amount()),
-                            t.createdAt().toString(),
-                            authMethodOf(t),
-                            t.status().name()
-                    ));
-                }
-            }
+        int customerId = requireCustomerId();
+        int wantedPage = requirePage(page);
+        int wantedSize = requireSize(size);
+
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
+            return pageOf(customerId, EVERY_STATUS, wantedPage, wantedSize,
+                    AuthorizationController::toHistoryItem);
         }
-        return result;
+    }
+
+    /**
+     * One page of the caller's own payments, mapped by whichever of the two lists asked for it.
+     *
+     * Called only from the two endpoints above, inside the unit of work each of them opened.
+     * Shared because the two lists differ in exactly two things - which statuses they admit and
+     * what a row looks like on the wire - and everything else about them, the ownership scope,
+     * the order, the count beside the list, is one decision that must not come to be taken twice.
+     */
+    private <T> PageDto<T> pageOf(int customerId,
+                                  Set<TransferStatus> statuses,
+                                  int page,
+                                  int size,
+                                  Function<Transfer, T> toItem) {
+
+        // The account ids off the caller's own customer row, which is what OwnershipGuard
+        // resolves ownership from everywhere else. One lookup, and the accounts themselves are
+        // not needed: these two lists print the payment, not the account behind it.
+        List<Integer> accountIds = ownershipGuard.requireCaller(customerId).accountIds();
+
+        int total = transfers.countBySourceAccounts(accountIds, statuses);
+
+        // Clamped rather than refused. A page number far enough out that its first row does not
+        // fit in an int is a page past the end of any list, and the honest answer to that is the
+        // empty page the store would have given, not an error about arithmetic.
+        int offset = (int) Math.min((long) page * size, Integer.MAX_VALUE);
+
+        List<T> items = transfers.bySourceAccountsNewestFirst(accountIds, statuses, offset, size)
+                .stream()
+                .map(toItem)
+                .toList();
+
+        return new PageDto<>(items, page, size, total);
+    }
+
+    private static WaitingTransferItemDto toWaitingItem(Transfer t) {
+        return new WaitingTransferItemDto(
+                t.id(),
+                t.targetIbanSnapshot(),
+                MoneyDto.of(t.amount()),
+                t.createdAt().toString(),
+                authMethodOf(t),
+                t.status().name()
+        );
+    }
+
+    /**
+     * A history row, in the shape the fraud desk's history already uses.
+     *
+     * The same record rather than a second one for the same row: this is the analyst's history
+     * list read by its owner instead, and the one thing that differs - a waiting payment reads
+     * "Waiting for your code" here and "Waiting for the customer's code" on the desk - is a matter
+     * of who is being addressed, settled on the client, which is what the glossary's audience
+     * parameter is for.
+     *
+     * WHAT THE RECORD DOES NOT CARRY is the account the payment left. The analyst's history is
+     * scoped to one account and prints it above the list; this one spans every account the
+     * customer holds, so a customer with two of them cannot tell which balance a row moved. Adding
+     * the field is a change to a record this endpoint shares with the fraud desk and to the desk's
+     * own mapper, so it is named in the handover rather than taken here.
+     */
+    private static HistoryItemDto toHistoryItem(Transfer t) {
+        return new HistoryItemDto(
+                t.id(),
+                t.createdAt().toString(),
+                MoneyDto.of(t.amount()),
+                t.status().name(),
+                t.targetIbanSnapshot(),
+                t.declineReason()
+        );
+    }
+
+    /**
+     * The page index a request asked for, defaulting to the first.
+     *
+     * Refused rather than clamped when it is negative, unlike the offset arithmetic further down:
+     * a negative page is a caller that has computed one wrongly, and answering the first page
+     * would hide that from them for as long as the mistake lasted.
+     */
+    private static int requirePage(Integer page) {
+        if (page == null) {
+            return 0;
+        }
+        if (page < 0) {
+            throw new ValidationException("page must not be negative: " + page);
+        }
+        return page;
+    }
+
+    /**
+     * The page size a request asked for, defaulting and bounded by {@link PageDto}.
+     *
+     * The ceiling is the point of the parameter rather than a formality: a size a caller may set
+     * without limit is the unbounded list this endpoint was paged to close, reachable by asking
+     * for it politely.
+     */
+    private static int requireSize(Integer size) {
+        if (size == null) {
+            return PageDto.DEFAULT_SIZE;
+        }
+        if (size < 1 || size > PageDto.MAX_SIZE) {
+            throw new ValidationException(
+                    "size must be between 1 and " + PageDto.MAX_SIZE + ": " + size);
+        }
+        return size;
     }
 
     /**

@@ -59,12 +59,31 @@
      light desktop window, so the number is shared and the theme files do not carry it.
      They are not part of the theme contract below; a theme owes nothing here. */
   /* A Czech IBAN. The domain accepts nothing else and nothing longer, and typed the way a
-     person types it, CZ65 0800 0000 1920 0014 5399, it measures 253px in the field. Held by
-     the account select and by the beneficiary field alike: one value by role, one width. */
-  --size-field-account: 16rem;
+     person types it, CZ65 0800 0000 1920 0014 5399, it needs 253px in an input. Held by the
+     account select and by the beneficiary field alike: one value by role, one width.
+
+     16rem was measured against the input alone and left the SELECT 17px short once the account
+     it lists stopped printing its IBAN as one unbroken run: asked for its own width, the select
+     takes 273px for the grouped string against 251px for the ungrouped one, because it draws an
+     arrow the input does not. What clipped was the last group, 5399 against 5407, which is the
+     only thing telling one of a customer's accounts from the other. 17.25rem is 276px, three
+     past what the select needs, which is the slack the input already had. */
+  --size-field-account: 17.25rem;
   /* The longest option of a state filter, Suspicious, is 96px, plus 20px for the arrow the
      select draws for itself. */
   --size-field-state: 8rem;
+  /* A saved payee, listed by name and never by account number, so this is a name and not the
+     IBAN width above. A select's own furniture is a constant 42.5px here, the padding, the two
+     hairlines and the arrow, and it does not grow with the text; 14rem leaves 182px for the name
+     itself, which is about twenty-four characters and holds a first name and a surname with room
+     to spare. The demo's longest, Mallory Risky, measures 93px.
+
+     Deliberately NOT the account width above, and visibly shorter than it: these are two
+     different measurements and a field that nearly lines up with its neighbours reads as one that
+     failed to. A name longer than the box is ellipsised by the select rather than lost, and the
+     IBAN of whoever was chosen stands in full in the field one row below, so the picker is never
+     the last word on who is being paid. */
+  --size-field-payee: 14rem;
   /* A login. The real ones look like analyst1 at 80px and the placeholder e.g. analyst1 is
      109px; 10rem holds about nineteen characters, which is past both. */
   --size-field-login: 10rem;
@@ -121,6 +140,7 @@
  *                 --color-danger-accent
  *                 --color-success-surface --color-success-border --color-success-text
  *                 --color-warning-surface --color-warning-border --color-warning-text
+ *                 --color-tone-blocked
  * radius roles    --radius-control --radius-field --radius-inset --radius-surface
  *                 --radius-shell
  * gap roles       --gap-form --gap-actions --gap-actions-top --gap-inline --gap-field-row
@@ -129,7 +149,7 @@
  *                 --size-dialog-max --size-nav-column
  *                 --size-label-min --size-amount-field --size-otp-field --size-textarea-min
  *                 --size-textarea-max --size-window-height --size-titlebar --size-row-label
- *                 --size-queue-min --size-queue-max --size-detail-min --size-status-column
+ *                 --size-queue-min --size-queue-max --size-detail-min
  * elevation       --shadow-shell
  * motion          --lift-hover, together with its own prefers-reduced-motion override.
  *                 The durations above are zeroed here because they are declared here; a

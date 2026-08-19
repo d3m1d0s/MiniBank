@@ -131,15 +131,21 @@ describe('which outcome is marked out', () => {
         expect(alertStateTone('SUSPICIOUS')).toBe('blocked');
     });
 
-    it('marks what has not finished yet', () => {
+    it('marks a payment that is stalled rather than finished', () => {
         for (const status of ['CREATED', 'HELD_FOR_REVIEW', 'WAITING_AUTH']) {
             expect(transferStatusTone(status)).toBe('pending');
         }
-        expect(alertStateTone('NEW')).toBe('pending');
     });
 
-    it('gives every enum value exactly one of the three treatments', () => {
-        const tones = ['settled', 'blocked', 'pending'];
+    it('marks an alert nobody has picked up as open rather than as stalled', () => {
+        // Not `pending`, which is the amber a held payment takes: work waiting in a queue is the
+        // queue doing its job, and the two states are read by different people for different
+        // reasons even though both are unfinished.
+        expect(alertStateTone('NEW')).toBe('open');
+    });
+
+    it('gives every enum value exactly one of the four treatments', () => {
+        const tones = ['settled', 'open', 'pending', 'blocked'];
         for (const status of TRANSFER_STATUSES) {
             expect(tones).toContain(transferStatusTone(status));
         }

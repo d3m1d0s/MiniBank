@@ -3,16 +3,18 @@ import {
     fetchAlerts,
     fetchAlertDetail,
     formatMoney,
+    parseAmount,
     postFraudDecision,
     type AlertCounters,
     type AlertDetail,
     type AlertFilters,
     type AlertQueueItem,
-    type ApiError,
     type FraudDecision,
     type HistoryItem,
+    type Page,
 } from './api';
 import { amountRangeProblem } from '@shared/alertFilters';
+import { describeApiErrorLines } from '@shared/apiErrors';
 import {
     FIELD_LABEL,
     type HistoryField,
@@ -30,13 +32,39 @@ import {
     alertStateLabel,
     alertStateTone,
     authMethodLabel,
+    decisionActionLabel,
     describeDeclineReason,
+    describeDecision,
     transferStatusLabel,
     transferStatusTone,
 } from '@shared/glossary';
+import {
+    SHOW_MORE,
+    SHOW_MORE_BUSY,
+    appendPage,
+    hasMore,
+    nextPage,
+    showingLine,
+} from '@shared/paging';
 
 /** The transfer status a withdrawn payment ends in. */
 const WITHDRAWN = 'DECLINED';
+
+/**
+ * How many alerts arrive at a time.
+ *
+ * The server's own default, and the same number the customer application's desk asks for. A queue
+ * is meant to be seen entire, and the question at its foot is how much work is left rather than
+ * whether to read on; the count line answers that one and the counters above the tray answer a
+ * different one again.
+ */
+const PAGE_SIZE = 25;
+
+/**
+ * Which amount bound is being typed. The two boxes are one control by role, so one function
+ * handles both and this tells them apart.
+ */
+type AmountBound = 'min' | 'max';
 
 /** Nobody has taken the case. Not an absent value: a card is not a data table. */
 const UNASSIGNED = 'unassigned';
@@ -70,8 +98,16 @@ function queueCells(a: AlertQueueItem): QueueRowCells<ReactNode> {
     return {
         alertCode: a.alertCode,
         transferCode: a.transferCode,
-        state: alertStateLabel(a.state),
-        transferStatus: transferStatusLabel(a.transferStatus, 'analyst'),
+        // The two words that say whether this row is still somebody's problem, carrying the same
+        // treatment they carry in the history table below and in the customer application. Without
+        // it the tray was the one place in the product where a cleared alert and a new one were set
+        // in the same grey, which is the opposite of what a triage list is for.
+        state: <span className={`tone-${alertStateTone(a.state)}`}>{alertStateLabel(a.state)}</span>,
+        transferStatus: (
+            <span className={`tone-${transferStatusTone(a.transferStatus)}`}>
+                {transferStatusLabel(a.transferStatus, 'analyst')}
+            </span>
+        ),
         amount: formatMoney(a.amount),
         shortReason: a.shortReason,
         // The card has no column headers, so the two triage fields carry their own word.
@@ -97,119 +133,30 @@ function historyCells(h: HistoryItem): HistoryRowCells<ReactNode> {
 }
 
 /**
- * Whether the person reading this screen writes a comma as the decimal point.
+ * The locale an ambiguous amount is read in.
  *
- * Asked of the platform rather than kept as a list of locales: the only question is which of the
- * two readings of `1,234` they expect, and the platform already knows.
+ * Only `1,234` needs it: the one string that is a valid number under both the Czech and the
+ * English convention and means two different things under them. It is read here rather than in
+ * the parser because the shared modules are pure, so that their rules can be tested without a
+ * browser, and this is the one thing in the reading that only a browser knows.
  */
-function commaIsDecimalHere(): boolean {
-    const locale = navigator.language || 'cs-CZ';
-    const parts = new Intl.NumberFormat(locale).formatToParts(1234.5);
-    return parts.find((p) => p.type === 'decimal')?.value === ',';
+function readerLocale(): string {
+    return navigator.language || 'cs-CZ';
 }
 
 /**
- * A typed amount as the plain decimal the query wants: the empty string for an empty box, null
- * when it cannot be read at all.
+ * A refusal, in the sentences the shared table answers with.
  *
- * These two boxes were type="number", which refuses `10 001,00` - the exact string the queue
- * beside them prints for the amount being filtered to. A number input reads the browser's own
- * convention and reports anything else as an empty box, so the bound was silently dropped and the
- * whole queue came back looking like a filtered one.
- *
- * The reading is the one the customer application's money.ts already settled for the payment
- * field: spaces are noise, a mark that repeats is grouping, grouping runs in threes, and the one
- * genuinely ambiguous shape - a single mark with exactly three digits behind it - is decided by
- * the reader's own convention rather than guessed. It is written here because that parser sits in
- * the other application's source; the two are one rule and belong in one function, which is a
- * change to the shared layer rather than to this screen.
+ * A line each rather than one run of prose: the table sends what happened and, where there is one,
+ * the thing to do about it, and the second is the half a reader acts on. The box around them is
+ * the .error this window has always drawn.
  */
-function readAmount(typed: string): string | null {
-    const compact = typed.replace(/\s/g, '');
-    if (compact === '') {
-        return '';
-    }
-
-    const negative = compact.startsWith('-');
-    // Kept rather than refused, so that a negative bound is answered by the sentence naming it
-    // and not by the one about digits.
-    const body = negative ? compact.slice(1) : compact;
-    if (!/^[0-9.,]+$/.test(body)) {
-        return null;
-    }
-
-    const commas = (body.match(/,/g) ?? []).length;
-    const dots = (body.match(/\./g) ?? []).length;
-
-    let decimal: string | null;
-    if (commas > 0 && dots > 0) {
-        // Both kinds present, so one groups and the other divides, and the rightmost divides.
-        decimal = body.lastIndexOf(',') > body.lastIndexOf('.') ? ',' : '.';
-    } else if (commas + dots === 0 || commas > 1 || dots > 1) {
-        // A mark that repeats cannot be the decimal point.
-        decimal = null;
-    } else {
-        const mark = commas === 1 ? ',' : '.';
-        const before = body.indexOf(mark);
-        const after = body.length - before - 1;
-        decimal =
-            after === 3 && before > 0
-                ? (commaIsDecimalHere() === (mark === ',') ? mark : null)
-                : mark;
-    }
-
-    const cut = decimal === null ? body.length : body.lastIndexOf(decimal);
-    const grouped = body.slice(0, cut);
-    const fraction = decimal === null ? '' : body.slice(cut + 1);
-
-    // Whatever is left of the decimal point is grouping, and grouping runs in threes, so a
-    // mistyped 12.34.567 is refused rather than read as twelve million.
-    if (/[.,]/.test(grouped)) {
-        const groups = grouped.split(/[.,]/);
-        const wellGrouped =
-            groups[0].length >= 1 &&
-            groups[0].length <= 3 &&
-            groups.slice(1).every((g) => g.length === 3);
-        if (!wellGrouped) {
-            return null;
-        }
-    }
-
-    const whole = grouped.replace(/[.,]/g, '');
-    if (fraction.length > 2 || !/^\d*$/.test(fraction) || (whole === '' && fraction === '')) {
-        return null;
-    }
-
-    const digits = fraction ? `${whole || '0'}.${fraction}` : whole;
-    return negative ? `-${digits}` : digits;
-}
-
-/**
- * What actually happened, read off the alert the server sent back rather than off the button
- * that was pressed - a DECLINE on a payment that has already gone now succeeds and records the
- * verdict without stopping anything, so a message keyed on the label would say the money was
- * held when it is gone.
- *
- * Kept word for word in step with minibank-web's FraudDeskPage, so the two desks cannot
- * disagree about what a decision did.
- */
-function describeDecision(kind: FraudDecision, updated: AlertDetail): string {
-    const status = updated.transfer.status;
-    const said = transferStatusLabel(status, 'analyst');
-
-    if (kind === 'APPROVE') {
-        return status === 'WAITING_AUTH'
-            ? 'Alert cleared. The payment is released to the customer to confirm; no money has moved.'
-            : `Alert cleared. The transfer was already ${said}, so there was nothing to release.`;
-    }
-
-    if (kind === 'DECLINE') {
-        return status === 'SENT'
-            ? 'Recorded as confirmed fraud. The payment had already been sent and has NOT been reversed.'
-            : `Alert marked as confirmed fraud and the transfer is ${said}.`;
-    }
-
-    return 'Notes, assignee and tags saved. No decision was taken: the alert is still open and the transfer is unchanged.';
+function ErrorBox(props: { lines: string[] }) {
+    return (
+        <div className="error">
+            {props.lines.map(line => <div key={line}>{line}</div>)}
+        </div>
+    );
 }
 
 export default function FraudDesk(props: { username: string; onLogout: () => void }) {
@@ -230,28 +177,45 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
     });
     const [alerts, setAlerts] = useState<AlertQueueItem[]>([]);
     const [counters, setCounters] = useState<AlertCounters | null>(null);
+    /**
+     * The page that arrived, kept whole.
+     *
+     * The next request is counted from it and not from the rows on screen: those two stop
+     * agreeing the moment an alert raised mid-session pushes a row from one page onto the next
+     * and the repeat is dropped. It also carries the total the count line prints.
+     */
+    const [lastPage, setLastPage] = useState<Page<AlertQueueItem> | null>(null);
 
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [detail, setDetail] = useState<AlertDetail | null>(null);
 
     /**
-     * What was typed into each amount box, kept beside the decimal the filter carries.
+     * What was typed into each amount box, and what is wrong with it.
      *
      * Two states rather than one because they are two different things: the analyst sees what
      * they wrote, in whatever convention they wrote it, and the query carries the plain decimal
-     * the server parses.
+     * the server parses. The refusal is kept per box, because fixing the upper bound must not
+     * silently forgive the lower one, and because it names what is wrong with that string rather
+     * than only that something is.
      */
     const [amountText, setAmountText] = useState({ min: '', max: '' });
-    const [unreadable, setUnreadable] = useState({ min: false, max: false });
+    const [amountReason, setAmountReason] = useState<Record<AmountBound, string | null>>({
+        min: null,
+        max: null,
+    });
 
-    const [listErr, setListErr] = useState<string | null>(null);
-    const [detailErr, setDetailErr] = useState<string | null>(null);
-    const [decisionErr, setDecisionErr] = useState<string | null>(null);
+    // Three lists of sentences rather than three strings: the shared error table answers with a
+    // statement of what happened and, where there is one, the thing to do about it, and joining
+    // them into one line is the caller's choice rather than the table's.
+    const [listErr, setListErr] = useState<string[] | null>(null);
+    const [detailErr, setDetailErr] = useState<string[] | null>(null);
+    const [decisionErr, setDecisionErr] = useState<string[] | null>(null);
     // This desk had no success state at all: after a decision the alert left the NEW-filtered
     // queue, the panel unmounted with it, and the analyst was left with an empty pane and no
     // statement of what had happened.
     const [decisionMsg, setDecisionMsg] = useState<string | null>(null);
     const [busyList, setBusyList] = useState(false);
+    const [busyMore, setBusyMore] = useState(false);
     const [busyDetail, setBusyDetail] = useState(false);
     const [busyDecision, setBusyDecision] = useState(false);
 
@@ -260,38 +224,76 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
 
     const selected = useMemo(() => alerts.find(a => a.id === selectedId) || null, [alerts, selectedId]);
 
-    // unreadable belongs in here beside filters. Typing something that cannot be read into an
-    // already empty field leaves the value at '' and the filters untouched, so on filters alone
-    // nothing would re-run and the analyst would be told nothing at all.
-    useEffect(() => { void reloadList(); }, [filters, unreadable]);
+    // amountReason belongs in here beside filters. Typing something that cannot be read into an
+    // already empty field leaves the filters untouched, so on filters alone nothing would re-run
+    // and the analyst would be told nothing at all.
+    useEffect(() => { void reloadList(); }, [filters, amountReason]);
 
     async function reloadList(keepSelection = false) {
         // Checked before the request, and the server checks it again. This half exists to name
         // which two numbers are the wrong way round; the server cannot, because no handler
         // echoes an exception message. The server half exists because the endpoint is reachable
         // without this screen.
-        const problem = amountRangeProblem(filters, unreadable);
+        //
+        // A box the parser refused is answered with the parser's own sentence, which says what
+        // is wrong with that string. The shared guard's unreadable branch is the answer for a
+        // caller with no sentence of its own, so by the time it runs both bounds are either
+        // readable or empty.
+        const problem =
+            amountReason.min ??
+            amountReason.max ??
+            amountRangeProblem(filters, { min: false, max: false });
         if (problem) {
             setAlerts([]);
+            setLastPage(null);
             setCounters(null);
-            setListErr(problem);
+            setListErr([problem]);
             return;
         }
 
         try {
             setBusyList(true);
             setListErr(null);
-            const resp = await fetchAlerts(filters);
-            setAlerts(resp.items);
+            // From the top, and as wide as what is already on screen: a decision reloads this
+            // list, and a queue that collapsed back to its first page every time an alert was
+            // decided would lose the rows the analyst had opened out to reach it.
+            const wanted = keepSelection ? Math.max(PAGE_SIZE, alerts.length) : PAGE_SIZE;
+            const resp = await fetchAlerts(filters, 0, wanted);
+            setAlerts(resp.alerts.items);
+            setLastPage(resp.alerts);
             setCounters(resp.counters);
-            if (!keepSelection && selectedId && !resp.items.some(x => x.id === selectedId)) {
+            if (!keepSelection && selectedId && !resp.alerts.items.some(x => x.id === selectedId)) {
                 setSelectedId(null);
                 setDetail(null);
             }
         } catch (e) {
-            setListErr((e as Error).message || 'Failed to load alerts');
+            setListErr(describeApiErrorLines(e, 'alert-queue'));
         } finally {
             setBusyList(false);
+        }
+    }
+
+    /**
+     * The next page of the queue, appended under the cards already in the tray.
+     *
+     * The tray's own "Loading…" hint is not shown for this: that sentence means the first page,
+     * and drawing it would blank a queue the analyst is reading. The button says so instead and
+     * keeps its place while it does.
+     */
+    async function loadMore() {
+        if (!lastPage) return;
+
+        try {
+            setBusyMore(true);
+            setListErr(null);
+            const resp = await fetchAlerts(filters, nextPage(lastPage), PAGE_SIZE);
+            setAlerts(held => appendPage(held, resp.alerts.items));
+            setLastPage(resp.alerts);
+            setCounters(resp.counters);
+        } catch (e) {
+            setListErr(describeApiErrorLines(e, 'alert-queue'));
+        } finally {
+            setBusyMore(false);
         }
     }
 
@@ -308,7 +310,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
             const d = await fetchAlertDetail(id);
             setDetail(d);
         } catch (e) {
-            setDetailErr((e as Error).message || 'Failed to load detail');
+            setDetailErr(describeApiErrorLines(e, 'alert-details'));
         } finally {
             setBusyDetail(false);
         }
@@ -329,7 +331,12 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                 tags: detail?.alert.tags || undefined,
             });
             setDetail(updated);
-            setDecisionMsg(describeDecision(kind, updated));
+            // Read off the payment the server sent back, not off the button that was pressed: a
+            // DECLINE on a payment that has already gone succeeds and records the verdict without
+            // stopping anything, so a sentence keyed on the label would say the money was held
+            // when it is gone. The sentence itself is the glossary's, and the customer
+            // application's desk reads the same one.
+            setDecisionMsg(describeDecision(kind, updated.transfer.status));
             // Keeps the decided alert on screen: with the default NEW filter it leaves the
             // queue the instant it is decided, and clearing the selection would unmount the
             // panel that shows what the decision actually did.
@@ -340,11 +347,11 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
             // on screen, and nothing said the decision had not been applied. Since APPROVE
             // releases a held transfer, an analyst could believe they had approved something
             // that was not approved.
-            const err = e as ApiError;
-
+            //
             // Re-read before reporting. This desk has no refresh control - reloadList runs
             // on mount and on a filter change and nowhere else - so telling the analyst to
-            // reload would name something the UI does not offer.
+            // reload would name something the UI does not offer, and the shared table's
+            // sentence for a lost race promises the alert has been reloaded.
             await reloadList(true);
             try {
                 setDetail(await fetchAlertDetail(selectedId));
@@ -352,20 +359,11 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                 // The alert may no longer be readable; the message does not depend on it.
             }
 
-            setDecisionErr(
-                // A 409 here now means the alert was already decided by somebody else, or the
-                // transfer moved out from under the decision. Both are refused by a state guard
-                // and neither is distinguishable in the body, so the wording names the one thing
-                // certainly true and points at the refreshed panel. The sentence this replaced
-                // named "already sent", which is now the one case that succeeds.
-                err.code === 'CONFLICT'
-                    ? 'This decision was not applied: the alert or its transfer has already changed state. The panel above has been refreshed.'
-                    : err.code === 'NOT_FOUND'
-                        ? 'This alert no longer exists.'
-                        : err.code === 'VALIDATION_ERROR'
-                            ? 'That decision was not accepted. Please try again.'
-                            : err.message || 'Failed to apply the decision.',
-            );
+            // The four branches written out here disagreed with the four the customer
+            // application's desk wrote for the same four codes, and neither of them had a
+            // sentence for ALERT_CHANGED, which is exactly what an analyst gets when their
+            // verdict loses a race. One table, twenty codes, both desks.
+            setDecisionErr(describeApiErrorLines(e, 'alert-decision'));
         } finally {
             setBusyDecision(false);
         }
@@ -376,17 +374,37 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
     }
 
     /**
-     * Takes what was typed into an amount box and files it in both places.
+     * Reads one amount bound the way the payment form reads its amount, and files it in both
+     * places.
      *
-     * The box that cannot be read is recorded per box on purpose: fixing the upper bound must not
-     * silently forgive the lower one, and a bound that is dropped without a word is the whole
-     * queue dressed up as a filtered one.
+     * A bound that cannot be read is not sent: to the endpoint an unsent parameter and a cleared
+     * box look the same, so an analyst who mistyped one would be handed the whole queue dressed
+     * up as a filtered one. The refusal is held here and shown instead.
      */
-    function setAmountBound(which: 'min' | 'max', typed: string) {
-        const decimal = readAmount(typed);
+    function changeAmountBound(which: AmountBound, typed: string) {
         setAmountText(prev => ({ ...prev, [which]: typed }));
-        setUnreadable(prev => ({ ...prev, [which]: decimal === null }));
-        setF(which === 'min' ? 'minAmount' : 'maxAmount', decimal ?? '');
+
+        const key = which === 'min' ? 'minAmount' : 'maxAmount';
+        if (typed.trim() === '') {
+            setAmountReason(prev => ({ ...prev, [which]: null }));
+            setFilters(prev => ({ ...prev, [key]: undefined }));
+            return;
+        }
+
+        // The endpoint takes a plain decimal, which is what the parser hands back; the Czech
+        // spelling of the same number goes into the box on blur, so the analyst sees which
+        // reading they got.
+        const parsed = parseAmount(typed, readerLocale());
+        setAmountReason(prev => ({ ...prev, [which]: parsed.ok ? null : parsed.reason }));
+        setFilters(prev => ({ ...prev, [key]: parsed.ok ? String(parsed.value) : undefined }));
+    }
+
+    /** Writes the reading back into the box, so a slip shows itself rather than being guessed at. */
+    function normalizeAmountBound(which: AmountBound) {
+        const parsed = parseAmount(amountText[which], readerLocale());
+        if (parsed.ok) {
+            setAmountText(prev => ({ ...prev, [which]: parsed.czech }));
+        }
     }
 
     return (
@@ -440,13 +458,15 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                         inputMode="decimal"
                                         placeholder="min"
                                         value={amountText.min}
-                                        onChange={(e) => setAmountBound('min', e.target.value)}
+                                        onChange={(e) => changeAmountBound('min', e.target.value)}
+                                        onBlur={() => normalizeAmountBound('min')}
                                     />
                                     <input
                                         inputMode="decimal"
                                         placeholder="max"
                                         value={amountText.max}
-                                        onChange={(e) => setAmountBound('max', e.target.value)}
+                                        onChange={(e) => changeAmountBound('max', e.target.value)}
+                                        onBlur={() => normalizeAmountBound('max')}
                                     />
                                 </div>
 
@@ -483,7 +503,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                 </div>
                             </div>
 
-                            {listErr && <div className="error">{listErr}</div>}
+                            {listErr && <ErrorBox lines={listErr} />}
                             {busyList && <div className="hint">Loading…</div>}
 
                             <div className="list">
@@ -514,6 +534,25 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                     );
                                 })}
                                 {!busyList && alerts.length === 0 && <div className="hint">No alerts</div>}
+
+                                {/*
+                                  The last item of the tray, so the way to lengthen the queue is
+                                  where the queue runs out. Removed rather than disabled once
+                                  everything is on screen: a control that can do nothing still
+                                  invites the press that proves it, and the line in the counters
+                                  strip says so in words instead.
+                                */}
+                                {hasMore(alerts.length, lastPage?.total ?? 0) && (
+                                    <button
+                                        type="button"
+                                        className="btn list-more"
+                                        onClick={() => void loadMore()}
+                                        disabled={busyMore}
+                                        aria-busy={busyMore || undefined}
+                                    >
+                                        {busyMore ? SHOW_MORE_BUSY : SHOW_MORE}
+                                    </button>
+                                )}
                             </div>
 
                             {/*
@@ -540,7 +579,14 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                     <div>{alertStateLabel('NEW')}: {counters.newCount}</div>
                                     <div>{alertStateLabel('SUSPICIOUS')}: {counters.suspiciousCount}</div>
                                     <div>{alertStateLabel('OK')}: {counters.okCount}</div>
-                                    <div>showing {alerts.length}</div>
+                                    {/*
+                                      How much of the FILTERED list is on screen, which is the one
+                                      number in this strip that is not the whole queue. It takes
+                                      the shared string verbatim, capital S and no full stop, so
+                                      the cell reads like the four labels beside it and like the
+                                      same line at the foot of the customer application's lists.
+                                    */}
+                                    <div>{showingLine(alerts.length, lastPage?.total ?? 0)}</div>
                                 </div>
                             )}
                         </div>
@@ -555,7 +601,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
 
                                 {!selected && <div className="hint">Select an alert on the left.</div>}
 
-                                {detailErr && <div className="error">{detailErr}</div>}
+                                {detailErr && <ErrorBox lines={detailErr} />}
                                 {busyDetail && <div className="hint">Loading detail…</div>}
 
                                 {detail && !busyDetail && (
@@ -598,34 +644,47 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                         <div className="box box--facts">
                                             <div className="box-title">Facts</div>
                                             {/*
-                                              A definition list, and the two timestamps are named
-                                              after the objects they belong to. They used to be
-                                              "Created" in one block and "Time" in another, print
-                                              identically in the demo data, and neither word said
-                                              which of the alert and the payment it meant.
+                                              Two definition lists and not one, split by subject:
+                                              the payment on the left, the case on the right. One
+                                              list flowed into two columns would interleave the
+                                              pairs and put From beside From balance, which is the
+                                              pairing an earlier pass deliberately took apart. Two
+                                              lists also put the split where a reader will find it,
+                                              in the markup, rather than in an nth-child rule.
+                                              The wrapper folds back to one column on its own when
+                                              the pane is narrow or the text is large.
+
+                                              The two timestamps are named after the objects they
+                                              belong to. They used to be "Created" in one block and
+                                              "Time" in another, print identically in the demo data,
+                                              and neither word said which of the two it meant.
                                             */}
-                                            <dl className="facts">
-                                                <dt>From</dt>
-                                                <dd>{formatIban(detail.transfer.fromIban)}</dd>
-                                                {/* The account number and the balance behind it are
-                                                    two facts; they used to share one line. */}
-                                                <dt>From balance</dt>
-                                                <dd className="num">{formatMoney(detail.transfer.fromBalance)}</dd>
-                                                <dt>{FIELD_LABEL.toIban}</dt>
-                                                <dd>{formatIban(detail.transfer.toIban)}</dd>
-                                                <dt>Fee</dt>
-                                                <dd className="num">{formatMoney(detail.transfer.feeAmount)}</dd>
-                                                <dt>Auth method</dt>
-                                                <dd>{authMethodLabel(detail.transfer.authMethod) || NOT_RECORDED}</dd>
-                                                <dt>Payment created</dt>
-                                                <dd>{formatDateTime(detail.transfer.createdAt)}</dd>
-                                                <dt>Alert raised</dt>
-                                                <dd>{formatDateTime(detail.alert.createdAt)}</dd>
-                                                <dt>{FIELD_LABEL.assignee}</dt>
-                                                <dd>{detail.alert.assignee || UNASSIGNED}</dd>
-                                                <dt>{FIELD_LABEL.shortReason}</dt>
-                                                <dd>{detail.alert.reason}</dd>
-                                            </dl>
+                                            <div className="facts-split">
+                                                <dl className="facts">
+                                                    <dt>From</dt>
+                                                    <dd>{formatIban(detail.transfer.fromIban)}</dd>
+                                                    {/* The account number and the balance behind it
+                                                        are two facts; they used to share one line. */}
+                                                    <dt>From balance</dt>
+                                                    <dd className="num">{formatMoney(detail.transfer.fromBalance)}</dd>
+                                                    <dt>{FIELD_LABEL.toIban}</dt>
+                                                    <dd>{formatIban(detail.transfer.toIban)}</dd>
+                                                    <dt>Fee</dt>
+                                                    <dd className="num">{formatMoney(detail.transfer.feeAmount)}</dd>
+                                                    <dt>Auth method</dt>
+                                                    <dd>{authMethodLabel(detail.transfer.authMethod) || NOT_RECORDED}</dd>
+                                                </dl>
+                                                <dl className="facts">
+                                                    <dt>Payment created</dt>
+                                                    <dd>{formatDateTime(detail.transfer.createdAt)}</dd>
+                                                    <dt>Alert raised</dt>
+                                                    <dd>{formatDateTime(detail.alert.createdAt)}</dd>
+                                                    <dt>{FIELD_LABEL.assignee}</dt>
+                                                    <dd>{detail.alert.assignee || UNASSIGNED}</dd>
+                                                    <dt>{FIELD_LABEL.shortReason}</dt>
+                                                    <dd>{detail.alert.reason}</dd>
+                                                </dl>
+                                            </div>
                                         </div>
 
                                         <div className="box box--history">
@@ -698,7 +757,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                         <input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="internal notes" />
                                     </div>
 
-                                    {decisionErr && <div className="error">{decisionErr}</div>}
+                                    {decisionErr && <ErrorBox lines={decisionErr} />}
                                     {decisionMsg && <div className="result">{decisionMsg}</div>}
 
                                     {/* The buttons mirror the domain guards exactly, so
@@ -707,18 +766,25 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                         Approve only from a new alert; Decline from
                                         anything not already recorded as fraud, which is
                                         what lets fraud confirmed after the money left be
-                                        recorded on an alert that had already been cleared. */}
+                                        recorded on an alert that had already been cleared.
+
+                                        The words are the glossary's. This desk said
+                                        "release to customer" and "record fraud" where the
+                                        customer application's desk said "release to the
+                                        customer" and "record confirmed fraud", so one
+                                        analyst doing one job read two labels for the same
+                                        press. */}
                                     <div className="actions">
                                         <button
                                             className="btn btn--primary"
                                             disabled={busyDecision || detail.alert.state !== 'NEW'}
                                             onClick={() => decide('APPROVE')}
-                                        >Approve: release to customer</button>
+                                        >{decisionActionLabel('APPROVE')}</button>
                                         <button
                                             className="btn btn--danger"
                                             disabled={busyDecision || detail.alert.state === 'SUSPICIOUS'}
                                             onClick={() => decide('DECLINE')}
-                                        >Decline: record fraud</button>
+                                        >{decisionActionLabel('DECLINE')}</button>
                                         {/* The token this posts was REQUEST_CONFIRMATION, which
                                             named something it has never done: it asks nobody for
                                             anything and takes no decision. */}
@@ -726,7 +792,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                             className="btn btn--quiet"
                                             disabled={busyDecision}
                                             onClick={() => decide('ANNOTATE')}
-                                        >Save notes, no decision</button>
+                                        >{decisionActionLabel('ANNOTATE')}</button>
                                     </div>
 
                                     <div className="hint">

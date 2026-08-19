@@ -118,7 +118,8 @@ class WritePathsAnswerFromTheirOwnTransactionTest {
         BootstrapServices services = new BootstrapServices(
                 customers, accounts, transfers, alerts, infra.uowFactory);
 
-        paymentController = new PaymentController(services.transferService, accounts);
+        paymentController = new PaymentController(services.transferService, accounts,
+                services.ownershipGuard);
         authorizationController = new AuthorizationController(services.transferService, accounts,
                 transfers, services.feePolicy, services.ownershipGuard, infra.uowFactory);
 
@@ -130,7 +131,7 @@ class WritePathsAnswerFromTheirOwnTransactionTest {
     @Test
     void creatingAPaymentReadsNothingAfterItsOwnTransaction() {
         paymentController.createPayment(
-                new NewPaymentRequest(accountId, TARGET_IBAN, WAITS_FOR_A_CODE, "structural"));
+                new NewPaymentRequest(accountId, TARGET_IBAN, null, WAITS_FOR_A_CODE, "structural"));
 
         witness.everyCallWasInsideAUnitOfWork("Creating a payment");
         assertNull(UowContext.current(), "and it must close what it opened");
@@ -139,7 +140,7 @@ class WritePathsAnswerFromTheirOwnTransactionTest {
     @Test
     void authorizingAPaymentReadsNothingAfterItsOwnTransaction() {
         int transferId = paymentController.createPayment(
-                        new NewPaymentRequest(accountId, TARGET_IBAN, WAITS_FOR_A_CODE, "structural"))
+                        new NewPaymentRequest(accountId, TARGET_IBAN, null, WAITS_FOR_A_CODE, "structural"))
                 .getBody().transferId();
         witness.seen.clear();
 
@@ -159,7 +160,7 @@ class WritePathsAnswerFromTheirOwnTransactionTest {
     @Test
     void cancellingAPaymentReadsNothingAfterItsOwnTransaction() {
         int transferId = paymentController.createPayment(
-                        new NewPaymentRequest(accountId, TARGET_IBAN, WAITS_FOR_A_CODE, "structural"))
+                        new NewPaymentRequest(accountId, TARGET_IBAN, null, WAITS_FOR_A_CODE, "structural"))
                 .getBody().transferId();
         witness.seen.clear();
 

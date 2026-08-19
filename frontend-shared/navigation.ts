@@ -20,7 +20,7 @@
 export type NavRole = 'CUSTOMER' | 'FRAUD_ANALYST';
 
 /** The screens that exist. A view here is a screen a person can actually be standing on. */
-export type NavView = 'new-payment' | 'waiting-auth' | 'fraud-desk';
+export type NavView = 'new-payment' | 'history' | 'waiting-auth' | 'fraud-desk';
 
 /**
  * One row of the column.
@@ -56,7 +56,7 @@ export const NAV_ENTRIES: Record<NavRole, readonly NavEntry[]> = {
         { kind: 'planned', id: 'dashboard', label: 'Dashboard', title: PLANNED_TITLE },
         { kind: 'planned', id: 'accounts', label: 'Accounts', title: PLANNED_TITLE },
         { kind: 'screen', id: 'new-payment', label: 'New payment', view: 'new-payment' },
-        { kind: 'planned', id: 'history', label: 'History & Statements', title: PLANNED_TITLE },
+        { kind: 'screen', id: 'history', label: 'History & Statements', view: 'history' },
         {
             kind: 'screen',
             id: 'waiting-auth',

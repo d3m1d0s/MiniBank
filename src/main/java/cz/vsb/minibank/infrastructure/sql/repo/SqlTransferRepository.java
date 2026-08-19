@@ -371,10 +371,14 @@ public final class SqlTransferRepository implements TransferRepository {
      *
      * ORDER BY id ASC for the reason SqlFraudAlertRepository.loadAllWithConnection gives in full,
      * and not repeated here: unordered, PostgreSQL answers in physical order, and one wrong OTP
-     * attempt rewrites a waiting transfer and moves it behind every other row.
-     * AuthorizationController.waitingFor renders this order as it stands, so the payment the
-     * customer is looking at drops to the bottom of the list between two reads of the same
-     * screen. ASC because it is what the JSON adapter already answers.
+     * attempt rewrites a waiting transfer and moves it behind every other row, so the payment the
+     * customer is looking at drops to the bottom of a list between two reads of the same screen.
+     * ASC because it is what the JSON adapter already answers.
+     *
+     * The customer's two lists no longer read this method - they take a page from
+     * {@link #bySourceAccountsNewestFirst}, which orders by the creation instant instead, and the
+     * screens want the newest payment first rather than the oldest. This one keeps its ascending
+     * id order for the callers that hold every row of an account at once.
      */
     private List<Transfer> loadBySourceAccountWithConnection(Connection conn, int accountId, UnitOfWork uow)
             throws SQLException {
@@ -426,6 +430,184 @@ public final class SqlTransferRepository implements TransferRepository {
         }
 
         return result;
+    }
+
+    @Override
+    public List<Transfer> bySourceAccountsNewestFirst(Collection<Integer> accountIds,
+                                                      Collection<TransferStatus> statuses,
+                                                      int offset, int limit) {
+        // Answered without a statement, and without a connection: an empty account set matches
+        // nothing, and a page of nothing is what a caller asking for no rows wants back.
+        if (accountIds.isEmpty() || limit <= 0) {
+            return List.of();
+        }
+
+        UnitOfWork uow = UowContext.current();
+
+        try {
+            if (uow instanceof SqlUnitOfWork sqlUow) {
+                return loadPageWithConnection(sqlUow.connection(), accountIds, statuses, offset, limit, uow);
+            } else {
+                try (Connection conn = DriverManager.getConnection(url, user, password)) {
+                    return loadPageWithConnection(conn, accountIds, statuses, offset, limit, uow);
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException(
+                    "Failed to load a page of transfers for accountIds=" + accountIds, e);
+        }
+    }
+
+    /**
+     * One page of the customer's payments, newest first.
+     *
+     * Both predicates are {@code = ANY (?)} over a bound array, for the reason
+     * {@link #sumSentToIbanWithConnection} sets out in full: an IN list assembled from the values
+     * would put them in the statement text, and a generated run of placeholders would give this
+     * query a different text for every number of accounts a customer happens to hold. Two arrays
+     * mean one statement text whatever is asked for, and both are freed once it has run.
+     *
+     * ORDER BY created_at DESC, id DESC. The column is NOT NULL, so the first key is total on
+     * every row and no NULLS clause is needed; the second is what makes the order total when two
+     * rows carry the same instant, which offset paging requires - without it the database is free
+     * to answer the tied rows in either order on either page, so one is shown twice and one is
+     * never shown at all. OFFSET before LIMIT reads in the order the numbers are computed.
+     *
+     * No index is declared for it. idx_transfers_daily_total leads on source_account_id and
+     * serves the membership; the sort is over one customer's own rows, which is the handful this
+     * screen exists to show.
+     */
+    private List<Transfer> loadPageWithConnection(Connection conn, Collection<Integer> accountIds,
+                                                  Collection<TransferStatus> statuses,
+                                                  int offset, int limit, UnitOfWork uow)
+            throws SQLException {
+
+        String sql = """
+        SELECT id,
+               source_account_id,
+               beneficiary_id,
+               target_iban_snapshot,
+               amount,
+               currency,
+               fee,
+               message,
+               status,
+               created_at,
+               settled_at,
+               dispatch_state,
+               auth_method,
+               card_number_masked,
+               decline_reason,
+               auth_attempts,
+               auth_valid_until,
+               version
+          FROM transfers
+         WHERE source_account_id = ANY (?)
+           AND status = ANY (?)
+         ORDER BY created_at DESC, id DESC
+         LIMIT ? OFFSET ?
+        """;
+
+        List<Transfer> result = new ArrayList<>();
+
+        Array sources = conn.createArrayOf("integer", accountIds.toArray(new Integer[0]));
+        Array wanted = conn.createArrayOf("varchar", statusNames(statuses));
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setArray(1, sources);
+            ps.setArray(2, wanted);
+            ps.setInt(3, limit);
+            ps.setInt(4, Math.max(0, offset));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int id = rs.getInt("id");
+                    Transfer cached = (uow != null) ? uow.get(Transfer.class, id) : null;
+                    if (cached != null) {
+                        result.add(cached);
+                        continue;
+                    }
+
+                    Transfer t = mapRowToTransfer(rs);
+                    if (uow != null) {
+                        uow.put(Transfer.class, t.id(), t);
+                    }
+                    result.add(t);
+                }
+            }
+        } finally {
+            sources.free();
+            wanted.free();
+        }
+
+        return result;
+    }
+
+    @Override
+    public int countBySourceAccounts(Collection<Integer> accountIds,
+                                     Collection<TransferStatus> statuses) {
+        if (accountIds.isEmpty()) {
+            return 0;
+        }
+
+        UnitOfWork uow = UowContext.current();
+
+        try {
+            if (uow instanceof SqlUnitOfWork sqlUow) {
+                return countWithConnection(sqlUow.connection(), accountIds, statuses);
+            } else {
+                try (Connection conn = DriverManager.getConnection(url, user, password)) {
+                    return countWithConnection(conn, accountIds, statuses);
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException(
+                    "Failed to count transfers for accountIds=" + accountIds, e);
+        }
+    }
+
+    /**
+     * The size of the set the page above is taken out of, counted in the database.
+     *
+     * The two predicates are the page query's, character for character, so the number beside the
+     * list and the rows in it cannot come to describe different sets. No identity map is consulted
+     * and none is filled: this is a number, not an aggregate, and substituting instances this
+     * transaction happens to hold would count nothing differently.
+     */
+    private int countWithConnection(Connection conn, Collection<Integer> accountIds,
+                                    Collection<TransferStatus> statuses) throws SQLException {
+
+        String sql = """
+        SELECT COUNT(*)
+          FROM transfers
+         WHERE source_account_id = ANY (?)
+           AND status = ANY (?)
+        """;
+
+        Array sources = conn.createArrayOf("integer", accountIds.toArray(new Integer[0]));
+        Array wanted = conn.createArrayOf("varchar", statusNames(statuses));
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setArray(1, sources);
+            ps.setArray(2, wanted);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        } finally {
+            sources.free();
+            wanted.free();
+        }
+    }
+
+    /**
+     * The status names the two queries above bind, with an empty request read as every status.
+     *
+     * Expanding "all" into the full list here rather than dropping the predicate keeps one
+     * statement text for both callers. The expansion is over {@code values()}, so a status added
+     * to the enum tomorrow joins the customer's history without anybody remembering to list it.
+     */
+    private static String[] statusNames(Collection<TransferStatus> statuses) {
+        Collection<TransferStatus> wanted =
+                statuses.isEmpty() ? List.of(TransferStatus.values()) : statuses;
+        return wanted.stream().map(TransferStatus::name).toArray(String[]::new);
     }
 
     @Override

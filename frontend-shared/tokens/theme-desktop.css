@@ -118,6 +118,16 @@
   --color-warning-border: #8a5300;
   --color-warning-text: #6b3f00;
 
+  /* The one of the three tone treatments that needs a colour of its own rather than borrowing
+     a status colour. It borrows one here, and deliberately: on this light ground the danger
+     text is 9.49:1 on every surface a status word can land on, so the role takes that exact
+     value and nothing in this window moves. The slot exists because the dark theme cannot do
+     the same, where the danger salmon falls to 3.96:1 on a selected hovered row. */
+  --color-tone-blocked: #7a0b0b;
+  /* The open tone, taking this palette's success green for the same reason the dark theme takes
+     its own: an alert nobody has picked up is not an error and not a warning. */
+  --color-tone-open: var(--color-success-text);
+
   /* ---- shadow ---- */
   --shadow-shell: 0 10px 35px rgb(0 0 0 / 0.15);
 
@@ -146,7 +156,6 @@
   --size-queue-min: 320px;
   --size-queue-max: 420px;
   --size-detail-min: 360px;
-  --size-status-column: 6.5rem;
 }
 
 /* The durations are zeroed in scale.css, which is loaded first. --lift-hover is declared

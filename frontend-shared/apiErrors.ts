@@ -66,6 +66,7 @@ export type ApiOperation =
     | 'accounts'            // GET  /api/me/accounts
     | 'payment-create'      // POST /api/payments
     | 'payments-waiting'    // GET  /api/me/waiting-transfers
+    | 'payments-history'    // GET  /api/me/transfers
     | 'payment-details'     // GET  /api/transfers/{id}
     | 'payment-authorize'   // POST /api/transfers/{id}/authorize
     | 'payment-cancel'      // POST /api/transfers/{id}/cancel
@@ -193,6 +194,18 @@ const BY_OPERATION: Record<ApiOperation, Partial<Record<ApiErrorCode, readonly s
 
     'payments-waiting': {
         FORBIDDEN: ['This list is only available to a customer.'],
+    },
+
+    'payments-history': {
+        FORBIDDEN: ['This list is only available to a customer.'],
+        // The only values in this request are the page and its size, and neither is typed by
+        // anybody: a refusal here means the screen asked for something the endpoint does not
+        // accept, so the general sentence about "values in this request" would send the reader
+        // looking for a field to correct that is not on their screen.
+        VALIDATION_ERROR: [
+            'That page of payments was not accepted.',
+            'Reload the page and try again.',
+        ],
     },
 
     'payment-details': {

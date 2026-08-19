@@ -9,10 +9,17 @@ import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.StoredValue;
 
+import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
+import cz.vsb.minibank.domain.value.Money;
+
 import java.sql.*;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -415,6 +422,263 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
         }
 
         return result;
+    }
+
+    // -------------------------------------------------------------------------
+    // The analyst queue
+    // -------------------------------------------------------------------------
+
+    /**
+     * One page of the queue in one statement, filtered, ordered and sliced by PostgreSQL.
+     *
+     * The join is what removed the per-alert query. The queue prints the payment's status and its
+     * amount beside every alert, and it filters on both, so those two facts were fetched with a
+     * {@code transfers.byId} per row - N+1 statements to draw one screen, and no way to page,
+     * because rows were being dropped in Java after the store had already answered with all of
+     * them. Joined here, the filters and the slice are one plan and the answer is one page.
+     *
+     * INNER, so an alert whose payment has gone is left out - which is what the loop it replaced
+     * did with the empty Optional, and what the queue needs: the row prints an amount it would not
+     * have.
+     *
+     * ORDER BY created_at DESC, id DESC. The queue used to arrive in id order, which put the
+     * freshest work at the bottom. The id tie break is there because offset paging over a partial
+     * order repeats one row on the next page and drops another.
+     */
+    @Override
+    public List<QueueRow> queuePage(QueueFilter filter, int offset, int limit) {
+        Predicates where = queuePredicates(filter);
+
+        String sql = """
+        SELECT a.id,
+               a.transfer_id,
+               a.state,
+               a.decision,
+               a.decided_by,
+               a.reason,
+               a.risk_score,
+               a.assignee,
+               a.tags,
+               a.notes,
+               a.created_at,
+               a.resolved_at,
+               a.version,
+               t.status   AS transfer_status,
+               t.amount   AS transfer_amount,
+               t.currency AS transfer_currency
+          FROM fraud_alerts a
+          JOIN transfers t ON t.id = a.transfer_id
+        """ + where.clause() + """
+         ORDER BY a.created_at DESC, a.id DESC
+         LIMIT ? OFFSET ?
+        """;
+
+        return onConnection("Failed to load the fraud alert queue", (conn, uow) -> {
+            List<QueueRow> rows = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                int i = where.bind(ps);
+                ps.setInt(i++, Math.max(limit, 0));
+                ps.setInt(i, Math.max(offset, 0));
+
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        int id = rs.getInt("id");
+
+                        // The alert is an aggregate and comes from the identity map when this
+                        // unit of work already holds it, so a verdict recorded in this
+                        // transaction is the one the queue shows. The payment's two facts are
+                        // read straight off the row: no Transfer is built, which is the whole
+                        // point of the join.
+                        FraudAlert alert = (uow != null) ? uow.get(FraudAlert.class, id) : null;
+                        if (alert == null) {
+                            alert = mapRowToAlert(rs);
+                            if (uow != null) {
+                                uow.put(FraudAlert.class, alert.id(), alert);
+                            }
+                        }
+
+                        TransferStatus status = StoredValue.requiredEnum(
+                                TransferStatus.class, rs.getString("transfer_status"),
+                                "status", "transfer", rs.getInt("transfer_id"));
+
+                        Money amount = Money.of(rs.getString("transfer_currency"),
+                                rs.getBigDecimal("transfer_amount"));
+
+                        rows.add(new QueueRow(alert, rs.getInt("transfer_id"), status, amount));
+                    }
+                }
+            }
+            return rows;
+        });
+    }
+
+    @Override
+    public int queueTotal(QueueFilter filter) {
+        Predicates where = queuePredicates(filter);
+
+        String sql = """
+        SELECT COUNT(*)
+          FROM fraud_alerts a
+          JOIN transfers t ON t.id = a.transfer_id
+        """ + where.clause();
+
+        return onConnection("Failed to count the fraud alert queue", (conn, uow) -> {
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                where.bind(ps);
+                try (ResultSet rs = ps.executeQuery()) {
+                    return rs.next() ? rs.getInt(1) : 0;
+                }
+            }
+        });
+    }
+
+    /**
+     * The whole queue by state, in one grouped statement.
+     *
+     * No join and no filter, deliberately on both counts. These are the counters, and they answer
+     * "how much work is there" rather than "what am I looking at" - the page above answers that.
+     * The unjoined count also keeps this equal to what counting every stored alert gave before,
+     * which is what the desks have always shown.
+     */
+    @Override
+    public Map<FraudAlertState, Integer> countByState() {
+        String sql = """
+        SELECT state, COUNT(*)
+          FROM fraud_alerts
+         GROUP BY state
+        """;
+
+        return onConnection("Failed to count fraud alerts by state", (conn, uow) -> {
+            Map<FraudAlertState, Integer> counts = new EnumMap<>(FraudAlertState.class);
+            try (PreparedStatement ps = conn.prepareStatement(sql);
+                 ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String stored = rs.getString(1);
+                    FraudAlertState st;
+                    try {
+                        st = FraudAlertState.valueOf(stored);
+                    } catch (IllegalArgumentException | NullPointerException e) {
+                        throw new DataIntegrityException(
+                                "Stored fraud alerts carry an unreadable state: " + stored);
+                    }
+                    counts.put(st, rs.getInt(2));
+                }
+            }
+            return counts;
+        });
+    }
+
+    /**
+     * Turns a {@link QueueFilter} into a WHERE clause over the joined alert and payment.
+     *
+     * Three of the six narrow the alert and three narrow the payment behind it, which is why the
+     * clause is built over the join rather than over either table alone.
+     *
+     * The date bounds are inclusive at both ends and the amount bounds are too, because that is
+     * what the Java loop this replaced did with its isBefore/isAfter and compareTo pairs. The
+     * assignee is a case-insensitive containment test, so an alert with no assignee never matches
+     * one - NULL LIKE anything is unknown, and unknown is not kept, exactly as the null check in
+     * the loop skipped it.
+     */
+    private static Predicates queuePredicates(QueueFilter filter) {
+        Predicates p = new Predicates();
+
+        if (filter.state() != null) {
+            p.add("a.state = ?", filter.state().name());
+        }
+        if (filter.createdFrom() != null) {
+            p.add("a.created_at >= ?", Timestamp.from(filter.createdFrom()));
+        }
+        if (filter.createdTo() != null) {
+            p.add("a.created_at <= ?", Timestamp.from(filter.createdTo()));
+        }
+
+        String assignee = filter.assigneeContains();
+        if (assignee != null && !assignee.isBlank()) {
+            p.add("LOWER(a.assignee) LIKE ? ESCAPE '\\'", "%" + likeFragment(assignee.trim()) + "%");
+        }
+
+        if (filter.minAmount() != null) {
+            p.add("t.amount >= ?", filter.minAmount());
+        }
+        if (filter.maxAmount() != null) {
+            p.add("t.amount <= ?", filter.maxAmount());
+        }
+
+        if (!filter.excludedTransferStatuses().isEmpty()) {
+            List<Object> names = new ArrayList<>();
+            StringBuilder marks = new StringBuilder();
+            for (TransferStatus s : filter.excludedTransferStatuses()) {
+                if (!marks.isEmpty()) marks.append(", ");
+                marks.append('?');
+                names.add(s.name());
+            }
+            p.add("t.status NOT IN (" + marks + ")", names.toArray());
+        }
+
+        return p;
+    }
+
+    /**
+     * Lower-cases a fragment and defuses the two wildcards LIKE reads, so that a filter typed as
+     * text stays a containment test rather than becoming a pattern the analyst did not write.
+     */
+    private static String likeFragment(String value) {
+        return value.toLowerCase(Locale.ROOT)
+                .replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
+    }
+
+    /** A WHERE clause and the values it takes, accumulated one predicate at a time. */
+    private static final class Predicates {
+        private final StringBuilder sql = new StringBuilder();
+        private final List<Object> values = new ArrayList<>();
+
+        void add(String predicate, Object... params) {
+            sql.append(sql.isEmpty() ? " WHERE " : " AND ").append(predicate).append('\n');
+            values.addAll(List.of(params));
+        }
+
+        String clause() {
+            return sql.toString();
+        }
+
+        /** Binds the accumulated values from position 1 and returns the next free position. */
+        int bind(PreparedStatement ps) throws SQLException {
+            int i = 1;
+            for (Object value : values) {
+                ps.setObject(i++, value);
+            }
+            return i;
+        }
+    }
+
+    /**
+     * Runs a read on the unit of work's connection when there is one, and on a connection of its
+     * own when there is not.
+     *
+     * The same two branches every load above spells out, factored out here because the three queue
+     * reads would otherwise repeat them a third, fourth and fifth time. The older methods are left
+     * as they are: this is the queue's change, not a rewrite of the file.
+     */
+    private <T> T onConnection(String failure, SqlRead<T> read) {
+        UnitOfWork uow = UowContext.current();
+        try {
+            if (uow instanceof SqlUnitOfWork sqlUow) {
+                return read.apply(sqlUow.connection(), uow);
+            }
+            try (Connection conn = DriverManager.getConnection(url, user, password)) {
+                return read.apply(conn, uow);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException(failure, e);
+        }
+    }
+
+    @FunctionalInterface
+    private interface SqlRead<T> {
+        T apply(Connection conn, UnitOfWork uow) throws SQLException;
     }
 
     // -------------------------------------------------------------------------

@@ -298,7 +298,7 @@ class HttpErrorContractTest {
         victimSentTransfer = transferService.submitPaymentToIban(
                 VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, TARGET_IBAN, 100.0, "victim sent").transferId();
 
-        paymentController = new PaymentController(transferService, accounts);
+        paymentController = new PaymentController(transferService, accounts, services.ownershipGuard);
         authorizationController = new AuthorizationController(transferService, accounts, transfers,
                 services.feePolicy, services.ownershipGuard, infra.uowFactory);
         FraudController fraudController = new FraudController(
@@ -352,7 +352,7 @@ class HttpErrorContractTest {
     /** Creates a transfer above the authorization threshold, so it lands in WAITING_AUTH. */
     private int waitingTransfer() {
         return paymentController.createPayment(new cz.vsb.minibank.api.dto.NewPaymentRequest(
-                ACCOUNT_ID, TARGET_IBAN, 6_000.0, "waiting")).getBody().transferId();
+                ACCOUNT_ID, TARGET_IBAN, null, 6_000.0, "waiting")).getBody().transferId();
     }
 
     /**
@@ -362,7 +362,7 @@ class HttpErrorContractTest {
      */
     private int heldTransfer() {
         return paymentController.createPayment(new cz.vsb.minibank.api.dto.NewPaymentRequest(
-                ACCOUNT_ID, TARGET_IBAN, OVER_THE_ALERT_THRESHOLD, "held")).getBody().transferId();
+                ACCOUNT_ID, TARGET_IBAN, null, OVER_THE_ALERT_THRESHOLD, "held")).getBody().transferId();
     }
 
     // ---------------------------------------------------------------- 401
@@ -797,7 +797,7 @@ class HttpErrorContractTest {
     void cancellingASentTransferIs409Conflict() throws Exception {
         // Below the authorization threshold, so it is sent immediately.
         int id = paymentController.createPayment(new cz.vsb.minibank.api.dto.NewPaymentRequest(
-                ACCOUNT_ID, TARGET_IBAN, 100.0, "sent")).getBody().transferId();
+                ACCOUNT_ID, TARGET_IBAN, null, 100.0, "sent")).getBody().transferId();
 
         assertResponse(api, post("/api/transfers/" + id + "/cancel"), 409, BODY_CONFLICT);
     }

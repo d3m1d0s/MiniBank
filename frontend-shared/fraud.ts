@@ -13,6 +13,8 @@
 
 import type { Money } from './money';
 import { API_BASE, apiFetch, handle } from './http';
+import type { Page } from './paging';
+import { applyPaging, DEFAULT_PAGE_SIZE } from './paging';
 
 export interface AlertQueueItem {
     id: number;
@@ -35,8 +37,14 @@ export interface AlertCounters {
     okCount: number;
 }
 
+/*
+ * Two counts, and they answer different questions on purpose. The page inside `alerts` describes
+ * what the current filters matched, so the foot of the list can say how much of it is on screen.
+ * `counters` counts every alert in every state before any filter and before any page, so the line
+ * above the list keeps saying how much work exists while the analyst reads three rows of it.
+ */
 export interface AlertQueueResponse {
-    items: AlertQueueItem[];
+    alerts: Page<AlertQueueItem>;
     counters: AlertCounters;
 }
 
@@ -127,7 +135,11 @@ export interface AlertFilters {
     excludeTransferStatus?: string[];
 }
 
-export async function fetchAlerts(filters: AlertFilters = {}): Promise<AlertQueueResponse> {
+export async function fetchAlerts(
+    filters: AlertFilters = {},
+    page = 0,
+    size = DEFAULT_PAGE_SIZE,
+): Promise<AlertQueueResponse> {
     const params = new URLSearchParams();
 
     if (filters.state) params.set('state', filters.state);
@@ -141,10 +153,9 @@ export async function fetchAlerts(filters: AlertFilters = {}): Promise<AlertQueu
         params.append('excludeTransferStatus', status);
     }
 
-    const qs = params.toString();
-    const url = qs ? `${API_BASE}/fraud/alerts?${qs}` : `${API_BASE}/fraud/alerts`;
+    applyPaging(params, page, size);
 
-    const res = await apiFetch(url);
+    const res = await apiFetch(`${API_BASE}/fraud/alerts?${params.toString()}`);
     return handle<AlertQueueResponse>(res);
 }
 

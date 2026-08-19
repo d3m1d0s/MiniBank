@@ -91,7 +91,15 @@ public class FraudController {
              * job is not to lose evidence, "forgot to list it" must mean shown, not hidden.
              */
             @RequestParam(name = "excludeTransferStatus", required = false)
-            List<String> excludeTransferStatus
+            List<String> excludeTransferStatus,
+
+            /*
+             * Which page of the filtered queue, and how many rows it holds. Absent means the first
+             * page at PageDto.DEFAULT_SIZE, which is what a caller that has never heard of paging
+             * gets - and it is now a bounded answer rather than the whole store.
+             */
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size
     ) {
         requireRole(UserRole.FRAUD_ANALYST);
 
@@ -103,120 +111,139 @@ public class FraudController {
 
         // Parsed up here with the range check, so a filter the request got wrong is refused
         // before a connection is opened for it rather than after.
-        Instant fromTs = parseInstant(createdFrom);
-        Instant toTs = parseInstant(createdTo);
-        Set<TransferStatus> hidden = parseTransferStatuses(excludeTransferStatus);
+        FraudAlertRepository.QueueFilter filter = new FraudAlertRepository.QueueFilter(
+                parseState(state),
+                parseInstant(createdFrom),
+                parseInstant(createdTo),
+                assignee,
+                minAmount,
+                maxAmount,
+                parseTransferStatuses(excludeTransferStatus));
 
-        // One unit of work for the whole read, and the reason is the shape of the loop below:
-        // it asks for every alert and then for one transfer per alert. There is no connection
-        // pool in this project, so outside a unit of work each of those calls opened and tore
-        // down its own JDBC connection - N+1 of them to draw one screen. Inside one, they share
-        // a connection and the identity map answers the second request for the same transfer.
+        int pageIndex = requirePage(page);
+        int pageSize = requireSize(size);
+        int offset = requireReachableOffset(pageIndex, pageSize);
+
+        // One unit of work for the whole read. It is three statements now rather than N+1: the
+        // page, its total, and the counters. There is no connection pool in this project, so a
+        // repository call made outside a unit of work opens a JDBC connection and tears it down
+        // again, and the queue used to make one of those per alert - it asked for every alert and
+        // then for the payment behind each one. Inside one unit of work the three share a
+        // connection, and the identity map answers for an alert this transaction already holds.
         //
         // It buys connections and deduplication, not a consistent snapshot: nothing here sets an
         // isolation level, so at READ COMMITTED every statement still sees its own snapshot even
-        // inside a transaction. An alert decided while this loop runs can still appear with its
-        // old state.
+        // inside a transaction. The page and the counters beside it can therefore be a moment
+        // apart, which is what a queue an analyst is working through looks like anyway.
         //
         // On the JSON backend the unit of work holds the store lock for the whole read, so
-        // payments wait while a queue is drawn. Accepted: the loop is in memory and short, and
+        // payments wait while a queue is drawn. Accepted: the work is in memory and short, and
         // the alternative is the connection storm above on the backend that actually ships.
         try (UowScope scope = new UowScope(uowFactory.begin())) {
-            return buildQueue(state, minAmount, maxAmount, fromTs, toTs, assignee, hidden);
+            return buildQueue(filter, pageIndex, pageSize, offset);
         }
     }
 
     /**
      * Builds the queue. Called only from {@link #listAlerts}, inside its unit of work.
      */
-    private AlertQueueResponseDto buildQueue(String state,
-                                             BigDecimal minAmount,
-                                             BigDecimal maxAmount,
-                                             Instant fromTs,
-                                             Instant toTs,
-                                             String assignee,
-                                             Set<TransferStatus> hidden) {
-        List<FraudAlert> all = alerts.all();
+    private AlertQueueResponseDto buildQueue(FraudAlertRepository.QueueFilter filter,
+                                             int page,
+                                             int size,
+                                             int offset) {
 
-        FraudAlertState stateFilter = parseState(state);
+        List<FraudAlertRepository.QueueRow> rows = alerts.queuePage(filter, offset, size);
+        int total = alerts.queueTotal(filter);
 
-        String assigneeFilter = (assignee != null && !assignee.isBlank())
-                ? assignee.trim().toLowerCase(Locale.ROOT)
-                : null;
+        List<AlertQueueItemDto> items = rows.stream()
+                .map(FraudController::mapQueueItem)
+                .toList();
 
-        List<AlertQueueItemDto> items = new ArrayList<>();
-
-        for (FraudAlert alert : all) {
-            if (stateFilter != null && alert.state() != stateFilter) {
-                continue;
-            }
-
-            if (fromTs != null && alert.createdAt() != null && alert.createdAt().isBefore(fromTs)) {
-                continue;
-            }
-
-            if (toTs != null && alert.createdAt() != null && alert.createdAt().isAfter(toTs)) {
-                continue;
-            }
-
-            if (assigneeFilter != null) {
-                String a = alert.assignee();
-                if (a == null || !a.toLowerCase(Locale.ROOT).contains(assigneeFilter)) {
-                    continue;
-                }
-            }
-
-            Optional<Transfer> optT = transfers.byId(alert.transferId());
-            if (optT.isEmpty()) {
-                continue;
-            }
-
-            Transfer t = optT.get();
-
-            // Filtered on the transfer rather than on the alert, because that is where the fact
-            // lives. An alert whose payment was withdrawn is still the analyst's to decide - the
-            // verdict field is theirs and nothing here writes it - it is simply not urgent, and
-            // a queue that cannot hide it fills up with rows that have nothing left to decide.
-            if (hidden.contains(t.status())) {
-                continue;
-            }
-
-            BigDecimal amount = t.amount().amount();
-            if (minAmount != null && amount.compareTo(minAmount) < 0) continue;
-            if (maxAmount != null && amount.compareTo(maxAmount) > 0) continue;
-
-            String createdAtStr = alert.createdAt() != null ? alert.createdAt().toString() : null;
-
-            items.add(new AlertQueueItemDto(
-                    alert.id(),
-                    "ALERT-%d".formatted(alert.id()),
-                    "TR-%d".formatted(t.id()),
-                    alert.state().name(),
-                    // From the Transfer already loaded above for its amount, so no extra lookup.
-                    t.status().name(),
-                    MoneyDto.of(t.amount()),
-                    alert.reason(),
-                    createdAtStr,
-                    alert.riskScore(),
-                    alert.assignee()
-            ));
-        }
-
-        // Over `all` rather than over `items`, deliberately: these describe the whole queue, and
-        // the list beside them describes the filter. Both desks say so now, because seven over a
-        // list of three reads as a contradiction until a screen names which number is which.
+        // Over the whole queue rather than over the page or the filter, deliberately: these
+        // describe how much work exists, and the list beside them describes what is being looked
+        // at. Both desks say so now, because seven over a list of three reads as a contradiction
+        // until a screen names which number is which.
         //
-        // Do not "fix" this to count the filtered list. State is itself one of the filters and
-        // both desks open filtered to NEW, so two of the three would be permanently zero; and
-        // the reason an analyst watches them at all is to see SUSPICIOUS rise as they work,
-        // which a filtered count cannot show.
-        long newCount = all.stream().filter(a -> a.state() == FraudAlertState.NEW).count();
-        long suspiciousCount = all.stream().filter(a -> a.state() == FraudAlertState.SUSPICIOUS).count();
-        long okCount = all.stream().filter(a -> a.state() == FraudAlertState.OK).count();
+        // Do not "fix" this to count the filtered list or the page. State is itself one of the
+        // filters and both desks open filtered to NEW, so two of the three would be permanently
+        // zero; and the reason an analyst watches them at all is to see SUSPICIOUS rise as they
+        // work, which neither a filtered nor a paged count can show.
+        Map<FraudAlertState, Integer> byState = alerts.countByState();
 
-        AlertCountersDto counters = new AlertCountersDto(newCount, suspiciousCount, okCount);
+        AlertCountersDto counters = new AlertCountersDto(
+                byState.getOrDefault(FraudAlertState.NEW, 0),
+                byState.getOrDefault(FraudAlertState.SUSPICIOUS, 0),
+                byState.getOrDefault(FraudAlertState.OK, 0));
 
-        return new AlertQueueResponseDto(items, counters);
+        return new AlertQueueResponseDto(new PageDto<>(items, page, size, total), counters);
+    }
+
+    private static AlertQueueItemDto mapQueueItem(FraudAlertRepository.QueueRow row) {
+        FraudAlert alert = row.alert();
+        String createdAtStr = alert.createdAt() != null ? alert.createdAt().toString() : null;
+
+        return new AlertQueueItemDto(
+                alert.id(),
+                "ALERT-%d".formatted(alert.id()),
+                "TR-%d".formatted(row.transferId()),
+                alert.state().name(),
+                // The payment's status and its amount came off the same row as the alert, which
+                // is what replaced a lookup per alert.
+                row.transferStatus().name(),
+                MoneyDto.of(row.amount()),
+                alert.reason(),
+                createdAtStr,
+                alert.riskScore(),
+                alert.assignee()
+        );
+    }
+
+    /**
+     * The page index a request named, defaulting to the first.
+     *
+     * Refused rather than clamped when it is negative, for the reason every filter here is
+     * refused rather than ignored: a request nobody honoured must not answer 200 with a list that
+     * is not the one that was asked for.
+     */
+    private static int requirePage(Integer page) {
+        if (page == null) return 0;
+        if (page < 0) {
+            throw new ValidationException("page must not be negative: " + page);
+        }
+        return page;
+    }
+
+    /**
+     * The page size a request named, bounded at both ends.
+     *
+     * The ceiling is the point. An unbounded size re-opens the very thing paging exists to close,
+     * because "give me everything" would still be one request away.
+     */
+    private static int requireSize(Integer size) {
+        if (size == null) return PageDto.DEFAULT_SIZE;
+        if (size < 1 || size > PageDto.MAX_SIZE) {
+            throw new ValidationException(
+                    "size must be between 1 and " + PageDto.MAX_SIZE + ": " + size);
+        }
+        return size;
+    }
+
+    /**
+     * How many rows to skip to reach the page that was asked for, refusing one that cannot be
+     * counted to.
+     *
+     * Widened before it is multiplied, because size is bounded above and page is bounded only by
+     * int: the product overflows, and an overflowed offset is a number the store would answer, so
+     * a page far past the end would come back holding rows. Refused with the other two rather than
+     * clamped, and refused here rather than inside the read, so nothing is opened for a request
+     * that cannot be served.
+     */
+    private static int requireReachableOffset(int page, int size) {
+        long offset = (long) page * size;
+        if (offset > Integer.MAX_VALUE) {
+            throw new ValidationException("page " + page + " is beyond any queue of size " + size);
+        }
+        return (int) offset;
     }
 
     // -------------------------------------------------------------------------

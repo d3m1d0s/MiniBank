@@ -1,15 +1,27 @@
 package cz.vsb.minibank.infrastructure.json.repo;
 
 import cz.vsb.minibank.domain.FraudAlert;
+import cz.vsb.minibank.domain.FraudAlertState;
+import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
+import cz.vsb.minibank.domain.value.Money;
+import cz.vsb.minibank.infrastructure.StoredValue;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.dto.JsonFraudAlert;
+import cz.vsb.minibank.infrastructure.json.dto.JsonTransfer;
 import cz.vsb.minibank.infrastructure.json.mapping.JsonMapper;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -130,5 +142,165 @@ public class JsonFraudAlertRepository implements FraudAlertRepository {
                     return d;
                 })
                 .collect(Collectors.toList()));
+    }
+
+    // -------------------------------------------------------------------------
+    // The analyst queue
+    // -------------------------------------------------------------------------
+
+    /**
+     * One page of the queue, joined, filtered, ordered and sliced in memory.
+     *
+     * It slices in memory, and it says so rather than pretending otherwise: this store is one JSON
+     * document that is read whole under one lock, so there is no offset a page could be pushed
+     * down to. What matters is that it answers the same contract the SQL twin does - the same
+     * inclusive bounds, the same containment test on the assignee, the same newest-first order
+     * with the id tie break, and the same silence about an alert whose payment is gone.
+     *
+     * What it does not do is build a {@code FraudAlert} out of every stored row to throw most of
+     * them away. The filter reads the stored records, and only the rows that survive the slice are
+     * mapped, so the identity map is left holding the page rather than the store. The payment is
+     * never mapped at all: two values are read off its record, which is this backend's form of the
+     * join that killed the per-alert query on the other one.
+     */
+    @Override
+    public List<QueueRow> queuePage(QueueFilter filter, int offset, int limit) {
+        UnitOfWork uow = UowContext.current();
+
+        return store.read(bundle -> {
+            List<Match> matches = matching(bundle, filter);
+            matches.sort(NEWEST_FIRST);
+
+            int from = Math.min(Math.max(offset, 0), matches.size());
+            int to = Math.min(from + Math.max(limit, 0), matches.size());
+
+            List<QueueRow> rows = new ArrayList<>();
+            for (Match m : matches.subList(from, to)) {
+                FraudAlert alert = (uow != null) ? uow.get(FraudAlert.class, m.alert.id) : null;
+                if (alert == null) {
+                    alert = JsonMapper.toDomain(m.alert);
+                    if (uow != null) uow.put(FraudAlert.class, alert.id(), alert);
+                }
+
+                TransferStatus status = StoredValue.requiredEnum(
+                        TransferStatus.class, m.transfer.status, "status", "transfer",
+                        m.transfer.id);
+
+                rows.add(new QueueRow(alert, m.transfer.id, status, amountOf(m.transfer)));
+            }
+            return rows;
+        });
+    }
+
+    @Override
+    public int queueTotal(QueueFilter filter) {
+        return store.read(bundle -> matching(bundle, filter).size());
+    }
+
+    /**
+     * Every alert by state, over the whole store and before any filter.
+     *
+     * Counted over the alerts alone, with no join to the payments, which is what the SQL twin does
+     * and what counting the whole list gave before. On this backend that difference is reachable:
+     * an alert can outlive the payment it was raised on, and it is still work somebody has to
+     * decide.
+     */
+    @Override
+    public Map<FraudAlertState, Integer> countByState() {
+        return store.read(bundle -> {
+            Map<FraudAlertState, Integer> counts = new EnumMap<>(FraudAlertState.class);
+            for (JsonFraudAlert a : bundle.fraudAlerts) {
+                FraudAlertState st = StoredValue.requiredEnum(
+                        FraudAlertState.class, a.state, "state", "fraud alert", a.id);
+                counts.merge(st, 1, Integer::sum);
+            }
+            return counts;
+        });
+    }
+
+    /** A stored alert and the stored payment behind it, paired once so nothing is looked up twice. */
+    private record Match(JsonFraudAlert alert, JsonTransfer transfer, Instant createdAt) {
+    }
+
+    /**
+     * Newest first, with the id as the tie break, so that a slice taken now and a slice taken after
+     * the next request describe the same list.
+     */
+    private static final Comparator<Match> NEWEST_FIRST =
+            Comparator.comparing(Match::createdAt).reversed()
+                    .thenComparing(Comparator.comparingInt((Match m) -> m.alert.id).reversed());
+
+    /**
+     * The stored alerts the filter keeps, each paired with the payment behind it.
+     *
+     * An alert whose payment is missing is dropped here rather than later, which is the inner join
+     * the SQL twin gets from the database.
+     */
+    private static List<Match> matching(JsonDataStore.Bundle bundle, QueueFilter filter) {
+        Map<Integer, JsonTransfer> byId = new HashMap<>();
+        for (JsonTransfer t : bundle.transfers) {
+            byId.put(t.id, t);
+        }
+
+        String assignee = (filter.assigneeContains() != null && !filter.assigneeContains().isBlank())
+                ? filter.assigneeContains().trim().toLowerCase(Locale.ROOT)
+                : null;
+
+        List<Match> matches = new ArrayList<>();
+
+        for (JsonFraudAlert a : bundle.fraudAlerts) {
+            if (filter.state() != null && !filter.state().name().equals(a.state)) {
+                continue;
+            }
+
+            // Read exactly as the loader reads it, so a row this refuses is a row the queue could
+            // not have shown anyway.
+            Instant createdAt = StoredValue.requiredInstant(
+                    a.createdAt, "creation instant", "fraud alert", a.id);
+
+            if (filter.createdFrom() != null && createdAt.isBefore(filter.createdFrom())) continue;
+            if (filter.createdTo() != null && createdAt.isAfter(filter.createdTo())) continue;
+
+            if (assignee != null
+                    && (a.assignee == null || !a.assignee.toLowerCase(Locale.ROOT).contains(assignee))) {
+                continue;
+            }
+
+            JsonTransfer t = byId.get(a.transferId);
+            if (t == null) continue;
+
+            if (!filter.excludedTransferStatuses().isEmpty()) {
+                TransferStatus status = StoredValue.requiredEnum(
+                        TransferStatus.class, t.status, "status", "transfer", t.id);
+                if (filter.excludedTransferStatuses().contains(status)) continue;
+            }
+
+            if (filter.minAmount() != null || filter.maxAmount() != null) {
+                java.math.BigDecimal amount = amountOf(t).amount();
+                if (filter.minAmount() != null && amount.compareTo(filter.minAmount()) < 0) continue;
+                if (filter.maxAmount() != null && amount.compareTo(filter.maxAmount()) > 0) continue;
+            }
+
+            matches.add(new Match(a, t, createdAt));
+        }
+
+        return matches;
+    }
+
+    /**
+     * The stored amount as the domain holds it, refusing a record that names neither.
+     *
+     * Rebuilt from the stored currency rather than forced to crowns, for the reason
+     * {@code JsonMapper} gives where it does the same: a record written in anything else has to
+     * arrive as what it claims to be.
+     */
+    private static Money amountOf(JsonTransfer t) {
+        if (t.amount == null) {
+            throw new DataIntegrityException("Stored transfer " + t.id + " has no amount");
+        }
+        if (t.currency == null) {
+            throw new DataIntegrityException("Stored transfer " + t.id + " has no currency");
+        }
+        return Money.of(t.currency, t.amount);
     }
 }

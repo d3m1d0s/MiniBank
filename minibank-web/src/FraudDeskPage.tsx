@@ -12,15 +12,22 @@ import {
     type FraudDecision,
     type FraudDecisionRequest,
     type AlertCounters,
+    type HistoryItem,
+    type Page,
 } from './api';
 import { amountRangeProblem } from '@shared/alertFilters';
-import { formatMoney, parseAmount, readerLocale } from './money';
+import { formatMoney, readerLocale } from './money';
+import { parseAmount } from '@shared/money';
 import { describeApiErrorLines } from '@shared/apiErrors';
 import {
     alertStateLabel,
+    alertStateTone,
     authMethodLabel,
+    decisionActionLabel,
     describeDeclineReason,
+    describeDecision,
     transferStatusLabel,
+    transferStatusTone,
 } from '@shared/glossary';
 import {
     EMPTY_VALUE,
@@ -30,6 +37,23 @@ import {
     formatTransferId,
     NOT_RECORDED,
 } from '@shared/format';
+import {
+    ALERT_QUEUE_FIELDS,
+    FIELD_LABEL,
+    HISTORY_FIELDS,
+    type AlertQueueField,
+    type HistoryField,
+    type HistoryRowCells,
+    type QueueRowCells,
+} from '@shared/fields';
+import {
+    SHOW_MORE,
+    SHOW_MORE_BUSY,
+    appendPage,
+    hasMore,
+    nextPage,
+    showingLine,
+} from '@shared/paging';
 import Nav from './Nav';
 import type { NavRole, NavView } from '@shared/navigation';
 
@@ -57,36 +81,96 @@ interface Props {
 }
 
 /**
- * What actually happened, read off the alert the server sent back rather than off the button
- * that was pressed. Deriving it from the button was safe only while every decision did the one
- * thing its label said: a DECLINE on a payment that had already gone is now accepted and
- * records the verdict without stopping anything, and announcing "Transfer declined" for it
- * would tell the analyst the money was held when it is gone - a worse lie than the 409 it
- * replaced.
+ * How many alerts arrive at a time.
+ *
+ * The server's own default. A queue is meant to be seen entire, and the analyst's question at its
+ * foot is how much work is left rather than whether to read on, which is why the count line is
+ * beside the button and the counters above the list are a different number entirely.
  */
-function describeDecision(kind: FraudDecision, updated: AlertDetail): string {
-    const status = updated.transfer.status;
-    // Whatever the sentence says about the payment's state, it says in the same words the queue
-    // and the panel above it use. It used to interpolate the enum: "the transfer is WAITING_AUTH".
-    const state = transferStatusLabel(status, 'analyst').toLowerCase();
+const PAGE_SIZE = 25;
 
-    if (kind === 'APPROVE') {
-        return status === 'WAITING_AUTH'
-            ? 'Alert cleared. The payment is released to the customer to confirm; no money has moved.'
-            : `Alert cleared. The transfer was already ${state}, so there was nothing to release.`;
-    }
+/**
+ * Which queue columns are more than left-aligned text.
+ *
+ * Marked where the cell is built rather than found by counting header cells in the stylesheet,
+ * which matches a fixed number of columns and breaks silently the day one is added. The
+ * workstation already does it this way.
+ */
+const QUEUE_CELL_CLASS: Partial<Record<AlertQueueField, string>> = {
+    amount: 'cell--amount',
+};
 
-    if (kind === 'DECLINE') {
-        return status === 'SENT'
-            ? 'Recorded as confirmed fraud. The payment had already been sent and has NOT been reversed.'
-            : `Alert recorded as confirmed fraud, and the transfer is ${state}.`;
-    }
+const HISTORY_CELL_CLASS: Partial<Record<HistoryField, string>> = {
+    amount: 'cell--amount',
+};
 
-    return 'Notes, assignee and tags saved. No decision was taken: the alert is still open and the transfer is unchanged.';
+/**
+ * A queue entry's nine fields, ready to be laid out.
+ *
+ * Built through the shared row type so a field the server sends and this desk forgets is a build
+ * failure rather than something an analyst discovers is missing. The workstation reads a queue
+ * entry down a card and this one reads it across a table, so each builds its own cells and only
+ * the field set and the words are shared.
+ *
+ * Two cells differ from the workstation's on purpose. A column has a heading, so an absent risk
+ * score or assignee is the data table's dash here, where the card, having no headings, has to say
+ * `Risk 80` and `unassigned` in words. format.ts blesses exactly that split.
+ */
+function queueCells(a: AlertQueueItem): QueueRowCells<ReactNode> {
+    return {
+        alertCode: a.alertCode,
+        transferCode: a.transferCode,
+        state: (
+            <span className={`tone-${alertStateTone(a.state)}`}>{alertStateLabel(a.state)}</span>
+        ),
+        transferStatus: (
+            <span className={`tone-${transferStatusTone(a.transferStatus)}`}>
+                {transferStatusLabel(a.transferStatus, 'analyst')}
+            </span>
+        ),
+        amount: formatMoney(a.amount),
+        shortReason: a.shortReason,
+        riskScore: a.riskScore ?? EMPTY_VALUE,
+        assignee: a.assignee || EMPTY_VALUE,
+        createdAt: formatDateTime(a.createdAt),
+    };
+}
+
+/**
+ * One row of the payment history beside an alert.
+ *
+ * The decline reason keeps a column of its own here where the workstation gives it a row under
+ * the payment it explains: this desk has a thousand pixels to lay a table across and the
+ * workstation's pane has a floor of three hundred and sixty. That is the idiom difference the
+ * shared field set exists to allow, and it is why the set is a union rather than a column list.
+ */
+function historyCells(h: HistoryItem): HistoryRowCells<ReactNode> {
+    return {
+        id: formatTransferId(h.id),
+        createdAt: formatDateTime(h.createdAt),
+        amount: formatMoney(h.amount),
+        status: (
+            <span className={`tone-${transferStatusTone(h.status)}`}>
+                {transferStatusLabel(h.status, 'analyst')}
+            </span>
+        ),
+        toIban: formatIban(h.toIban),
+        // The same sentence the customer is now shown for their own declined payment, from the
+        // same function.
+        declineReason: describeDeclineReason(h.declineReason) || EMPTY_VALUE,
+    };
 }
 
 export default function FraudDeskPage({ role, brand, identity, onNavigate }: Props) {
     const [alerts, setAlerts] = useState<AlertQueueItem[]>([]);
+
+    /**
+     * The page envelope as the queue last answered, so the next page is asked for by the page
+     * that arrived rather than by the rows on screen; those disagree the moment a row that has
+     * already been seen is dropped. Its `total` is what the current filters match and is NOT the
+     * counters beside it.
+     */
+    const [lastPage, setLastPage] = useState<Page<AlertQueueItem> | null>(null);
     const [counters, setCounters] = useState<AlertCounters | null>(null);
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [detail, setDetail] = useState<AlertDetail | null>(null);
@@ -131,6 +215,7 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
     const [decisionMessage, setDecisionMessage] = useState<string | null>(null);
 
     const [loadingList, setLoadingList] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
     const [loadingDetail, setLoadingDetail] = useState(false);
     const [loadingDecision, setLoadingDecision] = useState(false);
 
@@ -193,6 +278,7 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
             amountRangeProblem(filters, { min: false, max: false });
         if (problem) {
             setAlerts([]);
+            setLastPage(null);
             setCounters(null);
             setListError([problem]);
             return;
@@ -201,12 +287,19 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
         try {
             setLoadingList(true);
             setListError(null);
-            const resp = await fetchAlerts(filters);
-            setAlerts(resp.items);
+            // From the top, and as wide as what is already on screen: a decision reloads this
+            // list, and a queue that collapsed back to its first page every time an alert was
+            // decided would lose the rows the analyst had opened out to reach it.
+            const wanted = keepSelection
+                ? Math.max(PAGE_SIZE, alerts.length)
+                : PAGE_SIZE;
+            const resp = await fetchAlerts(filters, 0, wanted);
+            setAlerts(resp.alerts.items);
+            setLastPage(resp.alerts);
             setCounters(resp.counters);
 
             // If the currently selected alert disappeared from the list, reset selection and details
-            if (!keepSelection && selectedId && !resp.items.some((a) => a.id === selectedId)) {
+            if (!keepSelection && selectedId && !resp.alerts.items.some((a) => a.id === selectedId)) {
                 setSelectedId(null);
                 setDetail(null);
             }
@@ -214,6 +307,30 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
             setListError(describeApiErrorLines(e, 'alert-queue'));
         } finally {
             setLoadingList(false);
+        }
+    }
+
+    /**
+     * The next page of the queue, appended under the rows already there.
+     *
+     * The list's own "Loading alerts…" hint is not shown for this: that sentence means the first
+     * page, and drawing it would blank a queue the analyst is reading. The button says so instead
+     * and keeps its place while it does.
+     */
+    async function loadMoreAlerts() {
+        if (!lastPage) return;
+
+        try {
+            setLoadingMore(true);
+            setListError(null);
+            const resp = await fetchAlerts(filters, nextPage(lastPage), PAGE_SIZE);
+            setAlerts((held) => appendPage(held, resp.alerts.items));
+            setLastPage(resp.alerts);
+            setCounters(resp.counters);
+        } catch (e) {
+            setListError(describeApiErrorLines(e, 'alert-queue'));
+        } finally {
+            setLoadingMore(false);
         }
     }
 
@@ -252,7 +369,10 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
 
             const updated = await postFraudDecision(selectedId, payload);
             setDetail(updated);
-            setDecisionMessage(describeDecision(kind, updated));
+            // The sentence is the shared one, and the status it is told is the payment's AFTER
+            // the decision. The two desks announced the same outcome in two different sentences
+            // until this moved out of both of them.
+            setDecisionMessage(describeDecision(kind, updated.transfer.status));
 
             // Keeps the decided alert on screen. With the default NEW filter it leaves the
             // queue the moment it is decided, and clearing the selection would unmount the
@@ -313,11 +433,16 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
 
                               The numbers themselves are unchanged and so is what they mean. They
                               count the WHOLE queue, not the list below, because the server counts
-                              before applying any filter: New 7 over a list of three reads as a
-                              contradiction until the line says which number is which. Counting
-                              the visible list instead would be worse, since this page opens
-                              filtered to New and two of the three would be permanently zero.
-                              The three states are the only three, so their sum is the queue.
+                              before applying any filter and before any page: New 7 over a list of
+                              three reads as a contradiction until the line says which number is
+                              which. Counting the visible list instead would be worse, since this
+                              page opens filtered to New and two of the three would be permanently
+                              zero. The three states are the only three, so their sum is the queue.
+
+                              What is NOT here is how much of the filtered list is on screen. That
+                              is a different number, it comes from the page rather than from the
+                              counters, and it stands on its own line directly above the rows it
+                              is about.
 
                               The states are named in the words the queue below uses, and no
                               longer as OK and Suspicious beside rows that say Cleared and
@@ -331,7 +456,6 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                         counters.okCount}{' '}
                                     alerts. New {counters.newCount}, confirmed fraud{' '}
                                     {counters.suspiciousCount}, cleared {counters.okCount}.
-                                    Showing {alerts.length} with the filters below.
                                 </p>
                             )}
 
@@ -484,64 +608,88 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                     No fraud alerts.
                                 </p>
                             ) : (
+                                <>
+                                {/*
+                                  How much of the filtered list is on screen, directly above the
+                                  rows it counts. It is not in the caption above: that one counts
+                                  the whole queue before any filter, and standing the two side by
+                                  side made a reader compare numbers that answer different
+                                  questions.
+                                */}
+                                <p className="list-count gap-above-sm">
+                                    {showingLine(alerts.length, lastPage?.total ?? 0)}
+                                </p>
+
+                                {/*
+                                  Headers and cells both spread from the shared field set, in its
+                                  reading order. The nine columns were written out twice by hand,
+                                  which is how this desk came to head a column `Transfer` where
+                                  the workstation says `Payment`, and `State` where it says
+                                  `Alert state`. Neither desk can now leave a field out: the row
+                                  is a total mapped type and a missing key does not build.
+                                */}
                                 <div className="table-wrapper gap-above-sm">
                                     <table className="table">
                                         <thead>
                                         <tr>
-                                            <th>Alert</th>
-                                            <th>Transfer</th>
-                                            <th>State</th>
-                                            {/* The transfer's status. An alert on money that
-                                                has already gone used to look exactly like one
-                                                on money still held. */}
-                                            <th>Transfer status</th>
-                                            <th className="cell--amount">Amount</th>
-                                            <th>Reason</th>
-                                            <th>Risk score</th>
-                                            <th>Assignee</th>
-                                            <th>Created</th>
+                                            {ALERT_QUEUE_FIELDS.map((f) => (
+                                                <th key={f} className={QUEUE_CELL_CLASS[f]}>
+                                                    {FIELD_LABEL[f]}
+                                                </th>
+                                            ))}
                                         </tr>
                                         </thead>
                                         <tbody>
-                                        {alerts.map((a) => (
-                                            <tr
-                                                key={a.id}
-                                                onClick={() =>
-                                                    handleSelect(a.id)
-                                                }
-                                                className={
-                                                    selectedId === a.id
-                                                        ? 'table-row--selected'
-                                                        : ''
-                                                }
-                                            >
-                                                <td>{a.alertCode}</td>
-                                                <td>{a.transferCode}</td>
-                                                <td>{alertStateLabel(a.state)}</td>
-                                                <td>
-                                                    {transferStatusLabel(
-                                                        a.transferStatus,
-                                                        'analyst',
-                                                    )}
-                                                </td>
-                                                <td className="cell--amount">
-                                                    {formatMoney(a.amount)}
-                                                </td>
-                                                <td>{a.shortReason}</td>
-                                                <td>
-                                                    {a.riskScore ?? EMPTY_VALUE}
-                                                </td>
-                                                <td>
-                                                    {a.assignee || EMPTY_VALUE}
-                                                </td>
-                                                <td>
-                                                    {formatDateTime(a.createdAt)}
-                                                </td>
-                                            </tr>
-                                        ))}
+                                        {alerts.map((a) => {
+                                            const cells = queueCells(a);
+                                            return (
+                                                <tr
+                                                    key={a.id}
+                                                    onClick={() =>
+                                                        handleSelect(a.id)
+                                                    }
+                                                    className={
+                                                        selectedId === a.id
+                                                            ? 'table-row--selected'
+                                                            : ''
+                                                    }
+                                                >
+                                                    {ALERT_QUEUE_FIELDS.map((f) => (
+                                                        <td
+                                                            key={f}
+                                                            className={QUEUE_CELL_CLASS[f]}
+                                                        >
+                                                            {cells[f]}
+                                                        </td>
+                                                    ))}
+                                                </tr>
+                                            );
+                                        })}
                                         </tbody>
                                     </table>
                                 </div>
+
+                                {/*
+                                  The way to see more of the list, at the end of the rows where the
+                                  reader is when they run out. The count that goes with it stands in
+                                  the counters strip above the queue instead, so that the five
+                                  numbers a reader compares are read in one place rather than at two
+                                  ends of a table.
+                                */}
+                                <div className="section-block inline gap-above-sm">
+                                    {hasMore(alerts.length, lastPage?.total ?? 0) && (
+                                        <button
+                                            type="button"
+                                            className="btn-quiet"
+                                            onClick={() => void loadMoreAlerts()}
+                                            disabled={loadingMore}
+                                            aria-busy={loadingMore || undefined}
+                                        >
+                                            {loadingMore ? SHOW_MORE_BUSY : SHOW_MORE}
+                                        </button>
+                                    )}
+                                </div>
+                                </>
                             )}
                         </section>
 
@@ -589,7 +737,14 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                             <span className="fact-label">Alert:</span>{' '}
                                             <span className="fact-value">
                                                 {formatAlertId(detail.alert.id)} (
-                                                {alertStateLabel(detail.alert.state)})
+                                                <span
+                                                    className={`tone-${alertStateTone(
+                                                        detail.alert.state,
+                                                    )}`}
+                                                >
+                                                    {alertStateLabel(detail.alert.state)}
+                                                </span>
+                                                )
                                             </span>
                                         </p>
                                         <p>
@@ -627,7 +782,11 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                         </p>
                                         <p>
                                             <span className="fact-label">Status:</span>{' '}
-                                            <span className="fact-value">
+                                            <span
+                                                className={`fact-value tone-${transferStatusTone(
+                                                    detail.transfer.status,
+                                                )}`}
+                                            >
                                                 {transferStatusLabel(
                                                     detail.transfer.status,
                                                     'analyst',
@@ -689,61 +848,41 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                             </p>
                                         ) : (
                                             <div className="table-wrapper gap-above-sm">
+                                                {/* Six columns from the shared field set. The
+                                                    first was headed ID here and Payment on the
+                                                    workstation, for the same column holding the
+                                                    same TR-9; one word now, decided once. */}
                                                 <table className="table">
                                                     <thead>
                                                     <tr>
-                                                        <th>ID</th>
-                                                        <th>Created</th>
-                                                        <th className="cell--amount">
-                                                            Amount
-                                                        </th>
-                                                        <th>Status</th>
-                                                        <th>To</th>
-                                                        <th>
-                                                            Decline reason
-                                                        </th>
+                                                        {HISTORY_FIELDS.map((f) => (
+                                                            <th
+                                                                key={f}
+                                                                className={HISTORY_CELL_CLASS[f]}
+                                                            >
+                                                                {FIELD_LABEL[f]}
+                                                            </th>
+                                                        ))}
                                                     </tr>
                                                     </thead>
                                                     <tbody>
-                                                    {detail.history.map(
-                                                        (h) => (
-                                                            <tr
-                                                                key={h.id}
-                                                            >
-                                                                <td>
-                                                                    {formatTransferId(h.id)}
-                                                                </td>
-                                                                <td>
-                                                                    {formatDateTime(
-                                                                        h.createdAt,
-                                                                    )}
-                                                                </td>
-                                                                <td className="cell--amount">
-                                                                    {formatMoney(
-                                                                        h.amount,
-                                                                    )}
-                                                                </td>
-                                                                <td>
-                                                                    {transferStatusLabel(
-                                                                        h.status,
-                                                                        'analyst',
-                                                                    )}
-                                                                </td>
-                                                                <td>
-                                                                    {formatIban(h.toIban)}
-                                                                </td>
-                                                                {/* The same sentence the
-                                                                    customer is now shown for
-                                                                    their own declined payment,
-                                                                    from the same function. */}
-                                                                <td>
-                                                                    {describeDeclineReason(
-                                                                        h.declineReason,
-                                                                    ) || EMPTY_VALUE}
-                                                                </td>
+                                                    {detail.history.map((h) => {
+                                                        const cells = historyCells(h);
+                                                        return (
+                                                            <tr key={h.id}>
+                                                                {HISTORY_FIELDS.map((f) => (
+                                                                    <td
+                                                                        key={f}
+                                                                        className={
+                                                                            HISTORY_CELL_CLASS[f]
+                                                                        }
+                                                                    >
+                                                                        {cells[f]}
+                                                                    </td>
+                                                                ))}
                                                             </tr>
-                                                        ),
-                                                    )}
+                                                        );
+                                                    })}
                                                     </tbody>
                                                 </table>
                                             </div>
@@ -828,7 +967,7 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                             >
                                                 {loadingDecision
                                                     ? 'Applying…'
-                                                    : 'Approve: release to the customer'}
+                                                    : decisionActionLabel('APPROVE')}
                                             </button>
                                             <button
                                                 type="button"
@@ -841,7 +980,7 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                                     handleDecision('DECLINE')
                                                 }
                                             >
-                                                Decline: record confirmed fraud
+                                                {decisionActionLabel('DECLINE')}
                                             </button>
                                             {/* ANNOTATE. The token used to be called
                                                 REQUEST_CONFIRMATION, which named something it
@@ -854,7 +993,7 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                                     handleDecision('ANNOTATE')
                                                 }
                                             >
-                                                Save notes, no decision
+                                                {decisionActionLabel('ANNOTATE')}
                                             </button>
                                         </div>
 

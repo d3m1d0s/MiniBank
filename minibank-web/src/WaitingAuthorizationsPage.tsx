@@ -5,6 +5,7 @@ import {
     fetchWaitingTransfers,
     fetchTransferDetails,
     confirmAuthorization,
+    type Page,
     type WaitingTransferItem,
     type TransferDetails,
     type AuthorizePaymentResult,
@@ -13,10 +14,33 @@ import {
 } from './api';
 import { formatMoney } from './money';
 import { describeApiErrorLines } from '@shared/apiErrors';
-import { authMethodLabel, describeDeclineReason, transferStatusLabel } from '@shared/glossary';
+import {
+    authMethodLabel,
+    describeDeclineReason,
+    transferStatusLabel,
+    transferStatusTone,
+} from '@shared/glossary';
 import { formatDateTime, formatIban, formatTransferId, NOT_RECORDED } from '@shared/format';
+import {
+    MAX_PAGE_SIZE,
+    SHOW_MORE,
+    SHOW_MORE_BUSY,
+    appendPage,
+    hasMore,
+    nextPage,
+    showingLine,
+} from '@shared/paging';
 import Nav from './Nav';
 import type { NavRole, NavView } from '@shared/navigation';
+
+/**
+ * How many waiting payments arrive at a time.
+ *
+ * The server's own default, and larger than the customer history's five: a work list is meant to
+ * be seen entire, and what a customer wants at its foot is to have finished reading rather than
+ * to go on.
+ */
+const PAGE_SIZE = 25;
 
 /**
  * The one sentence a customer whose payment is held needs. It is rendered under the disabled
@@ -44,6 +68,13 @@ interface Props {
 
 export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }: Props) {
     const [items, setItems] = useState<WaitingTransferItem[]>([]);
+
+    /**
+     * The page envelope as it last arrived, so the next request is asked for by the page that
+     * came back rather than by the number of rows on screen. Those two part company the moment a
+     * row arrives twice and is dropped; see appendPage.
+     */
+    const [last, setLast] = useState<Page<WaitingTransferItem> | null>(null);
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [details, setDetails] = useState<TransferDetails | null>(null);
     const [otp, setOtp] = useState('');
@@ -57,6 +88,16 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
 
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
+
+    /**
+     * Whether the first list request has finished, and it starts as not.
+     *
+     * Without it the screen drew an in-flight list as an empty one: it said "No waiting
+     * transfers." over an API answering with two, for as long as the request took. The empty
+     * sentence may only be reached once a request has completed.
+     */
+    const [loadingList, setLoadingList] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
 
     useEffect(() => {
         void loadList();
@@ -92,19 +133,54 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
         }
     }
 
+    /**
+     * Reads the list from the top, keeping as many rows as are already on screen.
+     *
+     * Called on mount and after every confirm or cancel, so it must not quietly collapse a list
+     * somebody has opened out: it asks for one page as large as what is held rather than for the
+     * first page of twenty-five, which is one statement either way. The ceiling is the server's,
+     * and a customer with more than a hundred payments waiting on their code is not a case this
+     * screen has.
+     */
     async function loadList() {
         try {
             // Errors from the list should not overwrite errors from confirm step
             setListError(null);
-            const data = await fetchWaitingTransfers();
-            setItems(data);
+            const wanted = Math.min(MAX_PAGE_SIZE, Math.max(PAGE_SIZE, items.length));
+            const answer = await fetchWaitingTransfers(0, wanted);
+            setItems(answer.items);
+            setLast(answer);
             // If selected transfer disappeared from the list, clear selection and details
-            if (selectedId && !data.some((x) => x.id === selectedId)) {
+            if (selectedId && !answer.items.some((x) => x.id === selectedId)) {
                 setSelectedId(null);
                 setDetails(null);
             }
         } catch (e) {
             setListError(describeApiErrorLines(e, 'payments-waiting'));
+        } finally {
+            setLoadingList(false);
+        }
+    }
+
+    /**
+     * The next page, appended under the rows already on screen.
+     *
+     * A failure here leaves those rows where they are and returns the button to its resting
+     * label, so it can be pressed again; the sentence goes in the list's own error box.
+     */
+    async function loadMore() {
+        if (!last) return;
+
+        try {
+            setLoadingMore(true);
+            setListError(null);
+            const answer = await fetchWaitingTransfers(nextPage(last), PAGE_SIZE);
+            setItems((held) => appendPage(held, answer.items));
+            setLast(answer);
+        } catch (e) {
+            setListError(describeApiErrorLines(e, 'payments-waiting'));
+        } finally {
+            setLoadingMore(false);
         }
     }
 
@@ -253,9 +329,12 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                 </div>
                             )}
 
-                            {items.length === 0 ? (
+                            {loadingList ? (
+                                <p className="helper-text">Loading waiting transfers…</p>
+                            ) : items.length === 0 ? (
                                 <p className="helper-text">No waiting transfers.</p>
                             ) : (
+                                <>
                                 <div className="table-wrapper">
                                     <table className="table">
                                         <thead>
@@ -278,7 +357,7 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                                 }
                                             >
                                                 <td>{formatTransferId(it.id)}</td>
-                                                <td>{formatIban(it.beneficiaryIban)}</td>
+                                                <td>{formatIban(it.toIban)}</td>
                                                 <td className="cell--amount">
                                                     {formatMoney(it.amount)}
                                                 </td>
@@ -286,15 +365,52 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                                 <td>{authMethodLabel(it.authMethod)}</td>
                                                 {/* The two sentences this column used to write
                                                     itself are the glossary's now, and they are
-                                                    the wording it was built out from. */}
+                                                    the wording it was built out from. The
+                                                    treatment comes with them: a payment the bank
+                                                    is holding and one waiting for a code are two
+                                                    different things to a customer looking for
+                                                    what to do next. */}
                                                 <td>
-                                                    {transferStatusLabel(it.status, 'customer')}
+                                                    <span
+                                                        className={`tone-${transferStatusTone(
+                                                            it.status,
+                                                        )}`}
+                                                    >
+                                                        {transferStatusLabel(
+                                                            it.status,
+                                                            'customer',
+                                                        )}
+                                                    </span>
                                                 </td>
                                             </tr>
                                         ))}
                                         </tbody>
                                     </table>
                                 </div>
+
+                                {/*
+                                  Paging decides nothing, so the control carries no shape of its
+                                  own, the same rank as Refresh above it. Removed rather than
+                                  disabled once the whole list is on screen: a dead control still
+                                  invites the press that proves it.
+                                */}
+                                <div className="section-block inline gap-above-sm">
+                                    {hasMore(items.length, last?.total ?? 0) && (
+                                        <button
+                                            type="button"
+                                            className="btn-quiet"
+                                            onClick={() => void loadMore()}
+                                            disabled={loadingMore}
+                                            aria-busy={loadingMore || undefined}
+                                        >
+                                            {loadingMore ? SHOW_MORE_BUSY : SHOW_MORE}
+                                        </button>
+                                    )}
+                                    <span className="list-count">
+                                        {showingLine(items.length, last?.total ?? 0)}
+                                    </span>
+                                </div>
+                                </>
                             )}
                         </section>
 
@@ -348,7 +464,11 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                         </p>
                                         <p>
                                             <span className="fact-label">Status:</span>{' '}
-                                            <span className="fact-value">
+                                            <span
+                                                className={`fact-value tone-${transferStatusTone(
+                                                    details.status,
+                                                )}`}
+                                            >
                                                 {transferStatusLabel(details.status, 'customer')}
                                             </span>
                                         </p>
@@ -479,7 +599,13 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                         <li>Transfer: {formatTransferId(result.transferId)}</li>
                                         <li>
                                             Status:{' '}
-                                            {transferStatusLabel(result.status, 'customer')}
+                                            <span
+                                                className={`tone-${transferStatusTone(
+                                                    result.status,
+                                                )}`}
+                                            >
+                                                {transferStatusLabel(result.status, 'customer')}
+                                            </span>
                                         </li>
 
                                         {/* Show charged amount only if funds were actually debited */}

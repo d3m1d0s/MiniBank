@@ -4,11 +4,12 @@ import './App.css';
 import { setSessionExpiredHandler, logoutSession } from './api';
 import type { NavRole } from '@shared/navigation';
 import NewPaymentPage from './NewPaymentPage';
+import HistoryPage from './HistoryPage';
 import { WaitingAuthorizationsPage } from './WaitingAuthorizationsPage';
 import FraudDeskPage from './FraudDeskPage';
 import LoginDialog from './LoginDialog.tsx';
 
-export type View = 'new-payment' | 'waiting-auth' | 'fraud-desk';
+export type View = 'new-payment' | 'history' | 'waiting-auth' | 'fraud-desk';
 
 /**
  * The roles this client has screens for. The server's UserRole has four values; two of them
@@ -163,6 +164,14 @@ function App() {
         <>
             {view === 'new-payment' && (
                 <NewPaymentPage
+                    role={auth.role}
+                    brand={brand}
+                    identity={identity}
+                    onNavigate={handleNavigate}
+                />
+            )}
+            {view === 'history' && (
+                <HistoryPage
                     role={auth.role}
                     brand={brand}
                     identity={identity}

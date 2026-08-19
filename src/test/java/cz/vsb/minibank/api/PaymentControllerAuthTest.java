@@ -1,5 +1,6 @@
 package cz.vsb.minibank.api;
 
+import cz.vsb.minibank.application.OwnershipGuard;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.application.TransferApplicationService;
 import cz.vsb.minibank.domain.*;
@@ -43,7 +44,8 @@ class PaymentControllerAuthTest {
                 Money.czk(10000), Money.czk(5000));
         when(accounts.byCustomerId(42)).thenReturn(List.of(acc));
 
-        PaymentController ctrl = new PaymentController(transferService, accounts);
+        PaymentController ctrl = new PaymentController(transferService, accounts,
+                mock(OwnershipGuard.class));
 
         // act
         var result = ctrl.listMyAccounts();
@@ -64,7 +66,8 @@ class PaymentControllerAuthTest {
         TransferRepository transfers = mock(TransferRepository.class);
         FeePolicy feePolicy = new ZeroFeePolicy();
 
-        PaymentController ctrl = new PaymentController(transferService, accounts);
+        PaymentController ctrl = new PaymentController(transferService, accounts,
+                mock(OwnershipGuard.class));
 
         // act + assert
         assertThrows(NotAuthenticatedException.class, ctrl::listMyAccounts);

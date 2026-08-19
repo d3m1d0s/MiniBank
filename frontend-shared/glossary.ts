@@ -16,6 +16,11 @@
  * payment that went from one that was refused when both are set in the same grey, so each closed
  * set also says which of three treatments its value takes. The three names are the vocabulary;
  * the colours behind them belong to each skin and are not decided here.
+ *
+ * The decision buttons and the sentence that follows a decision are here for the same reason as
+ * the labels. They are not a value the server sends, they are what one role reads while doing one
+ * job, and each desk had written its own: two labels for the same press and two sentences for the
+ * same outcome. What a screen looks like is the skin's business; what it says is not.
  */
 
 /**
@@ -31,10 +36,16 @@ export type Audience = 'customer' | 'analyst';
 /**
  * How a value is marked out: the ordinary outcome quiet, the exceptional one visible.
  *
- * Three and no more, because a table of nine settled rows with a badge on every one of them
- * marks out nothing. `settled` carries no treatment at all beyond the body colour.
+ * Four, and the restraint is in `settled` rather than in the count: it carries no colour and no
+ * weight at all, so a table of nine finished rows marks out nothing and the eye lands only on the
+ * rows that are still somebody's problem.
+ *
+ * `open` is separated from `pending` because the two ask different things of the reader. An open
+ * alert is work waiting to be picked up, which is a good state and reads green; a payment held for
+ * review or waiting for a code is stalled and reads amber. Both are bold, because both are
+ * unfinished. `blocked` is the refused end of the story and reads red.
  */
-export type Tone = 'settled' | 'blocked' | 'pending';
+export type Tone = 'settled' | 'open' | 'pending' | 'blocked';
 
 const TRANSFER_STATUS: Record<string, Record<Audience, string>> = {
     CREATED: { customer: 'Created', analyst: 'Created' },
@@ -69,7 +80,9 @@ const ALERT_STATE: Record<string, string> = {
 };
 
 const ALERT_STATE_TONE: Record<string, Tone> = {
-    NEW: 'pending',
+    // Open work rather than a stalled payment, so green rather than amber: an alert nobody has
+    // looked at yet is the queue doing its job, and the analyst's eye should go to it.
+    NEW: 'open',
     OK: 'settled',
     SUSPICIOUS: 'blocked',
 };
@@ -158,6 +171,80 @@ function label(table: Record<string, string>, value: string | null | undefined):
         return '';
     }
     return table[value] ?? value;
+}
+
+/**
+ * The three things an analyst can press, as a closed set.
+ *
+ * The same three tokens as FraudDecision in fraud.ts, written out again rather than imported:
+ * that module carries the calls to the server, and a word list must not pull the HTTP layer in
+ * behind it. Each desk passes its own value and the two unions meet by structure.
+ */
+export type DecisionAction = 'APPROVE' | 'DECLINE' | 'ANNOTATE';
+
+/**
+ * What the three buttons say.
+ *
+ * They said different things: `Approve: release to customer` against `Approve: release to the
+ * customer`, and `Decline: record fraud` against `Decline: record confirmed fraud`. One analyst
+ * doing one job on two platforms was reading two labels for the same press, which is the kind of
+ * difference nobody notices and everybody has to hold in their head.
+ *
+ * The surviving wording is the longer one in both cases, and not because it is longer. Declining
+ * writes the alert state SUSPICIOUS, which this file already calls `Confirmed fraud` and says so
+ * deliberately; a button whose label drops the word records something the panel above it then
+ * names differently. And the payment goes back to the customer to confirm, so `to the customer`
+ * is the phrase the sentence under the button already uses.
+ */
+const DECISION_ACTION: Record<DecisionAction, string> = {
+    APPROVE: 'Approve: release to the customer',
+    DECLINE: 'Decline: record confirmed fraud',
+    ANNOTATE: 'Save notes, no decision',
+};
+
+/** What one of the three decision buttons says. Identical on both desks, which is the point. */
+export function decisionActionLabel(action: DecisionAction): string {
+    return DECISION_ACTION[action];
+}
+
+/**
+ * What a decision actually did, read off the payment the server sent back rather than off the
+ * button that was pressed.
+ *
+ * Deriving it from the button was safe only while every decision did the one thing its label
+ * said: a DECLINE on a payment that has already gone is now accepted and records the verdict
+ * without stopping anything, and announcing "Transfer declined" for it would tell the analyst the
+ * money was held when it is gone, a worse lie than the refusal it replaced.
+ *
+ * Both desks wrote these sentences themselves and two of them had drifted apart, so the same
+ * outcome was announced as `Alert marked as confirmed fraud and the transfer is Declined.` on one
+ * platform and `Alert recorded as confirmed fraud, and the transfer is declined.` on the other.
+ * The lower case reading is the one kept: the status is being spoken inside a sentence here rather
+ * than printed as a value, and it is the only place in either application where that is true.
+ *
+ * @param status the payment's status AFTER the decision, not before it
+ */
+export function describeDecision(
+    action: DecisionAction,
+    status: string | null | undefined,
+): string {
+    // The analyst's own vocabulary, in the same words the queue and the panel above it use. It
+    // used to interpolate the enum: "the transfer is WAITING_AUTH".
+    const said = transferStatusLabel(status, 'analyst').toLowerCase();
+
+    if (action === 'APPROVE') {
+        return status === 'WAITING_AUTH'
+            ? 'Alert cleared. The payment is released to the customer to confirm; no money has moved.'
+            : `Alert cleared. The transfer was already ${said}, so there was nothing to release.`;
+    }
+
+    if (action === 'DECLINE') {
+        return status === 'SENT'
+            ? 'Recorded as confirmed fraud. The payment had already been sent and has NOT been reversed.'
+            : `Alert recorded as confirmed fraud, and the transfer is ${said}.`;
+    }
+
+    return 'Notes, assignee and tags saved. No decision was taken: the alert is still open and the transfer is unchanged.';
 }
 
 /**

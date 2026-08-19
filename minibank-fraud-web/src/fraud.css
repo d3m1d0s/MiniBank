@@ -365,6 +365,14 @@ h2.panel-title {
 .li-foot { margin-top: var(--space-3); font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
 
 /*
+ * The way to lengthen the queue, drawn as the last thing in the tray rather than under it: a
+ * control that says there is more belongs where the rows run out, which is where the eye is when
+ * they do. Full width for the same reason the cards are, so it reads as the end of the tray and
+ * not as a stray button standing in it.
+ */
+.list-more { width: 100%; }
+
+/*
  * A status line under the list, and it wraps: at 200 percent text the last counter was cut
  * off by the panel edge and read "show".
  */
@@ -457,9 +465,14 @@ h2.panel-title {
  * not do pills, and colour plus a half step of weight is enough on a light ground where the
  * danger text is 9.49:1 and the warning text clears 4.5:1 on both row grounds.
  */
-.tone-settled { color: var(--color-text-secondary); }
-.tone-blocked { color: var(--color-danger-text); font-weight: var(--weight-medium); }
-.tone-pending { color: var(--color-warning-text); font-weight: var(--weight-medium); }
+/* Nothing at all, not even a colour: it is the ground the other three are read against. */
+.tone-settled { color: inherit; font-weight: inherit; }
+.tone-open { color: var(--color-tone-open); font-weight: var(--weight-bold); }
+/* Its own palette slot rather than the danger text, which is what the box and its edge are for.
+   In this theme the two carry the same value and nothing here moves; in the dark one they do not,
+   because the salmon that is legible in an error box falls under 4.5:1 on a selected table row. */
+.tone-blocked { color: var(--color-tone-blocked); font-weight: var(--weight-bold); }
+.tone-pending { color: var(--color-warning-text); font-weight: var(--weight-bold); }
 
 /* A figure that is read against the one above or below it. Cheap enough to hand out by name. */
 .num { font-variant-numeric: tabular-nums; }
@@ -476,6 +489,29 @@ h2.panel-title {
  * Baselines and not boxes: the label rung is a step under the value rung, and aligning the tops
  * of two unequal line boxes would leave every label sitting slightly high.
  */
+/*
+ * TWO COLUMNS OF FACTS, and the fold is what buys them.
+ *
+ * Nine labelled rows set their labels in a 90px track and their values in a track 783px wide, of
+ * which the widest value, a grouped IBAN, covers 187px. Six hundred pixels of the pane were being
+ * spent on nothing while the history table under it lost two of the rows it used to show. Folded
+ * into five rows and four, the block gives 88px back, which at a 29px row pitch is three more
+ * payments visible without scrolling.
+ *
+ * auto-fit and a rem floor rather than a media query: what decides is whether two columns of
+ * labels and values still fit, and that question moves with the text size as well as with the
+ * window. At 200 percent text one 19rem column is already 608px against 883px of pane, so the
+ * block returns to the single column it is today with nothing written to say so. The row gap
+ * matches the one inside each list, so a single column reads as one list and not as two stacked.
+ */
+.facts-split {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+    column-gap: var(--space-9);
+    row-gap: var(--space-3);
+    align-items: start;
+}
+
 .facts {
     margin: 0;
     display: grid;

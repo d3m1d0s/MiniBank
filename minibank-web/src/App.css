@@ -571,6 +571,7 @@ textarea:focus-visible {
  */
 #payment-source,
 #payment-target,
+#payment-beneficiary,
 .field-input--state,
 .field-input--amount,
 .field-input--login {
@@ -586,6 +587,22 @@ textarea:focus-visible {
 #payment-source,
 #payment-target {
   width: var(--size-field-account);
+}
+
+/*
+ * The saved payee list, which is not one of the two above: its options carry a name and no IBAN,
+ * so it is sized by the longest name and not by twenty-four characters of account number. The
+ * demo's longest, Mallory Risky, measures about 100px at this size, and a select adds 10px of
+ * padding each side, two hairlines and about 20px for the arrow it draws itself, which is 142px
+ * for that name and nothing over.
+ *
+ * --size-field-payee is the name for that measurement and no file declares it yet, so the login
+ * width stands in until one does: 10rem is 160px, which clears the demo's names with about two
+ * characters to spare and is the closest existing role. A real address book holds longer names
+ * than a demo does, so the token wants measuring properly rather than adopting this stand-in.
+ */
+#payment-beneficiary {
+  width: var(--size-field-payee, var(--size-field-login));
 }
 
 .field-input--state {
@@ -1026,24 +1043,32 @@ textarea:focus-visible {
 /*
  * Amounts right aligned and tabular, so the digits line up by place and by width.
  *
- * .cell--amount is the way to say so: it names the cell, and it is the only one of the two
- * rules below that survives a column being added. The counting selectors under it find the
- * column by position instead, because no cell carried a class when they were written: the
- * alert queue has nine columns and its amount is the fifth, the waiting list and the customer
- * history have six and theirs is the third. Both shapes appear on the fraud desk at once, so
- * the header count is what tells them apart, and a column added to either table has to be
- * counted again here. They are kept only until every amount cell carries the class, and they
- * are to be deleted then, not extended.
+ * The cell names itself, and that is the whole rule now. Two counting selectors used to stand
+ * beside it and find the amount column by position, because no cell carried a class when they
+ * were written: the alert queue's amount was the fifth of nine columns and the waiting list's
+ * the third of six, and a :has() on the header count was what told the two shapes apart. Every
+ * amount cell in this application carries the class today, so both of them had stopped matching
+ * anything, and a table with a seventh column would have had to be counted in here as well.
+ * Their own comment said to delete them once the class was everywhere rather than extend them.
  */
-.table .cell--amount,
-.table:has(thead th:nth-child(9)) :is(th, td):nth-child(5),
-.table:has(thead th:nth-child(6)):not(:has(thead th:nth-child(7))) :is(th, td):nth-child(3) {
+.table .cell--amount {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
 
 .table tbody tr:hover {
   background-color: var(--color-surface-hover);
+}
+
+/*
+ * A table whose rows are not selectable, which is every table on a screen with no detail panel
+ * to open. The hover fill above is on every table in the application, so without this a row that
+ * does nothing lights up under the pointer and reads as a control that has been pressed and
+ * ignored. Written here rather than by narrowing the rule above, because the two desks DO select
+ * rows and the fill is right for them.
+ */
+.table--static tbody tr:hover {
+  background-color: transparent;
 }
 
 /*
@@ -1061,6 +1086,23 @@ textarea:focus-visible {
   box-shadow:
           inset var(--border-width-marker) 0 0 0 var(--color-selected-marker),
           inset 0 0 0 9999px var(--color-selected-surface);
+}
+
+/*
+ * How much of a list is on screen, at its foot beside the Show more button.
+ *
+ * The sentence is built in paging.ts so that the two platforms say it in the same words; what is
+ * decided here is only its size and its colour. Muted and a rung under the rows: it is a fact
+ * about the table rather than a row of it, and at the body colour it would be the last thing read
+ * on the page and the loudest. The foot itself needs no class of its own, being the .inline row
+ * every other pair of controls in this stylesheet already uses.
+ */
+/* Stands as a span at the foot of a list and as a paragraph above one, so it states the margins
+   the UA would otherwise decide for the paragraph form. */
+.list-count {
+  margin: 0;
+  font-size: var(--text-2);
+  color: var(--color-text-muted);
 }
 
 /* ====== Details card and OTP input ====== */
@@ -1172,6 +1214,62 @@ textarea:focus-visible {
 
 .text-danger {
   color: var(--color-danger-text);
+}
+
+/*
+ * THE THREE TREATMENTS, in the dark palette. Which one a value takes is decided once, by the
+ * shared glossary; these are the web's spelling of the same three names the workstation carries
+ * in fraud.css, and only the colours differ.
+ *
+ * The ordinary outcome is quiet and the exceptional one is marked. Nine Sent rows wearing a badge
+ * each would be nine pieces of noise, and it was the absence of any mark at all that let a refused
+ * payment read as a sent one: in the fraud desk history the Declined row was set in exactly the
+ * same grey as the eight rows around it, while the same row on the workstation was dark red and
+ * found from four rows away. No fill and no border, as there: colour, and a half step of weight on
+ * the two that are not the ordinary outcome.
+ *
+ * The class goes on the status word and never on the cell, so the alignment and the amount rules
+ * on the cells beside it are untouched.
+ *
+ * They are down here with the utilities, and for the utilities' own reason: a tone lands on a word
+ * that already carries a class with a colour of its own. The status inside a details card is
+ * .fact-value, which sets the primary text at the same single-class weight, so declared any
+ * earlier the tone lost the cascade and the one status a reader looks straight at came out plain.
+ *
+ * MEASURED, and one of the three needs a decision that is not a stylesheet's to take. These words
+ * stand on four grounds: the raised row #1b2742, the hover #22304f, and each of those again under
+ * the selection tint, because a selected queue row paints an inset over every one of its cells.
+ * Settled (#e5e7eb) measures 12.0, 11.6, 8.9 and 8.1, and pending (#fcd34d) 10.3, 9.7, 8.3 and
+ * 7.0, so both clear 4.5:1 everywhere they can appear. Blocked is salmon #fa8072 and measures 5.9,
+ * 5.2, 4.4 and 3.96, so it fails on a selected queue row and again on a selected hovered one. That
+ * is the same trap --color-selected-marker was already pulled out of, being #60a5fa and not
+ * #3b82f6 for exactly this reason. A lighter red in this one role, #fca5a5, measures 7.8, 6.9, 5.9
+ * and 5.2. Choosing it is a palette change and belongs in the theme files, so --color-tone-blocked
+ * is the name it would take and the danger text stands in until one of them declares it, the way
+ * the container edge stands in for the header band's hover above.
+ */
+/*
+ * The finished outcome carries nothing at all, not even a colour of its own: it is the ground the
+ * other three are read against, and a table where every row is marked marks out nothing.
+ */
+.tone-settled {
+  color: inherit;
+  font-weight: inherit;
+}
+
+.tone-open {
+  color: var(--color-tone-open);
+  font-weight: var(--weight-bold);
+}
+
+.tone-pending {
+  color: var(--color-warning-text);
+  font-weight: var(--weight-bold);
+}
+
+.tone-blocked {
+  color: var(--color-tone-blocked, var(--color-danger-text));
+  font-weight: var(--weight-bold);
 }
 
 /* ====== Responsive layout tweaks ====== */
