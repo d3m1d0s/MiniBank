@@ -43,13 +43,20 @@ export type AlertQueueField =
     | 'assignee'
     | 'createdAt';
 
-/** A row of the payment history shown beside an alert. */
+/**
+ * A row of the payment history shown beside an alert.
+ *
+ * `route` and not `toIban`, because the row answers where the money left and where it went, and a
+ * customer holding two accounts cannot read the first half off a row that only names the second.
+ * It stays ONE field with two account numbers in it: this list is a register of facts, not a
+ * register of columns, and each desk decides how many lines one fact takes.
+ */
 export type HistoryField =
     | 'id'
     | 'createdAt'
     | 'amount'
     | 'status'
-    | 'toIban'
+    | 'route'
     | 'declineReason';
 
 /**
@@ -75,7 +82,7 @@ export const HISTORY_FIELDS: readonly HistoryField[] = [
     'createdAt',
     'amount',
     'status',
-    'toIban',
+    'route',
     'declineReason',
 ];
 
@@ -90,6 +97,10 @@ export const HISTORY_FIELDS: readonly HistoryField[] = [
  * `Alert state` and the payment's is `Payment status`; a history row is a payment, so there its
  * status is simply `Status`. And `createdAt` is when the row's own subject came into being, which
  * is why one word serves the alert that was raised and the payment that was created.
+ *
+ * `route` is labelled with both ends of the journey rather than the one the old `To` named. The
+ * heading has to say the order the two account numbers are in, because nothing else on the row
+ * does: the cell prints the source above the beneficiary and no per-row wording repeats it.
  */
 export const FIELD_LABEL: Record<AlertQueueField | HistoryField, string> = {
     alertCode: 'Alert',
@@ -104,7 +115,7 @@ export const FIELD_LABEL: Record<AlertQueueField | HistoryField, string> = {
 
     id: 'Payment',
     status: 'Status',
-    toIban: 'To',
+    route: 'From / To',
     declineReason: 'Decline reason',
 };
 

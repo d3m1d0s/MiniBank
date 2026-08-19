@@ -52,7 +52,7 @@ const TRANSFER_STATUS: Record<string, Record<Audience, string>> = {
     HELD_FOR_REVIEW: { customer: 'Under review', analyst: 'Under review' },
     WAITING_AUTH: {
         customer: 'Waiting for your code',
-        analyst: "Waiting for the customer's code",
+        analyst: 'Awaiting customer code',
     },
     SENT: { customer: 'Sent', analyst: 'Sent' },
     DECLINED: { customer: 'Declined', analyst: 'Declined' },
@@ -206,6 +206,17 @@ const DECISION_ACTION: Record<DecisionAction, string> = {
 export function decisionActionLabel(action: DecisionAction): string {
     return DECISION_ACTION[action];
 }
+
+/**
+ * What the history beside an alert is a history OF.
+ *
+ * The two desks headed one table with two sentences and neither was true: one said "last 10
+ * transfers from this account" and one said "Customer & Transfer history", while the table held
+ * the payments of one account out of the customer's two. It now holds the customer's payments
+ * across every account they hold, and the heading has to say so, or the account marked in the
+ * column below is marked for no stated reason.
+ */
+export const CUSTOMER_HISTORY_TITLE = 'Customer history, all accounts (last 10)';
 
 /**
  * What a decision actually did, read off the payment the server sent back rather than off the

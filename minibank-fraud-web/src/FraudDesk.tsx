@@ -29,6 +29,7 @@ import {
     formatTransferId,
 } from '@shared/format';
 import {
+    CUSTOMER_HISTORY_TITLE,
     alertStateLabel,
     alertStateTone,
     authMethodLabel,
@@ -77,13 +78,17 @@ const UNASSIGNED = 'unassigned';
  * The amount is marked where the cell is built. Counting header cells to find the column to right
  * align, which is what the customer application's stylesheet still does, breaks silently the day
  * a column is added.
+ *
+ * The route is two account numbers stacked in one column and still carries no cell class: what
+ * has to be styled there is each of the two lines, and each is marked where it is built, for the
+ * same reason the amount is.
  */
 const HISTORY_COLUMNS: readonly { field: HistoryField; col: string; cell?: string }[] = [
     { field: 'id', col: 'col--id' },
     { field: 'createdAt', col: 'col--created' },
     { field: 'amount', col: 'col--amount', cell: 'cell--amount' },
     { field: 'status', col: 'col--status' },
-    { field: 'toIban', col: 'col--to' },
+    { field: 'route', col: 'col--route' },
 ];
 
 /**
@@ -117,7 +122,18 @@ function queueCells(a: AlertQueueItem): QueueRowCells<ReactNode> {
     };
 }
 
-function historyCells(h: HistoryItem): HistoryRowCells<ReactNode> {
+/**
+ * One history row, ready to be laid out.
+ *
+ * `alertedIban` is the account the open alert was raised on, and the table now holds the payments
+ * of every account the customer keeps. Without the mark an analyst reads ten rows and has to
+ * match each source against the account printed in Facts by eye, which is the work the table was
+ * meant to save. Compared by value and not normalised: both strings come out of the same column
+ * of the same response, so they agree in case and spacing by construction.
+ */
+function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCells<ReactNode> {
+    const alerted = alertedIban !== null && h.fromIban === alertedIban;
+
     return {
         id: formatTransferId(h.id),
         createdAt: formatDateTime(h.createdAt),
@@ -127,7 +143,20 @@ function historyCells(h: HistoryItem): HistoryRowCells<ReactNode> {
                 {transferStatusLabel(h.status, 'analyst')}
             </span>
         ),
-        toIban: formatIban(h.toIban),
+        // Source above beneficiary: the money reads down the cell, and the number the eye is
+        // hunting sits on the strong line. The mark is ink and weight rather than a glyph,
+        // because a customer whose payments all leave one account gets it on every row, and a
+        // sign repeated down a whole column stops being a sign. It reaches a screen reader as
+        // the hidden phrase and nowhere else.
+        route: (
+            <>
+                <span className={alerted ? 'route-from route-from--alerted' : 'route-from'}>
+                    {alerted && <span className="visually-hidden">Alerted account: </span>}
+                    {formatIban(h.fromIban)}
+                </span>
+                <span className="route-to">{formatIban(h.toIban)}</span>
+            </>
+        ),
         declineReason: describeDeclineReason(h.declineReason),
     };
 }
@@ -667,7 +696,12 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                                         are two facts; they used to share one line. */}
                                                     <dt>From balance</dt>
                                                     <dd className="num">{formatMoney(detail.transfer.fromBalance)}</dd>
-                                                    <dt>{FIELD_LABEL.toIban}</dt>
+                                                    {/* Its own word, not the history column's: this
+                                                        pair is the alerted payment's beneficiary,
+                                                        and the column below names a route across
+                                                        two accounts. The From above it has always
+                                                        been a literal for the same reason. */}
+                                                    <dt>To</dt>
                                                     <dd>{formatIban(detail.transfer.toIban)}</dd>
                                                     <dt>Fee</dt>
                                                     <dd className="num">{formatMoney(detail.transfer.feeAmount)}</dd>
@@ -688,7 +722,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                         </div>
 
                                         <div className="box box--history">
-                                            <div className="box-title">Customer &amp; Transfer history (last 10)</div>
+                                            <div className="box-title">{CUSTOMER_HISTORY_TITLE}</div>
                                             {detail.history.length === 0 ? (
                                                 <div className="hint">No history</div>
                                             ) : (
@@ -706,7 +740,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                                         </tr>
                                                     </thead>
                                                     {detail.history.map(h => {
-                                                        const cells = historyCells(h);
+                                                        const cells = historyCells(h, detail.transfer.fromIban);
                                                         return (
                                                             /* One row group per payment, so the
                                                                reason a payment was refused stays

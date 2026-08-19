@@ -59,8 +59,8 @@ class FraudQueueCountersTest {
     void setUp() {
         infra = new Bootstrap(tempDir.resolve("data.json").toString());
 
-        controller = new FraudController(infra.alerts, infra.transfers, infra.accounts, null,
-                new SimpleFeePolicy(), infra.uowFactory);
+        controller = new FraudController(infra.alerts, infra.transfers, infra.accounts,
+                infra.customers, null, new SimpleFeePolicy(), infra.uowFactory);
 
         SecurityContext.setCurrentUser(new User(2, "anna.analyst", new byte[]{1}, new byte[]{2},
                 UserRole.FRAUD_ANALYST, null));

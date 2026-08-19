@@ -23,14 +23,16 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * The order and the size of the payment history on the analyst's alert screen.
+ * The order, the size and the reach of the payment history on the analyst's alert screen.
  *
- * Neither was asserted anywhere before this class: no test in the suite looked at
+ * None of the three was asserted anywhere before this class: no test in the suite looked at
  * {@code AlertDetailDto.history()} at all, while both fraud desks render the server's order
  * verbatim under a heading that promises the last ten. The sort was also composed wrongly - a
  * null rule reversed along with the order - and nothing would have caught it.
@@ -43,6 +45,10 @@ import static org.junit.jupiter.api.Assertions.*;
 class FraudHistoryOrderTest {
 
     private static final IBAN PAYER_IBAN = new IBAN("CZ6508000000192000145399");
+
+    /** The customer's other account: the one the alert is not raised on, and the point below. */
+    private static final IBAN SECOND_IBAN = new IBAN("CZ4308000000192000145407");
+
     private static final String TARGET_IBAN = "CZ2001000000000012345678";
 
     /** A fixed base, so the seeded instants are distinct by construction rather than by luck. */
@@ -58,7 +64,7 @@ class FraudHistoryOrderTest {
     void setUp() {
         infra = new Bootstrap(tempDir.resolve("data.json").toString());
         fraudController = new FraudController(infra.alerts, infra.transfers, infra.accounts,
-                null, new SimpleFeePolicy(), infra.uowFactory);
+                infra.customers, null, new SimpleFeePolicy(), infra.uowFactory);
         SecurityContext.setCurrentUser(new User(2, "anna.analyst", new byte[]{1}, new byte[]{2},
                 UserRole.FRAUD_ANALYST, null));
     }
@@ -119,6 +125,48 @@ class FraudHistoryOrderTest {
         assertEquals("CZK", detail.history().get(0).amount().currency());
     }
 
+    /**
+     * The history beside an alert covers every account the customer holds, and every row says
+     * which of them its own payment left.
+     *
+     * The demo data cannot show either half: all of its payments leave one account, so the old
+     * scope and this one answer with the same rows and the source column repeats one number.
+     * That is why this is asserted here rather than looked at on the screen.
+     *
+     * The reach is the point of the panel. The question the analyst asks of this table is whether
+     * a payment is out of character, and character belongs to a person, not to an account:
+     * splitting one sum across the accounts one person holds, so that no part of it crosses a
+     * threshold, is exactly what a table scoped to one account cannot show. The domain already
+     * models that move, in SplitPaymentAlertTest.
+     */
+    @Test
+    void theHistoryCoversEveryAccountTheCustomerHoldsAndNamesTheOneEachPaymentLeft() {
+        Map<Integer, String> sourceIbanByTransfer = seedTwoAccounts();
+
+        List<HistoryItemDto> history = historyOfTheFirstAlert();
+
+        assertEquals(4, history.size(),
+                "all four payments belong to the customer behind the alert, so all four are"
+                        + " theirs to answer for");
+        assertTrue(history.stream().anyMatch(h -> SECOND_IBAN.value().equals(h.fromIban())),
+                "the account the alert was not raised on is the one the old scope dropped, so"
+                        + " its payments are what proves the scope widened");
+
+        for (HistoryItemDto item : history) {
+            assertEquals(sourceIbanByTransfer.get(item.id()), item.fromIban(),
+                    "row " + item.id() + " must name the account its own payment left, not the"
+                            + " account the alert was raised on");
+        }
+
+        assertEquals(
+                List.of(BASE.plusSeconds(180).toString(),
+                        BASE.plusSeconds(120).toString(),
+                        BASE.plusSeconds(60).toString(),
+                        BASE.toString()),
+                history.stream().map(HistoryItemDto::createdAt).toList(),
+                "newest first has to hold across the mix of accounts, not within each of them");
+    }
+
     private List<HistoryItemDto> historyOfTheFirstAlert() {
         int alertId = infra.alerts.all().get(0).id();
         AlertDetailDto detail = fraudController.getAlert(alertId);
@@ -153,5 +201,65 @@ class FraudHistoryOrderTest {
 
             scope.uow().commit();
         }
+    }
+
+    /**
+     * Seeds one customer holding two accounts, with four held transfers alternating between them
+     * minute by minute from BASE, and one alert on the oldest payment of the first account.
+     *
+     * The payments alternate so that the expected order is one neither account produces on its
+     * own: a merge that kept the accounts apart would still pass a size check and still name the
+     * right IBANs, and would fail here.
+     *
+     * The alert sits on a payment of the first account because that is the only route this panel
+     * has to a customer - the account under the alerted transfer - so the second account has to
+     * be reached through the customer or not at all.
+     *
+     * @return the source IBAN of every seeded transfer, by transfer id, in seeding order
+     */
+    private Map<Integer, String> seedTwoAccounts() {
+        Map<Integer, String> sourceIbanByTransfer = new LinkedHashMap<>();
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            int customerId = infra.customers.nextId();
+            Customer c = new Customer(customerId, "Two Account Probe", "two@example.com",
+                    new Address("Hlavni 1", "Ostrava"));
+            infra.customers.save(c);
+
+            int firstAccountId = infra.accounts.nextId();
+            infra.accounts.save(new Account(firstAccountId, PAYER_IBAN,
+                    Money.czk(5_000_000), Money.czk(4_000_000), null));
+            c.addAccountId(firstAccountId);
+
+            int secondAccountId = infra.accounts.nextId();
+            infra.accounts.save(new Account(secondAccountId, SECOND_IBAN,
+                    Money.czk(5_000_000), Money.czk(4_000_000), null));
+            c.addAccountId(secondAccountId);
+
+            infra.customers.save(c);
+
+            int[] sourceAccountIds = {firstAccountId, secondAccountId,
+                    firstAccountId, secondAccountId};
+            IBAN[] sourceIbans = {PAYER_IBAN, SECOND_IBAN, PAYER_IBAN, SECOND_IBAN};
+
+            int alertedTransferId = 0;
+            for (int i = 0; i < sourceAccountIds.length; i++) {
+                Transfer t = new Transfer(infra.transfers.nextId(), sourceAccountIds[i], null,
+                        TARGET_IBAN, Money.czk(12_000), BASE.plusSeconds(i * 60L));
+                t.holdForReview(null);
+                infra.transfers.add(t);
+                sourceIbanByTransfer.put(t.id(), sourceIbans[i].value());
+                if (i == 0) {
+                    alertedTransferId = t.id();
+                }
+            }
+
+            infra.alerts.add(new FraudAlert(infra.alerts.nextId(), alertedTransferId,
+                    "New beneficiary + high amount"));
+
+            scope.uow().commit();
+        }
+
+        return sourceIbanByTransfer;
     }
 }

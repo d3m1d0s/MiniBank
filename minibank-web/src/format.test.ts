@@ -104,6 +104,19 @@ describe('an account number', () => {
         expect(formatIban(`CZ65${NBSP}0800`)).toBe('CZ65 0800');
     });
 
+    it('prints two Czech accounts to one width, which is what stacking them rests on', () => {
+        // A history row sets the source above the beneficiary in tabular digits so that the groups
+        // of four stand under each other. That holds while the two numbers are the same length,
+        // which is true inside one country and false across the border: the German number below is
+        // two digits shorter, so a foreign beneficiary lines up on the left edge and nowhere else.
+        // Named rather than fixed, because the alternative is padding an account number.
+        const alice = formatIban('CZ6508000000192000145399');
+        const herSecond = formatIban('CZ4308000000192000145407');
+
+        expect(herSecond).toHaveLength(alice.length);
+        expect(formatIban('DE89370400440532013000').length).not.toBe(alice.length);
+    });
+
     it('leaves a last group shorter than four alone rather than padding it', () => {
         expect(formatIban('CZ650800000019200014539')).toBe('CZ65 0800 0000 1920 0014 539');
     });

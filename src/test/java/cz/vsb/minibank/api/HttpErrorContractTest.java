@@ -302,8 +302,8 @@ class HttpErrorContractTest {
         authorizationController = new AuthorizationController(transferService, accounts, transfers,
                 services.feePolicy, services.ownershipGuard, infra.uowFactory);
         FraudController fraudController = new FraudController(
-                infra.alerts, transfers, accounts, services.fraudService, services.feePolicy,
-                infra.uowFactory);
+                infra.alerts, transfers, accounts, infra.customers, services.fraudService,
+                services.feePolicy, infra.uowFactory);
 
         users = new InMemoryUserRepository();
         users.save(new User(1, "alice", aliceHash, aliceSalt, UserRole.CUSTOMER, CUSTOMER_ID));

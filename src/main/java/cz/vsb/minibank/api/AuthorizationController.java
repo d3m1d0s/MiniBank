@@ -25,7 +25,9 @@ import cz.vsb.minibank.application.PaymentOutcome;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -148,8 +150,16 @@ public class AuthorizationController {
         int wantedSize = requireSize(size);
 
         try (UowScope scope = new UowScope(uowFactory.begin())) {
+            // The account numbers this customer holds, so a row can say which of them the payment
+            // left. The ids come back with them, but the page is still scoped by pageOf through the
+            // ownership guard: this lookup prints, it does not authorize.
+            Map<Integer, String> ibans = new HashMap<>();
+            for (Account a : accounts.byCustomerId(customerId)) {
+                ibans.put(a.id(), a.iban().value());
+            }
+
             return pageOf(customerId, EVERY_STATUS, wantedPage, wantedSize,
-                    AuthorizationController::toHistoryItem);
+                    t -> toHistoryItem(t, ibans));
         }
     }
 
@@ -203,22 +213,31 @@ public class AuthorizationController {
      *
      * The same record rather than a second one for the same row: this is the analyst's history
      * list read by its owner instead, and the one thing that differs - a waiting payment reads
-     * "Waiting for your code" here and "Waiting for the customer's code" on the desk - is a matter
-     * of who is being addressed, settled on the client, which is what the glossary's audience
-     * parameter is for.
+     * "Waiting for your code" here and "Awaiting customer code" on the desk - is a matter of who
+     * is being addressed, settled on the client, which is what the glossary's audience parameter
+     * is for.
      *
-     * WHAT THE RECORD DOES NOT CARRY is the account the payment left. The analyst's history is
-     * scoped to one account and prints it above the list; this one spans every account the
-     * customer holds, so a customer with two of them cannot tell which balance a row moved. Adding
-     * the field is a change to a record this endpoint shares with the fraud desk and to the desk's
-     * own mapper, so it is named in the handover rather than taken here.
+     * THE ACCOUNT THE PAYMENT LEFT is carried, and a customer holding two of them needs it: this
+     * list spans every account they hold, so without it a row cannot say which balance it moved.
+     * It is resolved out of a map the caller raised once for the page, rather than by asking the
+     * store per row, which is the same reason the count and the page are two statements and not
+     * one per transfer. A payment from an account outside that map is not a row this caller may
+     * be shown at all, so it is refused rather than printed without its origin.
      */
-    private static HistoryItemDto toHistoryItem(Transfer t) {
+    private static HistoryItemDto toHistoryItem(Transfer t, Map<Integer, String> ibans) {
+        String fromIban = ibans.get(t.sourceAccountId());
+        if (fromIban == null) {
+            throw new DataIntegrityException(
+                    "Transfer " + t.id() + " was sent from account " + t.sourceAccountId()
+                            + ", which is not one of the caller's accounts");
+        }
+
         return new HistoryItemDto(
                 t.id(),
                 t.createdAt().toString(),
                 MoneyDto.of(t.amount()),
                 t.status().name(),
+                fromIban,
                 t.targetIbanSnapshot(),
                 t.declineReason()
         );

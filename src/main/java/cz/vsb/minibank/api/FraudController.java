@@ -14,6 +14,7 @@ import cz.vsb.minibank.domain.exceptions.ValidationException;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.repository.AccountRepository;
+import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
 import org.springframework.web.bind.annotation.*;
@@ -36,6 +37,7 @@ public class FraudController {
     private final FraudAlertRepository alerts;
     private final TransferRepository transfers;
     private final AccountRepository accounts;
+    private final CustomerRepository customers;
     private final FraudApplicationService fraudService;
     private final FeePolicy feePolicy;
 
@@ -52,12 +54,14 @@ public class FraudController {
     public FraudController(FraudAlertRepository alerts,
                            TransferRepository transfers,
                            AccountRepository accounts,
+                           CustomerRepository customers,
                            FraudApplicationService fraudService,
                            FeePolicy feePolicy,
                            UnitOfWorkFactory uowFactory) {
         this.alerts = alerts;
         this.transfers = transfers;
         this.accounts = accounts;
+        this.customers = customers;
         this.fraudService = fraudService;
         this.feePolicy = feePolicy;
         this.uowFactory = uowFactory;
@@ -257,8 +261,10 @@ public class FraudController {
     public AlertDetailDto getAlert(@PathVariable("id") int id) {
         requireRole(UserRole.FRAUD_ANALYST);
 
-        // Four lookups that used to be four connections: the alert, its transfer, that
-        // transfer's account, and the account's whole history. Same reasoning as the queue.
+        // Six lookups that would otherwise be six connections: the alert, its transfer, that
+        // transfer's account, the customer who holds that account, every account that customer
+        // holds, and one page of the payments sent from them. Same reasoning as the queue - one
+        // unit of work rather than six, because there is no connection pool behind any of them.
         try (UowScope scope = new UowScope(uowFactory.begin())) {
             FraudAlert alert = alerts.byId(id)
                     .orElseThrow(() -> new NotFoundException("Fraud alert not found: " + id));
@@ -274,7 +280,7 @@ public class FraudController {
 
             AlertInfoDto alertDto = mapAlertInfo(alert);
             TransferInfoDto transferDto = mapTransferInfo(transfer, source);
-            List<HistoryItemDto> history = mapHistoryForAccount(source.id());
+            List<HistoryItemDto> history = mapHistoryForCustomer(source.id());
 
             return new AlertDetailDto(alertDto, transferDto, history);
         }
@@ -366,33 +372,48 @@ public class FraudController {
     }
 
     /**
-     * Builds recent outgoing transfer history for the given account: newest first, at most ten.
+     * Recent outgoing payments of the CUSTOMER behind the alert: every account they hold, newest
+     * first, at most ten.
      *
-     * The sort used to compose a null rule and then reverse the whole comparator.
-     * {@code Comparator.reversed()} is {@code Collections.reverseOrder(this)}, which swaps the
-     * two arguments rather than negating the result, so it inverted the null placement along
-     * with the order: a null would have sorted *first* under a rule that says last, and taken a
-     * slot in the ten this panel shows. Reverse the key comparator inside if a null rule is ever
-     * wanted here again - never the composed one outside.
+     * THE SCOPE IS THE PERSON, NOT THE ACCOUNT, and that is the whole of this change. The question
+     * this list answers beside an alert is whether the payment is out of character, and character
+     * belongs to a customer. Keyed on the one account the alerted payment left, it hid the very
+     * move the desk exists to catch: an amount split across the payer's own accounts so that each
+     * part stays under a threshold, which the domain already models in SplitPaymentAlertTest.
      *
-     * It sorts on the raw value now, because a transfer cannot carry a null creation instant:
-     * {@code Transfer}'s constructor requires it, and the loader drops a null rather than
-     * storing one. That makes this the one form that is not null-safe, and deliberately so - a
-     * null here would mean the domain has been broken by an edit, and a fraud desk answering 500
-     * is better than one quietly reordering the evidence.
+     * WHERE THE CUSTOMER COMES FROM decides how far this reaches, so it comes from one place only:
+     * the account loaded above from the alerted transfer. Nothing here takes a customer id, so the
+     * table is reachable only by opening an alert and only for that alert's customer, and no
+     * search across customers appears on this screen.
+     *
+     * The order and the limit are the query's now. It answers created_at descending with id
+     * descending behind it, which is totally ordered where the Comparator this method used to hold
+     * left same-instant payments undecided.
      */
-    private List<HistoryItemDto> mapHistoryForAccount(int accountId) {
-        List<Transfer> list = transfers.bySourceAccount(accountId);
+    private List<HistoryItemDto> mapHistoryForCustomer(int alertedAccountId) {
+        int customerId = customers.byAccountId(alertedAccountId)
+                .orElseThrow(() -> new DataIntegrityException(
+                        "Account " + alertedAccountId + " belongs to no customer"))
+                .id();
 
-        list.sort(Comparator.comparing(Transfer::createdAt).reversed());
+        List<Account> owned = accounts.byCustomerId(customerId);
 
-        return list.stream()
-                .limit(10)
+        Map<Integer, String> ibans = new HashMap<>();
+        List<Integer> ids = new ArrayList<>();
+        for (Account a : owned) {
+            ids.add(a.id());
+            ibans.put(a.id(), a.iban().value());
+        }
+
+        // An empty status set is the repository's word for every status, which is what a history
+        // means. See TransferRepository.bySourceAccountsNewestFirst.
+        return transfers.bySourceAccountsNewestFirst(ids, Set.of(), 0, 10).stream()
                 .map(t -> new HistoryItemDto(
                         t.id(),
                         t.createdAt().toString(),
                         MoneyDto.of(t.amount()),
                         t.status().name(),
+                        ibans.get(t.sourceAccountId()),
                         t.targetIbanSnapshot(),
                         t.declineReason()
                 ))

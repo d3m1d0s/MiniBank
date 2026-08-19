@@ -104,7 +104,7 @@ class ReadPathsRunInOneUnitOfWorkTest {
         TransferRepository transfers = watch(infra.transfers);
         FraudAlertRepository alerts = watch(infra.alerts);
 
-        fraudController = new FraudController(alerts, transfers, accounts, null,
+        fraudController = new FraudController(alerts, transfers, accounts, customers, null,
                 new SimpleFeePolicy(), infra.uowFactory);
         authorizationController = new AuthorizationController(null, accounts, transfers,
                 new SimpleFeePolicy(), new OwnershipGuard(customers, accounts),
@@ -168,9 +168,15 @@ class ReadPathsRunInOneUnitOfWorkTest {
         authorizationController.listMyTransfers(0, 25);
 
         UnitOfWork only = witness.theOnlyOne("The payment history");
-        assertEquals(3, witness.seen.size(),
-                "the payment history must cost the same three lookups whatever the customer"
-                        + " holds; saw " + witness.seen.size() + " calls");
+        // Four, and four whatever the customer holds: the caller through the ownership guard,
+        // their accounts so a row can name the one the payment left, the count beside the list,
+        // and the page. The fourth is the whole price of putting the source account on the wire,
+        // and it is a fixed one - not a lookup per row, and not one per account.
+        assertEquals(4, witness.seen.size(),
+                "the payment history must cost the same four lookups whatever the customer holds:"
+                        + " the caller through the ownership guard, their accounts for the"
+                        + " numbers, the count and the page; saw " + witness.seen.size()
+                        + " calls");
         assertNotNull(only);
     }
 

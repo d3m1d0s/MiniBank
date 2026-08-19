@@ -20,6 +20,7 @@ import { formatMoney, readerLocale } from './money';
 import { parseAmount } from '@shared/money';
 import { describeApiErrorLines } from '@shared/apiErrors';
 import {
+    CUSTOMER_HISTORY_TITLE,
     alertStateLabel,
     alertStateTone,
     authMethodLabel,
@@ -143,8 +144,16 @@ function queueCells(a: AlertQueueItem): QueueRowCells<ReactNode> {
  * the payment it explains: this desk has a thousand pixels to lay a table across and the
  * workstation's pane has a floor of three hundred and sixty. That is the idiom difference the
  * shared field set exists to allow, and it is why the set is a union rather than a column list.
+ *
+ * `alertedIban` is the account the alert in the panel above was raised on. The table below now
+ * holds the customer's payments from every account they hold, which is the whole point of it: a
+ * sum split across two of one's own accounts so each half stays under a threshold is invisible in
+ * a list of one. The price is that the row matching the panel is no longer the only kind of row
+ * here, so it is marked.
  */
-function historyCells(h: HistoryItem): HistoryRowCells<ReactNode> {
+function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCells<ReactNode> {
+    const alerted = alertedIban !== null && h.fromIban === alertedIban;
+
     return {
         id: formatTransferId(h.id),
         createdAt: formatDateTime(h.createdAt),
@@ -154,7 +163,18 @@ function historyCells(h: HistoryItem): HistoryRowCells<ReactNode> {
                 {transferStatusLabel(h.status, 'analyst')}
             </span>
         ),
-        toIban: formatIban(h.toIban),
+        // Where the money left, over where it went. The mark on the top line is ink and weight
+        // and nothing else: in the demonstration set every payment leaves one account, so a glyph
+        // would be printed ten times running and read as an ornament rather than a signal.
+        route: (
+            <>
+                <span className={alerted ? 'route-from route-from--alerted' : 'route-from'}>
+                    {alerted && <span className="visually-hidden">Alerted account: </span>}
+                    {formatIban(h.fromIban)}
+                </span>
+                <span className="route-to">{formatIban(h.toIban)}</span>
+            </>
+        ),
         // The same sentence the customer is now shown for their own declined payment, from the
         // same function.
         declineReason: describeDeclineReason(h.declineReason) || EMPTY_VALUE,
@@ -836,11 +856,13 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                     </div>
 
                                     <div className="details-card gap-above-lg">
+                                        {/* The heading names the scope, because the scope grew:
+                                            the table used to hold one account's payments under a
+                                            sentence that said so, and now holds the customer's.
+                                            Without the wording, the marked account below is
+                                            marked for a reason nothing on screen states. */}
                                         <p>
-                                            <strong>
-                                                Customer history (last 10
-                                                transfers from this account)
-                                            </strong>
+                                            <strong>{CUSTOMER_HISTORY_TITLE}</strong>
                                         </p>
                                         {detail.history.length === 0 ? (
                                             <p className="helper-text">
@@ -867,7 +889,10 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                                     </thead>
                                                     <tbody>
                                                     {detail.history.map((h) => {
-                                                        const cells = historyCells(h);
+                                                        const cells = historyCells(
+                                                            h,
+                                                            detail.transfer.fromIban,
+                                                        );
                                                         return (
                                                             <tr key={h.id}>
                                                                 {HISTORY_FIELDS.map((f) => (

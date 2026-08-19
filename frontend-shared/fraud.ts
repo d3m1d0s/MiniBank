@@ -79,11 +79,21 @@ export interface TransferInfo {
     authMethod: string | null;
 }
 
+/**
+ * One earlier payment, in the two lists that read this type: the customer's own history, and the
+ * history beside an alert.
+ *
+ * `fromIban` is not nullable, and the server holds up its end: both places that build the record
+ * refuse to emit a row whose source account has no number rather than send a null through. A
+ * customer can hold more than one account, so without it neither list can say which of them the
+ * money left, and the analyst cannot tell the account the alert was raised on from its neighbour.
+ */
 export interface HistoryItem {
     id: number;
     createdAt: string | null;
     amount: Money;
     status: string;
+    fromIban: string;
     toIban: string;
     declineReason: string | null;
 }

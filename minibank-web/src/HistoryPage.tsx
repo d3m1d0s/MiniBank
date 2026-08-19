@@ -69,10 +69,16 @@ interface Props {
  * grows this screen and both fraud desks fail on the same build.
  *
  * The audience is `customer` and never `analyst`, which is the whole reason the parameter exists:
- * a payment waiting for a code says "Waiting for your code" here and "Waiting for the customer's
- * code" on the desk, and each sentence is a lie on the other screen.
+ * a payment waiting for a code says "Waiting for your code" here and "Awaiting customer code" on
+ * the desk, and each sentence is a lie on the other screen.
+ *
+ * `alertedIban` is null here and always will be. The parameter is on all three builders of this
+ * row so the cell below can be one piece of markup on both platforms; the account it would mark
+ * is the one an alert was raised on, and a customer reading their own payments has no alert.
  */
-function historyCells(h: HistoryItem): HistoryRowCells<ReactNode> {
+function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCells<ReactNode> {
+    const alerted = alertedIban !== null && h.fromIban === alertedIban;
+
     return {
         id: formatTransferId(h.id),
         createdAt: formatDateTime(h.createdAt),
@@ -85,7 +91,17 @@ function historyCells(h: HistoryItem): HistoryRowCells<ReactNode> {
                 {transferStatusLabel(h.status, 'customer')}
             </span>
         ),
-        toIban: formatIban(h.toIban),
+        // Where the money left, over where it went. A customer holding two accounts could read
+        // ten rows here and not one of them said which account was charged.
+        route: (
+            <>
+                <span className={alerted ? 'route-from route-from--alerted' : 'route-from'}>
+                    {alerted && <span className="visually-hidden">Alerted account: </span>}
+                    {formatIban(h.fromIban)}
+                </span>
+                <span className="route-to">{formatIban(h.toIban)}</span>
+            </>
+        ),
         // The same function, and therefore the same sentence, the analyst reads for this row.
         // A payment held for review has not been declined and shows the absent value here.
         declineReason: describeDeclineReason(h.declineReason) || EMPTY_VALUE,
@@ -246,7 +262,7 @@ export default function HistoryPage({ role, brand, identity, onNavigate }: Props
                                             </thead>
                                             <tbody>
                                             {items.map((h) => {
-                                                const cells = historyCells(h);
+                                                const cells = historyCells(h, null);
                                                 return (
                                                     <tr key={h.id}>
                                                         {HISTORY_FIELDS.map((f) => (

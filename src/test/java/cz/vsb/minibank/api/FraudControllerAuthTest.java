@@ -5,6 +5,7 @@ import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
+import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -67,6 +68,7 @@ class FraudControllerAuthTest {
         FraudAlertRepository alerts = mock(FraudAlertRepository.class);
         TransferRepository transfers = mock(TransferRepository.class);
         AccountRepository accounts = mock(AccountRepository.class);
+        CustomerRepository customers = mock(CustomerRepository.class);
         FraudApplicationService fraudService = mock(FraudApplicationService.class);
         FeePolicy feePolicy = new ZeroFeePolicy();
 
@@ -112,6 +114,7 @@ class FraudControllerAuthTest {
                 alerts,
                 transfers,
                 accounts,
+                customers,
                 fraudService,
                 feePolicy,
                 noOpUnitOfWork()
@@ -135,6 +138,7 @@ class FraudControllerAuthTest {
         FraudAlertRepository alerts = mock(FraudAlertRepository.class);
         TransferRepository transfers = mock(TransferRepository.class);
         AccountRepository accounts = mock(AccountRepository.class);
+        CustomerRepository customers = mock(CustomerRepository.class);
         FraudApplicationService fraudService = mock(FraudApplicationService.class);
         FeePolicy feePolicy = new ZeroFeePolicy();
 
@@ -142,6 +146,7 @@ class FraudControllerAuthTest {
                 alerts,
                 transfers,
                 accounts,
+                customers,
                 fraudService,
                 feePolicy,
                 noOpUnitOfWork()
@@ -172,6 +177,7 @@ class FraudControllerAuthTest {
                 mock(FraudAlertRepository.class),
                 mock(TransferRepository.class),
                 mock(AccountRepository.class),
+                mock(CustomerRepository.class),
                 mock(FraudApplicationService.class),
                 new ZeroFeePolicy(),
                 noOpUnitOfWork()
@@ -188,6 +194,7 @@ class FraudControllerAuthTest {
                 mock(FraudAlertRepository.class),
                 mock(TransferRepository.class),
                 mock(AccountRepository.class),
+                mock(CustomerRepository.class),
                 mock(FraudApplicationService.class),
                 new ZeroFeePolicy(),
                 noOpUnitOfWork()
