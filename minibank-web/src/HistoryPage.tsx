@@ -5,16 +5,21 @@ import './App.css';
 import { fetchMyTransfers, type HistoryItem, type Page } from './api';
 import { formatMoney } from './money';
 import { describeApiErrorLines } from '@shared/apiErrors';
-import { describeDeclineReason, transferStatusLabel, transferStatusTone } from '@shared/glossary';
 import {
-    EMPTY_VALUE,
+    bankBoundaryMark,
+    describeDeclineReason,
+    transferStatusLabel,
+    transferStatusTone,
+} from '@shared/glossary';
+import {
     formatDateTime,
     formatIban,
     formatTransferId,
 } from '@shared/format';
 import {
     FIELD_LABEL,
-    HISTORY_FIELDS,
+    HISTORY_COLUMN_FIELDS,
+    HISTORY_NOTE_FIELD,
     type HistoryField,
     type HistoryRowCells,
 } from '@shared/fields';
@@ -78,12 +83,13 @@ interface Props {
  */
 function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCells<ReactNode> {
     const alerted = alertedIban !== null && h.fromIban === alertedIban;
+    const boundary = bankBoundaryMark(h.toIbanInBank);
 
     return {
         id: formatTransferId(h.id),
         createdAt: formatDateTime(h.createdAt),
         amount: formatMoney(h.amount),
-        // The word, the colour and, for a refused payment, the sentence beside it. Set in the
+        // The word, the colour and, for a refused payment, the sentence under it. Set in the
         // same grey as nine settled rows the word alone marks out nothing, which is what the
         // tone is for.
         status: (
@@ -91,20 +97,25 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
                 {transferStatusLabel(h.status, 'customer')}
             </span>
         ),
-        // Where the money left, over where it went. A customer holding two accounts could read
-        // ten rows here and not one of them said which account was charged.
+        // Where the money left, over where it went, and on the rare row where the money did not
+        // leave the bank at all, that. The word sits on the exception and nowhere else, so the
+        // column keeps its shape; see the glossary for why this is the way round it is.
         route: (
             <>
                 <span className={alerted ? 'route-from route-from--alerted' : 'route-from'}>
                     {alerted && <span className="visually-hidden">Alerted account: </span>}
                     {formatIban(h.fromIban)}
                 </span>
-                <span className="route-to">{formatIban(h.toIban)}</span>
+                <span className="route-to">
+                    {formatIban(h.toIban)}
+                    {boundary && <> <span className="route-boundary">{boundary}</span></>}
+                </span>
             </>
         ),
         // The same function, and therefore the same sentence, the analyst reads for this row.
-        // A payment held for review has not been declined and shows the absent value here.
-        declineReason: describeDeclineReason(h.declineReason) || EMPTY_VALUE,
+        // A payment that was not declined has no note row under it at all, which is why nothing
+        // stands in for the absent value any more.
+        declineReason: describeDeclineReason(h.declineReason),
     };
 }
 
@@ -253,27 +264,43 @@ export default function HistoryPage({ role, brand, identity, onNavigate }: Props
                                         <table className="table table--static">
                                             <thead>
                                             <tr>
-                                                {HISTORY_FIELDS.map((f) => (
+                                                {HISTORY_COLUMN_FIELDS.map((f) => (
                                                     <th key={f} className={CELL_CLASS[f]}>
                                                         {FIELD_LABEL[f]}
                                                     </th>
                                                 ))}
                                             </tr>
                                             </thead>
-                                            <tbody>
                                             {items.map((h) => {
                                                 const cells = historyCells(h, null);
                                                 return (
-                                                    <tr key={h.id}>
-                                                        {HISTORY_FIELDS.map((f) => (
+                                                    /* One row group per payment, so the reason a
+                                                       payment was refused stays part of the row it
+                                                       explains rather than becoming a column of
+                                                       prose. */
+                                                    <tbody key={h.id}>
+                                                    <tr>
+                                                        {HISTORY_COLUMN_FIELDS.map((f) => (
                                                             <td key={f} className={CELL_CLASS[f]}>
                                                                 {cells[f]}
                                                             </td>
                                                         ))}
                                                     </tr>
+                                                    {h.declineReason && (
+                                                        <tr className="history-note">
+                                                            <td
+                                                                colSpan={
+                                                                    HISTORY_COLUMN_FIELDS.length
+                                                                }
+                                                            >
+                                                                {FIELD_LABEL[HISTORY_NOTE_FIELD]}:{' '}
+                                                                {cells[HISTORY_NOTE_FIELD]}
+                                                            </td>
+                                                        </tr>
+                                                    )}
+                                                    </tbody>
                                                 );
                                             })}
-                                            </tbody>
                                         </table>
                                     </div>
 

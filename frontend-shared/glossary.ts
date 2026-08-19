@@ -219,6 +219,63 @@ export function decisionActionLabel(action: DecisionAction): string {
 export const CUSTOMER_HISTORY_TITLE = 'Customer history, all accounts (last 10)';
 
 /**
+ * Where the account a payment names is held: this bank, or one on the far side of the network.
+ *
+ * The words are about the ACCOUNT and not about the money, and that is the first thing that
+ * decides them. `Left the bank` would be a lie on a payment still held for review, and payments
+ * still held for review are most of what a fraud desk looks at. What is true of every row,
+ * decided or not, is where the number on it lives.
+ *
+ * COLOUR IS NOT AVAILABLE, and that decides the rest. Four tones already run down these rows and
+ * they answer a different question, whether the row is still somebody's problem; a fifth colour
+ * about a different axis would be read as a fifth state of the same one. The other channel in the
+ * route cell is taken as well: weight and ink mark the account the alert was raised on. What is
+ * left is a word, which needs no legend, no key and no colour, and survives being enlarged.
+ *
+ * Which is why only one of the two words is ever spoken on a row. This file's rule is that the
+ * ordinary is quiet and the exceptional visible, the same restraint that leaves `settled` with no
+ * colour at all.
+ *
+ * The word goes on the payment that STAYS, and the choice was made the wrong way round once and
+ * looked it. Marking the money that leaves reads well as an argument, because a payment gone out
+ * over the network cannot be pulled back, and it fails as a column: this bank's customers pay
+ * outward almost always, so the word stood on every row of every table, and a mark that is never
+ * absent marks nothing. It also cost the row a line it could not spare. The reading that is worth
+ * a reader's attention is the rare one, and here that is a payment credited inside the bank in the
+ * same unit of work as the debit.
+ *
+ * The polarity therefore belongs to this dataset rather than to the idea, which is worth knowing
+ * before anyone flips it back. A bank whose customers mostly pay each other would want the other
+ * word, and the rule to keep is not "say outbound" but "say whichever is the exception here".
+ *
+ * A panel that lists facts one to a line is not scanning anything and has no such column to
+ * spoil, so there both readings are worth printing: that is the second function.
+ */
+const BANK_BOUNDARY: Record<'internal' | 'outbound', string> = {
+    internal: 'This bank',
+    outbound: 'Another bank',
+};
+
+/**
+ * What a row says about the account it is paying, or the empty string when it says nothing.
+ *
+ * The empty string is the outbound case and it is the point of the function rather than a gap in
+ * it: the rule that the ordinary destination goes unmarked is written once, here, instead of as
+ * the same condition in each of the places that draw a route.
+ *
+ * @param toIbanInBank the field of that name off the wire, already derived there; see fraud.ts
+ *                     for why the client is not handed the two halves to combine itself
+ */
+export function bankBoundaryMark(toIbanInBank: boolean): string {
+    return toIbanInBank ? BANK_BOUNDARY.internal : '';
+}
+
+/** The same fact stated either way, for a panel that lists facts rather than one that scans rows. */
+export function bankBoundaryLabel(toIbanInBank: boolean): string {
+    return toIbanInBank ? BANK_BOUNDARY.internal : BANK_BOUNDARY.outbound;
+}
+
+/**
  * What a decision actually did, read off the payment the server sent back rather than off the
  * button that was pressed.
  *

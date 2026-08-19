@@ -540,6 +540,21 @@ h2.panel-title {
 }
 
 /*
+ * The same fact as the mark in the history column, stated the other way round.
+ *
+ * A list that puts one fact on a line is not scanned the way a column is, so here the ordinary
+ * reading is worth printing too and the value says which bank holds the account either way. It
+ * is an annotation of the number above it and not a fact of its own, which is what the rung and
+ * the ink say: the list sets its values at --text-2, so unlike the history column this one has a
+ * step below it to take, and it takes the same role colour so the two readings of the one fact
+ * are set in one ink on this pane.
+ */
+.facts .fact-note {
+    font-size: var(--text-1);
+    color: var(--color-route-boundary);
+}
+
+/*
  * THE HISTORY TABLE. A real table, with a real head.
  *
  * Four unlabelled columns asked a reader to work out that the last one is the beneficiary's
@@ -619,15 +634,21 @@ h2.panel-title {
  *
  * Two lines of one number, so they are set at one size and led tighter than a line of prose:
  * at 12px over 14px the groups of four stop standing under each other and tabular digits buy
- * nothing. nowrap on both, because the general overflow-wrap above was written for a single
- * account number and would break the second one mid group rather than admit the column is
- * narrow.
+ * nothing.
+ *
+ * NOT nowrap, and that is the repair. Holding both lines on one line each was written for a
+ * column that would always be wide enough for one account number, and this pane has a floor of
+ * 360: at 390 the table stood 373 wide inside a 280 clip and every route cell ran 94px past its
+ * own column, and at 200 percent text the same table was 858 inside 743. The formatter prints an
+ * IBAN in groups of four with a space between them, so the only break the browser can take here
+ * is the one it was already given, between two groups; the number folds where it was divided and
+ * never mid group. A narrow window's answer is to fold, and a table that has to be scrolled
+ * sideways to be read is not an answer at all.
  */
 .history .route-from,
 .history .route-to {
     display: block;
     line-height: var(--leading-tight);
-    white-space: nowrap;
     font-variant-numeric: tabular-nums;
 }
 
@@ -643,6 +664,46 @@ h2.panel-title {
 .history .route-from--alerted {
     color: var(--color-text-primary);
     font-weight: var(--weight-semibold);
+}
+
+/*
+ * Whether the money left this bank, said on the line under the account it went to.
+ *
+ * The third channel this cell has left, because the first two are spent. Four state tones run
+ * down the columns beside it answering a different question, whether the row is still somebody's
+ * problem, and a fifth colour would be read as a fifth answer to that one; weight and ink are
+ * already spent inside this cell telling the two account numbers apart. So the mark is a word,
+ * and all this rule decides is how quietly it is set.
+ *
+ * Quietly matters more here than it reads: most payments a customer makes do leave the bank, so
+ * this word runs down most of the column and has to be readable past rather than read.
+ *
+ * The web sets it a rung of type below the number it annotates. This skin cannot: its history
+ * table is already at --text-1, the bottom rung of the shared scale, and inventing a smaller
+ * literal for one word would put a size on this pane that no other text in the product can be
+ * measured against. What separates it instead is what it is - letters under a run of digits, on
+ * a line of its own, at the row's regular weight against the semibold of the number above - and
+ * --color-route-boundary is what keeps it under that number rather than beside it. The role and
+ * not the muted ink written out, so that tuning the dozen quiet things the muted ink carries
+ * cannot silently move a mark whose contrast was measured; the theme states the three grounds it
+ * was measured on.
+ *
+ * A block, and led like the two numbers above it rather than like the prose it is made of,
+ * because it is the third line of one stack and not a sentence under one. Declaring the leading
+ * on the span alone would have done nothing: the line the span lands on takes its height from the
+ * strut of the box around it, which is the cell at the table's own leading. It is not free
+ * either, and every row pays it: every payment in the demonstration set leaves the bank, so this
+ * line is drawn on all ten. At the cell's leading a row stood 42.4px against the 39.4 of two
+ * lines; as a block of its own the third line costs 3px less and the row holds at 39.4.
+ *
+ * nowrap, so the two words fold together or not at all rather than leaving "bank" alone under
+ * them in a column whose floor is a third of 360.
+ */
+.history .route-boundary {
+    display: block;
+    white-space: nowrap;
+    line-height: var(--leading-tight);
+    color: var(--color-route-boundary);
 }
 
 /*

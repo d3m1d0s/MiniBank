@@ -24,6 +24,8 @@ import {
     alertStateLabel,
     alertStateTone,
     authMethodLabel,
+    bankBoundaryMark,
+    bankBoundaryLabel,
     decisionActionLabel,
     describeDeclineReason,
     describeDecision,
@@ -41,7 +43,8 @@ import {
 import {
     ALERT_QUEUE_FIELDS,
     FIELD_LABEL,
-    HISTORY_FIELDS,
+    HISTORY_COLUMN_FIELDS,
+    HISTORY_NOTE_FIELD,
     type AlertQueueField,
     type HistoryField,
     type HistoryRowCells,
@@ -140,19 +143,19 @@ function queueCells(a: AlertQueueItem): QueueRowCells<ReactNode> {
 /**
  * One row of the payment history beside an alert.
  *
- * The decline reason keeps a column of its own here where the workstation gives it a row under
- * the payment it explains: this desk has a thousand pixels to lay a table across and the
- * workstation's pane has a floor of three hundred and sixty. That is the idiom difference the
- * shared field set exists to allow, and it is why the set is a union rather than a column list.
+ * The decline reason no longer keeps a column. It is prose, and prose has no width to be given: a
+ * sixth column was paid for out of the route cell, which is the tightest one this table has, to
+ * hold a sentence somebody typed. It goes under the payment it explains, which is the form the
+ * workstation worked out first and the one the shared field list now names for both platforms.
  *
- * `alertedIban` is the account the alert in the panel above was raised on. The table below now
- * holds the customer's payments from every account they hold, which is the whole point of it: a
- * sum split across two of one's own accounts so each half stays under a threshold is invisible in
- * a list of one. The price is that the row matching the panel is no longer the only kind of row
- * here, so it is marked.
+ * `alertedIban` is the account the alert was raised on, which the panel of facts above names. The
+ * row that left it carries the ink and the weight; the rest step back, so a payment out of the
+ * customer's OTHER account is the one the eye lands on. A sum split across two of one's own
+ * accounts so each half stays under a threshold is exactly what this table exists to make visible.
  */
 function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCells<ReactNode> {
     const alerted = alertedIban !== null && h.fromIban === alertedIban;
+    const boundary = bankBoundaryMark(h.toIbanInBank);
 
     return {
         id: formatTransferId(h.id),
@@ -163,21 +166,25 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
                 {transferStatusLabel(h.status, 'analyst')}
             </span>
         ),
-        // Where the money left, over where it went. The mark on the top line is ink and weight
-        // and nothing else: in the demonstration set every payment leaves one account, so a glyph
-        // would be printed ten times running and read as an ornament rather than a signal.
+        // Where the money left, over where it went. The mark on the top line is ink and weight and
+        // nothing else, so the row that left the account under review steps forward. The word on
+        // the bottom line appears only where the money never left the bank, which on this desk is
+        // the row an analyst has something left to do about.
         route: (
             <>
                 <span className={alerted ? 'route-from route-from--alerted' : 'route-from'}>
                     {alerted && <span className="visually-hidden">Alerted account: </span>}
                     {formatIban(h.fromIban)}
                 </span>
-                <span className="route-to">{formatIban(h.toIban)}</span>
+                <span className="route-to">
+                    {formatIban(h.toIban)}
+                    {boundary && <> <span className="route-boundary">{boundary}</span></>}
+                </span>
             </>
         ),
         // The same sentence the customer is now shown for their own declined payment, from the
-        // same function.
-        declineReason: describeDeclineReason(h.declineReason) || EMPTY_VALUE,
+        // same function. No absent value: a payment that was not declined has no note row at all.
+        declineReason: describeDeclineReason(h.declineReason),
     };
 }
 
@@ -820,10 +827,18 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                                 {formatMoney(detail.transfer.fromBalance)})
                                             </span>
                                         </p>
+                                        {/* A panel that lists facts one to a line is not scanned
+                                            the way a column is, so here both readings are worth
+                                            printing and the parenthesis is the one the From line
+                                            above already uses for its balance. */}
                                         <p>
                                             <span className="fact-label">To:</span>{' '}
                                             <span className="fact-value">
-                                                {formatIban(detail.transfer.toIban)}
+                                                {formatIban(detail.transfer.toIban)} (
+                                                {bankBoundaryLabel(
+                                                    detail.transfer.toIbanInBank,
+                                                )}
+                                                )
                                             </span>
                                         </p>
                                         <p>
@@ -870,14 +885,20 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                             </p>
                                         ) : (
                                             <div className="table-wrapper gap-above-sm">
-                                                {/* Six columns from the shared field set. The
-                                                    first was headed ID here and Payment on the
-                                                    workstation, for the same column holding the
-                                                    same TR-9; one word now, decided once. */}
-                                                <table className="table">
+                                                {/* Five columns from the shared field set, and
+                                                    the sixth field under them rather than beside
+                                                    them. The first was headed ID here and Payment
+                                                    on the workstation, for the same column holding
+                                                    the same TR-9; one word now, decided once.
+
+                                                    table--static: these rows open nothing. The
+                                                    application's hover fill paints every table it
+                                                    has, so without it a dead row lights up under
+                                                    the pointer and reads as a control. */}
+                                                <table className="table table--static">
                                                     <thead>
                                                     <tr>
-                                                        {HISTORY_FIELDS.map((f) => (
+                                                        {HISTORY_COLUMN_FIELDS.map((f) => (
                                                             <th
                                                                 key={f}
                                                                 className={HISTORY_CELL_CLASS[f]}
@@ -887,15 +908,18 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                                         ))}
                                                     </tr>
                                                     </thead>
-                                                    <tbody>
                                                     {detail.history.map((h) => {
                                                         const cells = historyCells(
                                                             h,
                                                             detail.transfer.fromIban,
                                                         );
                                                         return (
-                                                            <tr key={h.id}>
-                                                                {HISTORY_FIELDS.map((f) => (
+                                                            /* One row group per payment, so the
+                                                               reason a payment was refused stays
+                                                               part of the row it explains. */
+                                                            <tbody key={h.id}>
+                                                            <tr>
+                                                                {HISTORY_COLUMN_FIELDS.map((f) => (
                                                                     <td
                                                                         key={f}
                                                                         className={
@@ -906,9 +930,31 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                                                     </td>
                                                                 ))}
                                                             </tr>
+                                                            {h.declineReason && (
+                                                                <tr className="history-note">
+                                                                    <td
+                                                                        colSpan={
+                                                                            HISTORY_COLUMN_FIELDS
+                                                                                .length
+                                                                        }
+                                                                    >
+                                                                        {
+                                                                            FIELD_LABEL[
+                                                                                HISTORY_NOTE_FIELD
+                                                                            ]
+                                                                        }
+                                                                        :{' '}
+                                                                        {
+                                                                            cells[
+                                                                                HISTORY_NOTE_FIELD
+                                                                            ]
+                                                                        }
+                                                                    </td>
+                                                                </tr>
+                                                            )}
+                                                            </tbody>
                                                         );
                                                     })}
-                                                    </tbody>
                                                 </table>
                                             </div>
                                         )}

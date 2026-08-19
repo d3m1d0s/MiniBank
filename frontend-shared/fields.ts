@@ -50,6 +50,13 @@ export type AlertQueueField =
  * customer holding two accounts cannot read the first half off a row that only names the second.
  * It stays ONE field with two account numbers in it: this list is a register of facts, not a
  * register of columns, and each desk decides how many lines one fact takes.
+ *
+ * The route carries a third thing that is deliberately not a field of its own: whether the bank
+ * holds the beneficiary account. It is a property OF that account number rather than a fourth
+ * fact about the payment, so it is said on the line that prints it, and a column would have to
+ * repeat the account number to have anything to attach it to. The wire calls it `toIbanInBank`,
+ * the words for it are in glossary.ts, and it is the one thing on this row that the mapped type
+ * below cannot oblige a desk to render.
  */
 export type HistoryField =
     | 'id'
@@ -85,6 +92,29 @@ export const HISTORY_FIELDS: readonly HistoryField[] = [
     'route',
     'declineReason',
 ];
+
+/**
+ * The one history field that is prose, and therefore the one that is not a column.
+ *
+ * A decline reason is a sentence somebody wrote, and a sentence has no width to be given. The
+ * workstation had already worked this out and put it in a row of its own under the payment it
+ * explains, rather than in a sixth column sixty pixels wide; the customer application ran the
+ * whole field list out as columns and paid for the sixth in the route cell, which is the tightest
+ * one it has. One form for both, named here, because a split that both desks make and neither
+ * declares is exactly how the two of them came apart the first time.
+ */
+export const HISTORY_NOTE_FIELD: HistoryField = 'declineReason';
+
+/**
+ * The history fields that do take a column, in the same reading order.
+ *
+ * Derived from the full list instead of written out again. A field added to the union turns up
+ * here as a column on both platforms on the next build, whereas a hand kept list of five would
+ * leave it out in silence, and silence is the failure this whole module was built against.
+ */
+export const HISTORY_COLUMN_FIELDS: readonly HistoryField[] = HISTORY_FIELDS.filter(
+    (f) => f !== HISTORY_NOTE_FIELD,
+);
 
 /**
  * One word per field, on both platforms.

@@ -127,11 +127,13 @@
  *
  * surfaces        --color-canvas-image --color-surface-canvas --color-surface-sunken
  *                 --color-surface-field --color-surface-shell --color-surface-raised
- *                 --color-surface-chrome --color-surface-hover --color-surface-disabled
+ *                 --color-surface-chrome --color-surface-chrome-hover
+ *                 --color-surface-hover --color-surface-disabled
  * borders         --color-border --color-border-container --color-border-divider
  *                 --color-border-strong --color-border-disabled --color-border-accent
  * text            --color-text-primary --color-text-secondary --color-text-muted
  *                 --color-text-planned --color-text-disabled --color-text-on-accent
+ * brand           --brand-mark
  * accent          --color-accent --color-accent-hover --color-accent-active
  *                 --color-accent-line
  * selection       --color-selected-surface --color-selected-marker --color-focus-ring
@@ -140,14 +142,16 @@
  *                 --color-danger-accent
  *                 --color-success-surface --color-success-border --color-success-text
  *                 --color-warning-surface --color-warning-border --color-warning-text
- *                 --color-tone-blocked
+ * state tones     --color-tone-open --color-tone-blocked
+ * meaning marks   --color-route-boundary
  * radius roles    --radius-control --radius-field --radius-inset --radius-surface
  *                 --radius-shell
  * gap roles       --gap-form --gap-actions --gap-actions-top --gap-inline --gap-field-row
  *                 --gap-nav
  * fixed sizes     --size-shell-max --size-content-max --size-form-max --size-prose-max
- *                 --size-dialog-max --size-nav-column
- *                 --size-label-min --size-amount-field --size-otp-field --size-textarea-min
+ *                 --size-dialog-max --size-dialog-nominal --size-nav-column
+ *                 --size-label-min --size-amount-field --size-amount-field-lead
+ *                 --size-note-max --size-otp-field --size-textarea-min
  *                 --size-textarea-max --size-window-height --size-titlebar --size-row-label
  *                 --size-queue-min --size-queue-max --size-detail-min
  * elevation       --shadow-shell

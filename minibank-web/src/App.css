@@ -1063,24 +1063,107 @@ textarea:focus-visible {
  * 12px over 14px the groups of four in the two account numbers no longer stand under each
  * other, and standing under each other is the only reason the digits are tabular. The step
  * between the two lines is colour, and colour alone.
+ *
+ * Led tight, because these are two lines of one number rather than two lines of prose: at the
+ * body leading a line stood 21px and a row carrying both measured 59px against the 38px of a
+ * row carrying one, and that difference is what a queue reads down. It measures 47.8 now.
+ *
+ * NOT nowrap, and that is the repair. An account number is printed in groups of four with a
+ * space between them, so the only breaks a browser can take here are the ones between groups:
+ * the number folds where it was already divided and never mid group. Held on one line instead,
+ * the column could not shrink at all and the table simply grew past its own wrapper, which at
+ * 200 percent text was 1139 inside 1052 with a scrollbar under the fold to reach the rest.
+ * Wrapping is the narrow window's answer and scrolling sideways is not.
  */
 .table .route-from,
 .table .route-to {
   display: block;
-  white-space: nowrap;
+  line-height: var(--leading-tight);
   font-variant-numeric: tabular-nums;
 }
 
-/* Subordinate, and readable: 5.85:1 on the row ground, 5.15:1 under the hover fill. */
+/*
+ * Subordinate, and readable: 5.85:1 on the row ground, 5.15:1 under the hover fill.
+ *
+ * There is no second rule under this one any more. The account an alert was raised on used to
+ * be marked here in ink and weight, and both desks have stopped drawing that: the line is
+ * printed where the source account CHANGES and left out where it would only repeat, so what the
+ * eye finds is the row that broke the run rather than a mark standing on all ten. Nothing in
+ * this application emits the class, and a rule kept for it would be a mark nobody can see.
+ */
 .table .route-from {
   color: var(--color-text-muted);
 }
 
-/* The account this alert was raised on. Ink and weight, because a glyph repeated on every row
-   of the demo data is an ornament and this has to stay a signal. */
-.table .route-from--alerted {
-  color: var(--color-text-secondary);
-  font-weight: var(--weight-semibold);
+/*
+ * Whether the money left the bank, said on the line that names the account it went to.
+ *
+ * The third channel this cell has, because the first two are spent: the four state tones answer
+ * a different question one column away and a fifth colour would be read as a fifth answer to
+ * that one, and the ink inside this cell is already carrying the difference between the account
+ * that paid and the account that was paid. What is left is a word, which needs no legend and no
+ * key and survives being enlarged. The word itself is the shared glossary's, and what is decided
+ * here is only how quietly it is set. Most payments a customer makes do leave the bank, so this
+ * one runs down most of the column and has to be readable past rather than read: muted ink and a
+ * rung of size below the number it annotates, which is also what keeps it from being taken for
+ * the tail of that number.
+ *
+ * --color-route-boundary rather than the muted ink written out, so that tuning the dozen quiet
+ * things the muted ink carries cannot silently move a mark whose contrast was measured. The
+ * theme states the measurement: 5.84:1 on the row ground and 5.16:1 under the hover fill.
+ *
+ * A block, and therefore the third line of the stack rather than a word beside the second. Set
+ * inline it read as a suffix of the account number it annotates, and on a narrow column it wrapped
+ * to a line of its own anyway, so the cell was two shapes depending on the width. It is the same
+ * rule the workstation states for the same stack, which is what keeps one table from reading two
+ * ways across the two platforms.
+ *
+ * Led like the numbers above it rather than like the prose it is made of, because it is a line of
+ * one stack and not a sentence under one. Declared here and not on the span alone: the line the
+ * span lands on takes its height from the strut of the cell around it.
+ *
+ * nowrap, so the two words break together or not at all.
+ */
+.table .route-boundary {
+  display: block;
+  white-space: nowrap;
+  line-height: var(--leading-tight);
+  font-size: var(--text-2);
+  color: var(--color-route-boundary);
+}
+
+/*
+ * Why a payment was refused: a sentence somebody wrote, standing under the row it explains.
+ *
+ * It was a sixth column, and a sentence has no width to be given: it took its share out of the
+ * route stack, which is the tightest column this table has, and left both account numbers to
+ * fight over what remained. The workstation had worked this out first and the customer screens
+ * take its form, one row group per payment with the note as a second row of it.
+ *
+ * The two rules are what make the pair read as one thing rather than as two rows that happen to
+ * be adjacent. The divider the payment's own cells draw is taken away where a note follows, so
+ * the group is closed by the note's edge instead; and the note starts where the payment's line
+ * of figures ends, with no gap of its own, because a gap there would read as the start of the
+ * next payment.
+ *
+ * No ink of its own, and that is a decision rather than an omission. A step down was tried at
+ * the secondary text and is not a step a reader can see on this skin: #e5e7eb against the row's
+ * #f9fafb is 1.1:1, so the rule cost a line of stylesheet and bought a difference nothing on
+ * screen showed. The step below that, the muted ink, is visible and is the wrong direction: a
+ * refusal is the exceptional row in ten and this sentence is the whole of the explanation, so
+ * setting it quieter than the nine ordinary rows around it inverts the rule the tones and the
+ * boundary mark are both written to. The workstation leaves it at its own row ink for the same
+ * reason.
+ *
+ * A payment that was not declined has no such row at all, so nothing here has to stand in for
+ * an absent value.
+ */
+.table tr:has(+ .history-note) > td {
+  border-bottom: 0;
+}
+
+.table .history-note > td {
+  padding-top: 0;
 }
 
 .table tbody tr:hover {

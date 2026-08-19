@@ -34,14 +34,22 @@ class DemoScenarioTest {
     }
 
     @Test
-    void seedCreatesTheCustomerWithTwoAccountsAndTwoBeneficiaries() {
+    void seedCreatesTheCustomerWithTwoAccountsAndThreeBeneficiaries() {
         int customerId = scenario.seed();
 
         Customer customer = infra.customers.byId(customerId).orElseThrow();
         assertEquals(2, customer.accountIds().size());
-        assertEquals(2, customer.beneficiaries().size());
+        assertEquals(3, customer.beneficiaries().size());
         assertTrue(customer.beneficiaries().stream().anyMatch(Beneficiary::trusted));
         assertTrue(customer.beneficiaries().stream().anyMatch(b -> !b.trusted()));
+        // The third payee is the customer's own second account, and it is the only one whose IBAN
+        // this bank holds. Without it no seeded payment stays inside the bank, so the credit leg
+        // is never taken and every screen that says where the money went has one answer for every
+        // row it can draw.
+        assertTrue(
+                customer.beneficiaries().stream()
+                        .anyMatch(b -> b.iban().equals(DemoScenario.SECONDARY_IBAN)),
+                "One payee must be an account this bank holds");
     }
 
     @Test
@@ -50,21 +58,25 @@ class DemoScenarioTest {
 
         Account primary = infra.accounts.byIban(DemoScenario.PRIMARY_IBAN).orElseThrow();
 
+        // Two settled payments of the same amount leave this account: one to a foreign IBAN and
+        // one to the customer's own second account. Both are debited the same way, and the second
+        // one is also credited somewhere this bank can see, which the next test checks.
         Money amount = Money.czk(1_500);
-        Money expected = Money.czk(25_000).minus(amount.plus(feePolicy.compute(amount)));
+        Money charge = amount.plus(feePolicy.compute(amount));
+        Money expected = Money.czk(25_000).minus(charge).minus(charge);
         assertEquals(expected, primary.balance(),
-                "The opening balance must be reduced by the settled amount plus the computed fee");
+                "The opening balance must be reduced by each settled amount plus its computed fee");
     }
 
     @Test
-    void seedProducesOneSettledAndOnePendingTransferPlusAnAlert() {
+    void seedProducesTwoSettledAndOnePendingTransferPlusAnAlert() {
         scenario.seed();
 
         Account primary = infra.accounts.byIban(DemoScenario.PRIMARY_IBAN).orElseThrow();
         List<Transfer> history = infra.transfers.bySourceAccount(primary.id());
 
-        assertEquals(2, history.size());
-        assertEquals(1, history.stream().filter(t -> t.status() == TransferStatus.SENT).count());
+        assertEquals(3, history.size());
+        assertEquals(2, history.stream().filter(t -> t.status() == TransferStatus.SENT).count());
         // Held, not waiting. A seeded alert on a transfer the customer could confirm at will
         // would be exactly the shape the review gate exists to make impossible.
         assertEquals(1, history.stream().filter(t -> t.status() == TransferStatus.HELD_FOR_REVIEW).count());
@@ -84,11 +96,39 @@ class DemoScenarioTest {
     }
 
     @Test
-    void theSecondaryAccountIsUntouched() {
+    void theSecondaryAccountIsCreditedByThePaymentThatStaysInTheBank() {
         scenario.seed();
 
         Account secondary = infra.accounts.byIban(DemoScenario.SECONDARY_IBAN).orElseThrow();
-        assertEquals(Money.czk(5_000), secondary.balance());
+        // The credit leg, and the only place in the seeded data where it is taken. The amount
+        // arrives whole: a fee is charged to the account that pays, not to the one that is paid.
+        assertEquals(Money.czk(5_000).plus(Money.czk(1_500)), secondary.balance(),
+                "A payment to an account this bank holds must be credited in the same unit of "
+                        + "work as the debit, rather than handed to the network");
+    }
+
+    @Test
+    void thePaymentThatStaysInTheBankOwesTheNetworkNothing() {
+        scenario.seed();
+
+        Account primary = infra.accounts.byIban(DemoScenario.PRIMARY_IBAN).orElseThrow();
+        Account secondary = infra.accounts.byIban(DemoScenario.SECONDARY_IBAN).orElseThrow();
+
+        // The dispatch state is what separates the two settled payments, and it is the field the
+        // history screens read to say whether the money left. Reading an absent one as "stayed
+        // here" is what the screens must not do: absent also means a row older than that column.
+        Transfer internal = infra.transfers.bySourceAccount(primary.id()).stream()
+                .filter(t -> t.status() == TransferStatus.SENT)
+                .filter(t -> t.targetIbanSnapshot().equals(secondary.iban().value()))
+                .findFirst().orElseThrow();
+        Transfer external = infra.transfers.bySourceAccount(primary.id()).stream()
+                .filter(t -> t.status() == TransferStatus.SENT)
+                .filter(t -> !t.targetIbanSnapshot().equals(secondary.iban().value()))
+                .findFirst().orElseThrow();
+
+        assertNull(internal.dispatchState(), "An intra-bank payment reaches no gateway");
+        assertEquals(DispatchState.PENDING, external.dispatchState(),
+                "A payment that leaves the bank owes the network a dispatch");
     }
 
     @Test
@@ -110,7 +150,7 @@ class DemoScenarioTest {
 
         assertEquals(1, customers);
         assertEquals(2, accounts);
-        assertEquals(2, transfers);
+        assertEquals(3, transfers);
         assertEquals(1, alerts);
     }
 

@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 import static cz.vsb.minibank.api.AuthHelpers.requireCustomerId;
 
@@ -158,8 +159,15 @@ public class AuthorizationController {
                 ibans.put(a.id(), a.iban().value());
             }
 
+            // Raised once for the page for the same reason as the map above it. Only a payment
+            // that has not settled asks the store whether its counterparty is ours, and the
+            // accounts one customer pays repeat, so a page of a hundred rows is nowhere near a
+            // hundred lookups.
+            Map<String, Boolean> holds = new HashMap<>();
+            Predicate<String> inBankNow = iban -> holds.computeIfAbsent(iban, this::holdsIban);
+
             return pageOf(customerId, EVERY_STATUS, wantedPage, wantedSize,
-                    t -> toHistoryItem(t, ibans));
+                    t -> toHistoryItem(t, ibans, inBankNow));
         }
     }
 
@@ -224,7 +232,9 @@ public class AuthorizationController {
      * one per transfer. A payment from an account outside that map is not a row this caller may
      * be shown at all, so it is refused rather than printed without its origin.
      */
-    private static HistoryItemDto toHistoryItem(Transfer t, Map<Integer, String> ibans) {
+    private static HistoryItemDto toHistoryItem(Transfer t,
+                                                Map<Integer, String> ibans,
+                                                Predicate<String> inBankNow) {
         String fromIban = ibans.get(t.sourceAccountId());
         if (fromIban == null) {
             throw new DataIntegrityException(
@@ -239,8 +249,20 @@ public class AuthorizationController {
                 t.status().name(),
                 fromIban,
                 t.targetIbanSnapshot(),
+                HistoryItemDto.isToIbanInBank(t, inBankNow),
                 t.declineReason()
         );
+    }
+
+    /**
+     * Whether this bank holds the account behind an IBAN, in the form
+     * {@link HistoryItemDto#isToIbanInBank} asks for it.
+     *
+     * Wraps the one definition of the in-bank question rather than restating it: see
+     * AccountRepository.inBankByIban, which the settle path itself goes through.
+     */
+    private boolean holdsIban(String iban) {
+        return accounts.inBankByIban(iban).isPresent();
     }
 
     /**
@@ -336,6 +358,7 @@ public class AuthorizationController {
                 acc.iban().value(),
                 MoneyDto.of(acc.balance()),
                 t.targetIbanSnapshot(),
+                HistoryItemDto.isToIbanInBank(t, this::holdsIban),
                 MoneyDto.of(t.amount()),
                 MoneyDto.of(fee),
                 t.status().name(),

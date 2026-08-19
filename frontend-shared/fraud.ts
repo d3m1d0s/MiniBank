@@ -73,6 +73,8 @@ export interface TransferInfo {
     fromIban: string;
     fromBalance: Money;
     toIban: string;
+    /** Whether this bank holds the account named above. Same fact, same rule, as on HistoryItem. */
+    toIbanInBank: boolean;
     amount: Money;
     feeAmount: Money;
     createdAt: string | null;
@@ -95,6 +97,22 @@ export interface HistoryItem {
     status: string;
     fromIban: string;
     toIban: string;
+    /**
+     * Whether this bank holds the account named above, which is what decides whether the money
+     * stayed inside or was owed to the payment network.
+     *
+     * An answer, not the two halves it is made of. The server has both: a settled payment
+     * registers a dispatch obligation exactly when its destination was not ours, so an empty
+     * dispatch state on a SENT transfer is the record that the credit happened here, and anything
+     * that has not settled has no such record and is answered from the live store instead.
+     * Sending the raw dispatch state would put that rule in every desk that reads this row, in the
+     * same words, which is the duplication this module and the field list next door exist to end.
+     *
+     * Never null and never a third value: an IBAN either is one of ours at the moment this row is
+     * read, or it is not. Which of the two is worth saying out loud on a row, and in what words,
+     * is settled in glossary.ts.
+     */
+    toIbanInBank: boolean;
     declineReason: string | null;
 }
 

@@ -16,6 +16,7 @@ import { formatMoney } from './money';
 import { describeApiErrorLines } from '@shared/apiErrors';
 import {
     authMethodLabel,
+    bankBoundaryLabel,
     describeDeclineReason,
     transferStatusLabel,
     transferStatusTone,
@@ -438,10 +439,20 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                                 </span>
                                             )}
                                         </p>
+                                        {/*
+                                          Where the account is held, beside the account it is
+                                          about. A payment that has left the bank cannot be pulled
+                                          back, and this panel stands over the Cancel button, so
+                                          the fact belongs on the screen where that choice is made.
+                                          Both readings are printed here: a panel listing facts one
+                                          to a line is not scanned the way a column is, and the
+                                          parenthesis is the one the From line above already uses.
+                                        */}
                                         <p>
                                             <span className="fact-label">To:</span>{' '}
                                             <span className="fact-value">
-                                                {formatIban(details.toIban)}
+                                                {formatIban(details.toIban)} (
+                                                {bankBoundaryLabel(details.toIbanInBank)})
                                             </span>
                                         </p>
                                         <p>

@@ -3,6 +3,10 @@ package cz.vsb.minibank.api.dto;
 /**
  * Detailed view of a single transfer, including authorization metadata.
  *
+ * @param toIbanInBank   whether the account this payment names is one this bank holds, which is
+ *                       what decides whether the money stayed inside or was owed to the payment
+ *                       network. Derived rather than raw, and stated once for all three records
+ *                       that carry it - see {@link HistoryItemDto#isToIbanInBank}.
  * @param feeAmount      what this transfer was charged once it has settled, and a quote from the
  *                       current fee policy until then - see Transfer.feeFor
  * @param settledAt      when the money moved, or null on a transfer that has not settled
@@ -25,6 +29,7 @@ public record TransferDetailsDto(
         String fromIban,
         MoneyDto fromBalance,
         String toIban,
+        boolean toIbanInBank,
         MoneyDto amount,
         MoneyDto feeAmount,
         String status,

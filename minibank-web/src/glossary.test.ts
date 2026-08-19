@@ -3,6 +3,8 @@ import {
     alertStateLabel,
     alertStateTone,
     authMethodLabel,
+    bankBoundaryLabel,
+    bankBoundaryMark,
     CUSTOMER_HISTORY_TITLE,
     decisionLabel,
     describeDeclineReason,
@@ -10,7 +12,12 @@ import {
     transferStatusLabel,
     transferStatusTone,
 } from '@shared/glossary';
-import { FIELD_LABEL, HISTORY_FIELDS } from '@shared/fields';
+import {
+    FIELD_LABEL,
+    HISTORY_COLUMN_FIELDS,
+    HISTORY_FIELDS,
+    HISTORY_NOTE_FIELD,
+} from '@shared/fields';
 import type { HistoryItem } from '@shared/fraud';
 
 /**
@@ -166,6 +173,85 @@ describe('which outcome is marked out', () => {
     });
 });
 
+/**
+ * The second axis that runs down a history row, and the one that had no channel left.
+ *
+ * Whether the bank holds the account a payment names is not a state of the payment, so it cannot
+ * borrow the four tones above: they answer whether the row is still somebody's problem, and a
+ * fifth colour beside them would be read as a fifth answer to that question. Weight and ink in the
+ * same cell are spoken for as well, by the account the alert was raised on. What is left is a
+ * word, and these are the rules that word has to keep.
+ */
+describe('where the account a payment names is held', () => {
+    it('says nothing on a row whose money left the bank', () => {
+        // This file's own restraint, applied to a second axis: the ordinary is quiet. This bank's
+        // customers pay outward almost always, so a word here would stand on every row of every
+        // table, and a mark that is never absent marks nothing.
+        expect(bankBoundaryMark(false)).toBe('');
+    });
+
+    it('marks the rare row where the money never left the bank', () => {
+        // The exception in this dataset, and the reading worth a reader's attention: credited to
+        // an account here in the same unit of work as the debit, with no gateway in it at all.
+        expect(readable(bankBoundaryMark(true))).toBe(true);
+    });
+
+    it('states the fact either way where a panel lists facts one to a line', () => {
+        // A definition list is not scanned, so it has no column shape to spoil, and there the
+        // internal reading is worth printing rather than left as the absence of the other one.
+        expect(readable(bankBoundaryLabel(true))).toBe(true);
+        expect(readable(bankBoundaryLabel(false))).toBe(true);
+        expect(bankBoundaryLabel(true)).not.toBe(bankBoundaryLabel(false));
+    });
+
+    it('spells the internal case one way, on a row and in a panel alike', () => {
+        // An analyst moves between the queue and the panel beside it several times a case. Two
+        // spellings of one fact would be read as two facts.
+        expect(bankBoundaryMark(true)).toBe(bankBoundaryLabel(true));
+    });
+
+    it('names where an account is rather than what the money did', () => {
+        // "Left the bank" would be a lie on a payment still held for review, and payments still
+        // held for review are most of what a fraud desk looks at. What is true of every row,
+        // decided or not, is which bank holds the number printed on it.
+        expect(bankBoundaryLabel(true).toLowerCase()).toContain('bank');
+        expect(bankBoundaryLabel(false).toLowerCase()).toContain('bank');
+    });
+
+    it('fits beside an account number in the tightest cell either application has', () => {
+        // It sits on the beneficiary line of the route stack, under a source line, in a cell that
+        // already holds twenty-nine characters of grouped IBAN. The literal is deliberately not
+        // pinned here, only the room it has to fit into.
+        expect(bankBoundaryLabel(true).length).toBeLessThanOrEqual(16);
+        expect(bankBoundaryLabel(false).length).toBeLessThanOrEqual(16);
+    });
+
+    it('cannot be mistaken for a status word standing in the same row', () => {
+        // Both axes are words on one line now that colour is spoken for. A word shared with the
+        // status column would be read as an answer to the status column.
+        const statuses = [
+            ...TRANSFER_STATUSES.flatMap((s) => [
+                transferStatusLabel(s, 'customer'),
+                transferStatusLabel(s, 'analyst'),
+            ]),
+            ...ALERT_STATES.map((s) => alertStateLabel(s)),
+        ];
+
+        expect(statuses).not.toContain(bankBoundaryLabel(true));
+        expect(statuses).not.toContain(bankBoundaryLabel(false));
+    });
+
+    it('has two readings, and the mark is one of them or nothing', () => {
+        // Two and not three. A payment that has not settled is answered from the live account
+        // store when the row is read, so "not decided yet" is not a state this pair has to carry,
+        // and no screen has to draw a third thing.
+        expect([bankBoundaryMark(true), bankBoundaryMark(false)]).toEqual([
+            bankBoundaryLabel(true),
+            '',
+        ]);
+    });
+});
+
 describe('why a payment was declined', () => {
     it.each([
         ['OTP failed', 'one-time password'],
@@ -238,7 +324,9 @@ describe('what one row of payment history says', () => {
         expect(Object.keys(FIELD_LABEL)).not.toContain('toIban');
     });
 
-    it('is still six facts, which is how many columns the desks draw', () => {
+    it('is still six facts, each named once', () => {
+        // Six facts and no longer six columns: one of them is prose and is drawn under the row it
+        // explains. Which one, and why, is the group below.
         expect(HISTORY_FIELDS).toHaveLength(6);
         expect(new Set(HISTORY_FIELDS).size).toBe(HISTORY_FIELDS.length);
     });
@@ -267,5 +355,73 @@ describe('what one row of payment history says', () => {
         };
 
         expect(withoutSource.toIban).not.toBe('');
+    });
+
+    it('is handed the answer about the beneficiary account, not the two halves of it', () => {
+        // The server decides this from a settled payment's dispatch record or, for one that has
+        // not settled, from the live account store. Sending the raw dispatch state instead would
+        // put that rule in every desk that reads a row, in the same words, which is the
+        // duplication this module and the glossary exist to end. Checked by the build for the
+        // same reason as the row above: vitest strips the types.
+        // @ts-expect-error a row that cannot say where the beneficiary account is held is not one
+        const withoutBoundary: HistoryItem = {
+            id: 1,
+            createdAt: '2026-08-13T18:52:20Z',
+            amount: { amount: '1000.00', currency: 'CZK' },
+            status: 'SENT',
+            fromIban: 'CZ6508000000192000145399',
+            toIban: 'CZ4308000000192000145407',
+            declineReason: null,
+        };
+
+        expect(withoutBoundary.toIban).not.toBe('');
+    });
+});
+
+/**
+ * How the six facts are split between the two shapes a history table draws.
+ *
+ * The workstation had already worked this out and the customer application had not: it ran the
+ * whole field list out as columns and paid for the sixth in the route cell, which is the tightest
+ * one it has. One form for both, declared in fields.ts rather than decided again in each screen,
+ * because a split that both desks make and neither states is how the two of them came apart the
+ * first time.
+ */
+describe('the one history fact that is prose', () => {
+    it('is the decline reason, and it is not a column', () => {
+        // A sentence somebody wrote has no width to be given, and sixty pixels is not a width for
+        // one.
+        expect(HISTORY_NOTE_FIELD).toBe('declineReason');
+        expect(HISTORY_COLUMN_FIELDS).not.toContain(HISTORY_NOTE_FIELD);
+    });
+
+    it('is out of the header and not out of the row', () => {
+        // It is still a fact of the payment and still needs its word: the row under the payment
+        // prints the label in front of the sentence, because nothing above it says what it is.
+        expect(HISTORY_FIELDS).toContain(HISTORY_NOTE_FIELD);
+        expect(FIELD_LABEL[HISTORY_NOTE_FIELD].length).toBeGreaterThan(0);
+    });
+
+    it('leaves every other fact a column, in the order the fields are read', () => {
+        // Derived from the field list rather than kept by hand. A seventh field would turn up as a
+        // column on both platforms on the next build, where a hand kept list of five would leave
+        // it out in silence.
+        expect(HISTORY_COLUMN_FIELDS).toEqual(
+            HISTORY_FIELDS.filter((f) => f !== HISTORY_NOTE_FIELD),
+        );
+        expect(HISTORY_COLUMN_FIELDS).toHaveLength(HISTORY_FIELDS.length - 1);
+    });
+
+    it('loses nothing between the field list and the two shapes', () => {
+        expect([...HISTORY_COLUMN_FIELDS, HISTORY_NOTE_FIELD].sort()).toEqual(
+            [...HISTORY_FIELDS].sort(),
+        );
+    });
+
+    it('frees the column the route stack is short of, and only that one', () => {
+        // The point of the move, stated as the number it changed: five headings where the customer
+        // application drew six, and the space goes to the cell holding two account numbers.
+        expect(HISTORY_COLUMN_FIELDS).toHaveLength(5);
+        expect(HISTORY_COLUMN_FIELDS).toContain('route');
     });
 });

@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import static cz.vsb.minibank.api.AuthHelpers.requireRole;
@@ -364,6 +365,7 @@ public class FraudController {
                 fromIban,
                 MoneyDto.of(source.balance()),
                 t.targetIbanSnapshot(),
+                HistoryItemDto.isToIbanInBank(t, this::holdsIban),
                 MoneyDto.of(t.amount()),
                 fee,
                 createdAtStr,
@@ -405,6 +407,12 @@ public class FraudController {
             ibans.put(a.id(), a.iban().value());
         }
 
+        // One answer per distinct counterparty for the whole page. Only a payment that has not
+        // settled reaches the store at all, and the accounts a customer pays repeat, so this is
+        // what keeps ten rows from becoming ten lookups on the connection this read already shares.
+        Map<String, Boolean> holds = new HashMap<>();
+        Predicate<String> inBankNow = iban -> holds.computeIfAbsent(iban, this::holdsIban);
+
         // An empty status set is the repository's word for every status, which is what a history
         // means. See TransferRepository.bySourceAccountsNewestFirst.
         return transfers.bySourceAccountsNewestFirst(ids, Set.of(), 0, 10).stream()
@@ -415,9 +423,21 @@ public class FraudController {
                         t.status().name(),
                         ibans.get(t.sourceAccountId()),
                         t.targetIbanSnapshot(),
+                        HistoryItemDto.isToIbanInBank(t, inBankNow),
                         t.declineReason()
                 ))
                 .toList();
+    }
+
+    /**
+     * Whether this bank holds the account behind an IBAN, in the form
+     * {@link HistoryItemDto#isToIbanInBank} asks for it.
+     *
+     * Wraps the one definition of the in-bank question rather than restating it: see
+     * AccountRepository.inBankByIban, which the settle path itself goes through.
+     */
+    private boolean holdsIban(String iban) {
+        return accounts.inBankByIban(iban).isPresent();
     }
 
     /**

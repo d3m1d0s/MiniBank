@@ -128,6 +128,21 @@
      its own: an alert nobody has picked up is not an error and not a warning. */
   --color-tone-open: var(--color-success-text);
 
+  /* The ink of the word that says a payment left the bank, set after the recipient number in
+     the route stack. Its own role for the reason the dark theme gives, and borrowing the muted
+     ink the way --color-tone-open borrows the green above.
+
+     Measured on the three grounds a history row paints here, two of them read off the running
+     page rather than assumed: the white row, the #fafafa zebra it alternates with, and the
+     #ededed hover. #4d4d4d gives 8.45, 8.10 and 7.22, well clear of the 4.5:1 a word owes.
+     --color-border at #808080 fails all three at 3.95, 3.78 and 3.37.
+
+     Colour is not what separates this word from the number beside it, and on this skin it
+     cannot be: muted is #4d4d4d against the recipient's #414141, a step this file already
+     records as one a reader cannot use. The word is separated by being a word, so the skin
+     owes it a size step and not a hue. */
+  --color-route-boundary: var(--color-text-muted);
+
   /* ---- shadow ---- */
   --shadow-shell: 0 10px 35px rgb(0 0 0 / 0.15);
 
@@ -138,15 +153,38 @@
    *      files carry identical name lists.
    */
   --size-shell-max: 1280px;
+  /* The web's number, and by the argument the two names below already use rather than by
+     copying: the reading column is sized for the widest thing it has to hold, which is the
+     nine-column alert queue, and that queue has the same nine columns in a light window as in
+     a dark page. No call site here yet; the desktop customer quadrant is what will want it. */
+  --size-content-max: 1080px;
   /* No call site here yet. The customer quadrant will need both: a column of labelled
      controls stops being one past about the same width on either platform, and a line of
      text is read by the same eye, so the two numbers are the web's and deliberately so. */
   --size-form-max: 740px;
   --size-prose-max: 66ch;
   --size-dialog-max: 560px;
+  /* The height the sign-in window actually has at rest, measured on the running application at
+     1440x900, so the shell can offset by it and hold the dialog still while a failure message
+     grows under the password field. NOT --size-dialog-max, which is the width: standing the
+     width in for the height is what put the web dialog 68px above centre.
+
+     No call site yet, and the missing call site is a known defect rather than an absence: this
+     window still jumps 37px when the password is wrong, because fraud.css has no
+     .shell:has(.window--login) anchor. The web side fixed that and this one did not. */
+  --size-dialog-nominal: 362px;
   --size-nav-column: 260px;
   --size-label-min: 60px;
   --size-amount-field: 140px;
+  /* The same amount at the lead rung of the type scale, where a payment form sets it. The web
+     pair is 128px and 160px, so the lead rung costs 32px of digits; this skin's field is 140px
+     at the body rung because its control furniture is 12px wider, and that furniture does not
+     grow with the rung. No call site yet: the payment form lives in the customer quadrant. */
+  --size-amount-field-lead: 172px;
+  /* A short optional note, not a document, held to a measure so the least important field on a
+     payment form stops being the largest object on it. In ch for the same reason as the prose
+     measure above, and the same number as the web's because it measures text and not idiom. */
+  --size-note-max: 47ch;
   --size-otp-field: 180px;
   --size-textarea-min: 80px;
   --size-textarea-max: 200px;

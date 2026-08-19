@@ -95,6 +95,16 @@ export interface TransferDetails {
     fromBalance: Money;
     toIban: string;
     /**
+     * Whether this bank holds the account named above, which is what decides whether the money
+     * stayed inside or was owed to the payment network.
+     *
+     * The same derived answer HistoryItem carries, sent by the same rule and for the same reason:
+     * the server has a record for a settled payment and a live lookup for one that has not
+     * settled, and handing a screen the two halves would put that rule in every screen that draws
+     * a destination. See the field of this name in @shared/fraud for the whole of it.
+     */
+    toIbanInBank: boolean;
+    /**
      * What the transfer was charged once it has settled, and a quote from the current fee
      * policy until then. This used to be recomputed on every read, so it could restate what
      * a customer was charged last month the day the fee policy changed.

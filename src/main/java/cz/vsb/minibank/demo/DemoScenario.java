@@ -139,8 +139,16 @@ public final class DemoScenario {
 
         addBeneficiary(customerId, "Bob Trusted", TRUSTED_BENEFICIARY_IBAN, true);
         Beneficiary risky = addBeneficiary(customerId, "Mallory Risky", UNTRUSTED_BENEFICIARY_IBAN, false);
+        // The customer's own second account, saved as a payee like any other. Without it the
+        // dataset had no payment that stays inside the bank at all: both beneficiaries above are
+        // foreign IBANs, so every seeded and every hand-made payment left, the credit leg was
+        // never taken, and any screen that says where the money went had one answer for every row
+        // it will ever draw. A distinction the data cannot exercise is a distinction nobody can
+        // check, and this is the showcase for a fraud desk.
+        Beneficiary own = addBeneficiary(customerId, "Own savings", SECONDARY_IBAN, true);
 
         settleTransfer(primary, risky);
+        settleTransfer(primary, own);
         flagTransfer(primary, risky);
 
         return customerId;
@@ -171,12 +179,11 @@ public final class DemoScenario {
      */
     private void settleTransfer(Account source, Beneficiary target) {
         Transfer transfer = newTransfer(source, target, SETTLED_AMOUNT);
-        // The seed asks the same question the services ask instead of hard-coding null, so it
-        // stays correct if the dataset ever opens an account at a beneficiary IBAN. The two
+        // The seed asks the same question the services ask instead of hard-coding null. The two
         // accounts above are created in this very unit of work and have no rows yet, which is
-        // why inBankByIban consults the identity map before the store. Today the answer is
-        // nothing: both beneficiary IBANs are beneficiaries and never accounts, so every
-        // seeded transfer stays external and no demo balance moves.
+        // why inBankByIban consults the identity map before the store. One payee is now the
+        // customer's own second account, so this answers with a destination for that one and
+        // takes the credit leg, and answers with nothing for the foreign IBANs.
         Account destination = accounts.inBankByIban(target.iban().value()).orElse(null);
         // Its own creation instant is the settlement instant: the seed orders and pays in one
         // step, so there is exactly one moment here and no second reading to disagree with.

@@ -56,6 +56,10 @@
                                          and it needs a surface to say so. In dark,
                                          furniture sits ABOVE content; in light it
                                          sits below.                                */
+  /* The hover step for the header bar, which is chrome rather than a control surface and so
+     does not take --color-surface-hover below: that value is mixed against the shell, and
+     against the darker chrome it barely moves. */
+  --color-surface-chrome-hover: #384c7c;
   --color-surface-hover: #22304f;     /* was three near values: #1d2736, #1e293b,
                                          #172236                                    */
   --color-surface-disabled: #1e2740;  /* only for controls whose rest fill is an
@@ -100,10 +104,6 @@
    *      hover does not change at all.
    */
   --color-accent: #2563eb;
-  /* The hover step for the header bar, which is chrome rather than a control surface and so
-     does not take --color-surface-hover: that value is mixed against the shell, and against
-     the darker chrome it barely moves. */
-  --color-surface-chrome-hover: #384c7c;
   --color-accent-hover: #1d4ed8;
   --color-accent-active: #1a43bd;
   --color-accent-line: #3b82f6;       /* focus ring, focused field edge, primary edge */
@@ -152,6 +152,23 @@
      picked up is not an error and not a warning, and this palette already carries a green that
      clears 4.5:1 on every surface a status word lands on. */
   --color-tone-open: var(--color-success-text);
+
+  /* The ink of the word that says a payment left the bank, set after the recipient number in
+     the route stack. The word is glossary.ts's answer to a fact that had no channel left:
+     colour is spent on the four state tones and weight and ink on the alerted account, so the
+     mark is language, and language is bound by 4.5:1 rather than the 3:1 a rule would owe.
+
+     A role of its own rather than a call site writing --color-text-muted directly, borrowed
+     the way --color-tone-open borrows the success green above and for the same reason: the
+     muted ink carries a dozen quiet things, and tuning any of them must not silently move a
+     mark whose contrast was measured. Nothing on screen changes today.
+
+     Measured on the two grounds a history row actually paints, which is what the running page
+     reports rather than what the stylesheet implies: the raised row #1b2742 and its hover
+     #22304f. #9ca3af gives 5.84 and 5.16. It would fall to 4.35 and 3.90 under a selection
+     tint, and that is recorded rather than designed around because no table carrying a route
+     column is selectable; a queue that grows one has to revisit this value, not reuse it. */
+  --color-route-boundary: var(--color-text-muted);
 
   /* ---- shadow ---- */
   --shadow-shell:
