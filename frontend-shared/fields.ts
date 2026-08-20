@@ -57,11 +57,19 @@ export type AlertQueueField =
  * repeat the account number to have anything to attach it to. The wire calls it `toIbanInBank`,
  * the words for it are in glossary.ts, and it is the one thing on this row that the mapped type
  * below cannot oblige a desk to render.
+ *
+ * The fee goes the other way, and the two together say where the line is. The route stayed one
+ * field because two account numbers are one fact, the journey of the money. What the bank charged
+ * for that journey is a second fact about the same payment, told in its own money value and true
+ * or absent independently of the amount, so it is a field of its own. Being a field is not being a
+ * column: it is the second line of the amount it was added to, and the list below says which of
+ * the two it takes.
  */
 export type HistoryField =
     | 'id'
     | 'createdAt'
     | 'amount'
+    | 'fee'
     | 'status'
     | 'route'
     | 'declineReason';
@@ -88,13 +96,14 @@ export const HISTORY_FIELDS: readonly HistoryField[] = [
     'id',
     'createdAt',
     'amount',
+    'fee',
     'status',
     'route',
     'declineReason',
 ];
 
 /**
- * The one history field that is prose, and therefore the one that is not a column.
+ * The one history field that is prose, which is one of the two reasons a field takes no column.
  *
  * A decline reason is a sentence somebody wrote, and a sentence has no width to be given. The
  * workstation had already worked this out and put it in a row of its own under the payment it
@@ -105,15 +114,37 @@ export const HISTORY_FIELDS: readonly HistoryField[] = [
  */
 export const HISTORY_NOTE_FIELD: HistoryField = 'declineReason';
 
+/** The fee, which is a fact of the payment and shares the cell of the amount it was added to. */
+export const HISTORY_FEE_FIELD: HistoryField = 'fee';
+
+/**
+ * The history fields that open no column of their own, and they do not for two different reasons.
+ *
+ * The decline reason is prose and a sentence has no width to be given, so it stands under the row
+ * it explains. The fee is a number and has a width, but it is the second line of the amount it was
+ * added to: read as a column of its own it would be a second money value about the same payment,
+ * and the customer would have to add the two to learn what left the account.
+ */
+export const HISTORY_NON_COLUMN_FIELDS: readonly HistoryField[] = [
+    HISTORY_FEE_FIELD,
+    HISTORY_NOTE_FIELD,
+];
+
 /**
  * The history fields that do take a column, in the same reading order.
  *
- * Derived from the full list instead of written out again. A field added to the union turns up
- * here as a column on both platforms on the next build, whereas a hand kept list of five would
- * leave it out in silence, and silence is the failure this whole module was built against.
+ * Derived by subtracting the named set above rather than written out again, which is a weaker
+ * promise than this comment used to make and the honest one: a field added to the union is NOT a
+ * column on both platforms on the next build, it is a column only if nobody put it in
+ * HISTORY_NON_COLUMN_FIELDS. What survives the change is the guarantee that matters, and it never
+ * lived here: the mapped type HistoryRowCells still obliges every desk to build a value for every
+ * field, so a field this list leaves out is still a build error until each of the three tables
+ * says where it goes. A field that wants a column of its own gets one by being absent from the set
+ * above, and a field that wants none has to be named there, out loud, in one place for both
+ * platforms.
  */
 export const HISTORY_COLUMN_FIELDS: readonly HistoryField[] = HISTORY_FIELDS.filter(
-    (f) => f !== HISTORY_NOTE_FIELD,
+    (f) => !HISTORY_NON_COLUMN_FIELDS.includes(f),
 );
 
 /**
@@ -131,6 +162,16 @@ export const HISTORY_COLUMN_FIELDS: readonly HistoryField[] = HISTORY_FIELDS.fil
  * `route` is labelled with both ends of the journey rather than the one the old `To` named. The
  * heading has to say the order the two account numbers are in, because nothing else on the row
  * does: the cell prints the source above the beneficiary and no per-row wording repeats it.
+ *
+ * `fee` has a word here although it heads no column, and that is not an oversight. Its line is read
+ * out on the row itself, to a reader who hears "plus 15,00 CZK" under the amount and has nothing
+ * else to tell them what the number is; a field with no column needs its word more than one with a
+ * heading, not less.
+ *
+ * The word is `Fee` and not `Charged`, and the difference is the field's rule. On a payment that
+ * settled the number is what was taken; on one that has not, it is what the tariff would take, and
+ * the status in the next cell is what says which. One word that covers both is the only honest
+ * heading for a field with two readings - see HistoryItemDto on the wire, which carries the rule.
  */
 export const FIELD_LABEL: Record<AlertQueueField | HistoryField, string> = {
     alertCode: 'Alert',
@@ -144,9 +185,33 @@ export const FIELD_LABEL: Record<AlertQueueField | HistoryField, string> = {
     createdAt: 'Created',
 
     id: 'Payment',
+    fee: 'Fee',
     status: 'Status',
     route: 'From / To',
     declineReason: 'Decline reason',
+};
+
+/**
+ * The headings of a history table, which differ from the map above in exactly one word.
+ *
+ * `amount` is one field name serving two different cells. In the alert queue it is the sum a
+ * payment moves and nothing else; in a history row it is that sum with what the payment cost
+ * printed under it, so the heading has to cover the pair. Renaming the shared entry would carry
+ * `Full Amount` onto the queue column, onto the amount filter and onto the figure at the head of
+ * the alert, none of which show a fee, so the exception is stated here rather than there.
+ *
+ * A total Record and not a partial one, for the reason the row types next door are total: a
+ * history field added tomorrow has to fail the build here rather than fall back to a heading
+ * somebody has to notice is the wrong one.
+ */
+export const HISTORY_FIELD_LABEL: Record<HistoryField, string> = {
+    id: FIELD_LABEL.id,
+    createdAt: FIELD_LABEL.createdAt,
+    amount: 'Full Amount',
+    fee: FIELD_LABEL.fee,
+    status: FIELD_LABEL.status,
+    route: FIELD_LABEL.route,
+    declineReason: FIELD_LABEL.declineReason,
 };
 
 /**

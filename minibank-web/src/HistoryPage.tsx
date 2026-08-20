@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import './App.css';
 import { fetchMyTransfers, type HistoryItem, type Page } from './api';
 import { formatMoney } from './money';
+import { formatFeeLine } from '@shared/money';
 import { describeApiErrorLines } from '@shared/apiErrors';
 import {
     bankBoundaryMark,
@@ -18,6 +19,7 @@ import {
 } from '@shared/format';
 import {
     FIELD_LABEL,
+    HISTORY_FIELD_LABEL,
     HISTORY_COLUMN_FIELDS,
     HISTORY_NOTE_FIELD,
     type HistoryField,
@@ -84,11 +86,27 @@ interface Props {
 function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCells<ReactNode> {
     const alerted = alertedIban !== null && h.fromIban === alertedIban;
     const boundary = bankBoundaryMark(h.toIbanInBank);
+    const feeLine = formatFeeLine(h.fee);
 
     return {
         id: formatTransferId(h.id),
         createdAt: formatDateTime(h.createdAt),
-        amount: formatMoney(h.amount),
+        // The amount the customer sent, and under it what the bank added to it. Two lines of one
+        // sum, stacked like the two account numbers next door, so the column can be read down.
+        // Every row has the second line: on a payment that never went out it is the price rather
+        // than a charge, and the status beside it is what says so.
+        amount: (
+            <>
+                <span className="amount-value">{formatMoney(h.amount)}</span>
+                {feeLine && (
+                    <span className="amount-fee">
+                        <span className="visually-hidden">{FIELD_LABEL.fee}: </span>
+                        {feeLine}
+                    </span>
+                )}
+            </>
+        ),
+        fee: feeLine,
         // The word, the colour and, for a refused payment, the sentence under it. Set in the
         // same grey as nine settled rows the word alone marks out nothing, which is what the
         // tone is for.
@@ -266,7 +284,7 @@ export default function HistoryPage({ role, brand, identity, onNavigate }: Props
                                             <tr>
                                                 {HISTORY_COLUMN_FIELDS.map((f) => (
                                                     <th key={f} className={CELL_CLASS[f]}>
-                                                        {FIELD_LABEL[f]}
+                                                        {HISTORY_FIELD_LABEL[f]}
                                                     </th>
                                                 ))}
                                             </tr>

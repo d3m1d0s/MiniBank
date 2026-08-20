@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseAmount, formatCzech, formatMoney } from '@shared/money';
+import { parseAmount, formatCzech, formatFeeLine, formatMoney } from '@shared/money';
 import { EMPTY_VALUE } from '@shared/format';
 
 /**
@@ -291,5 +291,62 @@ describe('showing an amount the server has already decided', () => {
         // 1 500,00 CZK. One convention, so the customer is not asked to match two.
         const shown = formatMoney({ amount: '1500.00', currency: 'CZK' });
         expect(value(shown.replace(' CZK', ''), CZ)).toBe(1500);
+    });
+});
+
+/**
+ * The fee as it stands under the amount it was added to, on all three history tables.
+ *
+ * The rule that decides whether the line exists at all lives in this one function rather than in
+ * each table, because it is the same rule three times and the answer is not obvious from the row:
+ * a fee of nothing and a fee of zero read alike in a cell and mean opposite things. The screens do
+ * nothing but ask whether they were given a string.
+ */
+describe('the fee that stands under an amount', () => {
+    it('marks it as added rather than as a second amount beside the first', () => {
+        // The sign carries the whole of the wording. Nothing on the row says the word "fee", the
+        // line is right aligned under the amount, and the plus is what makes it an addition to
+        // that number instead of an unlabelled money value in the same cell.
+        expect(formatFeeLine({ amount: '15.00', currency: 'CZK' })).toBe('+15,00 CZK');
+        expect(formatFeeLine({ amount: '125.01', currency: 'CZK' })).toBe('+125,01 CZK');
+    });
+
+    it('prints a charge of nothing, because that is an answer and not an absence', () => {
+        // "This one cost you nothing" is the thing the line exists to say, and it is the reading
+        // a customer is least able to work out for themselves. A blank here would ask them to
+        // know the tariff before they could tell a free payment from one whose fee went missing.
+        expect(formatFeeLine({ amount: '0.00', currency: 'CZK' })).toBe('+0,00 CZK');
+    });
+
+    it('prints no line at all where nothing has been charged yet', () => {
+        // The same distinction formatMoney states for null, and the reason the wire sends null
+        // rather than zero: a payment that has not settled has been charged nothing. Null and not
+        // a dash, because the cell above it is already occupied by the amount and a dash under it
+        // would be read as a charge the screen could not name.
+        expect(formatFeeLine(null)).toBeNull();
+        expect(formatFeeLine(undefined)).toBeNull();
+    });
+
+    it('groups its digits the same way the amount above it does', () => {
+        // Two lines of one sum, so a fee whose thousands are grouped differently from the amount
+        // is two numbers in one cell rather than one number and its addition.
+        expect(formatFeeLine({ amount: '1500.00', currency: 'CZK' })).toBe(`+1${NBSP}500,00 CZK`);
+    });
+
+    it('carries the currency, which is the defect the whole module exists to prevent', () => {
+        // This is the exact value that used to be printed bare under an amount that had a unit,
+        // on both fraud desks. It goes through formatMoney, so there is no call site left that
+        // could forget it, and the code stays the server's own the day a second currency appears.
+        expect(formatFeeLine({ amount: '25.00', currency: 'CZK' })).toContain('CZK');
+        expect(formatFeeLine({ amount: '10.00', currency: 'EUR' })).toBe('+10,00 EUR');
+    });
+
+    it('says the same digits the amount formatter would, with one character in front', () => {
+        // Derived rather than spelled out a second time: the point is that there is one rule for
+        // printing money and this line is that rule with a sign, not a second convention.
+        for (const amount of ['15.00', '0.00', '125.01', '1500.00', '10001.00']) {
+            const fee = { amount, currency: 'CZK' };
+            expect(formatFeeLine(fee)).toBe(`+${formatMoney(fee)}`);
+        }
     });
 });

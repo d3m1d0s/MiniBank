@@ -94,6 +94,20 @@ export interface HistoryItem {
     id: number;
     createdAt: string | null;
     amount: Money;
+    /**
+     * What this payment cost: the fee that was taken where it settled, and what the tariff would
+     * take where it has not.
+     *
+     * Never null, which is why it is not written `| null`. The wire used to carry the charge alone
+     * and send null for everything unsettled, and the tables then drew a fee line on some rows and
+     * none on others - on the desk, on most of them, since held and refused payments are what a
+     * desk reads. A column filled here and blank there does not read as two answers; it reads as
+     * one that went missing.
+     *
+     * The two readings are not distinguished by this field and are not meant to be. `status` is
+     * next to it in every table, and a fee beside DECLINED is a price rather than a receipt.
+     */
+    fee: Money;
     status: string;
     fromIban: string;
     toIban: string;

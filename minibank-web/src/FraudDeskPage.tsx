@@ -17,7 +17,7 @@ import {
 } from './api';
 import { amountRangeProblem } from '@shared/alertFilters';
 import { formatMoney, readerLocale } from './money';
-import { parseAmount } from '@shared/money';
+import { formatFeeLine, parseAmount } from '@shared/money';
 import { describeApiErrorLines } from '@shared/apiErrors';
 import {
     CUSTOMER_HISTORY_TITLE,
@@ -43,6 +43,7 @@ import {
 import {
     ALERT_QUEUE_FIELDS,
     FIELD_LABEL,
+    HISTORY_FIELD_LABEL,
     HISTORY_COLUMN_FIELDS,
     HISTORY_NOTE_FIELD,
     type AlertQueueField,
@@ -156,11 +157,27 @@ function queueCells(a: AlertQueueItem): QueueRowCells<ReactNode> {
 function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCells<ReactNode> {
     const alerted = alertedIban !== null && h.fromIban === alertedIban;
     const boundary = bankBoundaryMark(h.toIbanInBank);
+    const feeLine = formatFeeLine(h.fee);
 
     return {
         id: formatTransferId(h.id),
         createdAt: formatDateTime(h.createdAt),
-        amount: formatMoney(h.amount),
+        // The amount the customer sent, and under it what the bank added to it. Two lines of one
+        // sum, stacked like the two account numbers next door, so the column can be read down.
+        // Every row has the second line: on a payment the desk stopped it is the price rather than
+        // a charge, and the status beside it is what says so.
+        amount: (
+            <>
+                <span className="amount-value">{formatMoney(h.amount)}</span>
+                {feeLine && (
+                    <span className="amount-fee">
+                        <span className="visually-hidden">{FIELD_LABEL.fee}: </span>
+                        {feeLine}
+                    </span>
+                )}
+            </>
+        ),
+        fee: feeLine,
         status: (
             <span className={`tone-${transferStatusTone(h.status)}`}>
                 {transferStatusLabel(h.status, 'analyst')}
@@ -885,11 +902,13 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                             </p>
                                         ) : (
                                             <div className="table-wrapper gap-above-sm">
-                                                {/* Five columns from the shared field set, and
-                                                    the sixth field under them rather than beside
-                                                    them. The first was headed ID here and Payment
-                                                    on the workstation, for the same column holding
-                                                    the same TR-9; one word now, decided once.
+                                                {/* Five columns from the shared field set, and the
+                                                    two fields that open none: the decline reason
+                                                    under the row it explains, the fee on the second
+                                                    line of the amount it was added to. The first
+                                                    column was headed ID here and Payment on the
+                                                    workstation, for the same column holding the
+                                                    same TR-9; one word now, decided once.
 
                                                     table--static: these rows open nothing. The
                                                     application's hover fill paints every table it
@@ -903,7 +922,7 @@ export default function FraudDeskPage({ role, brand, identity, onNavigate }: Pro
                                                                 key={f}
                                                                 className={HISTORY_CELL_CLASS[f]}
                                                             >
-                                                                {FIELD_LABEL[f]}
+                                                                {HISTORY_FIELD_LABEL[f]}
                                                             </th>
                                                         ))}
                                                     </tr>

@@ -14,9 +14,15 @@ import {
     type Page,
 } from './api';
 import { amountRangeProblem } from '@shared/alertFilters';
+/*
+ * Straight from the shared module rather than through ./api, because the barrel says what this
+ * application asks of the API and a fee line is drawn from a value that already arrived.
+ */
+import { formatFeeLine } from '@shared/money';
 import { describeApiErrorLines } from '@shared/apiErrors';
 import {
     FIELD_LABEL,
+    HISTORY_FIELD_LABEL,
     HISTORY_COLUMN_FIELDS,
     HISTORY_NOTE_FIELD,
     type HistoryField,
@@ -86,9 +92,10 @@ const UNASSIGNED = 'unassigned';
  * fields are laid across a thousand pixels in the customer application and down a pane with a
  * floor of 360 here, which is the idiom difference the shared set exists to allow.
  *
- * The amount is marked where the cell is built. Counting header cells to find the column to right
- * align, which is what the customer application's stylesheet still does, breaks silently the day
- * a column is added.
+ * The amount is marked where the cell is built, and the heading takes the same mark from the same
+ * entry: alignment belongs to the column, so the word has to stand over its own digits rather than
+ * at the far edge of them. Counting header cells to find the column to right align, which is what
+ * the customer application's stylesheet still does, breaks silently the day a column is added.
  *
  * The route is account numbers stacked in one column and still carries no cell class: what has to
  * be styled there is each of the lines, and each is marked where it is built, for the same reason
@@ -143,11 +150,27 @@ function queueCells(a: AlertQueueItem): QueueRowCells<ReactNode> {
 function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCells<ReactNode> {
     const alerted = alertedIban !== null && h.fromIban === alertedIban;
     const boundary = bankBoundaryMark(h.toIbanInBank);
+    const feeLine = formatFeeLine(h.fee);
 
     return {
         id: formatTransferId(h.id),
         createdAt: formatDateTime(h.createdAt),
-        amount: formatMoney(h.amount),
+        // The amount the customer sent, and under it what the bank added to it. Two lines of one
+        // sum, stacked like the two account numbers next door, so the column can be read down.
+        // Every row has the second line: on a payment the desk stopped it is the price rather than
+        // a charge, and the status beside it is what says so.
+        amount: (
+            <>
+                <span className="amount-value">{formatMoney(h.amount)}</span>
+                {feeLine && (
+                    <span className="amount-fee">
+                        <span className="visually-hidden">{FIELD_LABEL.fee}: </span>
+                        {feeLine}
+                    </span>
+                )}
+            </>
+        ),
+        fee: feeLine,
         status: (
             <span className={`tone-${transferStatusTone(h.status)}`}>
                 {transferStatusLabel(h.status, 'analyst')}
@@ -765,7 +788,13 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                                     <thead>
                                                         <tr>
                                                             {HISTORY_COLUMN_FIELDS.map(f => (
-                                                                <th key={f} scope="col">{FIELD_LABEL[f]}</th>
+                                                                <th
+                                                                    key={f}
+                                                                    scope="col"
+                                                                    className={HISTORY_COLUMN_CLASS[f]?.cell}
+                                                                >
+                                                                    {HISTORY_FIELD_LABEL[f]}
+                                                                </th>
                                                             ))}
                                                         </tr>
                                                     </thead>

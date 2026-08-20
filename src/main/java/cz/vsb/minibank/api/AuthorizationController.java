@@ -167,7 +167,7 @@ public class AuthorizationController {
             Predicate<String> inBankNow = iban -> holds.computeIfAbsent(iban, this::holdsIban);
 
             return pageOf(customerId, EVERY_STATUS, wantedPage, wantedSize,
-                    t -> toHistoryItem(t, ibans, inBankNow));
+                    t -> toHistoryItem(t, ibans, inBankNow, feePolicy));
         }
     }
 
@@ -234,7 +234,8 @@ public class AuthorizationController {
      */
     private static HistoryItemDto toHistoryItem(Transfer t,
                                                 Map<Integer, String> ibans,
-                                                Predicate<String> inBankNow) {
+                                                Predicate<String> inBankNow,
+                                                FeePolicy feePolicy) {
         String fromIban = ibans.get(t.sourceAccountId());
         if (fromIban == null) {
             throw new DataIntegrityException(
@@ -246,6 +247,11 @@ public class AuthorizationController {
                 t.id(),
                 t.createdAt().toString(),
                 MoneyDto.of(t.amount()),
+                // feeFor and not fee(): the charge where there is one, and this tariff's answer
+                // where the payment has not settled, so that every row carries a fee line. The
+                // charge still wins wherever one was taken, which is what keeps a settled row off
+                // a tariff that changed after it. See HistoryItemDto, which states what that costs.
+                MoneyDto.of(t.feeFor(feePolicy)),
                 t.status().name(),
                 fromIban,
                 t.targetIbanSnapshot(),

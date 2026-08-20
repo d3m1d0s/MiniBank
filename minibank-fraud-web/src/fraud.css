@@ -630,6 +630,29 @@ h2.panel-title {
 .history tbody .cell--amount { color: var(--color-text-primary); }
 
 /*
+ * The amount, and under it what was added to it: two lines of one sum, set and led like the two
+ * account numbers in the route column, for the same reason. This skin could not take a rung down
+ * for the second line even if it wanted one: the table is already at --text-1, the bottom of the
+ * shared scale.
+ */
+.history .amount-value,
+.history .amount-fee {
+    display: block;
+    line-height: var(--leading-tight);
+    font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The cell around it keeps the primary ink because the amount is the spine of the table. The fee
+ * is an annotation of that number, so it takes the muted ink: 8.45:1 on the row ground and 8.10:1
+ * on the sunken one. A rule on the span rather than a heavier selector on the cell, because ink
+ * that reaches the line by inheritance is what the line above it is set in.
+ */
+.history .amount-fee {
+    color: var(--color-text-muted);
+}
+
+/*
  * Where the money left and where it went, in one column.
  *
  * Two lines of one number, so they are set at one size and led tighter than a line of prose:

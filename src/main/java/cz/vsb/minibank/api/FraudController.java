@@ -420,6 +420,11 @@ public class FraudController {
                         t.id(),
                         t.createdAt().toString(),
                         MoneyDto.of(t.amount()),
+                        // feeFor and not fee(): what was taken where the payment settled, and what
+                        // this tariff would take where it has not. Held and waiting payments fill
+                        // most of this list, and fee() alone left every one of their rows without
+                        // a fee line at all. See HistoryItemDto, which states what that costs.
+                        MoneyDto.of(t.feeFor(feePolicy)),
                         t.status().name(),
                         ibans.get(t.sourceAccountId()),
                         t.targetIbanSnapshot(),

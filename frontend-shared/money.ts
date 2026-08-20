@@ -94,6 +94,28 @@ function groupCzech(amount: string): string {
 }
 
 /**
+ * What a payment cost, written for the line that sits under its amount.
+ *
+ * The sign is the whole reason this is a function rather than a call to {@link formatMoney} at
+ * three call sites. Under an amount, an unsigned number reads as a second amount, and the two
+ * questions a row answers here are what was sent and what it cost on top of that; the plus says
+ * which of the two the smaller line is, and it says it in the one place all three tables read.
+ *
+ * Every history row has one now. `HistoryItem.fee` is never null - the wire prices a payment that
+ * has not settled with the current tariff rather than sending nothing - so the null this still
+ * accepts is a backstop against an older API and not a case the screens are designed around. It
+ * was designed around one once: the field carried the charge alone, three of twelve demonstration
+ * rows arrived empty, and on the analyst's desk it was most of the table.
+ *
+ * A fee of zero IS printed, as `+0,00`. The tariff is free below a threshold, so zero is a real
+ * outcome the customer paid nothing for rather than a missing value, and a row that stays silent
+ * about it is a row that looks like it forgot.
+ */
+export function formatFeeLine(fee: Money | null | undefined): string | null {
+    return fee ? `+${formatMoney(fee)}` : null;
+}
+
+/**
  * Every kind of space, including the two the formatters emit.
  *
  * `\s` already covers U+00A0 and U+202F, which matters because a value pasted back from

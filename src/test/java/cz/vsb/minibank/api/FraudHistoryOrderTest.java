@@ -126,6 +126,39 @@ class FraudHistoryOrderTest {
     }
 
     /**
+     * A payment the desk is holding is priced by the tariff, so its row carries a fee like every
+     * other row of the table.
+     *
+     * These are the rows an analyst actually reads, and the whole reason to read them is that some
+     * of what they list was stopped. Held and refused payments are therefore most of this table,
+     * and while the row carried the charge alone every one of them arrived without a fee: the
+     * column was blank down the majority of the desk. The seeded payment is held, nothing has been
+     * taken on it, and 145.00 is what this controller's tariff answers for its amount.
+     *
+     * The two readings are told apart by the status in the next cell and by nothing else in the
+     * row. A fee beside {@code HELD_FOR_REVIEW} is what the payment would cost if it were
+     * released, not money the customer has paid, which is why the status is asserted here beside
+     * it rather than left to the screen.
+     */
+    @Test
+    void aHeldPaymentIsPricedByTheTariffRatherThanLeavingItsFeeBlank() {
+        seedHistory(1);
+
+        HistoryItemDto held = historyOfTheFirstAlert().get(0);
+
+        assertNotNull(held.fee(),
+                "the payment is held, and a held row with no fee at all is one an analyst cannot"
+                        + " tell from a row whose fee went missing on the way to the screen");
+        assertEquals(new SimpleFeePolicy().compute(Money.czk(12_000)).amount().toPlainString(),
+                held.fee().amount(),
+                "nothing has been charged on it, so what it would be charged is the only honest"
+                        + " answer its row can give");
+        assertEquals("HELD_FOR_REVIEW", held.status(),
+                "and that answer is a price rather than a receipt, which is a distinction this"
+                        + " row makes with its status and with nothing else");
+    }
+
+    /**
      * The history beside an alert covers every account the customer holds, and every row says
      * which of them its own payment left.
      *

@@ -2,6 +2,7 @@ package cz.vsb.minibank.api;
 
 import cz.vsb.minibank.api.dto.AlertDetailDto;
 import cz.vsb.minibank.api.dto.HistoryItemDto;
+import cz.vsb.minibank.api.dto.MoneyDto;
 import cz.vsb.minibank.api.dto.PageDto;
 import cz.vsb.minibank.api.dto.TransferDetailsDto;
 import cz.vsb.minibank.api.dto.TransferInfoDto;
@@ -70,6 +71,12 @@ import static org.junit.jupiter.api.Assertions.fail;
  * differently from the other two, and any payment landing on the wrong side of the edge. A name
  * is declared on the record that carries it and a wrong one is visible the moment anybody opens
  * the screen; a wrong derivation looks exactly like a right one.
+ *
+ * WHAT ELSE IS PINNED HERE, and why it is not a class of its own. What a payment cost is read off
+ * the same two lists by the same two controllers, and telling a charge from a quote takes a
+ * payment that settled and a payment that did not, side by side, on both routes. That is the cast
+ * this class already seeds, and a class of its own would seed it a second time to say something
+ * about the field standing next to this one.
  */
 class BankBoundaryOnTheWireTest {
 
@@ -94,13 +101,32 @@ class BankBoundaryOnTheWireTest {
     private static final Money AMOUNT = Money.czk(12_000);
 
     /**
+     * What the tariff of the day took, on the run that settles its payments under one policy and
+     * reads them back through controllers holding another.
+     *
+     * Neither number is a number the shipped tariff produces for {@link #AMOUNT}, which is 145.00.
+     * Two arbitrary values, far apart, because the point is only that the row prints the one that
+     * was taken and never the one that would be taken now.
+     */
+    private static final Money CHARGED_WHEN_IT_SETTLED = Money.czk(7.00);
+
+    /** What a later tariff quotes for the same payment, and what no history row may print. */
+    private static final Money QUOTED_BY_A_LATER_TARIFF = Money.czk(999.00);
+
+    /**
      * The components each record carried before this fact reached the wire.
      *
      * Named rather than counted, so that a second field added beside the boundary is reported as
      * an ambiguity instead of being silently read as the boundary itself.
+     *
+     * A component the record grows for some other reason belongs on this list too, and
+     * {@code fee} is the first one to arrive. What these tests reach for is the single component
+     * not accounted for here, so a new field left off is read as a second candidate for the route
+     * and fails every test in this class instead of the one it is about.
      */
     private static final Set<String> HISTORY_ITEM_FIELDS = Set.of(
-            "id", "createdAt", "amount", "status", "fromIban", "toIban", "declineReason");
+            "id", "createdAt", "amount", "fee", "status", "fromIban", "toIban",
+            "declineReason");
 
     private static final Set<String> TRANSFER_INFO_FIELDS = Set.of(
             "id", "code", "status", "fromIban", "fromBalance", "toIban", "amount", "feeAmount",
@@ -321,6 +347,141 @@ class BankBoundaryOnTheWireTest {
     }
 
     // -------------------------------------------------------------------------
+    // What the payment cost, on the same two routes
+    // -------------------------------------------------------------------------
+
+    /**
+     * A history row carries the fee that was taken, and not the fee today's tariff would take.
+     *
+     * The two numbers are the same on every row of the demonstration database, so a mapper built
+     * from the wrong one looks right on the screen. Here they are pulled apart: the payments are
+     * settled under one policy and read back through controllers holding another, and only the
+     * stored charge survives that.
+     *
+     * {@code Transfer} offers three fees and this is the test that tells them apart on a settled
+     * row. {@code feeAmount} is a bare quote and answers the later tariff everywhere, settled or
+     * not, so it fails here. {@code feeFor} falls back to a quote only where nothing was charged,
+     * so it agrees with the record on exactly these two rows and passes, which is the point: the
+     * wire carries {@code feeFor}, and what makes that safe is that a charge always outranks the
+     * fallback. A tariff changed after a payment settled may not reach back and reprice it.
+     *
+     * Both routes, because two controllers build this record with two separate mappers, and the
+     * pair has drifted before.
+     */
+    @Test
+    void theFeeOnAHistoryRowIsWhatWasChargedAndNotWhatWouldBeChargedNow() {
+        rebuiltOnFees(CHARGED_WHEN_IT_SETTLED, QUOTED_BY_A_LATER_TARIFF);
+
+        Map<Integer, HistoryItemDto> desk = deskHistoryById();
+        Map<Integer, HistoryItemDto> mine = customerHistoryById();
+
+        for (String settled : List.of("sentInside", "sentOutside")) {
+            MoneyDto charged = row(desk, settled).fee();
+
+            assertNotNull(charged, "the " + settled + " payment settled and was charged, so its"
+                    + " row has a fee to print");
+            assertEquals(CHARGED_WHEN_IT_SETTLED.amount().toPlainString(), charged.amount(),
+                    "the " + settled + " payment was charged this when the money moved; the"
+                            + " tariff the controllers hold now would say "
+                            + QUOTED_BY_A_LATER_TARIFF.amount().toPlainString());
+            assertEquals("CZK", charged.currency(),
+                    "a fee stands directly under an amount that names its currency, and the two"
+                            + " were printed with different units the last time one of them"
+                            + " forgot");
+            assertEquals(charged, row(mine, settled).fee(),
+                    "the customer and the analyst are looking at the same payment, so they are"
+                            + " owed the same answer to what it cost");
+        }
+    }
+
+    /**
+     * A payment that has not settled is priced by the tariff, so its row carries a fee like every
+     * other row.
+     *
+     * This is the row where {@code fee} and {@code feeFor} part company, and it is the one that
+     * catches the first of them. Held and declined payments are most of what an analyst reads, and
+     * while the wire carried {@code fee} alone their rows arrived empty: the fee column was blank
+     * on the majority of the table, which reads as a table that lost its numbers rather than as an
+     * answer. The controllers here hold the shipped tariff, which quotes 145.00 for each of these
+     * amounts, and 145.00 is what a reader is owed - what the payment would cost.
+     *
+     * What this number is NOT is money anybody took, and nothing in this field says which of the
+     * two it is. The status in the next cell is what says it, which is why it is asserted here in
+     * the same breath: a fee printed beside {@code DECLINED} or {@code HELD_FOR_REVIEW} is a
+     * price, and the day a screen prints this field without that word beside it, it is printing a
+     * quote as a receipt.
+     */
+    @Test
+    void aPaymentThatHasNotSettledIsPricedByTheTariffRatherThanLeftBlank() {
+        Map<Integer, HistoryItemDto> desk = deskHistoryById();
+        Map<Integer, HistoryItemDto> mine = customerHistoryById();
+
+        String quoted = new SimpleFeePolicy().compute(AMOUNT).amount().toPlainString();
+
+        for (String unsettled : List.of("heldToInside", "heldToOutside", "declinedToOutside")) {
+            MoneyDto fee = row(desk, unsettled).fee();
+
+            assertNotNull(fee, "the " + unsettled + " payment has a price whether or not it was"
+                    + " ever taken, and a row that leaves the fee out is one the reader cannot"
+                    + " tell from a row whose fee went missing");
+            assertEquals(quoted, fee.amount(),
+                    "and the price is this tariff's answer for the amount, which is the only"
+                            + " honest one available on a payment nothing was taken on");
+            assertEquals(fee, row(mine, unsettled).fee(),
+                    "the customer and the analyst are looking at the same payment, so they are"
+                            + " owed the same answer to what it costs");
+            assertNotEquals("SENT", row(desk, unsettled).status(),
+                    "this number is a price and not a receipt, and the status beside it is the"
+                            + " whole of what tells a reader which one they are looking at");
+        }
+    }
+
+    /**
+     * A payment that was charged nothing is not the same row as one that has not been charged yet,
+     * and the two are told apart by their numbers rather than by one of them being blank.
+     *
+     * This is what the field gave up its null for. A free payment answers 0.00 because that is
+     * what it cost; a held payment answers the tariff because that is what it would cost, and the
+     * fixture pulls the two numbers far apart on purpose. They are asserted against each other
+     * rather than apart because that is how a reader meets them: the free payment and the held one
+     * are rows of the same table, read down in one go, and neither may be the one with a hole in
+     * it.
+     *
+     * The customer is asking what the payment cost them. 0.00 answers it; a blank asked them to
+     * know the tariff before they could tell a free payment from one whose fee the screen dropped.
+     */
+    @Test
+    void aFeeOfZeroIsAnAnswerAndTheHeldRowBesideItCarriesTheTariffInstead() {
+        rebuiltOnFees(Money.czk(0.00), QUOTED_BY_A_LATER_TARIFF);
+
+        Map<Integer, HistoryItemDto> desk = deskHistoryById();
+        Map<Integer, HistoryItemDto> mine = customerHistoryById();
+
+        MoneyDto free = row(desk, "sentInside").fee();
+
+        assertNotNull(free, "this payment settled under a tariff that charges nothing, and being"
+                + " charged nothing is an answer the row has to give");
+        assertEquals("0.00", free.amount(),
+                "and it gives it as an amount, at the scale every other money value on this wire"
+                        + " is written in");
+        assertEquals("CZK", free.currency(), "a charge of zero is still money, in the one"
+                + " currency this bank charges in");
+        assertEquals(free, row(mine, "sentInside").fee(),
+                "on both routes, as with any other charge");
+
+        MoneyDto held = row(desk, "heldToInside").fee();
+
+        assertNotNull(held, "and the held payment further up the same table is priced too, or the"
+                + " column goes blank on exactly the rows a desk exists to read");
+        assertEquals(QUOTED_BY_A_LATER_TARIFF.amount().toPlainString(), held.amount(),
+                "nothing was taken on it, so the tariff is what its row can honestly print");
+        assertNotEquals(free.amount(), held.amount(),
+                "the free payment and the held one must not reach the screen reading alike: one"
+                        + " cost nothing and the other has not been charged yet, and after the"
+                        + " null went it is the number that has to carry that difference");
+    }
+
+    // -------------------------------------------------------------------------
     // Reading the surfaces
     // -------------------------------------------------------------------------
 
@@ -405,6 +566,30 @@ class BankBoundaryOnTheWireTest {
     // -------------------------------------------------------------------------
     // Seeding
     // -------------------------------------------------------------------------
+
+    /**
+     * Builds the whole fixture again on an empty store, with the payments charged by one tariff
+     * and the controllers that read them back holding another.
+     *
+     * A second store rather than more payments in the first one. {@link #seed} writes a fixed
+     * cast of nine and the panel shows the newest ten, so seeding a second cast beside the first
+     * would push half of it off the end of the table these tests read.
+     *
+     * @param charged   what every payment that settles here is charged
+     * @param quotedNow what the controllers would charge for the same payment today, which is the
+     *                  number a row reading the tariff instead of the record would print
+     */
+    private void rebuiltOnFees(Money charged, Money quotedNow) {
+        infra = new Bootstrap(tempDir.resolve("recharged.json").toString());
+        fraudController = new FraudController(infra.alerts, infra.transfers, infra.accounts,
+                infra.customers, null, amount -> quotedNow, infra.uowFactory);
+        authorizationController = new AuthorizationController(null, infra.accounts,
+                infra.transfers, amount -> quotedNow,
+                new OwnershipGuard(infra.customers, infra.accounts), infra.uowFactory);
+
+        seeded.clear();
+        seed(amount -> charged);
+    }
 
     private void asAnalyst() {
         SecurityContext.setCurrentUser(new User(2, "anna.analyst", new byte[]{1}, new byte[]{2},

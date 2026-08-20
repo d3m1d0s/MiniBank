@@ -15,7 +15,9 @@ import {
 import {
     FIELD_LABEL,
     HISTORY_COLUMN_FIELDS,
+    HISTORY_FEE_FIELD,
     HISTORY_FIELDS,
+    HISTORY_NON_COLUMN_FIELDS,
     HISTORY_NOTE_FIELD,
 } from '@shared/fields';
 import type { HistoryItem } from '@shared/fraud';
@@ -324,10 +326,12 @@ describe('what one row of payment history says', () => {
         expect(Object.keys(FIELD_LABEL)).not.toContain('toIban');
     });
 
-    it('is still six facts, each named once', () => {
-        // Six facts and no longer six columns: one of them is prose and is drawn under the row it
-        // explains. Which one, and why, is the group below.
-        expect(HISTORY_FIELDS).toHaveLength(6);
+    it('is still seven facts, each named once', () => {
+        // Seven facts and five columns: two of them are drawn somewhere other than a column, one
+        // because it is prose and one because it belongs to the number above it. Which two, and
+        // why, is the group below. The count is asserted rather than derived so that a field
+        // arriving on the wire has to be placed here before it can be read anywhere.
+        expect(HISTORY_FIELDS).toHaveLength(7);
         expect(new Set(HISTORY_FIELDS).size).toBe(HISTORY_FIELDS.length);
     });
 
@@ -379,43 +383,82 @@ describe('what one row of payment history says', () => {
 });
 
 /**
- * How the six facts are split between the two shapes a history table draws.
+ * How the seven facts are split between the shapes a history table draws.
  *
  * The workstation had already worked this out and the customer application had not: it ran the
  * whole field list out as columns and paid for the sixth in the route cell, which is the tightest
  * one it has. One form for both, declared in fields.ts rather than decided again in each screen,
  * because a split that both desks make and neither states is how the two of them came apart the
  * first time.
+ *
+ * Two facts take no column now, and for reasons that do not resemble each other. Prose has no
+ * width to be given. The fee has one and gives it up anyway, because it is the second line of the
+ * amount it was added to rather than a second answer about the same payment, and a reader given
+ * two money columns would have to add them to learn what left the account.
  */
-describe('the one history fact that is prose', () => {
-    it('is the decline reason, and it is not a column', () => {
+describe('the history facts that take no column', () => {
+    it('leaves the decline reason out of the header, because it is prose', () => {
         // A sentence somebody wrote has no width to be given, and sixty pixels is not a width for
         // one.
         expect(HISTORY_NOTE_FIELD).toBe('declineReason');
         expect(HISTORY_COLUMN_FIELDS).not.toContain(HISTORY_NOTE_FIELD);
     });
 
-    it('is out of the header and not out of the row', () => {
+    it('keeps the decline reason out of the header and not out of the row', () => {
         // It is still a fact of the payment and still needs its word: the row under the payment
         // prints the label in front of the sentence, because nothing above it says what it is.
         expect(HISTORY_FIELDS).toContain(HISTORY_NOTE_FIELD);
         expect(FIELD_LABEL[HISTORY_NOTE_FIELD].length).toBeGreaterThan(0);
     });
 
-    it('leaves every other fact a column, in the order the fields are read', () => {
-        // Derived from the field list rather than kept by hand. A seventh field would turn up as a
-        // column on both platforms on the next build, where a hand kept list of five would leave
-        // it out in silence.
-        expect(HISTORY_COLUMN_FIELDS).toEqual(
-            HISTORY_FIELDS.filter((f) => f !== HISTORY_NOTE_FIELD),
-        );
-        expect(HISTORY_COLUMN_FIELDS).toHaveLength(HISTORY_FIELDS.length - 1);
+    it('the fee is a fact of the payment and the second line of the amount', () => {
+        // A field, because what the bank charged is true or absent independently of what was
+        // sent, and a row that carried only the amount could not answer what the payment cost.
+        expect(HISTORY_FIELDS).toContain(HISTORY_FEE_FIELD);
+        expect(HISTORY_FEE_FIELD).toBe('fee');
+
+        // Not a column, because it is read under the amount it was added to. Named out loud in
+        // the set above rather than filtered out in each of the three tables, which is what the
+        // group's own comment is about.
+        expect(HISTORY_NON_COLUMN_FIELDS).toContain(HISTORY_FEE_FIELD);
+        expect(HISTORY_COLUMN_FIELDS).not.toContain(HISTORY_FEE_FIELD);
+
+        // It still needs its word, and needs it more than a field with a heading does: the line
+        // is read out on the row itself, to somebody who hears a second money value under the
+        // first with nothing above either to say which is which.
+        expect(FIELD_LABEL[HISTORY_FEE_FIELD].length).toBeGreaterThan(0);
     });
 
-    it('loses nothing between the field list and the two shapes', () => {
-        expect([...HISTORY_COLUMN_FIELDS, HISTORY_NOTE_FIELD].sort()).toEqual(
+    it('does not take the heading of the amount it stands under', () => {
+        // The one key in this table that must not be renamed to describe the pair. It heads the
+        // amount column of the alert queue on both platforms, labels the min and max filter on
+        // the workstation, and stands over the large figure on the alert card, and all four of
+        // those are the payment's own amount with no fee in them. Renaming it compiles, passes,
+        // and lies in four places at once, so the literal is pinned here rather than derived.
+        expect(FIELD_LABEL.amount).toBe('Amount');
+        expect(FIELD_LABEL[HISTORY_FEE_FIELD]).not.toBe(FIELD_LABEL.amount);
+    });
+
+    it('leaves every other fact a column, in the order the fields are read', () => {
+        // Derived by subtracting the named set rather than kept by hand, which is a weaker
+        // promise than this test used to make: a field added to the union is a column only if
+        // nobody named it above. What did not weaken is that leaving one out has to be written
+        // down in one place for both platforms instead of happening in a table by omission.
+        expect(HISTORY_COLUMN_FIELDS).toEqual(
+            HISTORY_FIELDS.filter((f) => !HISTORY_NON_COLUMN_FIELDS.includes(f)),
+        );
+        expect(HISTORY_COLUMN_FIELDS).toHaveLength(HISTORY_FIELDS.length - 2);
+    });
+
+    it('loses nothing between the field list and the shapes it is split into', () => {
+        expect([...HISTORY_COLUMN_FIELDS, ...HISTORY_NON_COLUMN_FIELDS].sort()).toEqual(
             [...HISTORY_FIELDS].sort(),
         );
+        // Split and not overlapping: a field in both sets would be drawn twice, once as a column
+        // and once under the row, and both tests above would still pass.
+        expect(
+            HISTORY_COLUMN_FIELDS.filter((f) => HISTORY_NON_COLUMN_FIELDS.includes(f)),
+        ).toEqual([]);
     });
 
     it('frees the column the route stack is short of, and only that one', () => {

@@ -21,11 +21,35 @@ import java.util.function.Predicate;
  * sent raw. The fact has two sources that are not interchangeable, and a client handed both halves
  * would have to combine them itself, in the same way on both desks, which is the drift the shared
  * glossary and field list exist to prevent. {@link #isToIbanInBank} states the combination once.
+ *
+ * {@code fee} stands right after the amount it was added to, because that is where the screens
+ * print it and the wire is read in the order of the meaning. It carries {@code Transfer.feeFor},
+ * which is what was taken where the payment settled and what the current tariff would take where
+ * it has not, and it is NEVER null: every row of every history table prints a fee line.
+ *
+ * That is a rule this record used to state the other way round, and the reason it was turned is
+ * worth keeping. It used to carry {@code Transfer.fee}, the charge alone, so a payment that had
+ * not settled arrived as null and its row drew no second line. On the demonstration data that is
+ * three rows in twelve, and on an analyst's desk it is most of the table, because held and refused
+ * payments are what a desk is for. A column that is filled on some rows and blank on others does
+ * not read as two different answers; it reads as a table that lost some of its numbers, and the
+ * customer cannot tell a payment that was charged nothing from one whose fee the screen dropped.
+ *
+ * What is given up is stated rather than hidden: on a refused payment the number is what the
+ * payment WOULD have cost, not money anybody took. The status stands in the next cell and says
+ * which of the two readings applies - {@code DECLINED} beside a fee is not a receipt - and that is
+ * the whole of what separates them, so a screen that prints this field without the status beside
+ * it would be printing a quote as a charge.
+ *
+ * The name is therefore no longer {@code feeCharged}. It stopped being only the charge, and a name
+ * that says one rule over a field that follows another is exactly how the two came apart before.
+ * It agrees with {@link TransferInfoDto#feeAmount} now, which has always answered {@code feeFor}.
  */
 public record HistoryItemDto(
         int id,
         String createdAt,
         MoneyDto amount,
+        MoneyDto fee,
         String status,
         String fromIban,
         String toIban,

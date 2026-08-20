@@ -1057,6 +1057,35 @@ textarea:focus-visible {
 }
 
 /*
+ * The amount, and under it what was added to it: two lines of one sum in one cell.
+ *
+ * Set at the table's own size, both of them, and this is the whole reason the second line is not
+ * a rung smaller. The rule two blocks down already states it for the route stack: at 12px over
+ * 14px the groups of digits stop standing under each other, and standing under each other is the
+ * only thing tabular figures are for. A fee whose hellers do not sit under the amount's hellers
+ * is a second number beside the first rather than a part of it.
+ *
+ * Led tight, because these are two lines of one datum rather than two lines of prose, and the
+ * alignment is the cell's: right, inherited, never restated per line.
+ */
+.table .amount-value,
+.table .amount-fee {
+  display: block;
+  line-height: var(--leading-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The fee steps back: it annotates the number above it and is not a second answer to the column.
+ * 5.84:1 on the row ground, the same ink the top line of the route stack takes for the same
+ * reason. A colour and not a size, and not weight either: weight in this table is spent on the
+ * account an alert was raised on.
+ */
+.table .amount-fee {
+  color: var(--color-text-muted);
+}
+
+/*
  * Where the money left and where it went, in one column.
  *
  * Both lines are set at the table's own size. A smaller top line was tried and discarded: at
@@ -1084,15 +1113,36 @@ textarea:focus-visible {
 
 /*
  * Subordinate, and readable: 5.85:1 on the row ground, 5.15:1 under the hover fill.
- *
- * There is no second rule under this one any more. The account an alert was raised on used to
- * be marked here in ink and weight, and both desks have stopped drawing that: the line is
- * printed where the source account CHANGES and left out where it would only repeat, so what the
- * eye finds is the row that broke the run rather than a mark standing on all ten. Nothing in
- * this application emits the class, and a rule kept for it would be a mark nobody can see.
  */
 .table .route-from {
   color: var(--color-text-muted);
+}
+
+/*
+ * The account the alert was raised on, marked in weight and one rung of ink.
+ *
+ * Two places emit the class and they are the two fraud desks: FraudDeskPage here and FraudDesk on
+ * the workstation, both on the same test, the source account of the row against the account the
+ * alert names. HistoryPage emits it too and it can never fire there: the customer's own history
+ * is called with no alerted account at all, so the test is against null on every row and this
+ * selector matches nothing on that screen. That is why the rule is safe to state once for the
+ * whole table rather than per desk.
+ *
+ * Weight is the channel this skin has, and the workstation's is ink, and that is not two designs
+ * of one thing: the two ladders are inverted. On the dark skin the step from the source line to
+ * the beneficiary is already 2.43:1 of ink, and above the row's own #f9fafb there is nothing left
+ * to climb to, secondary to primary being 1.18:1. On the light skin the same two lines are 1.21:1
+ * apart, which is no step at all, so it spends weight on telling them apart and keeps 1.85:1 of
+ * ink for this mark. Same semantics, opposite budgets.
+ *
+ * The beneficiary line is deliberately left without a weight of its own here, and the asymmetry
+ * against the workstation is the point rather than an oversight. Given one, the cell sets solid
+ * and loses the order inside it, and on the customer's history, where no alert exists, it would
+ * repaint a stack that has nothing to mark.
+ */
+.table .route-from--alerted {
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-semibold);
 }
 
 /*
