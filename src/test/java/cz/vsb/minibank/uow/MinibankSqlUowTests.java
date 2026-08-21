@@ -64,7 +64,7 @@ public class MinibankSqlUowTests {
              Statement st = conn.createStatement()) {
 
             st.execute("""
-                    TRUNCATE TABLE fraud_alerts, transfers, beneficiaries, accounts, customers
+                    TRUNCATE TABLE fraud_alert_notes, fraud_alerts, transfers, beneficiaries, accounts, customers
                     RESTART IDENTITY CASCADE
                     """);
         }
@@ -359,8 +359,7 @@ public class MinibankSqlUowTests {
                     "Suspicious SQL transfer",
                     87,                               // riskScore
                     "fraud-analyst-1",               // assignee
-                    List.of("HIGH_AMOUNT", "NEW_BENEFICIARY"),
-                    "Initial note from SQL test"
+                    List.of("HIGH_AMOUNT", "NEW_BENEFICIARY")
             );
 
             alerts.add(alert);
@@ -379,7 +378,6 @@ public class MinibankSqlUowTests {
             assertEquals(87, a1.riskScore());
             assertEquals("fraud-analyst-1", a1.assignee());
             assertEquals(List.of("HIGH_AMOUNT", "NEW_BENEFICIARY"), a1.tags());
-            assertEquals("Initial note from SQL test", a1.notes());
 
             scope.uow().commit();
         }
@@ -413,7 +411,6 @@ public class MinibankSqlUowTests {
             assertEquals(87, byId.riskScore());
             assertEquals("fraud-analyst-1", byId.assignee());
             assertEquals(List.of("HIGH_AMOUNT", "NEW_BENEFICIARY"), byId.tags());
-            assertEquals("Initial note from SQL test", byId.notes());
 
             scope.uow().commit();
         }
@@ -908,12 +905,12 @@ public class MinibankSqlUowTests {
     }
 
     /**
-     * An annotated alert must not move in the analyst's queue.
+     * A rewritten alert must not move in the analyst's queue.
      *
      * The same rule as the case above, on the statement behind FraudController.buildQueue, and it
-     * needs a case of its own because the two live in different repositories. updateNotes is the
-     * cheapest rewrite an analyst can cause - no state transition, no verdict - and the tuple
-     * relocates all the same.
+     * needs a case of its own because the two live in different repositories. Taking an alert
+     * into a name is the cheapest rewrite an analyst can cause - no state transition, no
+     * verdict - and the tuple relocates all the same.
      */
     @Test
     void fraudAlertQueueStaysInIdOrderWhenAnAlertIsRewritten() {
@@ -933,7 +930,7 @@ public class MinibankSqlUowTests {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             FraudAlert first = infra.alerts.byId(alertIds.get(0))
                     .orElseThrow(() -> new AssertionError("Seeded alert must exist"));
-            first.updateNotes("Called the customer back");
+            first.assignTo("anna.analyst");
             infra.alerts.save(first);
             scope.uow().commit();
         }
@@ -945,7 +942,7 @@ public class MinibankSqlUowTests {
                     alertIds.stream().sorted().toList(),
                     ids,
                     "all() must answer in ascending id order, not in whatever order the heap holds"
-                            + " once an alert has been annotated"
+                            + " once an alert has been rewritten"
             );
 
             scope.uow().commit();

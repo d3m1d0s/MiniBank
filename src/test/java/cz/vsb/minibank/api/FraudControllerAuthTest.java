@@ -79,8 +79,7 @@ class FraudControllerAuthTest {
                 "test",
                 80,
                 "fraud",
-                List.of("tag"),
-                "notes"
+                List.of("tag")
         );
         alert.hydrateForLoad(
                 FraudAlertState.NEW,
@@ -88,8 +87,7 @@ class FraudControllerAuthTest {
                 Instant.now(),
                 80,
                 "fraud",
-                List.of("tag"),
-                "notes"
+                List.of("tag")
         );
 
         // Real transfer so it is not filtered out

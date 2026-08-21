@@ -367,23 +367,29 @@ class FraudReviewGateTest {
     }
 
     /**
-     * The verdict is added to the case file, not written over it. Overwriting {@code reason}
-     * left a confirmed-fraud alert whose only stated reason was that somebody had declined it,
-     * with no record of what had been suspicious about the payment in the first place.
+     * The verdict is added to the case file, not written over it, and the two halves of the file
+     * stay apart.
+     *
+     * Overwriting {@code reason} left a confirmed-fraud alert whose only stated reason was that
+     * somebody had declined it, with no record of what had been suspicious about the payment in
+     * the first place. Appending to it fixed that and introduced the next problem: one line then
+     * held the rules' sentence and the analyst's, with nothing to tell a reader which was which.
+     * The comment has a field of its own now, and this case is what stops either half from
+     * reaching back into the other.
      */
     @Test
-    void decliningKeepsTheReasonTheRulesRaisedTheAlertFor() {
+    void decliningKeepsTheReasonTheRulesRaisedTheAlertForAndRecordsTheAnalystsApart() {
         int id = payExternal(RAISES_ALERT);
         String raisedFor = alertFor(id).reason();
         assertNotNull(raisedFor);
 
         fraudService.decline(id, "victim confirmed the payment was not theirs");
 
-        String after = alertFor(id).reason();
-        assertTrue(after.contains(raisedFor),
-                "the risk reason must survive the verdict: " + after);
-        assertTrue(after.contains("victim confirmed the payment was not theirs"),
-                "and so must the analyst's: " + after);
+        assertEquals(raisedFor, alertFor(id).reason(),
+                "the risk reason must survive the verdict and must not grow by it");
+        assertEquals("victim confirmed the payment was not theirs",
+                alertFor(id).decisionComment(),
+                "and the analyst's words must be readable on their own");
     }
 
     // ------------------------------------------------------------------ the customer's way out

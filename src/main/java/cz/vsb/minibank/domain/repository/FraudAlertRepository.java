@@ -1,6 +1,7 @@
 package cz.vsb.minibank.domain.repository;
 
 import cz.vsb.minibank.domain.FraudAlert;
+import cz.vsb.minibank.domain.FraudAlertNote;
 import cz.vsb.minibank.domain.FraudAlertState;
 import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.value.Money;
@@ -46,6 +47,47 @@ public interface FraudAlertRepository {
      * Returns all fraud alerts.
      */
     List<FraudAlert> all();
+
+    // -------------------------------------------------------------------------
+    // The notes journal
+    // -------------------------------------------------------------------------
+
+    /**
+     * Adds one entry to an alert's journal. Nothing else writes it, and nothing anywhere edits or
+     * removes an entry.
+     *
+     * A METHOD OF ITS OWN RATHER THAN A FIELD ON THE AGGREGATE, and the reason is what the journal
+     * has to survive. Carried on {@link FraudAlert} it would travel through {@code save}, which on
+     * both backends rewrites the whole record: on JSON that means replacing the stored row with a
+     * fresh copy built from the aggregate, so any entry the aggregate had not loaded would be
+     * erased by an unrelated assignment. Appending through its own insert cannot lose an entry,
+     * however out of date the caller's copy of the alert is, and it is also what keeps the
+     * append-only rule a property of the store instead of a convention callers observe.
+     *
+     * It carries no version and takes part in no optimistic-lock check, deliberately. Two analysts
+     * appending at the same moment are not in conflict: both notes are facts about the case and
+     * both belong in it. The guard on the alert row exists because a verdict overwrites a verdict,
+     * and nothing here overwrites anything.
+     *
+     * @param note the entry, already complete: the alert, the author, the instant and the text
+     */
+    void appendNote(FraudAlertNote note);
+
+    /**
+     * One alert's journal, oldest entry first.
+     *
+     * Oldest first because a journal is read the way it was written, and because the entry the
+     * migration carried over from the old single {@code notes} column is dated at the alert's own
+     * creation instant and therefore stands where it belongs, at the top.
+     *
+     * READ ON ITS OWN AND NEVER WITH THE QUEUE. The queue prints one line per alert and has no
+     * room for a journal; loading one per row would put a second statement behind every row of a
+     * page, which is the N+1 the queue was rebuilt to remove. Only the alert detail asks for this.
+     *
+     * An alert that has no journal, and an id no alert has, both answer with an empty list: a
+     * missing alert is the detail route's question, not this one's.
+     */
+    List<FraudAlertNote> notesOf(int alertId);
 
     // -------------------------------------------------------------------------
     // The analyst queue

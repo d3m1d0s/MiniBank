@@ -1,6 +1,6 @@
 /**
- * Which fields a list of alerts, a list of payments, one payment read in full and one account
- * carry, and what each one is called.
+ * Which fields a list of alerts, a list of payments, one payment read in full, one account and one
+ * entry of an alert's journal carry, and what each one is called.
  *
  * The two fraud desks had drifted apart without anybody noticing. The analyst's workstation
  * showed four of a payment's six history fields and nine of a queue entry's nine minus three,
@@ -118,6 +118,22 @@ export type TransferDetailField =
     | 'declineReason';
 
 /**
+ * One entry of an alert's journal, which is a table for the same reason the history is one.
+ *
+ * Three facts and all three are the entry: when it was written, by whom, and what it says. Dropping
+ * either of the first two is what the single overwritten string it replaced already did, and it is
+ * the failure this table exists to end, so neither is optional here and a desk that leaves one out
+ * fails its build.
+ *
+ * `text` is prose and takes the widest cell rather than a fixed one, the same as a decline reason.
+ * It is NOT under the row, though: a decline reason stands under a payment because the payment is
+ * the subject and the sentence is a remark about it, while here the sentence IS the row and the two
+ * facts beside it are what qualify it. A journal drawn as a list of stamps with the words beneath
+ * would be a table whose only column is metadata.
+ */
+export type AlertNoteField = 'writtenAt' | 'author' | 'text';
+
+/**
  * One account of the customer, as the payment form has to describe it.
  *
  * The three below the balance are what decides whether a payment is refused and whether it is
@@ -193,6 +209,16 @@ export const TRANSFER_DETAIL_FIELDS: readonly TransferDetailField[] = [
     'message',
     'declineReason',
 ];
+
+/**
+ * Reading order for a journal entry: when, who, what.
+ *
+ * The stamp first and the words last, which is the order a journal is scanned in. A reader arriving
+ * at a list of entries is placing them in time and against each other before reading any of them,
+ * and the one variable-length cell has to be the last so the two short ones stay in a straight
+ * column down the table.
+ */
+export const ALERT_NOTE_FIELDS: readonly AlertNoteField[] = ['writtenAt', 'author', 'text'];
 
 export const ACCOUNT_FIELDS: readonly AccountField[] = [
     'iban',
@@ -365,7 +391,17 @@ export const AMOUNT_PLACEHOLDER = '0,00';
  */
 export const HISTORY_FIELD_LABEL: Record<HistoryField, string> = {
     id: FIELD_LABEL.id,
-    createdAt: FIELD_LABEL.createdAt,
+    /*
+     * Both dates, named once in the heading rather than once per row. The cell carries the moment
+     * a payment was asked for and, under it, the moment the money moved, so the column answers two
+     * questions and the heading has to say so. Naming them in the rows instead put the word
+     * `Settled` in front of every second line, which is the same word repeated down the table to
+     * caption a value the heading could caption once.
+     *
+     * The detail panel keeps `Created` and `Settled` apart, because there each stands on its own
+     * line with its own label and there is nothing to disambiguate.
+     */
+    createdAt: `${FIELD_LABEL.createdAt} / ${FIELD_LABEL.settledAt}`,
     settledAt: FIELD_LABEL.settledAt,
     amount: 'Full Amount',
     fee: FIELD_LABEL.fee,
@@ -415,6 +451,29 @@ export const TRANSFER_DETAIL_LABEL: Record<TransferDetailField, string> = {
 };
 
 /**
+ * What the three columns of the journal are called.
+ *
+ * `Written` and not `Created`, although the map at the top of this file says `Created` for the
+ * moment a row's subject came into being. A note is not created, it is written, and the word has to
+ * carry that: the entry sits beside an alert that was raised and a payment that was created, both
+ * of which have their own `Created` on the same screen, and three columns reading `Created` in one
+ * panel name nothing.
+ *
+ * `Author` and not `Analyst`. The column can hold the word for an entry whose name was never kept,
+ * and `Analyst: unknown` claims one wrote it; see `noteAuthorLabel` in glossary.ts, which is where
+ * that word is decided.
+ *
+ * `Note` in the singular, because the cell is one. The panel that holds this table is plural and
+ * named next door, and a column heading repeating the panel's own name says nothing a reader did
+ * not read two lines above.
+ */
+export const ALERT_NOTE_LABEL: Record<AlertNoteField, string> = {
+    writtenAt: 'Written',
+    author: 'Author',
+    text: 'Note',
+};
+
+/**
  * What the three numbers under an account balance are called.
  *
  * `softDailyThreshold` is named by what it does to the customer and not by what the rules call it.
@@ -457,6 +516,16 @@ export type QueueRowCells<T> = { [K in AlertQueueField]: T };
 
 /** The same for one row of payment history. */
 export type HistoryRowCells<T> = { [K in HistoryField]: T };
+
+/**
+ * The same for one entry of the journal, and total for a reason of its own.
+ *
+ * A note has no absent facts: the server refuses an entry with no timestamp and refuses one with no
+ * text, and the only field that can be empty is the author, which is a word rather than a gap. So a
+ * desk that could not build one of these three cells is a desk that decided not to draw it, which
+ * is the divergence this file was written to catch.
+ */
+export type AlertNoteRowCells<T> = { [K in AlertNoteField]: T };
 
 /**
  * The same for one payment read in full, and it is total for the reason the two above it are.

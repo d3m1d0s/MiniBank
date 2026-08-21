@@ -4,6 +4,7 @@ import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.Address;
 import cz.vsb.minibank.domain.Customer;
 import cz.vsb.minibank.domain.FraudAlert;
+import cz.vsb.minibank.domain.FraudAlertNote;
 import cz.vsb.minibank.domain.FraudAlertState;
 import cz.vsb.minibank.domain.RuleBasedRiskService;
 import cz.vsb.minibank.domain.ZeroFeePolicy;
@@ -122,30 +123,30 @@ class FraudDecisionRecordTest {
         assertEquals(FraudAlert.DECISION_DECLINE, stored.decision());
         assertEquals("bob.analyst", stored.decidedBy());
         assertEquals(WHEN, stored.resolvedAt());
-        assertTrue(stored.reason().contains("card reported stolen"),
-                "the analyst's reason is still appended to the rules' own");
+        assertEquals("card reported stolen", stored.decisionComment(),
+                "the analyst's own words, in the field that holds only those");
+        assertEquals("New beneficiary + high amount", stored.reason(),
+                "and the sentence the rules wrote, untouched beside it");
     }
 
     /**
-     * The comment an analyst types is kept whichever of the three verdicts they press.
+     * The comment an analyst types is kept whichever of the three verdicts they press, and it no
+     * longer lands in the sentence the rules wrote.
      *
-     * The box is labelled on both desks as a comment stored with the alert, and the request has
-     * always carried it on all three decisions. Only DECLINE ever wrote it: FraudAlert exposed no
-     * writer of the field other than markSuspicious, so on APPROVE and on ANNOTATE the text was
-     * read off the request, validated and dropped without a word. Two buttons out of three
-     * silently lost the only thing the analyst had written down.
+     * TWO DEFECTS, ONE CASE. Only DECLINE ever kept the comment at all: FraudAlert exposed no
+     * writer of it other than markSuspicious, so on APPROVE and on ANNOTATE the text was read off
+     * the request, validated and dropped. And where it was kept, it was appended into
+     * {@code reason}, which is the only record of why the rules raised the alert, so one line
+     * carried two facts with two different authors and nothing could tell a reader which half was
+     * which.
      *
      * Three alerts rather than three presses on one, because a verdict is refused a second time by
      * design and this is about what one press keeps. Every assertion reads the alert back out of
      * the store: a field written on the aggregate and dropped at the store boundary is exactly the
      * shape of defect being closed, and only a round trip can see the difference.
-     *
-     * The rules' own sentence is asserted beside the analyst's on every one of them. It is the
-     * only record of why the alert was raised at all, and a comment that replaced it would leave a
-     * case file that no longer says what was suspicious about the payment.
      */
     @Test
-    void theAnalystsCommentIsKeptOnEveryOneOfTheThreeVerdicts() {
+    void theAnalystsCommentIsKeptOnEveryVerdictAndTheRiskReasonIsLeftAlone() {
         record Verdict(String token, String comment) { }
 
         List<Verdict> verdicts = List.of(
@@ -161,29 +162,25 @@ class FraudDecisionRecordTest {
             services.fraudService.decideAndUpdateAlert(
                     alertId, verdict.token(), verdict.comment(), null, "anna.analyst");
 
-            String stored = alertFor(transferId).reason();
+            FraudAlert stored = alertFor(transferId);
 
-            assertNotNull(stored, verdict.token() + " left the case file empty");
-            assertTrue(stored.contains(verdict.comment()),
-                    verdict.token() + " dropped the analyst's comment: the alert reads \""
-                            + stored + "\"");
-            assertTrue(stored.contains(raised),
-                    verdict.token() + " overwrote the reason the rules raised the alert for,"
-                            + " which is the only record of what was suspicious about the"
-                            + " payment");
+            assertEquals(verdict.comment(), stored.decisionComment(),
+                    verdict.token() + " dropped the analyst's comment");
+            assertEquals(raised, stored.reason(),
+                    verdict.token() + " wrote into the reason the rules raised the alert for; the"
+                            + " comment has a field of its own and must stay in it");
         }
     }
 
     /**
-     * A decision taken without a comment adds nothing, rather than a separator with nothing after
-     * it.
+     * A decision taken without a comment records none, and clears none.
      *
      * Absent is what the two desks send when the box is empty, and it is the common case on an
-     * APPROVE: most cleared alerts are cleared without a word. A case file that grew a trailing
-     * bar on every one of them would be longer without saying more.
+     * APPROVE: most cleared alerts are cleared without a word. Treating that as an instruction to
+     * erase would make every wordless verdict destroy what the previous one recorded.
      */
     @Test
-    void aVerdictWithNoCommentLeavesTheCaseFileExactlyAsItWas() {
+    void aVerdictWithNoCommentRecordsNoneAndLeavesTheRiskReasonExactlyAsItWas() {
         int transferId = flaggedPayment();
         int alertId = alertFor(transferId).id();
         String raised = alertFor(transferId).reason();
@@ -191,18 +188,42 @@ class FraudDecisionRecordTest {
         services.fraudService.decideAndUpdateAlert(alertId, "APPROVE", "   ", null, "anna.analyst");
 
         assertEquals(raised, alertFor(transferId).reason());
+        assertNull(alertFor(transferId).decisionComment(),
+                "a blank box records nothing rather than a blank comment");
     }
 
     /**
-     * ANNOTATE is the one route that reaches an alert somebody has already decided, and every
-     * comment left through it is kept.
+     * A refusal with no comment still tells the CUSTOMER why their payment stopped.
      *
-     * Both halves matter. APPROVE and DECLINE refuse a second verdict and would take the writing
-     * down with them, so this is where a follow-up note has to land; and a route that kept the
-     * first comment and lost the rest would be the same defect one step further along.
+     * The two halves of a DECLINE go to two different people. The payer is told something, and
+     * "Declined by fraud analyst" is what a refusal taken without a word says to them. The alert
+     * is told nothing, because putting that sentence in the comment column would attribute words
+     * to an analyst who did not type them.
      */
     @Test
-    void anAnnotationReachesADecidedAlertAndEveryCommentIsKept() {
+    void aRefusalWithNoCommentNamesTheDeskToThePayerAndQuotesNobodyOnTheAlert() {
+        int transferId = flaggedPayment();
+        int alertId = alertFor(transferId).id();
+
+        services.fraudService.decideAndUpdateAlert(alertId, "DECLINE", null, null, "bob.analyst");
+
+        assertNull(alertFor(transferId).decisionComment());
+        assertEquals("Declined by fraud analyst",
+                infra.transfers.byId(transferId).orElseThrow().declineReason());
+    }
+
+    /**
+     * ANNOTATE is the one route that reaches an alert somebody has already decided.
+     *
+     * APPROVE and DECLINE refuse a second verdict and would take the writing down with them, so
+     * this is where a follow-up has to land. A second comment REPLACES the first, and that is the
+     * deliberate half: the comment belongs to the decision of record, and the journal beside it is
+     * where an analyst puts something that has to survive. Both are pinned here, so that a later
+     * change cannot quietly make the comment append again and leave the two fields saying the same
+     * thing in two ways.
+     */
+    @Test
+    void anAnnotationReachesADecidedAlertAndItsCommentReplacesTheEarlierOne() {
         int transferId = flaggedPayment();
         int alertId = alertFor(transferId).id();
 
@@ -213,13 +234,85 @@ class FraudDecisionRecordTest {
 
         FraudAlert stored = alertFor(transferId);
 
-        assertTrue(stored.reason().contains("beneficiary confirmed by phone"),
-                "the comment that came with the verdict stays");
-        assertTrue(stored.reason().contains("customer called back to confirm"),
-                "and the one added afterwards is beside it");
+        assertEquals("customer called back to confirm", stored.decisionComment(),
+                "the comment on an alert is the one that came with the last decision taken");
         assertEquals(FraudAlertState.OK, stored.state(), "an annotation is not a verdict");
         assertEquals("anna.analyst", stored.decidedBy(),
                 "and it does not put the annotator's name on somebody else's decision");
+    }
+
+    /**
+     * Two notes on one alert: both kept, in the order they were written, each under its own author
+     * and moment.
+     *
+     * This is the whole of what the journal replaced. The alert used to carry one notes string that
+     * every save overwrote, so the second analyst to write anything destroyed what the first had
+     * written with nothing telling either of them, and the column recorded neither who had written
+     * what nor when.
+     *
+     * The clock is fixed for this fixture, so the two entries share an instant. That is the awkward
+     * case rather than an accident of the fixture: what keeps them in order is the tie break behind
+     * the ordering, and a journal that lost it would swap two entries between two reads of one
+     * screen.
+     */
+    @Test
+    void twoNotesOnOneAlertAreBothKeptInTheOrderTheyWereWritten() {
+        int transferId = flaggedPayment();
+        int alertId = alertFor(transferId).id();
+
+        services.fraudService.decideAndUpdateAlert(
+                alertId, "ANNOTATE", null, "called the payer, no answer", "anna.analyst");
+        services.fraudService.decideAndUpdateAlert(
+                alertId, "ANNOTATE", null, "payer called back, confirms the payment", "bob.analyst");
+
+        List<FraudAlertNote> journal = infra.alerts.notesOf(alertId);
+
+        assertEquals(2, journal.size(), "appending must never replace");
+        assertEquals("called the payer, no answer", journal.get(0).text());
+        assertEquals("anna.analyst", journal.get(0).author());
+        assertEquals(WHEN, journal.get(0).writtenAt());
+        assertEquals("payer called back, confirms the payment", journal.get(1).text());
+        assertEquals("bob.analyst", journal.get(1).author(),
+                "each entry names the analyst who wrote it, which one shared column could not");
+        assertEquals(alertId, journal.get(1).alertId());
+    }
+
+    /** A decision with both a comment and a note writes both, into the two places they belong. */
+    @Test
+    void aDecisionCarryingACommentAndANoteWritesBoth() {
+        int transferId = flaggedPayment();
+        int alertId = alertFor(transferId).id();
+
+        services.fraudService.decideAndUpdateAlert(
+                alertId, "APPROVE", "beneficiary confirmed by phone",
+                "spoke to the payer on the number we hold", "anna.analyst");
+
+        assertEquals("beneficiary confirmed by phone", alertFor(transferId).decisionComment());
+
+        List<FraudAlertNote> journal = infra.alerts.notesOf(alertId);
+        assertEquals(1, journal.size());
+        assertEquals("spoke to the payer on the number we hold", journal.get(0).text());
+    }
+
+    /**
+     * A blank note is not an entry, and an alert nobody has written on has an empty journal rather
+     * than none at all.
+     *
+     * Both desks send the box on every decision and it is empty on most of them. A journal that
+     * grew a wordless entry per press would be longer without saying more, and a screen reading it
+     * would have to decide what to print for a note with no text.
+     */
+    @Test
+    void aBlankNoteIsNotAnEntry() {
+        int transferId = flaggedPayment();
+        int alertId = alertFor(transferId).id();
+
+        assertTrue(infra.alerts.notesOf(alertId).isEmpty(),
+                "an alert arrives with an empty journal");
+
+        services.fraudService.decideAndUpdateAlert(alertId, "ANNOTATE", null, "   ", "anna.analyst");
+
+        assertTrue(infra.alerts.notesOf(alertId).isEmpty());
     }
 
     /**
@@ -340,7 +433,7 @@ class FraudDecisionRecordTest {
         }
 
         services.fraudService.decideAndUpdateAlert(
-                alertId, "APPROVE", null, "looked fine", "anna.analyst");
+                alertId, "APPROVE", "looked fine", null, "anna.analyst");
 
         assertEquals(List.of("manual-review"), alertFor(transferId).tags());
     }

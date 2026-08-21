@@ -537,7 +537,7 @@ public class ConsoleMenu {
                 services.fraudService.annotate(tid);
                 System.out.println("[OK] Alert left open and the transfer left as it was."
                         + " The customer's confirmation step is what 'approve' unlocks,"
-                        + " and the console carries no comment or notes to record.");
+                        + " and the console carries neither a comment nor a note to record.");
             }
             default -> System.out.println("Unknown action");
         }

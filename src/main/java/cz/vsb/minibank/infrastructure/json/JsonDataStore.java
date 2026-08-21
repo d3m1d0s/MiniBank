@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import cz.vsb.minibank.infrastructure.json.dto.JsonAccount;
 import cz.vsb.minibank.infrastructure.json.dto.JsonCustomer;
 import cz.vsb.minibank.infrastructure.json.dto.JsonFraudAlert;
+import cz.vsb.minibank.infrastructure.json.dto.JsonFraudAlertNote;
 import cz.vsb.minibank.infrastructure.json.dto.JsonTransfer;
 
 import java.io.File;
@@ -47,6 +48,17 @@ public class JsonDataStore {
         public List<JsonAccount> accounts = new ArrayList<>();
         public List<JsonTransfer> transfers = new ArrayList<>();
         public List<JsonFraudAlert> fraudAlerts = new ArrayList<>();
+
+        /**
+         * The analysts' notes, one record per note, appended and never rewritten.
+         *
+         * A list of its own rather than a field on each alert, which mirrors the fraud_alert_notes
+         * table on the SQL backend and keeps the journal out of reach of the one operation that
+         * could lose it: saving an alert replaces its record with a fresh one built from the
+         * aggregate, and the aggregate does not carry its journal.
+         */
+        public List<JsonFraudAlertNote> fraudAlertNotes = new ArrayList<>();
+
         // Sequence section
         public Sequences sequences = new Sequences();
     }
@@ -54,7 +66,7 @@ public class JsonDataStore {
     private Bundle cache = new Bundle();
 
     /**
-     * The one lock for the whole store. It guards the cache field, the four lists inside
+     * The one lock for the whole store. It guards the cache field, the five lists inside
      * the Bundle, every DTO reachable from them (including the nested accountIds,
      * beneficiaries and tags lists), the sequences, and the backing file.
      *
@@ -368,7 +380,10 @@ public class JsonDataStore {
         if (cache.accounts == null) cache.accounts = new ArrayList<>();
         if (cache.transfers == null) cache.transfers = new ArrayList<>();
         if (cache.fraudAlerts == null) cache.fraudAlerts = new ArrayList<>();
+        if (cache.fraudAlertNotes == null) cache.fraudAlertNotes = new ArrayList<>();
         if (cache.sequences == null) cache.sequences = new Sequences();
+
+        carryLegacyNotesIntoTheJournal();
 
         // If a legacy file lacks sequence values, compute safe "next" values.
         //
@@ -388,6 +403,41 @@ public class JsonDataStore {
                 nextFromList(cache.transfers,       (cz.vsb.minibank.infrastructure.json.dto.JsonTransfer  t) -> t.id, 5001));
         cache.sequences.fraudAlert  = Math.max(cache.sequences.fraudAlert,
                 nextFromList(cache.fraudAlerts,     (cz.vsb.minibank.infrastructure.json.dto.JsonFraudAlert f) -> f.id, 9001));
+    }
+
+    /**
+     * Turns the single notes text a stored alert used to carry into the first entry of its
+     * journal, and clears the field it came from.
+     *
+     * This backend's half of db/migrate/fraud-alert-comment-and-notes-journal.sql, which does the
+     * same thing to the SQL rows with an INSERT and a DROP COLUMN. It runs here, under the load,
+     * because this is the one place that sees the whole document: nothing is thrown away and
+     * nobody has to remember to run anything.
+     *
+     * The entry names no author, because the field recorded none and a placeholder would name
+     * somebody who never wrote anything, and it is dated at the alert's own creation instant,
+     * which is the earliest moment the note could have been written and is what keeps the carried
+     * entry at the top of the journal.
+     *
+     * Idempotent by construction: the text is cleared as it is carried, so a second load finds
+     * nothing left to carry, whether or not the store was written back in between.
+     */
+    private void carryLegacyNotesIntoTheJournal() {
+        for (JsonFraudAlert alert : cache.fraudAlerts) {
+            if (alert.notes == null || alert.notes.isBlank()) {
+                alert.notes = null;
+                continue;
+            }
+
+            JsonFraudAlertNote carried = new JsonFraudAlertNote();
+            carried.alertId = alert.id;
+            carried.author = null;
+            carried.writtenAt = alert.createdAt;
+            carried.text = alert.notes;
+
+            cache.fraudAlertNotes.add(carried);
+            alert.notes = null;
+        }
     }
 
     /**

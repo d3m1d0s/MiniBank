@@ -175,14 +175,22 @@ class FraudRoutingOnTheWireTest {
     /**
      * A desk that has not been rebuilt keeps working.
      *
-     * Both desks send an assignee and a list of tags on every decision, and both fields have just
-     * left {@link cz.vsb.minibank.api.dto.FraudDecisionRequest}. A server that refused the extra
+     * Both desks send an assignee and a list of tags on every decision, and both fields have left
+     * {@link cz.vsb.minibank.api.dto.FraudDecisionRequest}. A server that refused the extra
      * properties would break the two screens the moment this deploys, so the case that matters is
-     * not that the fields are gone but that sending them is harmless: the decision lands, the
-     * notes are stored, and the two fields are ignored rather than applied.
+     * not that the fields are gone but that sending them is harmless.
+     *
+     * {@code reason} is the third of them and the one that is still honoured, under a new name.
+     * It always carried the analyst's own comment, so the field means exactly what it always
+     * meant and is accepted as an alias for {@code comment}; only the column it lands in has
+     * changed, from the sentence the rules wrote to a field of its own.
+     *
+     * {@code notes} is the fourth and is deliberately NOT honoured. It used to carry a whole
+     * replacement blob, and the journal that replaced it appends: an old desk echoing its box back
+     * on every press would file the same paragraph again as a new entry each time.
      */
     @Test
-    void aDecisionCarryingTheOldFieldsIsAcceptedAndTheyAreIgnored() throws Exception {
+    void aDecisionCarryingTheOldFieldsIsAcceptedAndOnlyTheCommentIsHonoured() throws Exception {
         api.perform(post("/api/fraud/alerts/" + alertId + "/decision")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
@@ -195,10 +203,44 @@ class FraudRoutingOnTheWireTest {
                 .andReturn();
 
         FraudAlert stored = infra.alerts.byId(alertId).orElseThrow();
-        assertEquals("kept", stored.notes(), "the field that is still on the wire was applied");
+        assertEquals("still looking", stored.decisionComment(),
+                "the comment field kept its old spelling as an alias, so a desk that has not been"
+                        + " rebuilt still records what its analyst typed");
         assertNull(stored.assignee(),
                 "and the one that left it was not: an assignee is written by its own route now,"
                         + " never by an echo travelling with a decision");
         assertTrue(stored.tags().isEmpty(), "nor can a decision write the tags column any more");
+        assertTrue(infra.alerts.notesOf(alertId).isEmpty(),
+                "and the old replacement blob writes no journal entry: appending it would file the"
+                        + " same paragraph again on every press of every button");
+    }
+
+    /**
+     * The note travels on its own field and lands in the journal under the analyst who sent it.
+     *
+     * The two halves of the new request are asserted apart from each other on purpose: the comment
+     * belongs to the decision and is replaced by a later one, the note belongs to the case and is
+     * appended. They were one field between them and one column between them, and that is what
+     * made two analysts able to overwrite each other without being told.
+     */
+    @Test
+    void aDecisionCarryingACommentAndANoteWritesBoth() throws Exception {
+        api.perform(post("/api/fraud/alerts/" + alertId + "/decision")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"decision":"ANNOTATE",
+                                 "comment":"waiting on the card scheme",
+                                 "note":"left a voicemail for the payer"}
+                                """))
+                .andReturn();
+
+        FraudAlert stored = infra.alerts.byId(alertId).orElseThrow();
+        assertEquals("waiting on the card scheme", stored.decisionComment());
+
+        var journal = infra.alerts.notesOf(alertId);
+        assertEquals(1, journal.size());
+        assertEquals("left a voicemail for the payer", journal.get(0).text());
+        assertEquals("fraud", journal.get(0).author(),
+                "the author comes from the session, like decided_by, and never from the body");
     }
 }

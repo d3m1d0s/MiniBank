@@ -263,6 +263,7 @@ export type {
     AlertCounters,
     AlertQueueResponse,
     AlertInfo,
+    AlertNote,
     TransferInfo,
     HistoryItem,
     AlertDetail,

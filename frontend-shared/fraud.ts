@@ -59,7 +59,29 @@ export interface AlertInfo {
     decision: string | null;
     decidedBy: string | null;
     resolvedAt: string | null;
-    reason: string;
+    /**
+     * What the analyst wrote about the verdict, on any of the three decisions.
+     *
+     * Its own field because it is its own fact. It used to be appended into `reason` behind a bar,
+     * so one line on screen carried two different claims: why the bank was worried, and what a
+     * person concluded about it. A reader had no way to tell where the first ended and the second
+     * began, and the analyst's words inherited the authority of the rules'.
+     *
+     * Null on an open alert and on a verdict taken without a word, which are two situations and one
+     * value: neither has a comment to print, and neither is worth a line of its own. A LATER
+     * decision REPLACES it. That is the whole difference between this field and the journal beside
+     * it, which appends and is never edited; see {@link AlertNote}.
+     */
+    decisionComment: string | null;
+    /**
+     * Why the rules raised this alert, and nothing else.
+     *
+     * The name is unchanged and the meaning is narrower. Everything a person wrote now lives in
+     * `decisionComment` above or in the journal, so this is the bank's own sentence about the
+     * payment again. A screen may not caption it as the reason for a decision, and it must not be
+     * the line an analyst's comment is printed on.
+     */
+    reason: string | null;
     riskScore: number | null;
     createdAt: string | null;
     /**
@@ -78,7 +100,28 @@ export interface AlertInfo {
      * the last time is in {@link FraudDecisionRequest}.
      */
     tags: string[];
-    notes: string | null;
+}
+
+/**
+ * One entry of an alert's journal: who wrote it, when, and what they wrote.
+ *
+ * APPEND ONLY. There is no edit and no delete, on the wire or on either screen, and that is the
+ * reason the journal exists. It replaced a single `notes` string that every save overwrote, so two
+ * analysts working the same alert erased each other and nothing recorded who had written what.
+ *
+ * `author` is null on exactly one kind of entry: the one the migration carried over from that old
+ * column, which recorded no name. It means the name was never kept, not that nobody wrote it, so a
+ * screen prints it as a word rather than as a blank; see `noteAuthorLabel` in glossary.ts.
+ *
+ * No alert id on the record, because these arrive inside one alert's detail and a second copy of
+ * the id a screen already holds is a second thing that can disagree with it.
+ */
+export interface AlertNote {
+    author: string | null;
+    /** Never null: an entry that does not say when it was written is not an entry. */
+    writtenAt: string;
+    /** Never null and never blank; the server refuses both. */
+    text: string;
 }
 
 export interface TransferInfo {
@@ -106,6 +149,25 @@ export interface TransferInfo {
     amount: Money;
     feeAmount: Money;
     createdAt: string | null;
+    /**
+     * When the money actually moved, against `createdAt`, which is when it was asked for.
+     *
+     * Null on anything that has not settled, which on a fraud desk is most of what is opened: the
+     * alert is read while the payment is still held. The same field, and the same reading, as on a
+     * history row; see {@link HistoryItem.settledAt}.
+     */
+    settledAt: string | null;
+    /**
+     * The payer's own reference, exactly as they typed it into the payment form.
+     *
+     * The analyst could not read it, which is the gap this closed: the customer types it, the form
+     * counts it against its limit and the bank stores it, and the one person reviewing that very
+     * payment saw everything about it except what the payer said they were paying for.
+     *
+     * Null when they wrote none, and that is a different fact from an empty string. Prose somebody
+     * typed, so a panel prints it only when there is text in it.
+     */
+    message: string | null;
     authMethod: string | null;
 }
 
@@ -178,10 +240,24 @@ export interface HistoryItem {
     declineReason: string | null;
 }
 
+/**
+ * Everything one alert is, in one answer: the alert, the payment it was raised on, that customer's
+ * earlier payments, and the journal.
+ *
+ * The journal arrives here rather than on a route of its own because it is read exactly when the
+ * alert is, and a second request for three lines of text would be a second thing that can fail
+ * while the panel is already on screen. Oldest entry first, and `[]` when there are none: an empty
+ * list is not null, so no screen has to decide what a missing journal means.
+ *
+ * A QUEUE ROW HAS NONE OF THIS. `AlertQueueItem` gained neither the journal nor the comment, and
+ * nothing may make a row of a list read one: a table that shows the last note per row would ask the
+ * server for every alert's journal to draw ten cells of it.
+ */
 export interface AlertDetail {
     alert: AlertInfo;
     transfer: TransferInfo;
     history: HistoryItem[];
+    notes: AlertNote[];
 }
 
 /**
@@ -206,7 +282,8 @@ export interface AlertDetail {
 export type FraudDecision = 'APPROVE' | 'DECLINE' | 'ANNOTATE';
 
 /**
- * The body of a decision: the verdict, the analyst's own comment on it, and the notes.
+ * The body of a decision: the verdict, the analyst's own comment on it, and one entry for the
+ * journal.
  *
  * TWO FIELDS LEFT THIS BODY and neither is coming back, which is worth stating here because both
  * desks were filling them in.
@@ -221,13 +298,25 @@ export type FraudDecision = 'APPROVE' | 'DECLINE' | 'ANNOTATE';
  * and echoing back the assignee the desk had read is enough to resurrect an assignment a
  * colleague cleared in the meantime.
  *
- * `reason` is what the analyst wrote about THIS decision, and it rides with all three verdicts
- * rather than belonging to the refusal. Nothing on a screen may call it the reason for declining.
+ * A THIRD FIELD LEFT AND ONE ARRIVED IN ITS PLACE, and the two are not the same field renamed.
+ * `notes` used to carry the whole of an alert's notes as one blob, so every press filed whatever
+ * was in the box, an emptied box included, over what a colleague had written. `note` carries ONE
+ * entry to append. Blank is the same as absent, which is what lets a screen send the field on every
+ * press without filing the same paragraph again. The server does not alias the old name: `notes`
+ * sent by an un-rebuilt desk is ignored rather than misread as an entry.
+ *
+ * `comment` is what the analyst wrote about THIS decision, and it rides with all three verdicts
+ * rather than belonging to the refusal. Nothing on a screen may call it the reason for declining,
+ * and nothing may call it the reason at all: the alert's `reason` is the bank's own sentence about
+ * the payment and this is a person's about the verdict. It was called `reason` here, which is how
+ * the two came to be printed as one line. The old key is still accepted by the server so the two
+ * desks can be rebuilt in either order; it is not offered here, because a name still on the list is
+ * a name a screen goes on sending.
  */
 export interface FraudDecisionRequest {
     decision: FraudDecision;
-    reason?: string;
-    notes?: string;
+    comment?: string;
+    note?: string;
 }
 
 export interface AlertFilters {
@@ -337,6 +426,14 @@ export async function fetchAlertHistory(
     return handle<Page<HistoryItem>>(res);
 }
 
+/**
+ * Records the verdict, and answers the whole alert back.
+ *
+ * The answer already carries the appended entry, so a panel that has just added a note must draw
+ * the journal out of this response rather than re-reading the alert. Re-reading is not only a
+ * second request: between the two of them a colleague can append, and the panel would then show a
+ * journal that does not match the result it is announcing.
+ */
 export async function postFraudDecision(
     id: number,
     payload: FraudDecisionRequest,

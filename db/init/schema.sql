@@ -263,11 +263,23 @@ CREATE TABLE fraud_alerts (
                               state       VARCHAR(32) NOT NULL,
                               decision    VARCHAR(32),
                               decided_by  VARCHAR(100),
+                              -- Why the rules raised this alert, and nothing else. An analyst's
+                              -- own comment used to be appended into it behind a " | ", so one
+                              -- line carried two facts with two different authors and no reader
+                              -- could tell them apart. That comment now has the column below.
                               reason      TEXT,
+
+                              -- What the analyst wrote when they decided it, on any of the three
+                              -- decisions and not only on a refusal. Null on an open alert and on
+                              -- a verdict taken without a word, which is the common case on an
+                              -- APPROVE. Replaced by a later decision, exactly as decision,
+                              -- decided_by and resolved_at are; anything that has to survive goes
+                              -- in fraud_alert_notes below, which is append only.
+                              decision_comment TEXT,
+
                               risk_score  INTEGER,
                               assignee    VARCHAR(100),
                               tags        TEXT,
-                              notes       TEXT,
                               -- NOT NULL for the same reason transfers.created_at is, and the
                               -- blast radius here is wider than one row: FraudAlert.hydrateForLoad
                               -- refuses an alert with no creation instant, and
@@ -302,3 +314,43 @@ ALTER SEQUENCE fraud_alerts_id_seq OWNED BY fraud_alerts.id;
 -- separate one on transfer_id is needed. Nothing filters on state in SQL: the queue loads every
 -- alert and filters in Java, so an index there served nothing.
 ALTER TABLE fraud_alerts ADD CONSTRAINT fraud_alerts_one_per_transfer UNIQUE (transfer_id);
+
+
+-- The analyst's notes journal: one row per note, appended and never touched again.
+--
+-- It replaces a single notes column on fraud_alerts, which every save overwrote. Two analysts
+-- working the same alert wrote over each other with nothing telling either of them, and the
+-- column recorded neither who had written what nor when. On a queue that is shared work by
+-- construction, that is a case file that quietly loses evidence.
+--
+-- There is no UPDATE and no DELETE anywhere above this table. The repository exposes exactly two
+-- operations, append and read, which is what makes "nothing overwrites, ever" a property of the
+-- store rather than a habit of its callers.
+CREATE TABLE fraud_alert_notes (
+    id         INTEGER PRIMARY KEY,
+    alert_id   INTEGER NOT NULL REFERENCES fraud_alerts(id) ON DELETE CASCADE,
+
+    -- The analyst who wrote it. NULL only on the entry the migration carried over from the old
+    -- notes column, which recorded no author; a placeholder there would name somebody who never
+    -- wrote anything.
+    author     VARCHAR(100),
+
+    -- NOT NULL for the reason fraud_alerts.created_at is: the journal is ordered by it, and one
+    -- NULL written by hand would put an entry somewhere no reader can predict.
+    written_at TIMESTAMPTZ NOT NULL,
+
+    -- CHECKed rather than merely NOT NULL: an entry that says nothing is not a fact about the
+    -- case, and both write paths already drop a blank instead of storing one.
+    text       TEXT NOT NULL CHECK (btrim(text) <> '')
+);
+
+CREATE SEQUENCE fraud_alert_notes_id_seq;
+ALTER TABLE fraud_alert_notes
+    ALTER COLUMN id SET DEFAULT nextval('fraud_alert_notes_id_seq');
+
+ALTER SEQUENCE fraud_alert_notes_id_seq OWNED BY fraud_alert_notes.id;
+
+-- The one read this table serves: one alert's journal in the order it was written. The id is in
+-- the index because two notes can share an instant and offsetting over a partial order is what
+-- repeats one row and drops another.
+CREATE INDEX fraud_alert_notes_by_alert ON fraud_alert_notes (alert_id, written_at, id);

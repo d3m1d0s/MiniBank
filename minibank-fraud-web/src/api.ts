@@ -67,6 +67,12 @@ export type {
     AlertCounters,
     AlertQueueResponse,
     AlertInfo,
+    /*
+     * One entry of an alert's journal, which arrives inside the detail rather than on a route of
+     * its own. It is listed here because this window draws it, and the barrel is where this
+     * application says what it reads.
+     */
+    AlertNote,
     TransferInfo,
     HistoryItem,
     AlertDetail,

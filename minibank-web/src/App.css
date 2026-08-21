@@ -681,7 +681,17 @@ tr[role="button"]:focus-visible {
  * has no label above. The minimum height is what stands it on the same line as the fields
  * beside it rather than on their labels.
  */
+/*
+ * A line of its own, under the fields rather than after them.
+ *
+ * flex-basis of the whole row is what breaks the line: the filter bar wraps, so a full width item
+ * cannot share a row with anything and the fields above it keep their own widths. Sitting at the
+ * end of the field row instead, this control was a fifth filter drawn unlike the other four, with
+ * its label on the right where theirs are above and its box aligned to their inputs rather than to
+ * their labels.
+ */
 .filter-check {
+  flex-basis: 100%;
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -1096,6 +1106,36 @@ tr[role="button"]:focus-visible {
 .table .cell--amount {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The one cell in a table that holds a sentence somebody typed.
+ *
+ * It takes the rest of the row, which is the point: the two stamps beside a journal entry are a
+ * date and a login and are as wide as what they hold, and left to the browser's own algorithm the
+ * three columns would be shared out by the length of the text in them, so a table of short entries
+ * would put its dates in the middle of the panel and a table with one long entry would not. At
+ * 100% the two short columns collapse to their content and the words take what is left, so the
+ * ruling stands in the same place whatever is written under it.
+ *
+ * No cap on the words and no ellipsis. A note is read, not scanned: the reason it exists is that
+ * the record used to be one string an analyst could overwrite, and a record that shows the first
+ * line of what a colleague wrote has kept the text without keeping the meaning.
+ */
+.table .cell--prose {
+  width: 100%;
+}
+
+/*
+ * A date beside a cell that has claimed the rest of the row, kept on its own line.
+ *
+ * The rule above leaves the short columns at their content width, and content width for a cell of
+ * text is the longest word in it: `21. 8. 2026 17:28` collapsed to three stacked lines, in the
+ * column a journal is read down. Nothing else about it changes, so the ink and the size stay the
+ * table's own.
+ */
+.table .cell--stamp {
+  white-space: nowrap;
 }
 
 /*

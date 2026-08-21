@@ -151,7 +151,7 @@ class BankBoundaryOnTheWireTest {
     // second candidate for the route. It is not the route and must never be read as one.
     private static final Set<String> TRANSFER_INFO_FIELDS = Set.of(
             "id", "code", "status", "fromIban", "fromBalance", "toIban", "dispatchState", "amount",
-            "feeAmount", "createdAt", "authMethod");
+            "feeAmount", "createdAt", "settledAt", "message", "authMethod");
 
     // dispatchState is the second component this record has grown for a reason of its own, and it
     // is listed here for the reason fee is listed above: what these tests reach for is the ONE
@@ -578,6 +578,44 @@ class BankBoundaryOnTheWireTest {
         assertNull(row(desk, "sentOutside").message(),
                 "nothing was written on this one, and absent is a different fact from empty");
         assertNull(row(mine, "sentOutside").message(), "on both routes");
+    }
+
+    /**
+     * The ALERTED payment carries the payer's reference and its settlement instant too, and not
+     * only the rows in the table beneath it.
+     *
+     * This panel is the one an analyst is deciding on, and it was the last record on this API to
+     * carry neither. The absence was invisible on screen for the worst possible reason: the same
+     * payment appears again in the history table under the panel, where both fields have been
+     * printed all along, so the desk looked complete while the record it is built from was not.
+     *
+     * The message is the sharp half. It is counted against 140 characters on the way in and
+     * stored, and it is often the whole of what the payer said about the payment, so an analyst
+     * was being asked to judge a payment with the payer's own description of it hidden. The
+     * settlement instant is the other: on a desk whose whole list is held and settled payments,
+     * "when it was asked for" and "when the money moved" are days apart, and one heading standing
+     * over both cannot say how long anything sat.
+     *
+     * Two alerts, because the two fields have two readings each and one payment cannot show both:
+     * the held payment has a message and no settlement, the settled one has both.
+     */
+    @Test
+    void theAlertedPaymentCarriesThePayersReferenceAndWhenTheMoneyMoved() {
+        asAnalyst();
+        TransferInfoDto held = fraudController.getAlert(alertOnHeldToOutside).transfer();
+        TransferInfoDto settled = fraudController.getAlert(alertOnSentInside).transfer();
+
+        assertEquals(PAYERS_OWN_REFERENCE, held.message(),
+                "the panel an analyst decides from must show what the payer wrote on the payment");
+        assertNull(held.settledAt(),
+                "and nothing has moved on a held payment, so there is no instant to print");
+
+        assertEquals(PAYERS_OWN_REFERENCE, settled.message());
+        assertEquals(SENT_INSIDE_SETTLED_AT.toString(), settled.settledAt(),
+                "the money moved three days after this payment was asked for");
+        assertNotEquals(settled.createdAt(), settled.settledAt(),
+                "the two instants answer different questions, and a panel printing the created"
+                        + " one under both cannot show how long the payment sat");
     }
 
     /**

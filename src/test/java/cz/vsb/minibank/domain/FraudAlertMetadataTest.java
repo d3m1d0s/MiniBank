@@ -20,8 +20,7 @@ class FraudAlertMetadataTest {
                 "Suspicious amount",
                 72,
                 "alice",
-                tags,
-                "Initial note"
+                tags
         );
 
         assertEquals(1, alert.id());
@@ -33,7 +32,8 @@ class FraudAlertMetadataTest {
         assertEquals(72, alert.riskScore());
         assertEquals("alice", alert.assignee());
         assertEquals(tags, alert.tags());
-        assertEquals("Initial note", alert.notes());
+        assertNull(alert.decisionComment(),
+                "an alert nobody has decided carries no analyst comment");
     }
 
     @Test
@@ -64,8 +64,7 @@ class FraudAlertMetadataTest {
                 createdAt,
                 85,
                 "bob",
-                tags,
-                "Manual review"
+                tags
         );
 
         assertEquals(FraudAlertState.SUSPICIOUS, alert.state());
@@ -74,7 +73,6 @@ class FraudAlertMetadataTest {
         assertEquals(85, alert.riskScore());
         assertEquals("bob", alert.assignee());
         assertEquals(tags, alert.tags());
-        assertEquals("Manual review", alert.notes());
     }
 
     @Test

@@ -105,7 +105,7 @@ public class SqlUserRepositoryTest {
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
              Statement st = conn.createStatement()) {
             st.execute("""
-                    TRUNCATE TABLE users, fraud_alerts, transfers, beneficiaries, accounts, customers
+                    TRUNCATE TABLE users, fraud_alert_notes, fraud_alerts, transfers, beneficiaries, accounts, customers
                     RESTART IDENTITY CASCADE
                     """);
         }

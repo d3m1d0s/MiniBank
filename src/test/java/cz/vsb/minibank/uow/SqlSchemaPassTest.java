@@ -98,7 +98,7 @@ public class SqlSchemaPassTest {
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
              Statement st = conn.createStatement()) {
             st.execute("""
-                    TRUNCATE TABLE fraud_alerts, transfers, beneficiaries, accounts, customers
+                    TRUNCATE TABLE fraud_alert_notes, fraud_alerts, transfers, beneficiaries, accounts, customers
                     RESTART IDENTITY CASCADE
                     """);
         }
@@ -413,7 +413,7 @@ public class SqlSchemaPassTest {
                     alert.markSuspicious("Confirmed by the card scheme", "anna.analyst",
                             Instant.now());
                 } else {
-                    alert.updateNotes("Called the customer back");
+                    alert.recordDecisionComment("Called the customer back");
                 }
                 infra.alerts.save(alert);
 
@@ -456,13 +456,13 @@ public class SqlSchemaPassTest {
     /**
      * The token survives a round trip, and one analyst deciding alone is untouched.
      *
-     * Both halves matter and the second is not padding. A decision writes the alert TWICE in one
-     * unit of work - {@code decideAndUpdateAlert} saves in the verdict arm and again after the
-     * notes block - so a guard whose write-back was missing would refuse every
-     * decision this application makes, on the second save, with nobody racing anybody. The load
-     * path fails the other way and just as silently: an alert that came back without its version
-     * would carry 0, and the next update would be compared against the version of a row nobody has
-     * written yet.
+     * A decision is ONE guarded write on this row now. It used to be two, because
+     * {@code decideAndUpdateAlert} saved the verdict and then saved again to write the notes blob
+     * over whatever was in the column; the notes are their own append-only table and the second
+     * save went with them. What still has to hold is the load path, and it fails silently: an
+     * alert that came back without its version would carry 0, and the next update would be
+     * compared against the version of a row nobody has written yet, which is a lost update dressed
+     * as a successful one.
      */
     @Test
     void theAlertVersionComesBackFromTheStoreAndAnUncontendedDecisionStillLands() throws Exception {
@@ -479,23 +479,147 @@ public class SqlSchemaPassTest {
                 "the aggregate must carry the version the store holds after a load");
 
         services.fraudService.decideAndUpdateAlert(
-                held.alertId(), "APPROVE", null, "looked fine", "anna.analyst");
+                held.alertId(), "APPROVE", "looked fine", "called the payee, all in order",
+                "anna.analyst");
 
-        assertEquals(2, versionOfAlert(held.alertId()),
-                "the verdict and the metadata are two guarded writes in one unit of work, and the"
-                        + " second is only possible because the first handed back the version it"
-                        + " left behind");
+        assertEquals(1, versionOfAlert(held.alertId()),
+                "a decision is one guarded write on the alert row, and the note taken with it is"
+                        + " an insert into a table of its own rather than a second pass over this"
+                        + " one");
 
         FraudAlert decided = infra.alerts.byId(held.alertId()).orElseThrow();
         assertEquals(FraudAlertState.OK, decided.state());
         assertEquals(FraudAlert.DECISION_APPROVE, decided.decision());
-        assertEquals("looked fine", decided.notes());
-        assertEquals(2, decided.version(),
+        assertEquals("looked fine", decided.decisionComment(),
+                "the analyst's comment is its own column now, and the risk reason is left saying"
+                        + " only why the alert was raised");
+        assertEquals("New beneficiary + high amount", decided.reason());
+        assertEquals(1, decided.version(),
                 "and the load brings the new one back, which is what lets the write after it be"
                         + " guarded in turn");
+
+        List<cz.vsb.minibank.domain.FraudAlertNote> journal =
+                infra.alerts.notesOf(held.alertId());
+        assertEquals(1, journal.size(), "the note written with the decision reached the journal");
+        assertEquals("called the payee, all in order", journal.get(0).text());
+        assertEquals("anna.analyst", journal.get(0).author());
         assertEquals(TransferStatus.WAITING_AUTH,
                 infra.transfers.byId(held.transferId()).orElseThrow().status(),
                 "and the payment really was released for the customer's own confirmation step");
+    }
+
+    // -------------------------------------------------------------------------
+    // The notes journal
+    // -------------------------------------------------------------------------
+
+    /**
+     * Two analysts writing on one alert both keep what they wrote, in order, each under their own
+     * name and moment.
+     *
+     * The whole of what the table replaced. notes was one column that every upsert assigned, so
+     * the second analyst to write anything destroyed the first analyst's text with nothing telling
+     * either of them, and the column recorded neither who had written what nor when. It is pinned
+     * on the SQL backend as well as on the JSON one because the guarantee is the store's here: the
+     * repository issues an INSERT and there is no UPDATE and no DELETE against this table anywhere
+     * in the application.
+     *
+     * The instants are set explicitly and one hour apart, so the case is about the ORDER the
+     * journal answers in rather than about how fast the test ran.
+     */
+    @Test
+    void twoAnalystsWritingOnOneAlertBothKeepWhatTheyWrote() {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+        HeldPayment held = seedHeldPaymentWithAlert(services);
+
+        Instant firstWrote = Instant.parse("2026-03-04T10:15:30Z");
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            infra.alerts.appendNote(new cz.vsb.minibank.domain.FraudAlertNote(
+                    held.alertId(), "anna.analyst", firstWrote, "called the payer, no answer"));
+            scope.uow().commit();
+        }
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            infra.alerts.appendNote(new cz.vsb.minibank.domain.FraudAlertNote(
+                    held.alertId(), "bob.analyst", firstWrote.plusSeconds(3600),
+                    "payer called back, confirms the payment"));
+            scope.uow().commit();
+        }
+
+        List<cz.vsb.minibank.domain.FraudAlertNote> journal =
+                infra.alerts.notesOf(held.alertId());
+
+        assertEquals(2, journal.size(), "appending must never replace");
+        assertEquals("called the payer, no answer", journal.get(0).text());
+        assertEquals("anna.analyst", journal.get(0).author());
+        assertEquals(firstWrote, journal.get(0).writtenAt());
+        assertEquals("payer called back, confirms the payment", journal.get(1).text());
+        assertEquals("bob.analyst", journal.get(1).author());
+    }
+
+    /**
+     * The entry the migration carries over reads back, and reads back as authorless.
+     *
+     * db/migrate/fraud-alert-comment-and-notes-journal.sql turns the single notes text of an
+     * existing row into exactly this shape: no author, because the column recorded none, and the
+     * alert's own creation instant, because that is the earliest moment the note could have been
+     * written and it is what keeps the carried entry at the top of the journal. The row is written
+     * here the way the migration writes it, as raw SQL, so this pins the shape a database that has
+     * been migrated actually holds rather than the shape the application happens to write.
+     */
+    @Test
+    void theEntryTheMigrationCarriesOverReadsBackWithNoAuthorAndStandsFirst() throws Exception {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+        HeldPayment held = seedHeldPaymentWithAlert(services);
+
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
+             PreparedStatement ps = conn.prepareStatement("""
+                     INSERT INTO fraud_alert_notes (alert_id, author, written_at, text)
+                     SELECT id, NULL, created_at, ?
+                       FROM fraud_alerts
+                      WHERE id = ?
+                     """)) {
+            ps.setString(1, "Called the payer, no answer");
+            ps.setInt(2, held.alertId());
+            ps.executeUpdate();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            infra.alerts.appendNote(new cz.vsb.minibank.domain.FraudAlertNote(
+                    held.alertId(), "anna.analyst", Instant.now().plusSeconds(60),
+                    "payer called back"));
+            scope.uow().commit();
+        }
+
+        List<cz.vsb.minibank.domain.FraudAlertNote> journal =
+                infra.alerts.notesOf(held.alertId());
+
+        assertEquals(2, journal.size(), "the carried entry must not be lost by a later one");
+        assertEquals("Called the payer, no answer", journal.get(0).text());
+        assertNull(journal.get(0).author(),
+                "the column recorded no author, and a placeholder would name somebody who never"
+                        + " wrote anything");
+        assertEquals("payer called back", journal.get(1).text());
+    }
+
+    /**
+     * A note on an alert that does not exist is refused by the schema rather than stored.
+     *
+     * The foreign key is what answers this, and it is answered here rather than by a check in
+     * Java: a lookup before the insert would be a second answer to the same question and a racier
+     * one. What matters for the caller is that it comes back as a failure and not as a silent
+     * orphan in a table whose whole purpose is being the record of what was said.
+     */
+    @Test
+    void aNoteOnAnAlertThatDoesNotExistIsRefused() {
+        assertThrows(RuntimeException.class, () -> {
+            try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+                infra.alerts.appendNote(new cz.vsb.minibank.domain.FraudAlertNote(
+                        4242, "anna.analyst", Instant.now(), "on nothing at all"));
+                scope.uow().commit();
+            }
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -754,7 +878,7 @@ public class SqlSchemaPassTest {
                 customerId, accountId, EXTERNAL_IBAN.value(), 12_000, "over the alert threshold").transferId();
         services.fraudService.decideAndUpdateAlert(
                 infra.alerts.byTransferId(flagged).orElseThrow().id(),
-                "APPROVE", null, "looked fine", "anna.analyst");
+                "APPROVE", "looked fine", null, "anna.analyst");
 
         FraudAlert decided = infra.alerts.byTransferId(flagged).orElseThrow();
         assertEquals(FraudAlert.DECISION_APPROVE, decided.decision(),

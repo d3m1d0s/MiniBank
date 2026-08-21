@@ -357,8 +357,22 @@ public class FraudController {
             List<HistoryItemDto> history =
                     mapHistoryForCustomer(source.id(), 0, DETAIL_HISTORY_ROWS, 0).items();
 
-            return new AlertDetailDto(alertDto, transferDto, history);
+            // The journal, read here and nowhere else. It is one statement for one alert, on the
+            // connection this read already holds, and it is deliberately absent from the queue:
+            // a page of thirty rows would otherwise be thirty more statements for a list no queue
+            // prints.
+            List<AlertNoteDto> notes = alerts.notesOf(id).stream()
+                    .map(FraudController::mapNote)
+                    .toList();
+
+            return new AlertDetailDto(alertDto, transferDto, history, notes);
         }
+    }
+
+    private static AlertNoteDto mapNote(cz.vsb.minibank.domain.FraudAlertNote note) {
+        // writtenAt is required on the record, so this needs no ternary; author is legitimately
+        // absent on the entry carried over from the column the journal replaced.
+        return new AlertNoteDto(note.author(), note.writtenAt().toString(), note.text());
     }
 
     /**
@@ -446,8 +460,8 @@ public class FraudController {
         fraudService.decideAndUpdateAlert(
                 id,
                 req.decision(),
-                req.reason(),
-                req.notes(),
+                req.comment(),
+                req.note(),
                 analyst
         );
 
@@ -518,12 +532,12 @@ public class FraudController {
                 alert.decision(),
                 alert.decidedBy(),
                 resolvedAtStr,
+                alert.decisionComment(),
                 alert.reason(),
                 alert.riskScore(),
                 createdAtStr,
                 alert.assignee(),
-                tags,
-                alert.notes()
+                tags
         );
     }
 
@@ -535,9 +549,15 @@ public class FraudController {
         // charged last month whenever the FeePolicy bean was swapped.
         MoneyDto fee = MoneyDto.of(t.feeFor(feePolicy));
 
-        // Unguarded: a transfer always carries its creation instant. The authorization method
-        // beside it genuinely may be absent, which is why only one of these two is a ternary.
+        // Unguarded: a transfer always carries its creation instant. The three beside it
+        // genuinely may be absent, which is why only one of the four is not a ternary.
         String createdAtStr = t.createdAt().toString();
+
+        // When the money actually moved, and null while it has not. The instant above is when the
+        // payment was asked for, and on a desk whose whole list is held payments those two are
+        // days apart. The history rows in the same panel have carried both all along.
+        String settledAtStr = (t.settledAt() != null ? t.settledAt().toString() : null);
+
         String authMethod = (t.authMethod() != null ? t.authMethod().method() : null);
 
         return new TransferInfoDto(
@@ -552,6 +572,12 @@ public class FraudController {
                 MoneyDto.of(t.amount()),
                 fee,
                 createdAtStr,
+                settledAtStr,
+                // The customer's own reference for this payment, or null when they gave none.
+                // Accepted on the creation form, counted against 140 characters and stored, and
+                // until now readable everywhere on this API except on the one panel that shows the
+                // payment an analyst is deciding about.
+                t.message(),
                 authMethod
         );
     }

@@ -424,6 +424,7 @@ public class JsonMapper {
         j.state = a.state().name();
         j.decision = a.decision();
         j.decidedBy = a.decidedBy();
+        j.decisionComment = a.decisionComment();
         j.reason = a.reason();
         if (a.createdAt() != null) {
             j.createdAt = a.createdAt().toString();
@@ -437,32 +438,52 @@ public class JsonMapper {
         if (a.tags() != null) {
             j.tags.addAll(a.tags());
         }
-        j.notes = a.notes();
+
+        // notes is deliberately not written. The journal is a list of its own beside the alerts,
+        // and the field on this record survives only so a store written before the journal
+        // existed can be read once and carried; see JsonFraudAlert.notes.
 
         return j;
     }
 
     public static FraudAlert toDomain(JsonFraudAlert j) {
-        FraudAlert a = new FraudAlert(j.id, j.transferId, j.reason);
-
         java.time.Instant ts =
                 StoredValue.requiredInstant(j.createdAt, "creation instant", "fraud alert", j.id);
 
         java.util.List<String> tags =
                 (j.tags != null) ? j.tags : java.util.Collections.emptyList();
 
+        // The comment an analyst gave with a verdict used to be appended into the reason behind
+        // a " | ", so a record written before it had a field of its own carries both facts on one
+        // line. Split here, which is this backend's half of what the SQL migration does with an
+        // UPDATE: the head is the sentence the rules produced and the tail is what a person wrote.
+        // The separator was written by one line of code and the rules' own sentences contain no
+        // bar, so the split is exact rather than a guess, and a record already carrying its own
+        // comment is left alone.
+        String reason = j.reason;
+        String comment = j.decisionComment;
+        if (comment == null && reason != null) {
+            int bar = reason.indexOf(" | ");
+            if (bar >= 0) {
+                comment = reason.substring(bar + 3);
+                reason = reason.substring(0, bar);
+            }
+        }
+
+        FraudAlert a = new FraudAlert(j.id, j.transferId, reason);
+
         FraudAlertState st = StoredValue.requiredEnum(
                 FraudAlertState.class, j.state, "state", "fraud alert", j.id);
-        a.hydrateForLoad(st, j.reason, ts, j.riskScore, j.assignee, tags, j.notes);
+        a.hydrateForLoad(st, reason, ts, j.riskScore, j.assignee, tags);
 
-        // hydrateDecision takes all three as null, which is what every alert written before
+        // hydrateDecision takes all four as null, which is what every alert written before
         // these fields existed has. Absent is a real value here, unlike the state above; a
         // resolution instant that is present and cannot be read is not, because it used to land
         // on exactly the value a legal row carries and nothing downstream could tell the two
         // apart.
         java.time.Instant resolvedAt = StoredValue.presentInstantOrNull(
                 j.resolvedAt, "resolution instant", "fraud alert", j.id);
-        a.hydrateDecision(j.decision, j.decidedBy, resolvedAt);
+        a.hydrateDecision(j.decision, j.decidedBy, resolvedAt, comment);
 
         return a;
     }

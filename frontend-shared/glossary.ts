@@ -256,7 +256,10 @@ function label(table: Record<string, string>, value: string | null | undefined):
 const DECISION_ACTION: Record<FraudDecision, string> = {
     APPROVE: 'Approve: release to the customer',
     DECLINE: 'Decline: record confirmed fraud',
-    ANNOTATE: 'Save notes, no decision',
+    // `Save notes, no decision` named the box it used to save rather than what the press does, and
+    // that box is gone. The press now writes whatever the two boxes hold, either or neither, so the
+    // label says the one thing that is true of all of those: no verdict is recorded.
+    ANNOTATE: 'Save without a decision',
 };
 
 /** What one of the three decision buttons says. Identical on both desks, which is the point. */
@@ -265,15 +268,37 @@ export function decisionActionLabel(action: FraudDecision): string {
 }
 
 /**
- * What the box above those three buttons is called.
+ * What the analyst's own words about a verdict are called, wherever either desk says it.
  *
- * One caption, because the two desks had two: one said "Reason / note for this decision" and the
- * other said "Reason" over a box hinting "optional reason". Neither names a verdict and neither
- * may, which is the part worth stating out loud: the comment goes on the wire whichever of the
- * three is pressed, so a caption reading "reason for declining" would tell an analyst clearing an
- * alert that what they wrote is for a refusal they are not making.
+ * ONE word for the box it is typed into and for the line it is read back on, which is what stops
+ * the field being written under one name and printed under another.
+ *
+ * It says `comment` and it may not say `reason`, and that is the correction rather than a
+ * preference. The old caption was `Reason for this decision`, and the server was storing what was
+ * typed under it by appending into the alert's own `reason`, which is the sentence the rules wrote
+ * about the payment. So one line on screen carried the bank's suspicion and a person's conclusion
+ * with nothing between them, and a reader had no way to tell which half they were reading. The two
+ * are now two fields, and they have to be two words: see {@link ALERT_REASON_LABEL}.
+ *
+ * It also names no verdict, which the two desks' old captions did not manage either. The comment
+ * goes on the wire whichever of the three buttons is pressed, so a caption reading `reason for
+ * declining` tells an analyst clearing an alert that what they wrote is for a refusal they are not
+ * making.
  */
-export const DECISION_REASON_LABEL = 'Reason for this decision';
+export const DECISION_COMMENT_LABEL = 'Analyst comment';
+
+/**
+ * What the alert's own `reason` is called, which is now only what the rules said.
+ *
+ * A name it did not need while it was one line saying two things, and needs now that it is not: two
+ * blocks of prose sit on the alert panel, one from the bank and one from a colleague, and each has
+ * to say whose it is. `Reason` alone over the first would be the shorter word next to the longer
+ * one and would read as the general case of it.
+ *
+ * The queue keeps its `Reason` column heading, from fields.ts, and there is no ambiguity to resolve
+ * there: a queue row carries no comment and never will.
+ */
+export const ALERT_REASON_LABEL = 'Why this alert was raised';
 
 /**
  * The words for holding an alert: the two controls, the alert nobody holds, and the two positions
@@ -412,6 +437,21 @@ export function emptyQueueNote(filters: AlertFilters): string {
  */
 export const QUEUE_COUNTERS_BASIS = 'Whole queue, before any filter';
 
+/**
+ * The same claim for a column too narrow to carry the long one.
+ *
+ * The workstation puts this strip at the foot of a queue panel that is 420px wide, and the long
+ * form leaves no room on that line for the numbers it introduces, so the strip broke into a
+ * ragged stack of one phrase and four counts. The short form is the wording the workstation used
+ * before the long one was written, and it says the same thing: the qualifier is what the numbers
+ * are counted on, and on a strip that carries nothing else there is nothing for it to be confused
+ * with.
+ *
+ * Two forms of one sentence, declared together so they cannot drift into two sentences. If the
+ * wording of either changes, both change here.
+ */
+export const QUEUE_COUNTERS_BASIS_NARROW = 'Whole queue';
+
 /** One state of the strip: the word for it, and how many alerts are in it. */
 export interface QueueCounterCell {
     /** The server's own value, so a skin can key a list or a style off it. */
@@ -490,24 +530,61 @@ export const SELECT_ALERT_TO_DECIDE = 'Select an alert to take a decision.';
 /**
  * The hint under the box the comment is typed into, and the caption and hint of the box beside it.
  *
- * {@link DECISION_REASON_LABEL} is next door and these are its neighbours, for the same reason: two
- * boxes above three buttons had four wordings between the platforms, and the pair that named the
- * second box disagreed about what it was. `Notes` over `internal notes` and `Internal notes` over
- * `Additional notes for future investigation.` are not two skins of one caption; one of them says
- * the word twice and neither says what the box is for.
+ * THE SECOND BOX CHANGED WHAT IT DOES, so it changed its name. It used to be captioned `Internal
+ * notes` and it held the whole of an alert's notes as one editable blob: whatever was left in it
+ * was filed over what was there, an emptied box included, so two analysts on one alert erased each
+ * other. It now adds ONE entry to a journal that is never overwritten, and a caption naming the
+ * thing rather than the act would go on inviting the reader to edit what a colleague wrote. So the
+ * caption is a verb, and it is the only caption in either desk's decision panel that is one.
  *
- * The surviving caption is the one that says who reads it, since that is the whole difference
- * between this box and the one above: the reason rides with the decision and reaches the customer
- * on a refusal, and what is typed here reaches colleagues and nobody else.
+ * The captions still divide by audience, which is the difference between the two boxes and was the
+ * one true half of the old wording: the comment rides with the verdict and its substance reaches
+ * the customer on a refusal, and an entry in the journal reaches colleagues and nobody else.
  *
  * Both placeholders are examples of what to write rather than repetitions of the caption, which is
  * what a placeholder is worth. Neither says `optional`: what happens to an empty box is stated
  * once, in the hint under the buttons, where it applies to both of them.
  */
-export const DECISION_REASON_PLACEHOLDER =
-    'Optional comment that will be stored with the alert.';
-export const DECISION_NOTES_LABEL = 'Internal notes';
-export const DECISION_NOTES_PLACEHOLDER = 'Additional notes for future investigation.';
+export const DECISION_COMMENT_PLACEHOLDER =
+    'What you concluded, stored on the alert with your verdict.';
+export const DECISION_NOTE_LABEL = 'Add a note';
+export const DECISION_NOTE_PLACEHOLDER =
+    'One entry for the case notes, kept for whoever reads this alert next.';
+
+/**
+ * What the journal is called, and what it says when it is empty.
+ *
+ * `Case notes` and not `Notes`, because `Notes` is what the blob was called and the panel has to
+ * read as a record rather than as a field. It is plural, being a list, and the column that holds
+ * one of them is singular; both are settled once, here and in fields.ts, so the panel and its
+ * heading cannot end up naming the same thing two ways.
+ *
+ * The empty sentence is built like {@link NO_HISTORY} and stops in the same place. It says the
+ * journal is empty and does not invite anybody to write in it: the box that does that is three
+ * inches away with a caption of its own, and a second invitation would be the screen asking twice.
+ */
+export const ALERT_NOTES_TITLE = 'Case notes';
+export const NO_ALERT_NOTES = 'No notes on this alert.';
+
+/**
+ * The word for an entry whose author was never recorded.
+ *
+ * ONE entry per alert can carry it, at most: the one carried over from the single notes column that
+ * preceded the journal, which kept text and kept no name. Everything written since records who
+ * wrote it, so this is a word about the past rather than a state an analyst can produce.
+ *
+ * A word and not the table's dash, for the reason {@link UNASSIGNED} is one: a blank cell in a
+ * column of names reads as a name withheld, and nothing is being withheld. `unknown` and not
+ * `nobody`, which would claim the entry wrote itself.
+ *
+ * Lower case, because it is a word standing in for a value and not a value of its own.
+ */
+export const NOTE_AUTHOR_UNKNOWN = 'unknown';
+
+/** Who wrote a journal entry, or the word above when the name was never kept. */
+export function noteAuthorLabel(author: string | null | undefined): string {
+    return author || NOTE_AUTHOR_UNKNOWN;
+}
 
 /**
  * What a decision button says while its own press is in flight.
@@ -527,19 +604,18 @@ export const DECISION_BUSY = 'Applying…';
  *
  * Three sentences and each answers a thing an analyst gets wrong once. Approving sounds like
  * sending money and does not send it. Declining a payment that has already gone sounds like
- * pulling it back and does not pull it back. And the notes box holds what is stored on the alert
- * rather than what is being added to it, so whatever is left in it is what gets saved, by any of
- * the three buttons, including an emptied box.
- *
- * The third sentence was true of both desks and printed by one, which is the shape of every entry
- * in this file: not a disagreement about wording, a fact one platform's readers were told and the
- * other platform's were left to discover.
+ * pulling it back and does not pull it back. And the third one has been turned around, because
+ * what it was warning about is gone: the box used to hold the whole of the alert's notes, so
+ * whatever was left in it was filed over what was already there. It now adds one entry and nothing
+ * is ever overwritten, which is worth saying in the same place for the same reason. An analyst who
+ * still believes the old rule will leave the box empty to avoid destroying a colleague's paragraph,
+ * and will file nothing at all.
  */
 export const DECISION_HINT =
     'Approving does not send the money: it releases the payment for the customer to confirm. ' +
     'Declining a payment that has already been sent records the verdict; it does not reverse it. ' +
-    'The notes box holds what is stored on the alert, so whatever is left in it is what any of ' +
-    'the three buttons saves.';
+    'A note is added to the case notes and nothing already written is replaced, so leaving the ' +
+    'box empty simply adds nothing.';
 
 /**
  * What the history beside an alert is a history OF.
@@ -673,7 +749,13 @@ export function describeDecision(
     // the decision route at all, and the assignee is written by a route of its own that no button
     // in this panel calls, so an analyst was told twice over that something had been saved which
     // had never been sent. What is left is what the press actually does.
-    return 'Notes saved. No decision was taken: the alert is still open and the transfer is unchanged.';
+    //
+    // `Saved on the alert` and no longer `Notes saved`, because the press writes two different
+    // things and may write either, both or neither: the comment, which replaces what a previous
+    // verdict left, and an entry appended to the case notes. Naming one of them would announce the
+    // wrong one half the time, and this sentence is read after the press rather than instead of
+    // looking at the panel, which now shows both.
+    return 'Saved on the alert. No decision was taken: the alert is still open and the transfer is unchanged.';
 }
 
 /**

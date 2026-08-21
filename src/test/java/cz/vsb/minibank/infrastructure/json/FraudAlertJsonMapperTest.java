@@ -19,16 +19,16 @@ class FraudAlertJsonMapperTest {
         var tags = List.of("NEW_BENEFICIARY", "ABOVE_LIMIT");
         var createdAt = Instant.parse("2025-01-01T10:15:30Z");
 
-        var alert = new FraudAlert(1, 42, "Suspicious", 72, "alice", tags, "Note");
+        var alert = new FraudAlert(1, 42, "Suspicious", 72, "alice", tags);
         alert.hydrateForLoad(
                 FraudAlertState.NEW,
                 "Suspicious",
                 createdAt,
                 72,
                 "alice",
-                tags,
-                "Note"
+                tags
         );
+        alert.hydrateDecision("APPROVE", "alice", createdAt, "beneficiary confirmed by phone");
 
         JsonFraudAlert dto = JsonMapper.toDto(alert);
         FraudAlert restored = JsonMapper.toDomain(dto);
@@ -41,7 +41,12 @@ class FraudAlertJsonMapperTest {
         assertEquals(alert.riskScore(), restored.riskScore());
         assertEquals(alert.assignee(), restored.assignee());
         assertEquals(alert.tags(), restored.tags());
-        assertEquals(alert.notes(), restored.notes());
+        assertEquals(alert.decision(), restored.decision());
+        assertEquals(alert.decidedBy(), restored.decidedBy());
+        assertEquals(alert.resolvedAt(), restored.resolvedAt());
+        assertEquals(alert.decisionComment(), restored.decisionComment(),
+                "the analyst's comment is a field of its own now, and a round trip that dropped"
+                        + " it would put the desk back to reading it out of the risk reason");
     }
 
     /**

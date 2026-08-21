@@ -104,9 +104,9 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
     }
 
     /**
-     * Inserts or updates a fraud alert row, including the analyst's verdict and metadata like
-     * risk score, assignee, tags (stored as comma-separated text) and notes, refusing a write
-     * built on a stale read.
+     * Inserts or updates a fraud alert row, including the analyst's verdict, the comment they gave
+     * for it and metadata like risk score, assignee and tags (stored as comma-separated text),
+     * refusing a write built on a stale read.
      *
      * The alert lifecycle is completed here: decision and resolved_at have been declared in
      * db/init/schema.sql since the table was created and this statement wrote neither, so an
@@ -138,26 +138,32 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
      * column any more: the field left the decision request together with the validation rule that
      * used to refuse that character, and the statement keeps writing what the aggregate holds so
      * that anything already stored survives a decision and is still readable on the alert detail.
+     *
+     * NOTES ARE NOT HERE ANY MORE and must not come back. They are rows in fraud_alert_notes,
+     * appended one at a time and never rewritten; a statement that assigned the whole journal from
+     * an aggregate would be the overwrite the journal exists to end. decision_comment joins the
+     * three verdict columns instead, because that one genuinely is a property of the decision of
+     * record and is replaced with it.
      */
     private void upsertAlert(Connection conn, FraudAlert a) throws SQLException {
         String sql = """
             INSERT INTO fraud_alerts
-                (id, transfer_id, state, decision, decided_by, reason, risk_score,
-                 assignee, tags, notes, created_at, resolved_at)
+                (id, transfer_id, state, decision, decided_by, decision_comment, reason,
+                 risk_score, assignee, tags, created_at, resolved_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (id) DO UPDATE SET
-                transfer_id = EXCLUDED.transfer_id,
-                state       = EXCLUDED.state,
-                decision    = EXCLUDED.decision,
-                decided_by  = EXCLUDED.decided_by,
-                reason      = EXCLUDED.reason,
-                risk_score  = EXCLUDED.risk_score,
-                assignee    = EXCLUDED.assignee,
-                tags        = EXCLUDED.tags,
-                notes       = EXCLUDED.notes,
-                created_at  = EXCLUDED.created_at,
-                resolved_at = EXCLUDED.resolved_at,
-                version     = fraud_alerts.version + 1
+                transfer_id      = EXCLUDED.transfer_id,
+                state            = EXCLUDED.state,
+                decision         = EXCLUDED.decision,
+                decided_by       = EXCLUDED.decided_by,
+                decision_comment = EXCLUDED.decision_comment,
+                reason           = EXCLUDED.reason,
+                risk_score       = EXCLUDED.risk_score,
+                assignee         = EXCLUDED.assignee,
+                tags             = EXCLUDED.tags,
+                created_at       = EXCLUDED.created_at,
+                resolved_at      = EXCLUDED.resolved_at,
+                version          = fraud_alerts.version + 1
             WHERE fraud_alerts.version = ?
             RETURNING version
             """;
@@ -172,27 +178,29 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
             ps.setString(4, a.decision());
             ps.setString(5, a.decidedBy());
 
-            ps.setString(6, a.reason());
+            // Null on an open alert and on a verdict taken without a word, which is the common
+            // case on an APPROVE.
+            ps.setString(6, a.decisionComment());
+
+            ps.setString(7, a.reason());
 
             if (a.riskScore() != null) {
-                ps.setInt(7, a.riskScore());
+                ps.setInt(8, a.riskScore());
             } else {
-                ps.setNull(7, Types.INTEGER);
+                ps.setNull(8, Types.INTEGER);
             }
 
-            ps.setString(8, a.assignee());
+            ps.setString(9, a.assignee());
 
             String tagsJoined = null;
             if (a.tags() != null && !a.tags().isEmpty()) {
                 tagsJoined = String.join(",", a.tags());
             }
             if (tagsJoined != null) {
-                ps.setString(9, tagsJoined);
+                ps.setString(10, tagsJoined);
             } else {
-                ps.setNull(9, Types.VARCHAR);
+                ps.setNull(10, Types.VARCHAR);
             }
-
-            ps.setString(10, a.notes());
 
             Instant createdAt = a.createdAt();
             if (createdAt != null) {
@@ -258,11 +266,11 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
                state,
                decision,
                decided_by,
+               decision_comment,
                reason,
                risk_score,
                assignee,
                tags,
-               notes,
                created_at,
                resolved_at,
                version
@@ -309,11 +317,11 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
                state,
                decision,
                decided_by,
+               decision_comment,
                reason,
                risk_score,
                assignee,
                tags,
-               notes,
                created_at,
                resolved_at,
                version
@@ -392,11 +400,11 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
                state,
                decision,
                decided_by,
+               decision_comment,
                reason,
                risk_score,
                assignee,
                tags,
-               notes,
                created_at,
                resolved_at,
                version
@@ -425,6 +433,87 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
         }
 
         return result;
+    }
+
+    // -------------------------------------------------------------------------
+    // The notes journal
+    // -------------------------------------------------------------------------
+
+    /**
+     * Appends one entry. An INSERT and nothing else: there is no UPDATE and no DELETE against this
+     * table anywhere in the application, which is what makes the append-only rule the store's
+     * rather than a habit of its callers.
+     *
+     * The id comes from the column default, so nothing here chooses one, and the alert_id foreign
+     * key is what refuses a note on an alert that does not exist - a check in Java would be a
+     * second answer to a question the schema already answers, and a racier one.
+     *
+     * Registered as a mutation like every other write, so a note joins the transaction that
+     * carries the decision it was written with: a decision that rolls back takes its note with it,
+     * and a note that cannot be stored takes the decision with it. Written without a version
+     * guard, deliberately - see {@code FraudAlertRepository.appendNote}: two analysts appending at
+     * the same moment are not in conflict.
+     */
+    @Override
+    public void appendNote(cz.vsb.minibank.domain.FraudAlertNote note) {
+        Objects.requireNonNull(note, "note");
+
+        UnitOfWork uow = UowContext.current();
+        if (!(uow instanceof SqlUnitOfWork sqlUow)) {
+            throw new IllegalStateException(
+                    "Fraud alert notes must be appended inside a SQL UnitOfWork");
+        }
+
+        String sql = """
+            INSERT INTO fraud_alert_notes (alert_id, author, written_at, text)
+            VALUES (?, ?, ?, ?)
+            """;
+
+        uow.registerMutation(() -> {
+            try (PreparedStatement ps = sqlUow.connection().prepareStatement(sql)) {
+                ps.setInt(1, note.alertId());
+                ps.setString(2, note.author());
+                ps.setTimestamp(3, Timestamp.from(note.writtenAt()));
+                ps.setString(4, note.text());
+                ps.executeUpdate();
+            } catch (SQLException e) {
+                throw SqlWriteFailure.forSave(e, "fraud alert note", note.alertId());
+            }
+        });
+    }
+
+    /**
+     * One alert's journal, oldest first.
+     *
+     * The id behind the instant is the tie break, for the reason the queue's ORDER BY carries one:
+     * two notes written in the same instant would otherwise swap places between two reads of the
+     * same screen. The index fraud_alert_notes_by_alert is this statement's, in this order.
+     */
+    @Override
+    public List<cz.vsb.minibank.domain.FraudAlertNote> notesOf(int alertId) {
+        String sql = """
+            SELECT alert_id, author, written_at, text
+              FROM fraud_alert_notes
+             WHERE alert_id = ?
+             ORDER BY written_at ASC, id ASC
+            """;
+
+        return onConnection("Failed to load the notes of fraud alert " + alertId, (conn, uow) -> {
+            List<cz.vsb.minibank.domain.FraudAlertNote> journal = new ArrayList<>();
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
+                ps.setInt(1, alertId);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        journal.add(new cz.vsb.minibank.domain.FraudAlertNote(
+                                rs.getInt("alert_id"),
+                                rs.getString("author"),
+                                rs.getTimestamp("written_at").toInstant(),
+                                rs.getString("text")));
+                    }
+                }
+            }
+            return journal;
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -458,11 +547,11 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
                a.state,
                a.decision,
                a.decided_by,
+               a.decision_comment,
                a.reason,
                a.risk_score,
                a.assignee,
                a.tags,
-               a.notes,
                a.created_at,
                a.resolved_at,
                a.version,
@@ -690,7 +779,11 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
 
     /**
      * Maps a single {@link ResultSet} row to a {@link FraudAlert} including
-     * metadata (risk score, assignee, tags, notes).
+     * metadata (risk score, assignee, tags).
+     *
+     * The journal is deliberately absent. It is a table of its own, read by {@link #notesOf} and
+     * only where a screen actually shows one; every caller of this method is either the queue or
+     * a lookup that feeds it, and none of them prints a note.
      */
     private FraudAlert mapRowToAlert(ResultSet rs) throws SQLException {
         int id = rs.getInt("id");
@@ -703,7 +796,6 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
         Integer riskScore = (Integer) rs.getObject("risk_score");
         String assignee = rs.getString("assignee");
         String tagsText = rs.getString("tags");
-        String notes = rs.getString("notes");
 
         java.util.List<String> tags = java.util.Collections.emptyList();
         if (tagsText != null && !tagsText.isBlank()) {
@@ -717,16 +809,17 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
 
         FraudAlertState st = StoredValue.requiredEnum(
                 FraudAlertState.class, stateStr, "state", "fraud alert", id);
-        alert.hydrateForLoad(st, reason, createdAt, riskScore, assignee, tags, notes);
+        alert.hydrateForLoad(st, reason, createdAt, riskScore, assignee, tags);
 
-        // All three are null on every alert written before these columns were wired up, and
+        // All four are null on every alert written before these columns were wired up, and
         // hydrateDecision accepts that; a loader that refused a legacy row would make every
         // stored alert unreadable. Unlike the state above, absent here is a real value.
         Timestamp resolvedTs = rs.getTimestamp("resolved_at");
         alert.hydrateDecision(
                 rs.getString("decision"),
                 rs.getString("decided_by"),
-                resolvedTs != null ? resolvedTs.toInstant() : null);
+                resolvedTs != null ? resolvedTs.toInstant() : null,
+                rs.getString("decision_comment"));
 
         // An alert that arrived here without its version would carry 0, and the next guarded
         // write would be compared against the version of a row nobody has written yet.

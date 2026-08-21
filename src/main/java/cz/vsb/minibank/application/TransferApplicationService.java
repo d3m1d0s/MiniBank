@@ -280,7 +280,6 @@ public class TransferApplicationService {
                     Objects.requireNonNullElse(decision.reason(), "Suspicious"),
                     decision.riskScore(),
                     null,
-                    null,
                     null
             );
             alerts.add(a);
@@ -628,7 +627,6 @@ public class TransferApplicationService {
                             t.id(),
                             Objects.requireNonNullElse(atAuthorization.reason(), "Suspicious"),
                             atAuthorization.riskScore(),
-                            null,
                             null,
                             null));
                     scope.uow().commit();

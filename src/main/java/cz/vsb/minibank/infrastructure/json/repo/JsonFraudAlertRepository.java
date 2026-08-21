@@ -1,6 +1,7 @@
 package cz.vsb.minibank.infrastructure.json.repo;
 
 import cz.vsb.minibank.domain.FraudAlert;
+import cz.vsb.minibank.domain.FraudAlertNote;
 import cz.vsb.minibank.domain.FraudAlertState;
 import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
@@ -9,6 +10,7 @@ import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.StoredValue;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.dto.JsonFraudAlert;
+import cz.vsb.minibank.infrastructure.json.dto.JsonFraudAlertNote;
 import cz.vsb.minibank.infrastructure.json.dto.JsonTransfer;
 import cz.vsb.minibank.infrastructure.json.mapping.JsonMapper;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
@@ -142,6 +144,68 @@ public class JsonFraudAlertRepository implements FraudAlertRepository {
                     return d;
                 })
                 .collect(Collectors.toList()));
+    }
+
+    // -------------------------------------------------------------------------
+    // The notes journal
+    // -------------------------------------------------------------------------
+
+    /**
+     * Appends one entry to the store's journal list. Nothing here replaces or removes one.
+     *
+     * A bare append, like the two adds above, and for once that is the whole point rather than a
+     * concession: an append can lose nothing, however stale the caller's copy of the alert is.
+     *
+     * It joins the ambient unit of work when there is one, so a note is written by the same commit
+     * that writes the decision it was taken with, and a decision that rolls back takes its note
+     * with it.
+     */
+    @Override
+    public void appendNote(FraudAlertNote note) {
+        java.util.Objects.requireNonNull(note, "note");
+
+        JsonFraudAlertNote row = new JsonFraudAlertNote();
+        row.alertId = note.alertId();
+        row.author = note.author();
+        row.writtenAt = note.writtenAt().toString();
+        row.text = note.text();
+
+        UnitOfWork uow = UowContext.current();
+        Runnable mutate = () -> store.data().fraudAlertNotes.add(row);
+        if (uow != null) {
+            uow.registerMutation(mutate);
+        } else {
+            store.mutateAndSave(mutate);
+        }
+    }
+
+    /**
+     * One alert's journal, oldest first.
+     *
+     * The list is appended to and never reordered, so its own order is already the order the notes
+     * were written in. The sort by instant is what makes this answer the same thing the SQL twin's
+     * ORDER BY does, and it is stable, so two notes sharing an instant keep the order they were
+     * appended in rather than swapping between two reads of one screen.
+     *
+     * No identity map. A note is a value in a list, not an aggregate with a life of its own; there
+     * is nothing here that a later write in the same transaction could make stale.
+     */
+    @Override
+    public List<FraudAlertNote> notesOf(int alertId) {
+        return store.read(bundle -> {
+            List<FraudAlertNote> journal = new ArrayList<>();
+            for (JsonFraudAlertNote row : bundle.fraudAlertNotes) {
+                if (row.alertId != alertId) continue;
+                journal.add(new FraudAlertNote(
+                        row.alertId,
+                        row.author,
+                        StoredValue.requiredInstant(
+                                row.writtenAt, "writing instant", "fraud alert note", row.alertId),
+                        row.text));
+            }
+            journal.sort(Comparator.comparing(FraudAlertNote::writtenAt));
+            return journal;
+        });
     }
 
     // -------------------------------------------------------------------------

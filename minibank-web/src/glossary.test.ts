@@ -3,12 +3,17 @@ import {
     ALERTS_QUEUE_TITLE,
     ALERT_DETAILS_TITLE,
     ALERT_DETAIL_LOADING,
+    ALERT_NOTES_TITLE,
+    ALERT_REASON_LABEL,
+    DECISION_COMMENT_LABEL,
+    DECISION_COMMENT_PLACEHOLDER,
     DECISION_HINT,
-    DECISION_NOTES_LABEL,
-    DECISION_NOTES_PLACEHOLDER,
-    DECISION_REASON_LABEL,
-    DECISION_REASON_PLACEHOLDER,
+    DECISION_NOTE_LABEL,
+    DECISION_NOTE_PLACEHOLDER,
     DECISION_TITLE,
+    NOTE_AUTHOR_UNKNOWN,
+    NO_ALERT_NOTES,
+    noteAuthorLabel,
     QUEUE_COUNTERS_BASIS,
     QUEUE_LOADING,
     REFRESH,
@@ -34,6 +39,8 @@ import {
     transferStatusTone,
 } from '@shared/glossary';
 import {
+    ALERT_NOTE_FIELDS,
+    ALERT_NOTE_LABEL,
     FIELD_LABEL,
     HISTORY_COLUMN_FIELDS,
     HISTORY_FEE_FIELD,
@@ -632,17 +639,60 @@ describe('one word for one thing across the two desks', () => {
     it('captions the two decision boxes by who reads what is typed in them', () => {
         // `Notes` over a hint reading `internal notes` says the word twice and neither time says
         // what the box is for. The difference between these two boxes is their audience: the
-        // reason rides with the decision and reaches the customer on a refusal.
-        expect(DECISION_REASON_LABEL).not.toBe(DECISION_NOTES_LABEL);
-        expect(DECISION_NOTES_PLACEHOLDER).not.toBe(DECISION_NOTES_LABEL);
-        expect(DECISION_REASON_PLACEHOLDER).not.toBe(DECISION_REASON_LABEL);
+        // comment rides with the decision and reaches the customer on a refusal.
+        expect(DECISION_COMMENT_LABEL).not.toBe(DECISION_NOTE_LABEL);
+        expect(DECISION_NOTE_PLACEHOLDER).not.toBe(DECISION_NOTE_LABEL);
+        expect(DECISION_COMMENT_PLACEHOLDER).not.toBe(DECISION_COMMENT_LABEL);
     });
 
-    it('tells the analyst what the emptied notes box will do', () => {
-        // True of both desks and printed by one. Whatever is left in the box is what any of the
-        // three buttons saves, an emptied box included, and that is the sentence an analyst gets
-        // wrong once.
+    it('keeps the analyst comment and the alert reason two different words', () => {
+        // They were one line: the server appended what an analyst typed into the alert's own
+        // reason, so the bank's suspicion and a person's conclusion were printed with nothing
+        // between them. Two fields have to be two captions, and neither may be a prefix of the
+        // other either, which is what a reader glancing down a panel of labels compares.
+        expect(DECISION_COMMENT_LABEL).not.toBe(ALERT_REASON_LABEL);
+        expect(DECISION_COMMENT_LABEL.toLowerCase()).not.toContain('reason');
+        expect(ALERT_REASON_LABEL.toLowerCase()).not.toContain('comment');
+    });
+
+    it('names the journal as a record and not as the field it replaced', () => {
+        // `Notes` is what the single overwritable string was called, and the panel has to read as
+        // a record rather than as a field: the caption of the box that writes into it is a verb
+        // three inches away, and the two must not be the same words.
+        expect(ALERT_NOTES_TITLE).not.toBe(DECISION_NOTE_LABEL);
+        expect(NO_ALERT_NOTES.endsWith('.')).toBe(true);
+        // An empty journal states that it is empty; it does not ask to be written in. The box
+        // that does the asking is elsewhere on the screen, and a second invitation is the screen
+        // asking twice.
+        expect(NO_ALERT_NOTES.toLowerCase()).not.toContain('add');
+    });
+
+    it('heads the three journal columns without repeating the panel above them', () => {
+        // Three distinct words, none of them the panel's own name, and none of them `Created`:
+        // the alert was raised and the payment was created, and both of those already say
+        // `Created` on this screen.
+        const heads = ALERT_NOTE_FIELDS.map((f) => ALERT_NOTE_LABEL[f]);
+        expect(new Set(heads).size).toBe(heads.length);
+        expect(heads).not.toContain(ALERT_NOTES_TITLE);
+        expect(heads).not.toContain(FIELD_LABEL.createdAt);
+    });
+
+    it('answers an entry with no author in a word rather than with a blank', () => {
+        // One entry per alert can carry it at most: the line the migration brought over from the
+        // single notes column, which kept the text and never kept a name. A blank cell in a
+        // column of names reads as a name withheld, and nothing is being withheld.
+        expect(noteAuthorLabel('fraud')).toBe('fraud');
+        expect(noteAuthorLabel(null)).toBe(NOTE_AUTHOR_UNKNOWN);
+        expect(noteAuthorLabel(undefined)).toBe(NOTE_AUTHOR_UNKNOWN);
+        expect(noteAuthorLabel('')).toBe(NOTE_AUTHOR_UNKNOWN);
+    });
+
+    it('tells the analyst that a note is added and nothing is replaced', () => {
+        // The warning it used to carry is gone and the sentence is turned around: the box held
+        // the whole of the alert's notes, so an emptied one destroyed a colleague's paragraph.
+        // An analyst who still believes that rule leaves the box alone and files nothing at all.
         expect(DECISION_HINT).toContain('notes');
+        expect(DECISION_HINT).toMatch(/nothing already written is replaced/);
         expect(DECISION_HINT.split('. ').length).toBeGreaterThanOrEqual(3);
     });
 

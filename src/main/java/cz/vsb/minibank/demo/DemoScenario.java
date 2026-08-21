@@ -213,7 +213,6 @@ public final class DemoScenario {
                 "New beneficiary + high amount",
                 80,
                 null,
-                null,
                 null));
     }
 

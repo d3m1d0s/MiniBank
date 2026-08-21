@@ -13,6 +13,7 @@ import {
     type AlertQueueItem,
     type AlertDetail,
     type AlertFilters,
+    type AlertNote,
     type FraudDecision,
     type FraudDecisionRequest,
     type AlertCounters,
@@ -28,16 +29,19 @@ import {
     ALERTS_QUEUE_TITLE,
     ALERT_DETAILS_TITLE,
     ALERT_DETAIL_LOADING,
+    ALERT_NOTES_TITLE,
+    ALERT_REASON_LABEL,
     ASSIGNED_TO_ANYONE,
     ASSIGNED_TO_ME,
     CUSTOMER_HISTORY_TITLE,
     DECISION_BUSY,
+    DECISION_COMMENT_LABEL,
+    DECISION_COMMENT_PLACEHOLDER,
     DECISION_HINT,
-    DECISION_NOTES_LABEL,
-    DECISION_NOTES_PLACEHOLDER,
-    DECISION_REASON_LABEL,
-    DECISION_REASON_PLACEHOLDER,
+    DECISION_NOTE_LABEL,
+    DECISION_NOTE_PLACEHOLDER,
     DECISION_TITLE,
+    NO_ALERT_NOTES,
     NO_HISTORY,
     QUEUE_LOADING,
     REFRESH,
@@ -60,6 +64,7 @@ import {
     dispatchStateLabel,
     emptyQueueNote,
     hiddenAlertsNote,
+    noteAuthorLabel,
     queueCountersSentence,
     transferStatusLabel,
     transferStatusTone,
@@ -73,6 +78,8 @@ import {
     NOT_RECORDED,
 } from '@shared/format';
 import {
+    ALERT_NOTE_FIELDS,
+    ALERT_NOTE_LABEL,
     ALERT_QUEUE_FIELDS,
     AMOUNT_FROM_LABEL,
     AMOUNT_PLACEHOLDER,
@@ -83,6 +90,8 @@ import {
     HISTORY_SETTLED_FIELD,
     HISTORY_UNDER_ROW_FIELDS,
     TRANSFER_DETAIL_LABEL,
+    type AlertNoteField,
+    type AlertNoteRowCells,
     type AlertQueueField,
     type HistoryField,
     type HistoryRowCells,
@@ -172,6 +181,19 @@ const QUEUE_CELL_CLASS: Partial<Record<AlertQueueField, string>> = {
 
 const HISTORY_CELL_CLASS: Partial<Record<HistoryField, string>> = {
     amount: 'cell--amount',
+};
+
+/**
+ * The two journal columns that are told anything about their width, and the third one is not.
+ *
+ * The entry takes whatever is left, so the words never set the ruling; the timestamp beside it is
+ * held on one line, which is not the default once the prose column has claimed the rest. Squeezed
+ * to its content, `21. 8. 2026 17:28` broke over three lines in a column meant to be scanned down.
+ * The author is left alone: it holds a login, and a long one wrapping costs nothing.
+ */
+const NOTE_CELL_CLASS: Partial<Record<AlertNoteField, string>> = {
+    writtenAt: 'cell--stamp',
+    text: 'cell--prose',
 };
 
 /**
@@ -292,6 +314,23 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
         // The same sentence the customer is now shown for their own declined payment, from the
         // same function. No absent value: a payment that was not declined has no note row at all.
         declineReason: describeDeclineReason(h.declineReason),
+    };
+}
+
+/**
+ * One entry of the alert's journal.
+ *
+ * Three cells and no absent value among them. The server refuses an entry with no timestamp and one
+ * with no text, and the only field that can arrive empty is the author, which is answered with a
+ * word rather than with the table's dash: a blank in a column of names reads as a name withheld,
+ * and the one entry that can carry it is the line the migration brought over from the single notes
+ * column, which kept the text and never kept a name.
+ */
+function noteCells(n: AlertNote): AlertNoteRowCells<ReactNode> {
+    return {
+        writtenAt: formatDateTime(n.writtenAt),
+        author: noteAuthorLabel(n.author),
+        text: n.text,
     };
 }
 
@@ -429,26 +468,23 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
      * Which of the three decision buttons is in flight, or null.
      *
      * All three are disabled while any one of them works, because the server takes one verdict per
-     * alert and a second press is a refusal that would carry the typed notes down with it. Only
+     * alert and a second press is a refusal that would carry what was typed down with it. Only
      * the pressed one changes its word: `Applying…` used to sit on Approve whichever button was
      * pressed, so declining a payment made Approve announce the work.
      */
     const [pressed, setPressed] = useState<FraudDecision | null>(null);
 
-    const [decisionReason, setDecisionReason] = useState('');
-    const [decisionNotes, setDecisionNotes] = useState('');
-
     /**
-     * The notes as the server last sent them, against which the box is compared.
+     * The analyst's comment on the verdict, and the one entry they are adding to the journal.
      *
-     * The field is sent only when the two differ, and it is sent as the empty string when the box
-     * has been emptied. Without this the request said `notes: decisionNotes.trim() || undefined`,
-     * which is two faults in one expression: an emptied box sent nothing, so the column could
-     * never be cleared from this desk, and an untouched box re-posted a colleague's paragraph on
-     * every decision. The workstation has held the loaded value and compared against it since it
-     * was written.
+     * NEITHER IS SEEDED FROM THE ALERT, and the second one is why the pair used to need a third
+     * piece of state beside them. The notes box was a copy of a column that every press overwrote,
+     * so it had to be filled with what was stored and compared against it to work out whether the
+     * analyst had touched it. The column is a journal now: this box holds one entry to append, so
+     * an empty box is simply nothing to add and there is nothing to compare it with.
      */
-    const [notesLoaded, setNotesLoaded] = useState('');
+    const [decisionComment, setDecisionComment] = useState('');
+    const [decisionNote, setDecisionNote] = useState('');
 
     useEffect(() => {
         void loadAlerts();
@@ -565,9 +601,9 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
      * mount, after a decision and after an assignment. The only way to see new work was to
      * disturb a filter, which is a request that also changes what is on the screen.
      *
-     * The queue and nothing else. It deliberately does not re-read the open alert: that read
-     * re-adopts the stored notes, and it would throw away the paragraph the analyst is in the
-     * middle of typing, which is the same rule the assignment call already follows.
+     * The queue and nothing else. It deliberately does not re-read the open alert: a re-read
+     * redraws the panel under an analyst who is halfway through reading it, and the same rule is
+     * why the assignment call touches neither of the two boxes.
      */
     async function handleRefresh() {
         try {
@@ -647,19 +683,14 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
         /*
          * The two boxes at the foot of the screen go with the alert they were typed about.
          *
-         * They were the only things on this desk that did not: opening another alert left the
-         * reason and the notes standing, and the next decision sent them. That is not a stale
-         * value on a screen, it is one customer's suspicion written into another customer's
-         * record and, on a decline, into the decline reason of their payment. The workstation has
-         * cleared its own pair since it was written.
-         *
-         * The notes are emptied here rather than left for the answer to overwrite, because the
-         * answer may not come: a failed or slow read would otherwise leave a colleague's
-         * paragraph about the previous alert in an editable box under this one.
+         * They were the only things on this desk that did not: opening another alert left both of
+         * them standing, and the next decision sent them. That is not a stale value on a screen, it
+         * is one customer's suspicion written into another customer's record and, on a decline,
+         * into the decline reason of their payment. The workstation has cleared its own pair since
+         * it was written.
          */
-        setDecisionReason('');
-        setDecisionNotes('');
-        setNotesLoaded('');
+        setDecisionComment('');
+        setDecisionNote('');
 
         await loadDetail(id);
     }
@@ -678,13 +709,12 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
             const d = await fetchAlertDetail(id);
             if (selectedRef.current !== id) return;
             setDetail(d);
-            // The notes box is a copy of the column and not a blank sheet. It opened empty, so
-            // an analyst adding one line replaced a colleague's paragraph with it, unseen: the
-            // decision route takes this field whole and writes what it is given. The same string
-            // is kept beside it, because what the decision sends is decided by whether the two
-            // still agree.
-            setDecisionNotes(d.alert.notes ?? '');
-            setNotesLoaded(d.alert.notes ?? '');
+            // Nothing is loaded into the box below. It used to be filled with the stored notes,
+            // because the field it wrote was one string that the press replaced whole; the box now
+            // holds one entry to append, and seeding it with what colleagues have already written
+            // would invite the analyst to edit a record that cannot be edited and to file it twice.
+            // The journal itself is on screen, in the panel above the box, read from `detail`.
+            //
             // The payments table is NOT filled from here, although the alert carries ten rows of
             // it. Two writers for one table is two answers to one question, and they disagree the
             // moment a payment is created between the two reads: the rows drawn from the alert are
@@ -790,8 +820,8 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
             setLoadingAssignment(true);
             setAssignError(null);
             const updated = hold ? await takeAlert(selectedId) : await releaseAlert(selectedId);
-            // The notes box is deliberately left alone: an assignment changes no notes, and
-            // re-adopting the column here would throw away what the analyst has been typing.
+            // The two boxes are deliberately left alone: an assignment writes neither the comment
+            // nor the journal, so anything typed into them is still waiting to be filed.
             setDetail(updated);
             await loadAlerts(true);
         } catch (e) {
@@ -812,16 +842,19 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
         // back the name that was read is enough to resurrect an assignment a colleague cleared in
         // the meantime. See FraudDecisionRequest, which carries the whole of it.
         //
-        // The notes are sent when the box no longer holds what was loaded into it, and then
-        // whole, empty string included. `decisionNotes.trim() || undefined` was neither half of
-        // that: an emptied box sent nothing, so nothing this desk could do would ever clear the
-        // column, and an untouched box re-posted a colleague's paragraph under this analyst's
-        // decision. Compared untrimmed, because trimming both sides would make deleting a
-        // trailing blank line look like no change at all.
+        // A THIRD FIELD LEFT AND ONE ARRIVED IN ITS PLACE, and they are not the same field
+        // renamed. `notes` carried the whole of an alert's notes and the press wrote what it was
+        // given over what was there, which is why this desk had to work out whether the box had
+        // been touched before it dared send it. `note` carries ONE entry to append, so a box left
+        // alone is nothing to add and says so by being absent.
+        //
+        // `comment` is what the analyst concluded about THIS verdict, and it goes with all three
+        // presses rather than belonging to the refusal. It was called `reason`, which is how it
+        // came to be stored on the alert's own reason and printed as one line with it.
         const payload: FraudDecisionRequest = {
             decision: kind,
-            reason: decisionReason.trim() || undefined,
-            notes: decisionNotes === notesLoaded ? undefined : decisionNotes,
+            comment: decisionComment.trim() || undefined,
+            note: decisionNote.trim() || undefined,
         };
 
         try {
@@ -833,12 +866,19 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
             // one beside the error that says this one did not happen.
             setDecisionMessage(null);
 
+            // The answer carries the appended entry, so the journal above is redrawn from it and
+            // the alert is deliberately not read again: between the two requests a colleague can
+            // append, and the panel would then show a journal that does not match the result it is
+            // announcing.
             const updated = await postFraudDecision(selectedId, payload);
             setDetail(updated);
-            // Back to being a copy of the column: what was just sent is now what is stored, and
-            // the next edit is again an addition to the record rather than a replacement of it.
-            setDecisionNotes(updated.alert.notes ?? '');
-            setNotesLoaded(updated.alert.notes ?? '');
+            // The note box is emptied and the comment box is not, which is the difference between
+            // appending and replacing. The entry has been filed and is now in the table above, so
+            // leaving it here would offer to file the same paragraph a second time; the comment is
+            // stored whole on each press, so a second press with it still in the box stores the
+            // same string again and changes nothing. An analyst who saves a note and then declines
+            // keeps what they had already written about the verdict.
+            setDecisionNote('');
             // The sentence is the shared one, and the status it is told is the payment's AFTER
             // the decision. The two desks announced the same outcome in two different sentences
             // until this moved out of both of them.
@@ -1302,8 +1342,24 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                 )
                                             </span>
                                         </p>
+                                        {/*
+                                          Why the bank was worried, and now only that.
+
+                                          It was captioned `Reason`, and it was carrying two
+                                          claims: the server appended the analyst's own words to
+                                          this column behind a bar, so one line held the rules'
+                                          sentence about the payment and a person's conclusion
+                                          about it with nothing between them, and a reader had no
+                                          way to tell where the first ended. The comment has a
+                                          field and a line of its own below. This one keeps the
+                                          longer caption because it now stands near that line: the
+                                          shorter of two words for two blocks of prose reads as
+                                          the general case of the other.
+                                        */}
                                         <p>
-                                            <span className="fact-label">Reason:</span>{' '}
+                                            <span className="fact-label">
+                                                {ALERT_REASON_LABEL}:
+                                            </span>{' '}
                                             <span className="fact-value">
                                                 {detail.alert.reason}
                                             </span>
@@ -1381,25 +1437,28 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                         )}
 
                                         {/*
-                                          What colleagues have written about this alert, where
-                                          the facts about it are. It is also loaded into the box
-                                          at the foot of the screen, which is the copy that gets
-                                          edited; this is the copy of record, and it stays
-                                          readable while that one is being typed into.
+                                          What the analyst concluded, on its own line and under a
+                                          caption that says whose sentence it is.
 
-                                          Under the caption that box carries, and for that
-                                          reason: two words for one column on one screen is what
-                                          a reader takes for two columns. It said `Notes` here
-                                          and `Internal notes` four hundred pixels below, about
-                                          the same paragraph.
+                                          Outside the decision test above and not inside it,
+                                          because the comment is not the property of a verdict:
+                                          all three presses store it, and the one that stores it
+                                          most often records no decision at all. An alert saved
+                                          without a verdict has a comment and no `Decision` line,
+                                          which is exactly the case a nested test would drop.
+
+                                          Drawn only when there is something to draw. An analyst
+                                          who took a verdict without a word and an alert nobody
+                                          has touched are two situations with one value here, and
+                                          neither has a sentence worth a line.
                                         */}
-                                        {detail.alert.notes && (
+                                        {detail.alert.decisionComment && (
                                             <p>
                                                 <span className="fact-label">
-                                                    {DECISION_NOTES_LABEL}:
+                                                    {DECISION_COMMENT_LABEL}:
                                                 </span>{' '}
                                                 <span className="fact-value">
-                                                    {detail.alert.notes}
+                                                    {detail.alert.decisionComment}
                                                 </span>
                                             </p>
                                         )}
@@ -1549,6 +1608,35 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                     NOT_RECORDED}
                                             </span>
                                         </p>
+                                        {/*
+                                          What the payer said they were paying for, on the line
+                                          the shared field order gives it: last of the payment's
+                                          facts, after how it was authorized.
+
+                                          The one thing on this panel the customer wrote
+                                          themselves, and the analyst could not read it. The form
+                                          counts it against its limit and the bank stores it, and
+                                          the one person reviewing that very payment saw every
+                                          fact about it except the payer's own account of it.
+
+                                          Printed only when there is text in it, which is the
+                                          same restraint the customer's own history takes to the
+                                          same field: a payment sent with the box left alone has
+                                          nothing to show, and a line reading `Message for
+                                          recipient: -` would say one was written and withheld.
+                                          Under the caption the payer typed it under, so the two
+                                          do not read as two fields.
+                                        */}
+                                        {detail.transfer.message && (
+                                            <p>
+                                                <span className="fact-label">
+                                                    {TRANSFER_DETAIL_LABEL.message}:
+                                                </span>{' '}
+                                                <span className="fact-value">
+                                                    {detail.transfer.message}
+                                                </span>
+                                            </p>
+                                        )}
                                     </div>
 
                                     <div className="details-card gap-above-lg">
@@ -1700,6 +1788,86 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                             control that asked for it and under the rows that did. */}
                                         {historyError && <ErrorBox failure={historyError} />}
                                     </div>
+
+                                    {/*
+                                      The journal, last of the four panels and directly above the
+                                      box that writes into it.
+
+                                      It replaced a single string that every save overwrote, so
+                                      two analysts on one alert erased each other and nothing
+                                      recorded who had written what. It is append only: there is
+                                      no control here to edit an entry and none to remove one,
+                                      which is the whole of what the journal is for.
+
+                                      A table and not a stack of paragraphs, because the two
+                                      stamps beside each entry are what make it a record: an entry
+                                      with no time and no name is the string this replaced. It
+                                      arrives inside the alert and needs no request of its own,
+                                      so unlike the payments beside it there is no wait to state
+                                      and no failure of its own to report - if the alert is on the
+                                      screen, so is the whole journal.
+                                    */}
+                                    <div className="details-card gap-above-lg">
+                                        <p>
+                                            <strong>{ALERT_NOTES_TITLE}</strong>
+                                        </p>
+                                        {detail.notes.length === 0 ? (
+                                            /* Said plainly, and it invites nobody to write: the
+                                               box that does that is in the panel below with a
+                                               caption of its own, and a second invitation would
+                                               be the screen asking twice. */
+                                            <p className="helper-text">{NO_ALERT_NOTES}</p>
+                                        ) : (
+                                            <div className="table-wrapper gap-above-sm">
+                                                {/* table--static: these rows open nothing, and
+                                                    the application's hover fill paints every
+                                                    table it has. */}
+                                                <table className="table table--static">
+                                                    <thead>
+                                                    <tr>
+                                                        {ALERT_NOTE_FIELDS.map((f) => (
+                                                            <th
+                                                                key={f}
+                                                                className={NOTE_CELL_CLASS[f]}
+                                                            >
+                                                                {ALERT_NOTE_LABEL[f]}
+                                                            </th>
+                                                        ))}
+                                                    </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                    {detail.notes.map((n, i) => {
+                                                        const cells = noteCells(n);
+                                                        return (
+                                                            /* The position is the key, because an
+                                                               entry carries no id and two written
+                                                               in the same second would collide on
+                                                               their timestamp. It is safe here and
+                                                               would not be in the queue beside it:
+                                                               this list only ever grows at its end,
+                                                               oldest first, and nothing on the
+                                                               screen sorts it or filters it, so a
+                                                               row's position is fixed for as long
+                                                               as it exists. */
+                                                            <tr key={i}>
+                                                                {ALERT_NOTE_FIELDS.map((f) => (
+                                                                    <td
+                                                                        key={f}
+                                                                        className={
+                                                                            NOTE_CELL_CLASS[f]
+                                                                        }
+                                                                    >
+                                                                        {cells[f]}
+                                                                    </td>
+                                                                ))}
+                                                            </tr>
+                                                        );
+                                                    })}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </section>
@@ -1720,51 +1888,61 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                 verdict: the comment rides with all three
                                                 decisions, so "reason for declining" would tell
                                                 an analyst clearing an alert that what they are
-                                                writing is for a refusal they are not making. */}
+                                                writing is for a refusal they are not making. It
+                                                also may not say `reason`, which is the word the
+                                                alert's own line above is under. */}
                                             <label
                                                 className="field-label"
-                                                htmlFor="decision-reason"
+                                                htmlFor="decision-comment"
                                             >
-                                                {DECISION_REASON_LABEL}
+                                                {DECISION_COMMENT_LABEL}
                                             </label>
                                             <textarea
-                                                id="decision-reason"
+                                                id="decision-comment"
                                                 className="textarea"
                                                 rows={3}
-                                                value={decisionReason}
+                                                value={decisionComment}
                                                 onChange={(e) =>
-                                                    setDecisionReason(
+                                                    setDecisionComment(
                                                         e.target.value,
                                                     )
                                                 }
-                                                placeholder={DECISION_REASON_PLACEHOLDER}
+                                                placeholder={DECISION_COMMENT_PLACEHOLDER}
                                             />
                                         </div>
 
+                                        {/* One entry to add, and it starts empty on every alert
+                                            and empties again once it is filed. It was captioned
+                                            `Internal notes` and held the whole of the alert's
+                                            notes for editing, which is what let one analyst
+                                            write over another's paragraph without seeing it. The
+                                            caption is a verb now, because what the box does is
+                                            what changed: the record itself is the table above,
+                                            where it can be read and not touched. */}
                                         <div className="field-column gap-above-sm">
                                             <label
                                                 className="field-label"
-                                                htmlFor="decision-notes"
+                                                htmlFor="decision-note"
                                             >
-                                                {DECISION_NOTES_LABEL}
+                                                {DECISION_NOTE_LABEL}
                                             </label>
                                             <textarea
-                                                id="decision-notes"
+                                                id="decision-note"
                                                 className="textarea"
                                                 rows={3}
-                                                value={decisionNotes}
+                                                value={decisionNote}
                                                 onChange={(e) =>
-                                                    setDecisionNotes(
+                                                    setDecisionNote(
                                                         e.target.value,
                                                     )
                                                 }
-                                                placeholder={DECISION_NOTES_PLACEHOLDER}
+                                                placeholder={DECISION_NOTE_PLACEHOLDER}
                                             />
                                         </div>
 
                                         {/* The buttons mirror the domain guards exactly, so a
                                             click that the server would refuse - and whose
-                                            refusal would take the typed notes down with it -
+                                            refusal would take what was typed down with it -
                                             is not reachable. Approve only from NEW; Decline
                                             from anything but SUSPICIOUS, which is what lets
                                             fraud confirmed after the money left be recorded on
@@ -1772,12 +1950,12 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
 
                                             Three consequences, three shapes. Declining records
                                             a verdict against a customer and cannot be taken
-                                            back, so it is the destructive edge; saving notes
+                                            back, so it is the destructive edge; the third press
                                             takes no verdict, so it is the neutral rectangle and
                                             the gap in front of it says it is not one of the
                                             pair. It carried no shape at all until now, which was
                                             a rank too far down: it POSTS to the same route as
-                                            the two beside it and writes the notes column, and a
+                                            the two beside it and appends to the case notes, and a
                                             real write set as borderless text is indistinguishable
                                             from a caption. The level with no shape is for
                                             controls that change nothing on the server, which is
@@ -1785,8 +1963,8 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
 
                                             All three go dead while any one of them is in
                                             flight, because the server takes one verdict per
-                                            alert and the second press would be refused with the
-                                            typed notes in it. Only the pressed one changes its
+                                            alert and the second press would be refused with what
+                                            has been typed in it. Only the pressed one changes its
                                             word: three buttons reading Applying… would say three
                                             decisions were being taken. */}
                                         <div className="actions gap-above-lg">

@@ -829,7 +829,67 @@ h2.panel-title {
  * to, and a payment that was not declined simply has no such row, so the empty value is never
  * drawn at all.
  */
-.history-note td { padding-top: 0; }
+/*
+ * THE JOURNAL. A table, and set like the one above it on purpose.
+ *
+ * Three columns rather than five, and no row groups: an entry has nothing under it to keep with
+ * it, so one row is one record and the ground alternates by row. Everything else is the history's
+ * grammar unchanged, the fixed layout, the hairline head, the alternating ground, the muted ink
+ * with the one column that matters kept primary, because the two blocks sit within an inch of each
+ * other in one pane and two tables of the same material set two ways read as two kinds of thing.
+ *
+ * The rules are written out rather than shared with a joint selector. What the two tables have in
+ * common is an idiom and not a component: the history's columns are sized from an IBAN and these
+ * from a timestamp and a login, its cells carry two lines apiece and these carry one, and a
+ * selector binding them would have to be unpicked the first time either changed.
+ */
+.notes {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+}
+
+.notes th,
+.notes td {
+    padding: var(--space-3) var(--space-4);
+    text-align: left;
+    vertical-align: top;
+    /* A login has no break opportunity in it, and neither has a long word in an entry. */
+    overflow-wrap: anywhere;
+}
+
+/*
+ * The two stamps take what they need and the entry takes the rest. A grouped timestamp is the
+ * widest thing in the first column and a login the widest in the second, and both are of a known
+ * size, unlike the third, which is however much somebody wrote: every percent not spent on the
+ * stamps is a line of prose that does not wrap.
+ */
+.notes col.col--written { width: 26%; }
+.notes col.col--author { width: 18%; }
+.notes col.col--note { width: 56%; }
+
+.notes thead th {
+    font-weight: var(--weight-semibold);
+    color: var(--color-text-secondary);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-container);
+}
+
+.notes tbody tr {
+    color: var(--color-text-secondary);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-divider);
+}
+
+.notes tbody tr:last-child { border-bottom: 0; }
+.notes tbody tr:nth-child(even) { background: var(--color-surface-sunken); }
+
+/*
+ * The entry is the row and the two stamps qualify it, which is the opposite of the history, where
+ * the amount is the spine and the prose is a remark under it. So the primary ink goes here, on the
+ * words, and the stamps keep the muted ink the cell inherits.
+ */
+.notes .note-text { color: var(--color-text-primary); }
 
 .actions { display: flex; flex-wrap: wrap; gap: var(--gap-actions); margin-top: var(--gap-actions-top); }
 
@@ -1070,18 +1130,18 @@ h2.panel-title {
     overflow: auto;
 }
 
-/* A reason and a note are short. The cell can be wide; the field has no business being. */
+/* A comment and a note are short. The cell can be wide; the field has no business being. */
 .panel-foot .row input,
 .panel-foot .row textarea { max-width: 32rem; }
 
 /*
- * The notes box, which now opens holding whatever a colleague stored on the alert.
+ * Both boxes of the footer, which are now two drafts and neither of them a copy of what is stored.
  *
- * A ceiling and a hand grip, in that order. The block it is in is the panel's sole and is capped
- * at half the panel, so a note of twenty lines has to stop growing before it pushes the three
- * buttons out of the panel entirely; past the ceiling it scrolls inside itself. Vertical only,
- * because the width is settled by the rule above and a box dragged wider than its row would sit
- * over the evidence beside it.
+ * A ceiling and a hand grip, in that order. The block they are in is the panel's sole and is
+ * capped at half the panel, so an entry of twenty lines has to stop growing before it pushes the
+ * three buttons out of the panel entirely; past the ceiling it scrolls inside itself. Vertical
+ * only, because the width is settled by the rule above and a box dragged wider than its row would
+ * sit over the evidence beside it.
  */
 .panel-foot .row textarea {
     max-height: var(--size-textarea-max);
@@ -1118,6 +1178,15 @@ h2.panel-title {
 
     /* History is the one block that wants width: five columns and two IBANs in the last. */
     .box--history { grid-column: 2; grid-row: 1 / span 2; }
+
+    /*
+     * The journal follows it down the same column, for the same reason and one more: it is the
+     * second table on the pane and its widest column is prose, so it wants the wide track too, and
+     * the split then reads as the subject and its facts on the left against the evidence and the
+     * record of it on the right. Left to place itself it would drop under the facts into a track
+     * five twelfths of the pane wide.
+     */
+    .box--notes { grid-column: 2; }
 
     .panel-foot { max-width: none; }
 }

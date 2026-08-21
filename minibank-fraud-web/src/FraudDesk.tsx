@@ -12,6 +12,7 @@ import {
     type AlertCounters,
     type AlertDetail,
     type AlertFilters,
+    type AlertNote,
     type AlertQueueItem,
     type FraudDecision,
     type HistoryItem,
@@ -27,6 +28,8 @@ import { describeApiError, describeApiFailure } from '@shared/apiErrors';
 import type { ApiFailure } from '@shared/apiErrors';
 import ErrorBox from './ErrorBox';
 import {
+    ALERT_NOTE_FIELDS,
+    ALERT_NOTE_LABEL,
     AMOUNT_FROM_LABEL,
     AMOUNT_PLACEHOLDER,
     AMOUNT_TO_LABEL,
@@ -36,6 +39,8 @@ import {
     HISTORY_SETTLED_FIELD,
     HISTORY_UNDER_ROW_FIELDS,
     TRANSFER_DETAIL_LABEL,
+    type AlertNoteField,
+    type AlertNoteRowCells,
     type HistoryField,
     type HistoryRowCells,
     type QueueRowCells,
@@ -51,18 +56,21 @@ import {
     ALERTS_QUEUE_TITLE,
     ALERT_DETAILS_TITLE,
     ALERT_DETAIL_LOADING,
+    ALERT_NOTES_TITLE,
+    ALERT_REASON_LABEL,
     ASSIGNED_TO_ANYONE,
     ASSIGNED_TO_ME,
     CUSTOMER_HISTORY_TITLE,
     DECISION_BUSY,
+    DECISION_COMMENT_LABEL,
+    DECISION_COMMENT_PLACEHOLDER,
     DECISION_HINT,
-    DECISION_NOTES_LABEL,
-    DECISION_NOTES_PLACEHOLDER,
-    DECISION_REASON_LABEL,
-    DECISION_REASON_PLACEHOLDER,
+    DECISION_NOTE_LABEL,
+    DECISION_NOTE_PLACEHOLDER,
     DECISION_TITLE,
+    NO_ALERT_NOTES,
     NO_HISTORY,
-    QUEUE_COUNTERS_BASIS,
+    QUEUE_COUNTERS_BASIS_NARROW,
     QUEUE_LOADING,
     REFRESH,
     REFRESH_BUSY,
@@ -83,6 +91,7 @@ import {
     dispatchStateLabel,
     emptyQueueNote,
     hiddenAlertsNote,
+    noteAuthorLabel,
     queueCounterCells,
     queueCounterTotal,
     roleLabel,
@@ -178,6 +187,23 @@ const HISTORY_COLUMN_CLASS: Partial<Record<HistoryField, { col: string; cell?: s
 };
 
 /**
+ * What sizes each column of the journal.
+ *
+ * Same shape as the map above and for the same reasons: the order of the columns is the shared
+ * field set's, and only the width is this pane's. The two stamps are given what a grouped
+ * timestamp and a login need and no more, because the third column is the entry itself and every
+ * pixel not spent on the first two is a line of prose that does not wrap.
+ *
+ * No cell class on any of the three. Nothing here is a number to align and nothing needs a rung of
+ * its own inside its cell, which is what the history's amount and its route both did.
+ */
+const NOTE_COLUMN_CLASS: Record<AlertNoteField, string> = {
+    writtenAt: 'col--written',
+    author: 'col--author',
+    text: 'col--note',
+};
+
+/**
  * A queue entry's nine fields, ready to be laid out.
  *
  * Built through the shared row type so that a field the server sends and this desk forgets is a
@@ -231,15 +257,18 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
         // fee is read under the amount: a second date column with nothing beside it saying which
         // question it answers is a column a reader has to decode on every row.
         //
-        // The word is printed rather than hidden, unlike the fee's, because the two lines are the
-        // same shape. `+15,00 CZK` under `1 500,00 CZK` cannot be mistaken for a second amount;
-        // a bare date under a date can be mistaken for anything.
+        // Which line is which is said once, in the heading, and the muted weight of the second is
+        // what carries it down the rows. The word used to be printed in front of every settled
+        // date, which captions one value as many times as the table has rows.
         createdAt: (
             <>
                 <span className="created-value">{formatDateTime(h.createdAt)}</span>
                 {settledLine && (
                     <span className="created-settled">
-                        {FIELD_LABEL[HISTORY_SETTLED_FIELD]} {settledLine}
+                        <span className="visually-hidden">
+                            {FIELD_LABEL[HISTORY_SETTLED_FIELD]}:{' '}
+                        </span>
+                        {settledLine}
                     </span>
                 )}
             </>
@@ -285,6 +314,24 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
         // empty box and an untouched one both come out as nothing to draw.
         message: h.message ?? '',
         declineReason: describeDeclineReason(h.declineReason),
+    };
+}
+
+/**
+ * One journal entry, ready to be laid out.
+ *
+ * The author is never printed as a blank. One entry per alert can carry no name, the one the
+ * journal was seeded with from the single notes column that preceded it, and an empty cell in a
+ * column of logins reads as a name withheld rather than as one that was never kept. The word for
+ * it is the glossary's, so both platforms stand in the same thing.
+ *
+ * The text is marked, unlike the two stamps: it is the row, and the facts beside it qualify it.
+ */
+function noteCells(n: AlertNote): AlertNoteRowCells<ReactNode> {
+    return {
+        writtenAt: formatDateTime(n.writtenAt),
+        author: noteAuthorLabel(n.author),
+        text: <span className="note-text">{n.text}</span>,
     };
 }
 
@@ -449,18 +496,17 @@ export default function FraudDesk(props: {
     const busyDecision = pendingDecision !== null;
     const [busyAssign, setBusyAssign] = useState(false);
 
-    const [decisionReason, setDecisionReason] = useState('');
-    const [notes, setNotes] = useState('');
+    const [decisionComment, setDecisionComment] = useState('');
     /**
-     * The notes as the alert carried them, which is what the box is compared against.
+     * The one entry about to be appended, and nothing that is already on the alert.
      *
-     * The box is filled from the alert, so an analyst who takes any decision without touching it
-     * would post back a copy of what a colleague wrote, and the wire cannot tell that copy from an
-     * edit. Null on the wire means leave the stored notes alone and an empty string means clear
-     * them, so both readings matter: unchanged sends nothing, and a box the analyst emptied on
-     * purpose sends the empty string and clears the column.
+     * Two states used to stand here, the notes as loaded and the notes as edited, and both are
+     * gone with the blob they belonged to. The box no longer opens holding what a colleague wrote,
+     * because it can no longer overwrite it: what is typed is appended and what is stored is read
+     * a foot above in the journal. So there is nothing to compare against and nothing to echo
+     * back, and an empty box is simply a press that adds no entry.
      */
-    const [notesLoaded, setNotesLoaded] = useState('');
+    const [noteText, setNoteText] = useState('');
 
     /*
      * The history that belongs to the alert on screen, and nothing else.
@@ -619,12 +665,12 @@ export default function FraudDesk(props: {
         setSelectedId(id);
         setDetail(null);
         // The two boxes at the foot of the panel, emptied with the case they were typed against.
-        // What is in them is not a draft: the server files the reason as the reason this alert was
-        // held and, on a decline, as the reason the payment was refused. A sentence about one
-        // customer left standing under another's case is a press away from being their record.
-        setDecisionReason('');
-        setNotes('');
-        setNotesLoaded('');
+        // What is in them is not a draft: one is filed as this analyst's conclusion about the
+        // verdict and, on a decline, reaches the customer, and the other is appended to this
+        // alert's journal under their name. A sentence about one customer left standing under
+        // another's case is a press away from being their record.
+        setDecisionComment('');
+        setNoteText('');
         setDecisionMsg(null);
         setDecisionErr(null);
         setAssignErr(null);
@@ -639,13 +685,10 @@ export default function FraudDesk(props: {
             setDetailErr(null);
             const d = await fetchAlertDetail(id);
             if (openAlert.current !== id) return;
+            // The journal rides in here with the alert, so nothing else is fetched for it and
+            // nothing is copied into a box: what colleagues wrote is drawn as a record, and the
+            // box at the foot of the panel starts empty because it adds rather than replaces.
             setDetail(d);
-            // The notes a colleague left, in the box that will send them back. Filled from the
-            // alert rather than left empty, because an empty box under a Save button is an
-            // invitation to replace what is stored with one line; see notesLoaded for what is
-            // then sent.
-            setNotes(d.alert.notes ?? '');
-            setNotesLoaded(d.alert.notes ?? '');
         } catch (e) {
             if (openAlert.current !== id) return;
             setDetailErr(describeApiFailure(e, 'alert-details', {
@@ -725,25 +768,24 @@ export default function FraudDesk(props: {
                 decision: kind,
                 // It rides with all three verdicts and is not the reason for a refusal, which is
                 // what the caption over the box now says. Nothing here may narrow it again.
-                reason: decisionReason.trim() || undefined,
-                // Sent only when the box was edited, and sent exactly as it stands when it was.
-                // Echoing back what was read is indistinguishable on the wire from an edit, and an
-                // emptied box has to arrive as the empty string, or the column could be written
-                // and never cleared. What the two spellings mean is on FraudDecisionRequest.
-                notes: notes === notesLoaded ? undefined : notes,
+                comment: decisionComment.trim() || undefined,
+                // One entry, appended. Nothing is compared and nothing is echoed back: the field
+                // used to carry the whole of the alert's notes, so every press filed the box over
+                // whatever a colleague had written, and an emptied box erased it. Blank is the
+                // same as absent to the server, which is what lets the field ride on every press.
+                note: noteText.trim() || undefined,
             });
             if (openAlert.current !== id) return;
+            // The answer carries the journal with the entry already in it, so the panel below is
+            // current without a second read of the alert.
             setDetail(updated);
-            // The box shows what the alert holds, which after a write is what was just sent.
-            setNotes(updated.alert.notes ?? '');
-            setNotesLoaded(updated.alert.notes ?? '');
-            // The reason is emptied, and the notes box is not. They are two different things: the
-            // notes are the alert's, they came back on the answer above, and the box goes on
-            // showing what is stored. The reason is written per decision, so a line left standing
-            // would ride again on the next press, and the next press can be a different verdict on
-            // a different alert: the desk annotates, the analyst moves on, and the sentence they
-            // wrote about this case is filed as the reason that payment was refused.
-            setDecisionReason('');
+            // Both boxes are emptied, and now for one reason rather than two. Each was filed
+            // against this alert by the press that just landed, so a line left standing in either
+            // would ride again on the next one, and the next press can be a different verdict on a
+            // different alert: the desk annotates, the analyst moves on, and what they wrote about
+            // this case is filed as the reason that payment was refused.
+            setDecisionComment('');
+            setNoteText('');
             // Read off the payment the server sent back, not off the button that was pressed: a
             // DECLINE on a payment that has already gone succeeds and records the verdict without
             // stopping anything, so a sentence keyed on the label would say the money was held
@@ -767,9 +809,9 @@ export default function FraudDesk(props: {
             // still kept here, since the sentence is about the case they are looking at.
             await reloadList(true);
             try {
-                // The alert only. The notes box keeps what the analyst typed, because the write
-                // did not happen and this is the one copy of it that is left, and so does the
-                // reason box: nothing was filed, so nothing has been spent.
+                // The alert only. Both boxes keep what the analyst typed, because the write did
+                // not happen and this is the one copy of either that is left: nothing was filed,
+                // so nothing has been spent.
                 const current = await fetchAlertDetail(id);
                 if (openAlert.current === id) setDetail(current);
             } catch {
@@ -810,9 +852,9 @@ export default function FraudDesk(props: {
             setAssignErr(null);
             const updated = take ? await takeAlert(id) : await releaseAlert(id);
             if (openAlert.current !== id) return;
-            // The notes box is deliberately not refilled from this answer. It carries the stored
-            // notes, and taking an alert would then throw away whatever the analyst had typed
-            // since opening it, for a press that has nothing to do with the notes.
+            // Neither box at the foot of the panel is touched by this. An assignment is not a
+            // write to the journal and not a verdict, so whatever the analyst has typed since
+            // opening the alert is still theirs to send.
             setDetail(updated);
             // The queue prints the name at the foot of every card, so the tray is stale until it
             // is re-read. Keeping the selection, or the panel would unmount under the press.
@@ -1116,11 +1158,6 @@ export default function FraudDesk(props: {
                               counters because they go stale together.
                             */}
                             <div className="queue-line">
-                                {lastPage && alerts.length > 0 && (
-                                    <div className="hint">
-                                        {showingLine(alerts.length, lastPage.total)}
-                                    </div>
-                                )}
                                 <button
                                     type="button"
                                     className="btn"
@@ -1149,10 +1186,20 @@ export default function FraudDesk(props: {
                             */}
                             {counters && (
                                 <div className="counters">
-                                    <div>{QUEUE_COUNTERS_BASIS}, {queueCounterTotal(counters)}:</div>
+                                    <div>{QUEUE_COUNTERS_BASIS_NARROW}, {queueCounterTotal(counters)}:</div>
                                     {queueCounterCells(counters).map(cell => (
                                         <div key={cell.state}>{cell.label}: {cell.count}</div>
                                     ))}
+                                    {/*
+                                      How much of the FILTERED list is on screen, which is the one
+                                      number in this strip that is not the whole queue. It reads as
+                                      a fifth cell because it is one, and standing on its own line
+                                      above the strip it read as a heading for the four counts
+                                      underneath, which are on a different basis entirely.
+                                    */}
+                                    {lastPage && alerts.length > 0 && (
+                                        <div>{showingLine(alerts.length, lastPage.total)}</div>
+                                    )}
                                 </div>
                             )}
 
@@ -1327,6 +1374,31 @@ export default function FraudDesk(props: {
                                                     )}
                                                     <dt>{TRANSFER_DETAIL_LABEL.authMethod}</dt>
                                                     <dd>{authMethodLabel(detail.transfer.authMethod) || NOT_RECORDED}</dd>
+                                                    {/*
+                                                      WHAT THE PAYER SAID THEY WERE PAYING FOR,
+                                                      which is the one thing about the alerted
+                                                      payment this pane could not show.
+
+                                                      The customer types it on the form, the form
+                                                      counts it against its limit and the bank
+                                                      stores it, and the analyst reviewing that
+                                                      very payment read every fact about it except
+                                                      the payer's own account of it. It is the last
+                                                      row of this column because it is the only
+                                                      prose in it, which is the order the shared
+                                                      field list reads the payment in.
+
+                                                      Drawn only where there is text. Null means
+                                                      the box was left alone, and a row reading
+                                                      Message for recipient with nothing after it
+                                                      says something was typed and lost.
+                                                    */}
+                                                    {detail.transfer.message && (
+                                                        <>
+                                                            <dt>{TRANSFER_DETAIL_LABEL.message}</dt>
+                                                            <dd>{detail.transfer.message}</dd>
+                                                        </>
+                                                    )}
                                                 </dl>
                                                 <dl className="facts">
                                                     <dt>Payment created</dt>
@@ -1335,7 +1407,27 @@ export default function FraudDesk(props: {
                                                     <dd>{formatDateTime(detail.alert.createdAt)}</dd>
                                                     <dt>{FIELD_LABEL.assignee}</dt>
                                                     <dd>{detail.alert.assignee || UNASSIGNED}</dd>
-                                                    <dt>{FIELD_LABEL.shortReason}</dt>
+                                                    {/*
+                                                      The bank's own sentence about the payment,
+                                                      under a word that says so.
+
+                                                      `Reason` was enough while this line was the
+                                                      only prose on the pane, and it stopped being
+                                                      enough the moment the analyst's comment got a
+                                                      line of its own beneath it: two blocks of
+                                                      text, one from the rules and one from a
+                                                      colleague, and the shorter word over the
+                                                      first would read as the general case of the
+                                                      second. The queue's column keeps `Reason`,
+                                                      where there is nothing to confuse it with.
+
+                                                      What used to make this line dishonest is gone
+                                                      from the server as well: the analyst's words
+                                                      were appended into this very field, so one
+                                                      line carried the bank's suspicion and a
+                                                      person's conclusion with nothing between them.
+                                                    */}
+                                                    <dt>{ALERT_REASON_LABEL}</dt>
                                                     <dd>{detail.alert.reason}</dd>
                                                     {/*
                                                       THE VERDICT OF RECORD, and the two facts that
@@ -1371,25 +1463,36 @@ export default function FraudDesk(props: {
                                                         </>
                                                     )}
                                                     {/*
-                                                      What colleagues have written about this
-                                                      alert, as a fact of record.
+                                                      WHAT THE ANALYST CONCLUDED, on its own line
+                                                      and on any of the three verdicts.
 
-                                                      The same text is loaded into the box at the
-                                                      foot of the panel, and that is the copy that
-                                                      gets edited: this one stays readable while it
-                                                      is being typed over, which is the whole
-                                                      reason to print it twice. An analyst rewriting
-                                                      a paragraph could not see what it said before
-                                                      they started.
+                                                      It is not part of the block above it and does
+                                                      not share that block's condition. A comment
+                                                      can be filed with an alert that has no
+                                                      decision on it at all, which is what the third
+                                                      button does, and the alert's own reason two
+                                                      rows up is the bank's sentence rather than
+                                                      this one: it used to be appended there, and
+                                                      then a person's conclusion inherited the
+                                                      authority of the rules'.
 
-                                                      Under the same word the box carries. Two
-                                                      words for one column on one screen is what
-                                                      the checkbox above was just cured of.
+                                                      Drawn only where somebody wrote one. Null
+                                                      covers an open alert and a verdict taken
+                                                      without a word, and neither is worth a line
+                                                      saying nothing was recorded: the state at the
+                                                      head of the pane has already said the first,
+                                                      and the second is a fact about a box, not
+                                                      about a case.
+
+                                                      A later decision REPLACES it, which is the
+                                                      whole difference between this line and the
+                                                      journal below the history, and the reason
+                                                      both exist.
                                                     */}
-                                                    {detail.alert.notes && (
+                                                    {detail.alert.decisionComment && (
                                                         <>
-                                                            <dt>{DECISION_NOTES_LABEL}</dt>
-                                                            <dd>{detail.alert.notes}</dd>
+                                                            <dt>{DECISION_COMMENT_LABEL}</dt>
+                                                            <dd>{detail.alert.decisionComment}</dd>
                                                         </>
                                                     )}
                                                 </dl>
@@ -1574,6 +1677,73 @@ export default function FraudDesk(props: {
                                                 </div>
                                             )}
                                         </div>
+
+                                        {/*
+                                          THE CASE NOTES, which are a record and no longer a field.
+
+                                          What stood here was one line in the list of facts above,
+                                          holding a single string that the box at the foot of the
+                                          panel loaded, edited and filed back. Two analysts working
+                                          one alert overwrote each other and nothing said who had
+                                          written what, or when. This is the same material as a
+                                          table of entries: append only, oldest first, no edit and
+                                          no delete on this screen or on the wire.
+
+                                          It is the last block of the scroller, directly above the
+                                          box that adds to it. The order down the pane is the
+                                          subject, the facts, the evidence, then the record of what
+                                          people have made of them, and a reader arrives at the
+                                          journal one line before the control that appends to it.
+
+                                          It carries no count line and no Show more, unlike the
+                                          table above it: the journal arrives whole inside the
+                                          alert, so there is no page to state and nothing further
+                                          to ask for.
+                                        */}
+                                        <div className="box box--notes">
+                                            <div className="box-title">{ALERT_NOTES_TITLE}</div>
+                                            {detail.notes.length === 0 ? (
+                                                <div className="hint">{NO_ALERT_NOTES}</div>
+                                            ) : (
+                                                <table className="notes">
+                                                    <colgroup>
+                                                        {ALERT_NOTE_FIELDS.map(f => (
+                                                            <col key={f} className={NOTE_COLUMN_CLASS[f]} />
+                                                        ))}
+                                                    </colgroup>
+                                                    <thead>
+                                                        <tr>
+                                                            {ALERT_NOTE_FIELDS.map(f => (
+                                                                <th key={f} scope="col">
+                                                                    {ALERT_NOTE_LABEL[f]}
+                                                                </th>
+                                                            ))}
+                                                        </tr>
+                                                    </thead>
+                                                    <tbody>
+                                                        {/*
+                                                          Keyed on the stamp and the position, and
+                                                          not on the stamp alone. An entry carries
+                                                          no id, the server writes the time it
+                                                          received the press, and two presses can
+                                                          land inside one clock tick; the index
+                                                          alone would be a key that means nothing
+                                                          in a list that only ever grows at the end.
+                                                        */}
+                                                        {detail.notes.map((n, i) => {
+                                                            const cells = noteCells(n);
+                                                            return (
+                                                                <tr key={`${n.writtenAt}-${i}`}>
+                                                                    {ALERT_NOTE_FIELDS.map(f => (
+                                                                        <td key={f}>{cells[f]}</td>
+                                                                    ))}
+                                                                </tr>
+                                                            );
+                                                        })}
+                                                    </tbody>
+                                                </table>
+                                            )}
+                                        </div>
                                     </>
                                 )}
 
@@ -1605,46 +1775,51 @@ export default function FraudDesk(props: {
                                       in the hint under the buttons, where it covers both boxes.
                                     */}
                                     <div className="row row--2">
-                                        <label htmlFor="decision-reason">{DECISION_REASON_LABEL}</label>
+                                        <label htmlFor="decision-comment">{DECISION_COMMENT_LABEL}</label>
                                         <textarea
-                                            id="decision-reason"
+                                            id="decision-comment"
                                             /*
                                              * Two lines and not the other box's three, which is a
                                              * height and not a kind: both are prose boxes and the
                                              * customer application makes both three. This block is
                                              * pinned as the panel's footer rather than scrolling
                                              * with the page, so every line it grows is a line taken
-                                             * off the evidence above it, and the reason is one
-                                             * sentence to a customer where the notes are a running
-                                             * record. Both grow on drag and scroll past their cap.
+                                             * off the evidence above it, and the comment is one
+                                             * sentence to a customer where an entry is a paragraph
+                                             * for a colleague. Both grow on drag and scroll past
+                                             * their cap.
                                              */
                                             rows={2}
-                                            value={decisionReason}
-                                            onChange={(e) => setDecisionReason(e.target.value)}
-                                            placeholder={DECISION_REASON_PLACEHOLDER}
+                                            value={decisionComment}
+                                            onChange={(e) => setDecisionComment(e.target.value)}
+                                            placeholder={DECISION_COMMENT_PLACEHOLDER}
                                         />
                                     </div>
                                     {/*
-                                      The alert's notes, not a blank box beside them. It opens
-                                      holding whatever is stored, so a colleague's paragraph is
-                                      read before it is written over rather than replaced by the
-                                      first line typed into an empty field.
+                                      ONE ENTRY, and an empty box beside the journal rather than a
+                                      copy of it.
 
-                                      The caption says who reads it, which is the whole difference
-                                      between this box and the one above: the reason rides with the
-                                      decision and reaches the customer on a refusal, and what is
-                                      typed here reaches colleagues and nobody else. `Notes` over a
-                                      hint reading `internal notes` said the word twice and said
-                                      neither of those things.
+                                      It used to open holding the whole of the alert's notes, which
+                                      is what made it dangerous: whatever was left in it was filed
+                                      over what a colleague had written, an emptied box included.
+                                      What is stored is read as a record a few lines above, and
+                                      what is typed here is added to the end of it under this
+                                      analyst's name.
+
+                                      The caption is a verb for that reason, the only one in this
+                                      footer. It also still says who reads it, which is the
+                                      difference between this box and the one above: the comment
+                                      rides with the verdict and its substance reaches the customer
+                                      on a refusal, and an entry reaches colleagues and nobody else.
                                     */}
                                     <div className="row row--2">
-                                        <label htmlFor="decision-notes">{DECISION_NOTES_LABEL}</label>
+                                        <label htmlFor="decision-note">{DECISION_NOTE_LABEL}</label>
                                         <textarea
-                                            id="decision-notes"
+                                            id="decision-note"
                                             rows={3}
-                                            value={notes}
-                                            onChange={(e) => setNotes(e.target.value)}
-                                            placeholder={DECISION_NOTES_PLACEHOLDER}
+                                            value={noteText}
+                                            onChange={(e) => setNoteText(e.target.value)}
+                                            placeholder={DECISION_NOTE_PLACEHOLDER}
                                         />
                                     </div>
 

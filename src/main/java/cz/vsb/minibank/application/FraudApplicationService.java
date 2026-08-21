@@ -122,19 +122,23 @@ public class FraudApplicationService {
 
     /**
      * UC 11 - Review Suspicious Transaction: DECLINE.
-     * Marks the alert as suspicious with the provided reason and declines the transfer, unless
-     * the money has already gone - in which case the verdict is recorded on the alert alone.
+     * Marks the alert as suspicious and declines the transfer, unless the money has already gone -
+     * in which case the verdict is recorded on the alert alone.
      *
      * No analyst is recorded, for the same reason {@link #approve(int)} records none.
+     *
+     * @param comment what the operator gave as the ground for the refusal. It is recorded on the
+     *        alert as the analyst's comment, beside rather than inside the sentence the rules
+     *        wrote, and it is what the payer is told about their stopped payment
      */
-    public void decline(int transferId, String reason) {
+    public void decline(int transferId, String comment) {
         Instant decidedAt = clock.instant();
 
         try (UowScope scope = new UowScope(uowFactory.begin())) {
             var alert = alerts.byTransferId(transferId).orElseThrow(() -> new NotFoundException("Alert not found for transfer " + transferId));
             var t = transfers.byId(transferId).orElseThrow(() -> new NotFoundException("Transfer not found: " + transferId));
 
-            alert.markSuspicious(reason, null, decidedAt);
+            alert.markSuspicious(comment, null, decidedAt);
             alerts.save(alert);
 
             // A verdict on money that has already left is a record, not a reversal. Calling
@@ -146,7 +150,7 @@ public class FraudApplicationService {
             // would overwrite the customer's own "Canceled by customer" with the analyst's
             // wording, rewriting the record of why their payment stopped.
             if (t.status() != TransferStatus.SENT && t.status() != TransferStatus.DECLINED) {
-                t.decline(reason);
+                t.decline(comment);
                 transfers.save(t);
             }
             scope.uow().commit();
@@ -168,11 +172,12 @@ public class FraudApplicationService {
      * action ANNOTATE. Two names for one decision is how the console and the desks came to
      * describe different things to their operators: the console offered "request", which promises
      * a message to the customer that nothing anywhere sends. Over HTTP this is the ANNOTATE branch
-     * of {@link #decideAndUpdateAlert}, which writes the analyst's comment and notes and changes
+     * of {@link #decideAndUpdateAlert}, which records the analyst's comment, appends the note
+     * they wrote and changes
      * no state, and that is the one route to an already-decided alert, since approve() and
      * markSuspicious() both refuse a second verdict and take the writing down with them.
      *
-     * The console carries neither comment nor notes, so this method has nothing left to do but
+     * The console carries neither a comment nor a note, so this method has nothing left to do but
      * prove the alert exists. No unit of work: both backends serve a read with no ambient one.
      */
     public void annotate(int transferId) {
@@ -181,6 +186,21 @@ public class FraudApplicationService {
     }
 
     /**
+     * A decision, the comment the analyst gave for it, and optionally one note for the case file.
+     *
+     * TWO DIFFERENT THINGS, and keeping them apart is what this signature is for. The comment
+     * belongs to the decision: it is replaced when a later decision replaces the verdict, exactly
+     * as decided_by and resolved_at are. The note belongs to the case: it is appended, it names
+     * its author and its moment, and nothing ever removes it. They used to be one field and one
+     * column between them - the comment appended into the risk reason, the note overwriting
+     * whatever a colleague had written - which is how one line came to say two things and the
+     * other lost everything but the last press.
+     *
+     * @param comment what the analyst wrote with this decision, or null or blank for none, which
+     *        is the common case on an APPROVE
+     * @param note one entry for the journal, or null or blank for none. Written under decidedBy
+     *        and stamped from the same clock reading as the verdict, so a decision and the note
+     *        taken with it agree about when they happened
      * @param decidedBy the analyst's username, taken from the session by FraudController. The
      *        only route to this method is over HTTP behind requireRole(FRAUD_ANALYST), so it is
      *        always present here; the console's decisions come through approve/decline, which
@@ -189,8 +209,8 @@ public class FraudApplicationService {
     public void decideAndUpdateAlert(
             int alertId,
             String decisionRaw,
-            String reason,
-            String notes,
+            String comment,
+            String note,
             String decidedBy
     ) {
         try (UowScope scope = new UowScope(uowFactory.begin())) {
@@ -213,16 +233,10 @@ public class FraudApplicationService {
                     var t = transfers.byId(transferId).orElseThrow(() -> new DataIntegrityException(
                             "Fraud alert " + alertId + " points at missing transfer " + transferId));
 
-                    alert.approve(decidedBy, decidedAt);
-
-                    // The comment the analyst typed, kept on the case file. Written after the
-                    // guard inside approve, so a verdict that was refused leaves no trace of the
-                    // refused caller's wording on somebody else's alert. It used to be read off
-                    // the request, validated and then dropped here: DECLINE was the only arm that
-                    // did anything with it, while both desks label the box as a comment stored
-                    // with the alert.
-                    alert.appendReason(reason);
-                    alerts.save(alert);
+                    // The comment travels into the verdict and is written inside it, below its
+                    // guard, so a verdict that was refused leaves no trace of the refused caller's
+                    // wording on somebody else's alert.
+                    alert.approve(comment, decidedBy, decidedAt);
 
                     // Clears the transfer for the customer's confirmation step; it does not
                     // send the money. Conditional because the customer may have cancelled it
@@ -234,20 +248,26 @@ public class FraudApplicationService {
                     }
                 }
                 case "DECLINE" -> {
-                    String r = (reason != null && !reason.isBlank()) ? reason : "Declined by fraud analyst";
                     var t = transfers.byId(transferId).orElseThrow(() -> new DataIntegrityException(
                             "Fraud alert " + alertId + " points at missing transfer " + transferId));
 
-                    alert.markSuspicious(r, decidedBy, decidedAt);
-                    alerts.save(alert);
+                    alert.markSuspicious(comment, decidedBy, decidedAt);
 
                     // Recorded, not reversed, once the money has left. Refusing it here used to
-                    // roll the notes below back with the verdict, so a settled transfer accepted
+                    // roll the writing below back with the verdict, so a settled transfer accepted
                     // APPROVE and nothing else and confirmed fraud was filed as OK. DECLINED is
                     // excluded so an analyst's wording does not overwrite the customer's own
                     // cancellation reason.
+                    //
+                    // The fallback is the CUSTOMER'S half and only that: the payer is told why
+                    // their payment stopped, and "Declined by fraud analyst" is what a refusal
+                    // taken without a word says to them. It is deliberately not written to the
+                    // alert as a comment, where it would put words in an analyst's mouth that
+                    // they did not type.
                     if (t.status() != TransferStatus.SENT && t.status() != TransferStatus.DECLINED) {
-                        t.decline(r);
+                        t.decline((comment != null && !comment.isBlank())
+                                ? comment
+                                : "Declined by fraud analyst");
                         transfers.save(t);
                     }
                 }
@@ -257,26 +277,33 @@ public class FraudApplicationService {
                     // release it - only APPROVE unlocks the customer's confirmation step - and
                     // marking it suspicious destroyed the risk reason that says why it was raised.
                     //
-                    // It writes exactly what an analyst typed and nothing else: the comment onto
-                    // the case file here, and the notes through the block below. That is why it
-                    // survives at all - it is the only route that reaches an alert somebody has
-                    // already decided, since approve and markSuspicious both refuse a second
-                    // verdict and would take the writing down with them. ANNOTATE is that and
-                    // nothing else, which is why REQUEST_CONFIRMATION lost the name: it asked for
-                    // a confirmation nobody was ever sent. The old spelling stays accepted so the
-                    // rename can reach the two desks in either order.
-                    alert.appendReason(reason);
+                    // It writes exactly what an analyst typed and nothing else: the comment here,
+                    // and the note through the append below. That is why it survives at all - it
+                    // is the only route that reaches an alert somebody has already decided, since
+                    // approve and markSuspicious both refuse a second verdict and would take the
+                    // writing down with them. ANNOTATE is that and nothing else, which is why
+                    // REQUEST_CONFIRMATION lost the name: it asked for a confirmation nobody was
+                    // ever sent. The old spelling stays accepted so the rename can reach the two
+                    // desks in either order.
+                    alert.recordDecisionComment(comment);
                 }
                 default -> throw new ValidationException("Unsupported decision: " + decisionRaw);
             }
 
-            // Notes update (still inside same UoW). Null means the caller sent none and the
-            // stored notes are left alone; an empty string is a caller clearing them.
-            if (notes != null) {
-                alert.updateNotes(notes);
-            }
-
+            // One save for the whole decision. It used to be two - the verdict, then a second
+            // pass that wrote the notes blob over whatever a colleague had left - and the second
+            // is gone with the blob: the journal below is an insert of its own and touches no
+            // column on this row.
             alerts.save(alert);
+
+            // The note, if the analyst wrote one. Appended, never replacing anything, under their
+            // own name and at the same instant the verdict carries. Blank is the same as absent:
+            // the desks send an empty box on most decisions, and an entry that says nothing is not
+            // a fact about the case.
+            if (note != null && !note.isBlank()) {
+                alerts.appendNote(
+                        new FraudAlertNote(alertId, decidedBy, decidedAt, note.trim()));
+            }
 
             scope.uow().commit();
         }

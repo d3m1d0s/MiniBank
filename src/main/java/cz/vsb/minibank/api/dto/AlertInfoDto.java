@@ -15,11 +15,17 @@ public record AlertInfoDto(
         String decision,
         String decidedBy,
         String resolvedAt,
+        // What the analyst wrote when they took that decision, and a field of its own on this
+        // record for the first time. It used to travel inside reason, appended behind a " | ",
+        // so one line on the screen said both why the bank's rules were worried and what a person
+        // concluded, with nothing to tell a reader which half was which. Null on an open alert
+        // and on a verdict taken without a word.
+        String decisionComment,
+        // Why the alert was raised, and only that, now that the comment above has left it.
         String reason,
         Integer riskScore,
         String createdAt,
         String assignee,
-        List<String> tags,
-        String notes
+        List<String> tags
 ) {
 }
