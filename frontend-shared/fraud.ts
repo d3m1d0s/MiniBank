@@ -12,6 +12,7 @@
  */
 
 import type { Money } from './money';
+import type { DispatchState } from './customer';
 import { API_BASE, apiFetch, handle } from './http';
 import type { Page } from './paging';
 import { applyPaging, DEFAULT_PAGE_SIZE } from './paging';
@@ -89,6 +90,19 @@ export interface TransferInfo {
     toIban: string;
     /** Whether this bank holds the account named above. Same fact, same rule, as on HistoryItem. */
     toIbanInBank: boolean;
+    /**
+     * What is left to happen to a payment that has already left the account.
+     *
+     * The same type the customer's own record carries, imported rather than spelled out again: one
+     * enum with one declaration in this directory, so a value added to it reaches both readers on
+     * the same build. See {@link DispatchState} for why null is three situations and not a state.
+     *
+     * It is NOT the opposite of `toIbanInBank` and a screen may never read it as one. Null covers
+     * a payment credited inside this bank, a payment that has not settled, and every row written
+     * before the column existed, and on a fraud desk the middle one is most of the queue. Which
+     * side of the bank the money was going is answered by `toIbanInBank` and by nothing else.
+     */
+    dispatchState: DispatchState | null;
     amount: Money;
     feeAmount: Money;
     createdAt: string | null;
@@ -107,6 +121,15 @@ export interface TransferInfo {
 export interface HistoryItem {
     id: number;
     createdAt: string | null;
+    /**
+     * When the money actually moved, against `createdAt`, which is when it was asked for.
+     *
+     * Two timestamps and two questions, and they are never the same instant by construction. Null
+     * on anything that has not settled, which on a fraud desk is most of the table: an alert is
+     * read while the payment is still held, so the row that carries a settlement is the exception
+     * and the one worth a reader's eye.
+     */
+    settledAt: string | null;
     amount: Money;
     /**
      * What this payment cost: the fee that was taken where it settled, and what the tariff would
@@ -141,6 +164,17 @@ export interface HistoryItem {
      * is settled in glossary.ts.
      */
     toIbanInBank: boolean;
+    /**
+     * The payer's own reference for the payment, exactly as they typed it on the form.
+     *
+     * Null when they wrote none, and that is a different fact from an empty string: one says the
+     * box was left alone, the other says something was typed and rubbed out. Neither is worth a
+     * line on a row, so a screen prints this only when there is text in it.
+     *
+     * Free text a customer wrote, which is what decides how it is drawn: it is prose and takes no
+     * column, the same as the reason a payment was stopped. See HISTORY_UNDER_ROW_FIELDS.
+     */
+    message: string | null;
     declineReason: string | null;
 }
 

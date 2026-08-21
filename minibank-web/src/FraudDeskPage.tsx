@@ -23,13 +23,29 @@ import { amountRangeProblem } from '@shared/alertFilters';
 import { formatMoney, readerLocale } from './money';
 import { formatFeeLine, parseAmount } from '@shared/money';
 import ErrorBox from './ErrorBox';
-import { describeApiFailure, type ApiFailure } from '@shared/apiErrors';
+import { describeApiError, describeApiFailure, type ApiFailure } from '@shared/apiErrors';
 import {
+    ALERTS_QUEUE_TITLE,
+    ALERT_DETAILS_TITLE,
+    ALERT_DETAIL_LOADING,
     ASSIGNED_TO_ANYONE,
     ASSIGNED_TO_ME,
     CUSTOMER_HISTORY_TITLE,
+    DECISION_BUSY,
+    DECISION_HINT,
+    DECISION_NOTES_LABEL,
+    DECISION_NOTES_PLACEHOLDER,
     DECISION_REASON_LABEL,
+    DECISION_REASON_PLACEHOLDER,
+    DECISION_TITLE,
+    NO_HISTORY,
+    QUEUE_LOADING,
+    REFRESH,
+    REFRESH_BUSY,
     RELEASE_ALERT,
+    SELECT_ALERT,
+    SELECT_ALERT_TO_DECIDE,
+    SHOW_WITHDRAWN_ALERTS,
     TAKE_ALERT,
     UNASSIGNED,
     alertStateLabel,
@@ -41,6 +57,10 @@ import {
     decisionLabel,
     describeDeclineReason,
     describeDecision,
+    dispatchStateLabel,
+    emptyQueueNote,
+    hiddenAlertsNote,
+    queueCountersSentence,
     transferStatusLabel,
     transferStatusTone,
 } from '@shared/glossary';
@@ -54,10 +74,15 @@ import {
 } from '@shared/format';
 import {
     ALERT_QUEUE_FIELDS,
+    AMOUNT_FROM_LABEL,
+    AMOUNT_PLACEHOLDER,
+    AMOUNT_TO_LABEL,
     FIELD_LABEL,
     HISTORY_FIELD_LABEL,
     HISTORY_COLUMN_FIELDS,
-    HISTORY_NOTE_FIELD,
+    HISTORY_SETTLED_FIELD,
+    HISTORY_UNDER_ROW_FIELDS,
+    TRANSFER_DETAIL_LABEL,
     type AlertQueueField,
     type HistoryField,
     type HistoryRowCells,
@@ -76,6 +101,17 @@ import type { NavRole, NavView } from '@shared/navigation';
 
 /** The transfer status a withdrawn payment ends in. */
 const WITHDRAWN = 'DECLINED';
+
+/**
+ * What a table of payments says while its first page is on its way.
+ *
+ * The same words on all three screens that draw one, and a literal on all three today: this desk,
+ * the customer's own history and the workstation's panel. It is the shape a word is in just before
+ * it drifts, and the shared glossary is where it belongs; see the note beside this run for the
+ * constant that has been asked for. It is written out identically meanwhile rather than shortened
+ * here, because two of the three wordings differing is the fault, not the third one existing.
+ */
+const PAYMENTS_LOADING = 'Loading payments…';
 
 /**
  * Which amount bound the analyst is typing in. The two boxes are one control by role, so they
@@ -122,50 +158,6 @@ const PAGE_SIZE = 25;
  * ten as well; see the sentence beside the count line for what it now says instead.
  */
 const HISTORY_PAGE_SIZE = 10;
-
-/**
- * Why the queue can be empty while the counters above it are not.
- *
- * One transfer status carries two meanings that read as opposites on this desk: a payment the
- * customer withdrew and a payment an analyst declined are both DECLINED. Hiding the first is the
- * sensible default, since there is nothing left to decide on it, and it hides the second with it,
- * so the desk opens on Cleared 1 over a list that says no alerts. The rule is not changed here,
- * the server's exclusion is right; what was missing is the number that reconciles the two, and
- * that is what the hidden route answers.
- */
-function hiddenAlertsNote(hidden: number): string {
-    const subject = hidden === 1 ? '1 alert is' : `${hidden} alerts are`;
-    return (
-        `${subject} not listed, because the payment behind it was withdrawn by the customer. ` +
-        'A withdrawn payment and one an analyst declined are both DECLINED, so this desk cannot ' +
-        'hide the first without hiding the second, and the counters above go on counting both. ' +
-        'Show alerts on cancelled payments brings them back.'
-    );
-}
-
-/**
- * Why the list is empty, in the words that stop it contradicting the numbers above it.
- *
- * "No fraud alerts." stood under a caption reading "Whole queue: 2 alerts. New 1, ...", set in the
- * same quiet grey, and the two cannot both be answers to the same question. They are not: the
- * counters count the whole queue before any filter, and this list is what the filters matched. The
- * desk opens filtered - New, and withdrawn payments hidden - so the filtered wording is the usual
- * one rather than the exception, and it points at the row of controls that would widen it.
- */
-function emptyQueueNote(filters: AlertFilters): string {
-    const filtered =
-        Boolean(filters.state) ||
-        Boolean(filters.assignee) ||
-        Boolean(filters.minAmount) ||
-        Boolean(filters.maxAmount) ||
-        Boolean(filters.createdFrom) ||
-        Boolean(filters.createdTo) ||
-        Boolean(filters.excludeTransferStatus?.length);
-
-    return filtered
-        ? 'No alerts match the filters above.'
-        : 'There are no fraud alerts.';
-}
 
 /**
  * Which queue columns are more than left-aligned text.
@@ -231,10 +223,32 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
     const alerted = alertedIban !== null && h.fromIban === alertedIban;
     const boundary = bankBoundaryMark(h.toIbanInBank);
     const feeLine = formatFeeLine(h.fee);
+    // Tested for a value rather than against null, and the difference showed on the screen: an
+    // API that predates the column sends no key at all, and `=== null` let `undefined` through to
+    // formatDateTime, which answers an absence with the table's dash. Every row then carried a
+    // second line carrying EMPTY_VALUE, which is the one thing this line must never say: it would
+    // claim the settlement is known and withheld.
+    const settled = h.settledAt ? formatDateTime(h.settledAt) : null;
 
     return {
         id: formatTransferId(h.id),
-        createdAt: formatDateTime(h.createdAt),
+        // When it was asked for, and under it when the money moved. On this desk the second line
+        // is the exception rather than the rule: an alert is read while its payment is still
+        // held, so a row that carries a settlement is a row where the money has already gone.
+        createdAt: (
+            <>
+                <span className="time-asked">{formatDateTime(h.createdAt)}</span>
+                {settled && (
+                    <span className="time-settled">
+                        <span className="visually-hidden">
+                            {FIELD_LABEL[HISTORY_SETTLED_FIELD]}:{' '}
+                        </span>
+                        {settled}
+                    </span>
+                )}
+            </>
+        ),
+        settledAt: settled,
         // The amount the customer sent, and under it what the bank added to it. Two lines of one
         // sum, stacked like the two account numbers next door, so the column can be read down.
         // Every row has the second line: on a payment the desk stopped it is the price rather than
@@ -272,6 +286,9 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
                 </span>
             </>
         ),
+        // The reference the payer typed on the form, which on this desk is evidence rather than
+        // decoration: it is the one thing on the row the customer wrote themselves.
+        message: h.message,
         // The same sentence the customer is now shown for their own declined payment, from the
         // same function. No absent value: a payment that was not declined has no note row at all.
         declineReason: describeDeclineReason(h.declineReason),
@@ -346,6 +363,17 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
     const [hiddenTotal, setHiddenTotal] = useState(0);
 
     /**
+     * Why the number that reconciles the list with the counters is not there.
+     *
+     * Said in the hint's own voice and not in an error box, which is the workstation's shape for
+     * this and the right one: nobody asked for that number, it is the desk explaining its own
+     * filter, and a failure to explain must not read as a failure of the queue standing beside
+     * it, which has just answered. Swallowed here until now, so the contradiction this sentence
+     * exists to resolve was simply left standing with nothing to account for it.
+     */
+    const [hiddenError, setHiddenError] = useState<string | null>(null);
+
+    /**
      * The customer's payments beside the alert, and the page envelope they arrived in.
      *
      * Held apart from `detail` because the two have different lifetimes. The detail carries ten
@@ -355,6 +383,15 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
      */
     const [history, setHistory] = useState<HistoryItem[]>([]);
     const [historyPage, setHistoryPage] = useState<Page<HistoryItem> | null>(null);
+
+    /**
+     * Whether the counted first page of the customer's payments is on its way.
+     *
+     * The table has rows before it arrives, from the alert, so this does not stand in for them.
+     * What it stands in for is the count and the control under them, which is exactly what the
+     * panel could not say anything about while the request was out.
+     */
+    const [loadingHistoryFirst, setLoadingHistoryFirst] = useState(false);
     const [loadingHistoryMore, setLoadingHistoryMore] = useState(false);
 
     const [listError, setListError] = useState<ApiFailure | null>(null);
@@ -388,8 +425,30 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
     const [loadingAssignment, setLoadingAssignment] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
 
+    /**
+     * Which of the three decision buttons is in flight, or null.
+     *
+     * All three are disabled while any one of them works, because the server takes one verdict per
+     * alert and a second press is a refusal that would carry the typed notes down with it. Only
+     * the pressed one changes its word: `Applying…` used to sit on Approve whichever button was
+     * pressed, so declining a payment made Approve announce the work.
+     */
+    const [pressed, setPressed] = useState<FraudDecision | null>(null);
+
     const [decisionReason, setDecisionReason] = useState('');
     const [decisionNotes, setDecisionNotes] = useState('');
+
+    /**
+     * The notes as the server last sent them, against which the box is compared.
+     *
+     * The field is sent only when the two differ, and it is sent as the empty string when the box
+     * has been emptied. Without this the request said `notes: decisionNotes.trim() || undefined`,
+     * which is two faults in one expression: an emptied box sent nothing, so the column could
+     * never be cleared from this desk, and an untouched box re-posted a colleague's paragraph on
+     * every decision. The workstation has held the loaded value and compared against it since it
+     * was written.
+     */
+    const [notesLoaded, setNotesLoaded] = useState('');
 
     useEffect(() => {
         void loadAlerts();
@@ -556,16 +615,21 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
     async function loadHiddenTotal() {
         if (!filters.excludeTransferStatus?.length) {
             setHiddenTotal(0);
+            setHiddenError(null);
             return;
         }
 
         try {
             const hidden = await fetchHiddenAlerts(filters, 0, 1);
             setHiddenTotal(hidden.total);
-        } catch {
-            // A sentence that explains the list is not worth an error box above the list. With
-            // no number there is nothing to say, so nothing is said.
+            setHiddenError(null);
+        } catch (e) {
+            // Not an error box: this is the desk explaining its own filter, and a box above a
+            // queue that has just answered would report the queue as broken. Without the number
+            // there is no sentence, and the contradiction it accounts for is still on the screen,
+            // so the failure is said in the same quiet voice the sentence would have been.
             setHiddenTotal(0);
+            setHiddenError(describeApiError(e, 'alert-hidden'));
         }
     }
 
@@ -595,6 +659,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
          */
         setDecisionReason('');
         setDecisionNotes('');
+        setNotesLoaded('');
 
         await loadDetail(id);
     }
@@ -615,9 +680,17 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
             setDetail(d);
             // The notes box is a copy of the column and not a blank sheet. It opened empty, so
             // an analyst adding one line replaced a colleague's paragraph with it, unseen: the
-            // decision route takes this field whole and writes what it is given.
+            // decision route takes this field whole and writes what it is given. The same string
+            // is kept beside it, because what the decision sends is decided by whether the two
+            // still agree.
             setDecisionNotes(d.alert.notes ?? '');
-            setHistory(d.history);
+            setNotesLoaded(d.alert.notes ?? '');
+            // The payments table is NOT filled from here, although the alert carries ten rows of
+            // it. Two writers for one table is two answers to one question, and they disagree the
+            // moment a payment is created between the two reads: the rows drawn from the alert are
+            // then replaced by a different set with a different first row. The paged route beside
+            // the alert is the only writer, which is what the workstation has always done, and it
+            // is also the only one that carries the count the foot of the table states.
             void loadHistoryCount(id);
         } catch (e) {
             if (selectedRef.current !== id) return;
@@ -630,15 +703,24 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
     }
 
     /**
-     * The first page of the same history, asked for so the panel can say how many there are.
+     * The customer's payments, and the only thing that ever fills that table.
      *
-     * These are the ten rows the detail already carries, so nothing on screen moves; what arrives
-     * with them is the count, which the detail cannot send. It is the cheap read of the two: the
+     * The alert sends ten rows of the same history and they are deliberately not read: see
+     * loadDetail above for why one table with two writers is one table with two answers. It is
+     * the cheap read of the two anyway, and it is the only one that carries the count: the
      * expensive one is the alert, the payment, the account and the customer behind it, and this
      * route touches none of them.
+     *
+     * Its failure used to be swallowed, on the argument that the ten rows from the alert are
+     * still there. They no longer are, and even when they were that was the trap: the table then
+     * stood at exactly ten rows with no count under it and no way to ask for an eleventh, which
+     * is what a customer with ten payments looks like, so the panel quietly stated something
+     * untrue about the one fact this route exists to supply.
      */
     async function loadHistoryCount(id: number) {
         try {
+            setLoadingHistoryFirst(true);
+            setHistoryError(null);
             const page = await fetchAlertHistory(id, 0, HISTORY_PAGE_SIZE);
             // The analyst may have moved to another alert while this was in flight, and this
             // answer names no alert: landed unchecked it would put one customer's payments under
@@ -646,9 +728,18 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
             if (selectedRef.current !== id) return;
             setHistory(page.items);
             setHistoryPage(page);
-        } catch {
-            // The ten rows from the detail stay where they are. Without the page there is no
-            // total, so the count line and the control under it are simply not drawn.
+        } catch (e) {
+            if (selectedRef.current !== id) return;
+            // Nothing is left in the table, since this route is what fills it, and the box says
+            // so rather than letting an empty panel read as a customer with no payments. The
+            // retry asks the same question again.
+            setHistoryError(
+                describeApiFailure(e, 'alert-history', {
+                    retry: () => void loadHistoryCount(id),
+                }),
+            );
+        } finally {
+            if (selectedRef.current === id) setLoadingHistoryFirst(false);
         }
     }
 
@@ -720,21 +811,34 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
         // instructions on the server. `assignee` went because it has a route of its own: echoing
         // back the name that was read is enough to resurrect an assignment a colleague cleared in
         // the meantime. See FraudDecisionRequest, which carries the whole of it.
+        //
+        // The notes are sent when the box no longer holds what was loaded into it, and then
+        // whole, empty string included. `decisionNotes.trim() || undefined` was neither half of
+        // that: an emptied box sent nothing, so nothing this desk could do would ever clear the
+        // column, and an untouched box re-posted a colleague's paragraph under this analyst's
+        // decision. Compared untrimmed, because trimming both sides would make deleting a
+        // trailing blank line look like no change at all.
         const payload: FraudDecisionRequest = {
             decision: kind,
             reason: decisionReason.trim() || undefined,
-            notes: decisionNotes.trim() || undefined,
+            notes: decisionNotes === notesLoaded ? undefined : decisionNotes,
         };
 
         try {
             setLoadingDecision(true);
+            setPressed(kind);
             setDecisionError(null);
+            // The previous verdict's Result block is cleared before this press, not after it. It
+            // used to be left standing, so a refused second press put the outcome of the first
+            // one beside the error that says this one did not happen.
+            setDecisionMessage(null);
 
             const updated = await postFraudDecision(selectedId, payload);
             setDetail(updated);
             // Back to being a copy of the column: what was just sent is now what is stored, and
             // the next edit is again an addition to the record rather than a replacement of it.
             setDecisionNotes(updated.alert.notes ?? '');
+            setNotesLoaded(updated.alert.notes ?? '');
             // The sentence is the shared one, and the status it is told is the payment's AFTER
             // the decision. The two desks announced the same outcome in two different sentences
             // until this moved out of both of them.
@@ -760,6 +864,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
             setDecisionError(describeApiFailure(e, 'alert-decision'));
         } finally {
             setLoadingDecision(false);
+            setPressed(null);
         }
     }
 
@@ -777,11 +882,15 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
      * The sentence that reconciles the list with the counters, built once because it belongs to
      * two branches below: under an empty queue, where it is the whole answer, and under a short
      * one, where it accounts for the difference.
+     *
+     * Where the number could not be read, the failure takes the same line and the same quiet
+     * voice: the two are alternatives, never both, because the second is why the first is absent.
      */
-    const hiddenNote =
-        hiddenTotal > 0 ? (
-            <p className="helper-text gap-above-sm">{hiddenAlertsNote(hiddenTotal)}</p>
-        ) : null;
+    const hiddenNote = hiddenError ? (
+        <p className="helper-text gap-above-sm">{hiddenError}</p>
+    ) : hiddenTotal > 0 ? (
+        <p className="helper-text gap-above-sm">{hiddenAlertsNote(hiddenTotal)}</p>
+    ) : null;
 
     return (
         <div className="app-shell">
@@ -796,11 +905,18 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
 
                     {/* Right: queue, alert details and decision controls */}
                     <main className="form-panel">
-                        <h2>Fraud Desk</h2>
+                        {/*
+                          Sentence case, like every other heading in both applications and like
+                          the three panel titles under it, which came out of the glossary in that
+                          case for the reason stated there. It also matters more than it did: the
+                          navigation column is not drawn for a role with one screen, so this is
+                          now the only place the analyst's screen is named.
+                        */}
+                        <h2>Fraud desk</h2>
 
                         {/* Alerts queue */}
                         <section className="section">
-                            <h2 className="section-title">Alerts queue</h2>
+                            <h2 className="section-title">{ALERTS_QUEUE_TITLE}</h2>
 
                             {/*
                               A caption under the heading, not a panel above the queue. The four
@@ -824,16 +940,15 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
 
                               The states are named in the words the queue below uses, and no
                               longer as OK and Suspicious beside rows that say Cleared and
-                              Confirmed fraud.
+                              Confirmed fraud. The sentence itself is the shared one: the three
+                              words were typed here in lower case beside rows that capitalise
+                              them, and the line did not say what it counted, which is the whole
+                              point of it. What this skin still decides is that the strip is a
+                              caption; the workstation draws the same three cells as figures.
                             */}
                             {counters && (
                                 <p className="section-caption">
-                                    Whole queue:{' '}
-                                    {counters.newCount +
-                                        counters.suspiciousCount +
-                                        counters.okCount}{' '}
-                                    alerts. New {counters.newCount}, confirmed fraud{' '}
-                                    {counters.suspiciousCount}, cleared {counters.okCount}.
+                                    {queueCountersSentence(counters)}
                                 </p>
                             )}
 
@@ -847,7 +962,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                             <div className="section-block filter-bar">
                                 <div className="filter-field">
                                     <label className="field-label" htmlFor="filter-state">
-                                        State
+                                        {FIELD_LABEL.state}
                                     </label>
                                     {/* The options say what the queue and the panel below say:
                                         the two verdicts are what an analyst wrote, not moods. */}
@@ -881,14 +996,14 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                 */}
                                 <div className="filter-field">
                                     <label className="field-label" htmlFor="filter-amount-min">
-                                        Amount from
+                                        {AMOUNT_FROM_LABEL}
                                     </label>
                                     <input
                                         id="filter-amount-min"
                                         className="field-input field-input--amount"
                                         type="text"
                                         inputMode="decimal"
-                                        placeholder="0,00"
+                                        placeholder={AMOUNT_PLACEHOLDER}
                                         value={amountText.min}
                                         onChange={(e) =>
                                             changeAmountBound('min', e.currentTarget.value)
@@ -899,14 +1014,14 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
 
                                 <div className="filter-field">
                                     <label className="field-label" htmlFor="filter-amount-max">
-                                        Amount to
+                                        {AMOUNT_TO_LABEL}
                                     </label>
                                     <input
                                         id="filter-amount-max"
                                         className="field-input field-input--amount"
                                         type="text"
                                         inputMode="decimal"
-                                        placeholder="0,00"
+                                        placeholder={AMOUNT_PLACEHOLDER}
                                         value={amountText.max}
                                         onChange={(e) =>
                                             changeAmountBound('max', e.currentTarget.value)
@@ -974,7 +1089,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                             }));
                                         }}
                                     />
-                                    Show alerts on cancelled payments
+                                    {SHOW_WITHDRAWN_ALERTS}
                                 </label>
                             </div>
 
@@ -989,7 +1104,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                     disabled={refreshing}
                                     aria-busy={refreshing || undefined}
                                 >
-                                    {refreshing ? 'Refreshing…' : 'Refresh'}
+                                    {refreshing ? REFRESH_BUSY : REFRESH}
                                 </button>
                             </div>
 
@@ -1006,9 +1121,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                               then, on an empty screen, why it is empty.
                             */}
                             {alerts.length === 0 && loadingList ? (
-                                <p className="helper-text">
-                                    Loading alerts…
-                                </p>
+                                <p className="helper-text">{QUEUE_LOADING}</p>
                             ) : alerts.length === 0 && listError ? (
                                 <ErrorBox failure={listError} />
                             ) : alerts.length === 0 ? (
@@ -1060,16 +1173,45 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                         <tbody>
                                         {alerts.map((a) => {
                                             const cells = queueCells(a);
+                                            const open = selectedId === a.id;
                                             return (
+                                                /*
+                                                  A control, and not a row that happens to answer
+                                                  a click. It was a bare <tr onClick>, with no tab
+                                                  stop, no role and no key handler, so the only
+                                                  way into this queue was a mouse: an analyst
+                                                  working from the keyboard could reach the
+                                                  filters, the Refresh button and Show more, and
+                                                  nothing between them. The workstation draws each
+                                                  entry as a <button> and has never had the
+                                                  problem.
+
+                                                  A table row cannot BE a button without losing
+                                                  the row, so it is given what a button has: a tab
+                                                  stop, the role, the pressed state the tint
+                                                  already shows in colour, and the two keys a
+                                                  reader will try. Space is caught on keydown as
+                                                  well, because a page scrolls on the default and
+                                                  the queue would jump under the selection.
+                                                */
                                                 <tr
                                                     key={a.id}
-                                                    onClick={() =>
-                                                        handleSelect(a.id)
-                                                    }
+                                                    tabIndex={0}
+                                                    role="button"
+                                                    aria-pressed={open}
+                                                    onClick={() => handleSelect(a.id)}
+                                                    onKeyDown={(e) => {
+                                                        if (
+                                                            e.key !== 'Enter' &&
+                                                            e.key !== ' '
+                                                        ) {
+                                                            return;
+                                                        }
+                                                        e.preventDefault();
+                                                        void handleSelect(a.id);
+                                                    }}
                                                     className={
-                                                        selectedId === a.id
-                                                            ? 'table-row--selected'
-                                                            : ''
+                                                        open ? 'table-row--selected' : ''
                                                     }
                                                 >
                                                     {ALERT_QUEUE_FIELDS.map((f) => (
@@ -1118,7 +1260,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
 
                         {/* Details of the selected alert */}
                         <section className="section">
-                            <h2 className="section-title">Alert details</h2>
+                            <h2 className="section-title">{ALERT_DETAILS_TITLE}</h2>
 
                             {/* The same rule as the queue: what is on its way, then why nothing
                                 came, then the alert, then the sentence for a screen with nothing
@@ -1126,15 +1268,11 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                             {detailError && <ErrorBox failure={detailError} />}
 
                             {!detail && !loadingDetail && !detailError && (
-                                <p className="helper-text">
-                                    Select an alert from the queue.
-                                </p>
+                                <p className="helper-text">{SELECT_ALERT}</p>
                             )}
 
                             {loadingDetail && (
-                                <p className="helper-text">
-                                    Loading alert details…
-                                </p>
+                                <p className="helper-text">{ALERT_DETAIL_LOADING}</p>
                             )}
 
                             {detail && !loadingDetail && (
@@ -1197,33 +1335,49 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                           All three were on the wire and none was drawn, so an
                                           alert this desk had already decided looked, once its
                                           state was read past, exactly like one nobody had
-                                          touched. Absent together on an alert nobody has
-                                          decided: three dashes would say a decision is known and
-                                          withheld, and the state one line above already says New.
+                                          touched.
+
+                                          One test for the three, because they are written by one
+                                          press and are null together. They used to have a test
+                                          each, which is a different claim and a false one: it let
+                                          the panel print a verdict and drop the hand that took
+                                          it. On an alert nobody has decided none of the three is
+                                          drawn at all, since three dashes would say a decision is
+                                          known and withheld and the state one line above already
+                                          says New.
                                         */}
                                         {detail.alert.decision && (
-                                            <p>
-                                                <span className="fact-label">Decision:</span>{' '}
-                                                <span className="fact-value">
-                                                    {decisionLabel(detail.alert.decision)}
-                                                </span>
-                                            </p>
-                                        )}
-                                        {detail.alert.decidedBy && (
-                                            <p>
-                                                <span className="fact-label">Decided by:</span>{' '}
-                                                <span className="fact-value">
-                                                    {detail.alert.decidedBy}
-                                                </span>
-                                            </p>
-                                        )}
-                                        {detail.alert.resolvedAt && (
-                                            <p>
-                                                <span className="fact-label">Resolved:</span>{' '}
-                                                <span className="fact-value">
-                                                    {formatDateTime(detail.alert.resolvedAt)}
-                                                </span>
-                                            </p>
+                                            <>
+                                                <p>
+                                                    <span className="fact-label">Decision:</span>{' '}
+                                                    <span className="fact-value">
+                                                        {decisionLabel(detail.alert.decision)}
+                                                    </span>
+                                                </p>
+                                                {/*
+                                                  Drawn on a decided alert whether or not a login
+                                                  is behind it, which is why it is inside the test
+                                                  above rather than under one of its own. A
+                                                  decision taken at the console records no user,
+                                                  and omitting the line made that alert read as if
+                                                  nobody had decided it at all: the panel showed a
+                                                  verdict and a time with no hand between them.
+                                                  The words are the shared absence for a fact in
+                                                  prose, not the table's dash.
+                                                */}
+                                                <p>
+                                                    <span className="fact-label">Decided by:</span>{' '}
+                                                    <span className="fact-value">
+                                                        {detail.alert.decidedBy || NOT_RECORDED}
+                                                    </span>
+                                                </p>
+                                                <p>
+                                                    <span className="fact-label">Resolved:</span>{' '}
+                                                    <span className="fact-value">
+                                                        {formatDateTime(detail.alert.resolvedAt)}
+                                                    </span>
+                                                </p>
+                                            </>
                                         )}
 
                                         {/*
@@ -1232,10 +1386,18 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                           at the foot of the screen, which is the copy that gets
                                           edited; this is the copy of record, and it stays
                                           readable while that one is being typed into.
+
+                                          Under the caption that box carries, and for that
+                                          reason: two words for one column on one screen is what
+                                          a reader takes for two columns. It said `Notes` here
+                                          and `Internal notes` four hundred pixels below, about
+                                          the same paragraph.
                                         */}
                                         {detail.alert.notes && (
                                             <p>
-                                                <span className="fact-label">Notes:</span>{' '}
+                                                <span className="fact-label">
+                                                    {DECISION_NOTES_LABEL}:
+                                                </span>{' '}
                                                 <span className="fact-value">
                                                     {detail.alert.notes}
                                                 </span>
@@ -1248,34 +1410,44 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                           session's own name and accepts no other, so there is
                                           nothing to choose and nobody to choose it for.
 
-                                          Both controls appear on an alert somebody else holds.
-                                          Any analyst may release any alert, deliberately, at the
-                                          server: one held by an analyst who has gone home must
+                                          Both are always drawn and the dead one is disabled, never
+                                          removed. A panel an analyst reads forty times a day must
+                                          not move its controls under the pointer: adding and
+                                          removing them meant the button under the cursor changed
+                                          identity the moment an alert was taken, and the row was
+                                          a different width on every alert. The workstation has
+                                          drawn both since it was written.
+
+                                          Take is refused only on an alert already in this
+                                          analyst's name. Taking one a colleague holds is allowed
+                                          at the server, deliberately, and so is releasing any of
+                                          them: an alert held by somebody who has gone home must
                                           not be able to hold up the queue.
                                         */}
                                         <div className="actions gap-above-sm">
-                                            {detail.alert.assignee !== username && (
-                                                <button
-                                                    type="button"
-                                                    className="btn-quiet"
-                                                    disabled={loadingAssignment}
-                                                    aria-busy={loadingAssignment || undefined}
-                                                    onClick={() => void changeAssignment(true)}
-                                                >
-                                                    {TAKE_ALERT}
-                                                </button>
-                                            )}
-                                            {detail.alert.assignee && (
-                                                <button
-                                                    type="button"
-                                                    className="btn-quiet"
-                                                    disabled={loadingAssignment}
-                                                    aria-busy={loadingAssignment || undefined}
-                                                    onClick={() => void changeAssignment(false)}
-                                                >
-                                                    {RELEASE_ALERT}
-                                                </button>
-                                            )}
+                                            <button
+                                                type="button"
+                                                className="btn-quiet"
+                                                disabled={
+                                                    loadingAssignment ||
+                                                    detail.alert.assignee === username
+                                                }
+                                                aria-busy={loadingAssignment || undefined}
+                                                onClick={() => void changeAssignment(true)}
+                                            >
+                                                {TAKE_ALERT}
+                                            </button>
+                                            <button
+                                                type="button"
+                                                className="btn-quiet"
+                                                disabled={
+                                                    loadingAssignment || !detail.alert.assignee
+                                                }
+                                                aria-busy={loadingAssignment || undefined}
+                                                onClick={() => void changeAssignment(false)}
+                                            >
+                                                {RELEASE_ALERT}
+                                            </button>
                                         </div>
 
                                         {assignError && <ErrorBox failure={assignError} />}
@@ -1342,6 +1514,34 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                 {formatDateTime(detail.transfer.createdAt)}
                                             </span>
                                         </p>
+                                        {/*
+                                          What is still to happen to money that has left the
+                                          account, on the line the shared field order gives it:
+                                          after what the payment cost, before how it was
+                                          authorized.
+
+                                          Drawn only where the label has something to say, and
+                                          the empty string is the whole reason it is a function
+                                          and not a lookup. Null there is three different
+                                          situations - credited inside this bank, not settled
+                                          yet, written before the column existed - so a line
+                                          reading "Onward transfer: none" would state as a fact
+                                          about the money something this field cannot know. Which
+                                          side of the bank it was going is on the To line above,
+                                          and nowhere else.
+                                        */}
+                                        {dispatchStateLabel(detail.transfer.dispatchState) && (
+                                            <p>
+                                                <span className="fact-label">
+                                                    {TRANSFER_DETAIL_LABEL.dispatchState}:
+                                                </span>{' '}
+                                                <span className="fact-value">
+                                                    {dispatchStateLabel(
+                                                        detail.transfer.dispatchState,
+                                                    )}
+                                                </span>
+                                            </p>
+                                        )}
                                         <p>
                                             <span className="fact-label">Auth method:</span>{' '}
                                             <span className="fact-value">
@@ -1360,10 +1560,15 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                         <p>
                                             <strong>{CUSTOMER_HISTORY_TITLE}</strong>
                                         </p>
+                                        {/* "No history" is a statement about the customer and is
+                                            made only once the route that answers it has answered.
+                                            The rows arrive after the panel around them now, so an
+                                            empty table before then means nothing has come back
+                                            yet, and the wait is said below in its own words. */}
                                         {history.length === 0 ? (
-                                            <p className="helper-text">
-                                                No history.
-                                            </p>
+                                            historyPage && (
+                                                <p className="helper-text">{NO_HISTORY}</p>
+                                            )
                                         ) : (
                                             <div className="table-wrapper gap-above-sm">
                                                 {/* Five columns from the shared field set, and the
@@ -1398,8 +1603,12 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                         );
                                                         return (
                                                             /* One row group per payment, so the
-                                                               reason a payment was refused stays
-                                                               part of the row it explains. */
+                                                               two pieces of prose it carries stay
+                                                               part of the row they belong to. The
+                                                               shared list decides which fields
+                                                               those are and in what order: what
+                                                               the payer wrote, then what the bank
+                                                               wrote back. */
                                                             <tbody key={h.id}>
                                                             <tr>
                                                                 {HISTORY_COLUMN_FIELDS.map((f) => (
@@ -1413,28 +1622,24 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                                     </td>
                                                                 ))}
                                                             </tr>
-                                                            {h.declineReason && (
-                                                                <tr className="history-note">
+                                                            {HISTORY_UNDER_ROW_FIELDS.filter(
+                                                                (f) => cells[f],
+                                                            ).map((f) => (
+                                                                <tr
+                                                                    className="history-note"
+                                                                    key={f}
+                                                                >
                                                                     <td
                                                                         colSpan={
                                                                             HISTORY_COLUMN_FIELDS
                                                                                 .length
                                                                         }
                                                                     >
-                                                                        {
-                                                                            FIELD_LABEL[
-                                                                                HISTORY_NOTE_FIELD
-                                                                            ]
-                                                                        }
-                                                                        :{' '}
-                                                                        {
-                                                                            cells[
-                                                                                HISTORY_NOTE_FIELD
-                                                                            ]
-                                                                        }
+                                                                        {FIELD_LABEL[f]}:{' '}
+                                                                        {cells[f]}
                                                                     </td>
                                                                 </tr>
-                                                            )}
+                                                            ))}
                                                             </tbody>
                                                         );
                                                     })}
@@ -1452,9 +1657,21 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                           ten payments and two hundred looked identical here. The
                                           count and the control both come from the route beside
                                           the alert, and both are absent when that route has not
-                                          answered, which leaves exactly the panel that was here
-                                          before.
+                                          answered.
+
+                                          Which is why the wait and the failure are now said out
+                                          loud. A panel that simply drew nothing here left the
+                                          table standing at exactly ten rows with no count and no
+                                          control, and ten rows with no count is what a customer
+                                          with ten payments looks like: the silence was a claim,
+                                          and on a failed read it was a false one.
                                         */}
+                                        {loadingHistoryFirst && (
+                                            <p className="helper-text gap-above-sm">
+                                                {PAYMENTS_LOADING}
+                                            </p>
+                                        )}
+
                                         {historyPage && (
                                             <div className="section-block inline gap-above-sm">
                                                 {hasMore(history.length, historyPage.total) && (
@@ -1489,12 +1706,10 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
 
                         {/* Decision controls for the selected alert */}
                         <section className="section">
-                            <h2 className="section-title">Decision</h2>
+                            <h2 className="section-title">{DECISION_TITLE}</h2>
 
                             {!detail && (
-                                <p className="helper-text">
-                                    Select an alert to take a decision.
-                                </p>
+                                <p className="helper-text">{SELECT_ALERT_TO_DECIDE}</p>
                             )}
 
                             {detail && (
@@ -1506,10 +1721,14 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                 decisions, so "reason for declining" would tell
                                                 an analyst clearing an alert that what they are
                                                 writing is for a refusal they are not making. */}
-                                            <label className="field-label">
+                                            <label
+                                                className="field-label"
+                                                htmlFor="decision-reason"
+                                            >
                                                 {DECISION_REASON_LABEL}
                                             </label>
                                             <textarea
+                                                id="decision-reason"
                                                 className="textarea"
                                                 rows={3}
                                                 value={decisionReason}
@@ -1518,15 +1737,19 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                         e.target.value,
                                                     )
                                                 }
-                                                placeholder="Optional comment that will be stored with the alert."
+                                                placeholder={DECISION_REASON_PLACEHOLDER}
                                             />
                                         </div>
 
                                         <div className="field-column gap-above-sm">
-                                            <label className="field-label">
-                                                Internal notes
+                                            <label
+                                                className="field-label"
+                                                htmlFor="decision-notes"
+                                            >
+                                                {DECISION_NOTES_LABEL}
                                             </label>
                                             <textarea
+                                                id="decision-notes"
                                                 className="textarea"
                                                 rows={3}
                                                 value={decisionNotes}
@@ -1535,7 +1758,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                         e.target.value,
                                                     )
                                                 }
-                                                placeholder="Additional notes for future investigation."
+                                                placeholder={DECISION_NOTES_PLACEHOLDER}
                                             />
                                         </div>
 
@@ -1550,9 +1773,22 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                             Three consequences, three shapes. Declining records
                                             a verdict against a customer and cannot be taken
                                             back, so it is the destructive edge; saving notes
-                                            decides nothing, so it carries no shape and the gap
-                                            in front of it says it is not one of the pair. The
-                                            last two were the same two white rectangles. */}
+                                            takes no verdict, so it is the neutral rectangle and
+                                            the gap in front of it says it is not one of the
+                                            pair. It carried no shape at all until now, which was
+                                            a rank too far down: it POSTS to the same route as
+                                            the two beside it and writes the notes column, and a
+                                            real write set as borderless text is indistinguishable
+                                            from a caption. The level with no shape is for
+                                            controls that change nothing on the server, which is
+                                            Refresh and Show more and not this.
+
+                                            All three go dead while any one of them is in
+                                            flight, because the server takes one verdict per
+                                            alert and the second press would be refused with the
+                                            typed notes in it. Only the pressed one changes its
+                                            word: three buttons reading Applying… would say three
+                                            decisions were being taken. */}
                                         <div className="actions gap-above-lg">
                                             <button
                                                 type="button"
@@ -1561,12 +1797,15 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                     loadingDecision ||
                                                     detail.alert.state !== 'NEW'
                                                 }
+                                                aria-busy={
+                                                    pressed === 'APPROVE' || undefined
+                                                }
                                                 onClick={() =>
                                                     handleDecision('APPROVE')
                                                 }
                                             >
-                                                {loadingDecision
-                                                    ? 'Applying…'
+                                                {pressed === 'APPROVE'
+                                                    ? DECISION_BUSY
                                                     : decisionActionLabel('APPROVE')}
                                             </button>
                                             <button
@@ -1576,33 +1815,38 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                     loadingDecision ||
                                                     detail.alert.state === 'SUSPICIOUS'
                                                 }
+                                                aria-busy={
+                                                    pressed === 'DECLINE' || undefined
+                                                }
                                                 onClick={() =>
                                                     handleDecision('DECLINE')
                                                 }
                                             >
-                                                {decisionActionLabel('DECLINE')}
+                                                {pressed === 'DECLINE'
+                                                    ? DECISION_BUSY
+                                                    : decisionActionLabel('DECLINE')}
                                             </button>
                                             {/* ANNOTATE. The token used to be called
                                                 REQUEST_CONFIRMATION, which named something it
                                                 has never done: it asks nobody for anything. */}
                                             <button
                                                 type="button"
-                                                className="btn-quiet push-end"
+                                                className="btn-secondary push-end"
                                                 disabled={loadingDecision}
+                                                aria-busy={
+                                                    pressed === 'ANNOTATE' || undefined
+                                                }
                                                 onClick={() =>
                                                     handleDecision('ANNOTATE')
                                                 }
                                             >
-                                                {decisionActionLabel('ANNOTATE')}
+                                                {pressed === 'ANNOTATE'
+                                                    ? DECISION_BUSY
+                                                    : decisionActionLabel('ANNOTATE')}
                                             </button>
                                         </div>
 
-                                        <p className="helper-text">
-                                            Approving does not send the money: it releases the
-                                            payment for the customer to confirm. Declining a
-                                            payment that has already been sent records the
-                                            verdict; it does not reverse it.
-                                        </p>
+                                        <p className="helper-text">{DECISION_HINT}</p>
                                     </div>
 
                                     {decisionError && <ErrorBox failure={decisionError} />}

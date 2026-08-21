@@ -154,7 +154,7 @@ public class FraudApplicationService {
     }
 
     /**
-     * UC 12 - Request Customer Confirmation.
+     * ANNOTATE, the third decision, taken from the console.
      *
      * Leaves the alert open and the transfer held. It is not a verdict: the customer's
      * confirmation step is exactly what APPROVE unlocks, so resolving the alert here would
@@ -163,17 +163,19 @@ public class FraudApplicationService {
      * overwrote the risk reason the rules produced, which was the only record of why the alert
      * existed.
      *
-     * Over HTTP the same idea is the ANNOTATE branch of {@link #decideAndUpdateAlert}: it
-     * changes no state and the notes block after it runs and commits. That makes it the one
-     * route by which an analyst can annotate an already-decided alert, since approve() and
-     * markSuspicious() both refuse a second verdict and take the notes down with them. This
-     * method is the console's half of it and keeps the use case's name; only the token on the
-     * wire was renamed.
+     * ONE NAME, everywhere. The use case this began as was called Request Customer Confirmation
+     * and this method carried that name until now, while the wire and both desks called the same
+     * action ANNOTATE. Two names for one decision is how the console and the desks came to
+     * describe different things to their operators: the console offered "request", which promises
+     * a message to the customer that nothing anywhere sends. Over HTTP this is the ANNOTATE branch
+     * of {@link #decideAndUpdateAlert}, which writes the analyst's comment and notes and changes
+     * no state, and that is the one route to an already-decided alert, since approve() and
+     * markSuspicious() both refuse a second verdict and take the writing down with them.
      *
-     * The console carries no metadata, so this method has nothing left to do but prove the
-     * alert exists. No unit of work: both backends serve a read with no ambient one.
+     * The console carries neither comment nor notes, so this method has nothing left to do but
+     * prove the alert exists. No unit of work: both backends serve a read with no ambient one.
      */
-    public void requestCustomerConfirmation(int transferId) {
+    public void annotate(int transferId) {
         alerts.byTransferId(transferId).orElseThrow(
                 () -> new NotFoundException("Alert not found for transfer " + transferId));
     }
@@ -212,6 +214,14 @@ public class FraudApplicationService {
                             "Fraud alert " + alertId + " points at missing transfer " + transferId));
 
                     alert.approve(decidedBy, decidedAt);
+
+                    // The comment the analyst typed, kept on the case file. Written after the
+                    // guard inside approve, so a verdict that was refused leaves no trace of the
+                    // refused caller's wording on somebody else's alert. It used to be read off
+                    // the request, validated and then dropped here: DECLINE was the only arm that
+                    // did anything with it, while both desks label the box as a comment stored
+                    // with the alert.
+                    alert.appendReason(reason);
                     alerts.save(alert);
 
                     // Clears the transfer for the customer's confirmation step; it does not
@@ -242,17 +252,20 @@ public class FraudApplicationService {
                     }
                 }
                 case "ANNOTATE", "REQUEST_CONFIRMATION" -> {
-                    // Not a verdict, and deliberately a no-op on both aggregates. Resolving the
-                    // alert here would strand the transfer held with nothing able to release it -
-                    // only APPROVE unlocks the customer's confirmation step - and marking it
-                    // suspicious destroyed the risk reason that says why it was raised.
+                    // Not a verdict, and deliberately no state change on either aggregate.
+                    // Resolving the alert here would strand the transfer held with nothing able to
+                    // release it - only APPROVE unlocks the customer's confirmation step - and
+                    // marking it suspicious destroyed the risk reason that says why it was raised.
                     //
-                    // What it does do is fall through to the notes block below, which is why it
-                    // survives: it is the only route that can attach notes to an alert that has
-                    // already been decided. ANNOTATE is that and nothing else, which is why
-                    // REQUEST_CONFIRMATION lost the name: it asked for a confirmation nobody was
-                    // ever sent. The old spelling stays accepted so the rename can reach the two
-                    // desks in either order.
+                    // It writes exactly what an analyst typed and nothing else: the comment onto
+                    // the case file here, and the notes through the block below. That is why it
+                    // survives at all - it is the only route that reaches an alert somebody has
+                    // already decided, since approve and markSuspicious both refuse a second
+                    // verdict and would take the writing down with them. ANNOTATE is that and
+                    // nothing else, which is why REQUEST_CONFIRMATION lost the name: it asked for
+                    // a confirmation nobody was ever sent. The old spelling stays accepted so the
+                    // rename can reach the two desks in either order.
+                    alert.appendReason(reason);
                 }
                 default -> throw new ValidationException("Unsupported decision: " + decisionRaw);
             }

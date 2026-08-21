@@ -49,9 +49,24 @@ textarea {
 button:focus-visible,
 input:focus-visible,
 select:focus-visible,
-textarea:focus-visible {
+textarea:focus-visible,
+[role="button"]:focus-visible {
   outline: var(--border-width-marker) solid var(--color-focus-ring);
   outline-offset: var(--focus-offset);
+}
+
+/*
+ * The one element in this application that takes the ring without being a control tag: a queue
+ * row. It has a tab stop, the button role and the two keys, but it cannot be a <button> without
+ * ceasing to be a row, so the ring has to be asked for by role.
+ *
+ * No offset here, and that is the exception rather than an oversight. The offset above puts the
+ * ring on the surface behind the control; a table row has no surface behind it but the row above
+ * and the row below, so an outset ring is drawn over its neighbours' text. Drawn on the row's own
+ * edge instead, where the cells' own hairline already is.
+ */
+tr[role="button"]:focus-visible {
+  outline-offset: 0;
 }
 
 /* ====== Shell, page and dialog ====== */
@@ -1081,6 +1096,29 @@ textarea:focus-visible {
 .table .cell--amount {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/*
+ * When a payment was asked for, and under it when the money actually moved.
+ *
+ * The same shape as the amount stack below and for the same reason: two readings of one thing,
+ * read against each other, so they share a cell rather than standing at two ends of a row. Both
+ * lines at the table's own size, because a date set a rung smaller stops lining up with the dates
+ * above and below it, and a column of dates is read down.
+ *
+ * The second line is the one that may be missing: a payment that has not settled has no such
+ * moment, and on a fraud desk that is most of the table. It steps back in ink because it annotates
+ * the line above rather than answering the column a second time, which is the fee line's rule two
+ * blocks down and the same measured ink.
+ */
+.table .time-asked,
+.table .time-settled {
+  display: block;
+  line-height: var(--leading-tight);
+}
+
+.table .time-settled {
+  color: var(--color-text-muted);
 }
 
 /*

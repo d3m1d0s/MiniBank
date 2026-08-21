@@ -23,12 +23,19 @@ import { amountRangeProblem } from '@shared/alertFilters';
  * application asks of the API and a fee line is drawn from a value that already arrived.
  */
 import { formatFeeLine } from '@shared/money';
-import { describeApiError, describeApiFailure, type ApiFailure } from '@shared/apiErrors';
+import { describeApiError, describeApiFailure } from '@shared/apiErrors';
+import type { ApiFailure } from '@shared/apiErrors';
+import ErrorBox from './ErrorBox';
 import {
+    AMOUNT_FROM_LABEL,
+    AMOUNT_PLACEHOLDER,
+    AMOUNT_TO_LABEL,
     FIELD_LABEL,
     HISTORY_FIELD_LABEL,
     HISTORY_COLUMN_FIELDS,
-    HISTORY_NOTE_FIELD,
+    HISTORY_SETTLED_FIELD,
+    HISTORY_UNDER_ROW_FIELDS,
+    TRANSFER_DETAIL_LABEL,
     type HistoryField,
     type HistoryRowCells,
     type QueueRowCells,
@@ -41,11 +48,27 @@ import {
     formatTransferId,
 } from '@shared/format';
 import {
+    ALERTS_QUEUE_TITLE,
+    ALERT_DETAILS_TITLE,
+    ALERT_DETAIL_LOADING,
     ASSIGNED_TO_ANYONE,
     ASSIGNED_TO_ME,
     CUSTOMER_HISTORY_TITLE,
+    DECISION_BUSY,
+    DECISION_HINT,
+    DECISION_NOTES_LABEL,
+    DECISION_NOTES_PLACEHOLDER,
     DECISION_REASON_LABEL,
+    DECISION_REASON_PLACEHOLDER,
+    DECISION_TITLE,
+    NO_HISTORY,
+    QUEUE_COUNTERS_BASIS,
+    QUEUE_LOADING,
+    REFRESH,
+    REFRESH_BUSY,
     RELEASE_ALERT,
+    SELECT_ALERT,
+    SHOW_WITHDRAWN_ALERTS,
     TAKE_ALERT,
     UNASSIGNED,
     alertStateLabel,
@@ -57,6 +80,12 @@ import {
     decisionLabel,
     describeDeclineReason,
     describeDecision,
+    dispatchStateLabel,
+    emptyQueueNote,
+    hiddenAlertsNote,
+    queueCounterCells,
+    queueCounterTotal,
+    roleLabel,
     transferStatusLabel,
     transferStatusTone,
 } from '@shared/glossary';
@@ -68,6 +97,7 @@ import {
     nextPage,
     showingLine,
 } from '@shared/paging';
+import type { NavRole } from '@shared/navigation';
 
 /** The transfer status a withdrawn payment ends in. */
 const WITHDRAWN = 'DECLINED';
@@ -93,23 +123,6 @@ const PAGE_SIZE = 25;
 const HISTORY_PAGE_SIZE = 10;
 
 /**
- * The control that asks the queue again, and what it says while it is asking.
- *
- * This is the one screen in the product whose contents change without anybody touching it: an
- * alert is raised by the server, and until now the only way to see it was to change a filter and
- * change it back, or to reload the window and lose the case on the right. The refusal sentences
- * for a lost race even promise a reload the screen did not offer.
- *
- * "Loading…" while it waits, which is what the tray and the Show more at the foot of the queue
- * both say: one word for one wait in one panel.
- */
-const REFRESH = 'Refresh';
-const REFRESH_BUSY = 'Loading…';
-
-/** What the tray says while the first page is still on its way. */
-const QUEUE_LOADING = 'Loading alerts…';
-
-/**
  * Which amount bound is being typed. The two boxes are one control by role, so one function
  * handles both and this tells them apart.
  */
@@ -133,51 +146,6 @@ interface HistoryPage {
 interface HistoryProblem {
     alertId: number;
     failure: ApiFailure;
-}
-
-/**
- * Why the queue is shorter than the counters above it say, in the one case where the desk itself
- * is the cause.
- *
- * One transfer status carries two meanings that are opposites here. A payment the customer
- * withdrew and a payment an analyst declined are both DECLINED, so the default that hides the
- * first, which is right, since a withdrawn payment has nothing left to decide, also hides every
- * alert this desk has confirmed as fraud. Opening on Cleared showed an empty list under a strip
- * reading Cleared: 1, and nothing on the screen said why.
- *
- * The rule is not changed and the counters are not changed: both are right, and neither is going
- * to be bent to paper over a collision in the server's vocabulary. What was missing is this
- * sentence and the number in it, and the number comes from the endpoint that answers exactly the
- * question, so the screen never guesses at it.
- */
-function hiddenNote(count: number): string {
-    const subject = count === 1 ? '1 alert is' : `${count} alerts are`;
-    return `${subject} hidden from this list by the Withdrawn box above. A payment the customer`
-        + ' withdrew and a payment an analyst declined both end as Declined, so hiding the first'
-        + ' hides the second. Tick the box to see them.';
-}
-
-/**
- * What an empty tray says, and it is the only thing the tray says when it says this.
- *
- * It names the filters, because the strip under it counts the whole queue before any of them: a
- * bare "No alerts" standing over "Whole queue, 2" is a contradiction until the first sentence says
- * which alerts it means. Both are true and both are worth printing; what was missing is the word
- * that tells a reader they are answers to two different questions.
- *
- * A queue with nothing in it at all says so plainly instead, since there is no filter to blame.
- */
-function emptyQueueLine(applied: AlertFilters): string {
-    const filtered = Boolean(
-        applied.state
-        || applied.assignee
-        || applied.minAmount
-        || applied.maxAmount
-        || applied.createdFrom
-        || applied.createdTo
-        || applied.excludeTransferStatus?.length,
-    );
-    return filtered ? 'No alerts match these filters.' : 'There are no alerts in the queue.';
 }
 
 /**
@@ -251,10 +219,32 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
     const alerted = alertedIban !== null && h.fromIban === alertedIban;
     const boundary = bankBoundaryMark(h.toIbanInBank);
     const feeLine = formatFeeLine(h.fee);
+    // The empty string and not the table's dash: the second line is drawn only where there is
+    // one, so an unsettled payment loses a line rather than gaining a gap. Most of a fraud
+    // desk's rows are unsettled, and a column of dashes under every timestamp says nothing.
+    const settledLine = h.settledAt ? formatDateTime(h.settledAt) : '';
 
     return {
         id: formatTransferId(h.id),
-        createdAt: formatDateTime(h.createdAt),
+        // When the payment was asked for, and under it when the money actually moved. Two
+        // timestamps and two questions, read against each other in one cell for the reason the
+        // fee is read under the amount: a second date column with nothing beside it saying which
+        // question it answers is a column a reader has to decode on every row.
+        //
+        // The word is printed rather than hidden, unlike the fee's, because the two lines are the
+        // same shape. `+15,00 CZK` under `1 500,00 CZK` cannot be mistaken for a second amount;
+        // a bare date under a date can be mistaken for anything.
+        createdAt: (
+            <>
+                <span className="created-value">{formatDateTime(h.createdAt)}</span>
+                {settledLine && (
+                    <span className="created-settled">
+                        {FIELD_LABEL[HISTORY_SETTLED_FIELD]} {settledLine}
+                    </span>
+                )}
+            </>
+        ),
+        settledAt: settledLine,
         // The amount the customer sent, and under it what the bank added to it. Two lines of one
         // sum, stacked like the two account numbers next door, so the column can be read down.
         // Every row has the second line: on a payment the desk stopped it is the price rather than
@@ -291,6 +281,9 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
                 </span>
             </>
         ),
+        // The payer's own reference, exactly as it was typed: nothing here interprets it, and an
+        // empty box and an untouched one both come out as nothing to draw.
+        message: h.message ?? '',
         declineReason: describeDeclineReason(h.declineReason),
     };
 }
@@ -307,38 +300,33 @@ function readerLocale(): string {
     return navigator.language || 'cs-CZ';
 }
 
-/**
- * A refusal: the sentences the shared table answers with, the reference under them, and the way
- * out where the caller has one to offer.
- *
- * A line each rather than one run of prose: the table sends what happened and, where there is one,
- * the thing to do about it, and the second is the half a reader acts on. The box around them is
- * the .error this window has always drawn.
- *
- * The reference is the only machine text left in here, and it is not for the analyst: it is what
- * makes a photograph of this box worth something to whoever runs the bank, now that the body of a
- * bad answer is dropped before it can reach a screen.
- *
- * The button is drawn only where a caller passed one, and a caller passes one only for a read. A
- * decision, a take and a release each have a press of their own already, and a second control
- * offering to send them again is how a refused verdict becomes two.
- */
-function ErrorBox(props: { failure: ApiFailure }) {
-    const { lines, reference, retry, retryLabel } = props.failure;
-    return (
-        <div className="error">
-            {lines.map(line => <div key={line}>{line}</div>)}
-            {reference && <div className="error-reference">{reference}</div>}
-            {retry && (
-                <div className="actions">
-                    <button type="button" className="btn" onClick={retry}>{retryLabel}</button>
-                </div>
-            )}
-        </div>
-    );
-}
-
-export default function FraudDesk(props: { username: string; onLogout: () => void }) {
+export default function FraudDesk(props: {
+    /**
+     * The login, which is what the assignment column holds and what the Mine filter matches on.
+     *
+     * Kept apart from the name below on purpose. The server writes a login into `assignee`, so a
+     * comparison against a person's name would quietly stop finding this analyst's own alerts the
+     * day the bank starts filling in names.
+     */
+    username: string;
+    /**
+     * The person, for the one place on this window that addresses them rather than identifies them.
+     *
+     * Resolved by the shell, which is the only part of this application that knows a session from
+     * a name, and handed down already reduced to a string so the desk has nothing to decide.
+     */
+    signedInAs: string;
+    /**
+     * Who this person is to the bank, which the header prints beside their login.
+     *
+     * Handed down by the shell rather than read here, because the shell is what decided this
+     * screen was the right one for the role. The customer application has printed both halves in
+     * its header all along and this window printed the login alone, so the same analyst was named
+     * two different ways in the same product.
+     */
+    role: NavRole;
+    onLogout: () => void;
+}) {
     /**
      * The desk hides withdrawn payments by default; the endpoint hides nothing by default.
      *
@@ -448,7 +436,17 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
     const [busyDetail, setBusyDetail] = useState(false);
     const [busyHistory, setBusyHistory] = useState(false);
     const [busyHistoryMore, setBusyHistoryMore] = useState(false);
-    const [busyDecision, setBusyDecision] = useState(false);
+    /**
+     * WHICH of the three presses is in flight, and not merely that one is.
+     *
+     * A flag was enough while no button said anything, and no button said anything: three live
+     * looking controls stood over a request that had already left. The word goes on the button
+     * that was pressed and on no other, so this has to be the decision rather than a boolean. All
+     * three are still disabled together, because the server takes one verdict per alert and the
+     * second press is a refusal that would take the typed notes with it.
+     */
+    const [pendingDecision, setPendingDecision] = useState<FraudDecision | null>(null);
+    const busyDecision = pendingDecision !== null;
     const [busyAssign, setBusyAssign] = useState(false);
 
     const [decisionReason, setDecisionReason] = useState('');
@@ -498,7 +496,10 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
         if (problem) {
             setAlerts([]);
             setLastPage(null);
-            setCounters(null);
+            // The counters are deliberately NOT cleared, and this line used to clear them. They
+            // count the whole queue before any filter, so a filter this desk refused to send
+            // cannot have changed them: dropping the strip left the panel with a heading, an
+            // error and no bottom to it, and threw away the one figure on screen that still held.
             // No reference and no retry: nothing was sent, so there is no answer to quote, and
             // asking again with the same two boxes would be refused again. What fixes it is the
             // sentence itself, which names the bound to correct.
@@ -717,7 +718,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
         // carries the alert, the payment and the sentence that describes both.
         const id = selectedId;
         try {
-            setBusyDecision(true);
+            setPendingDecision(kind);
             setDecisionErr(null);
             setDecisionMsg(null);
             const updated = await postFraudDecision(id, {
@@ -785,7 +786,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
             // reason: the press that sends a verdict is the one above it.
             setDecisionErr(describeApiFailure(e, 'alert-decision'));
         } finally {
-            setBusyDecision(false);
+            setPendingDecision(null);
         }
     }
 
@@ -875,7 +876,19 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                       */}
                     <div className="title">MiniBank · Fraud Desk</div>
                     <div className="titlebar-right">
-                        <div className="user">{props.username}</div>
+                        {/*
+                          * Who is at the desk and what they are, which is what the customer
+                          * application's header has always printed and this one did not. The
+                          * word comes from the same table both applications read: there is no
+                          * second role map in this product, and a header that prints
+                          * FRAUD_ANALYST or invents its own wording is how there comes to be one.
+                          *
+                          * The name, where the server knows one, and the login where it does not.
+                          * It knows none for an analyst today, so this reads `fraud` still; what
+                          * changed is that both applications now ask, so the day a name is
+                          * recorded neither window has to be found and fixed.
+                          */}
+                        <div className="user">{props.signedInAs} · {roleLabel(props.role)}</div>
                         {/* The action paired with "Sign in" is "Sign out". One product, one verb. */}
                         <button className="btn" onClick={props.onLogout}>Sign out</button>
                     </div>
@@ -885,15 +898,24 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                     {/* LEFT: queue */}
                     <div className="left">
                         <div className="panel">
-                            <div className="panel-title">Alerts Queue</div>
+                            <div className="panel-title">{ALERTS_QUEUE_TITLE}</div>
 
+                            {/*
+                              EVERY CONTROL IN HERE CARRIES ITS OWN NAME.
+
+                              The labels used to stand beside their controls and belong to none of
+                              them: a bare <label> names nothing, so the whole row of filters was
+                              four unnamed boxes to anybody not reading the screen. Each is bound
+                              to an id now, except the pair below, where one word cannot name two
+                              boxes and the two words are given to the boxes themselves.
+                            */}
                             <div className="filters">
                                 <div className="row row--2">
-                                    <label>{FIELD_LABEL.state}</label>
+                                    <label htmlFor="filter-state">{FIELD_LABEL.state}</label>
                                     {/* The values are the server's, the words are the glossary's,
                                         so the option a person picks reads the same as the state
                                         printed on the cards below. */}
-                                    <select value={filters.state ?? ''} onChange={(e) => setF('state', e.target.value)}>
+                                    <select id="filter-state" value={filters.state ?? ''} onChange={(e) => setF('state', e.target.value)}>
                                         <option value="">All</option>
                                         <option value="NEW">{alertStateLabel('NEW')}</option>
                                         <option value="SUSPICIOUS">{alertStateLabel('SUSPICIOUS')}</option>
@@ -901,26 +923,36 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                     </select>
                                 </div>
 
-                                <div className="row row--3">
-                                    <label>{FIELD_LABEL.amount}</label>
-                                    {/*
-                                      Text and not number: these boxes have to accept the string
-                                      the queue beside them prints, and a number input reads only
-                                      the browser's own convention. The two words stay short
-                                      because at 200 percent text the box is narrower than any
-                                      example that would be worth printing; what the boxes accept
-                                      is on the cards next to them.
-                                    */}
+                                {/*
+                                  One field asked about twice, so the row's word is not a label at
+                                  all: a <label> over two inputs either names the wrong one of them
+                                  or names neither, and this row has space for exactly one word.
+                                  The two names go to the boxes, from the shared pair the customer
+                                  application prints above its own, so a person reading this screen
+                                  sees the short form and a person listening to it hears the same
+                                  two words the other platform shows.
+
+                                  Text and not number: these boxes have to accept the string the
+                                  queue beside them prints, and a number input reads only the
+                                  browser's own convention. Which is what the placeholder now says.
+                                  `min` and `max` repeated the label and answered nothing; a comma
+                                  in the example says what a number looks like here without a
+                                  sentence.
+                                */}
+                                <div className="row row--3" role="group" aria-label={FIELD_LABEL.amount}>
+                                    <span className="row-label">{FIELD_LABEL.amount}</span>
                                     <input
                                         inputMode="decimal"
-                                        placeholder="min"
+                                        aria-label={AMOUNT_FROM_LABEL}
+                                        placeholder={AMOUNT_PLACEHOLDER}
                                         value={amountText.min}
                                         onChange={(e) => changeAmountBound('min', e.target.value)}
                                         onBlur={() => normalizeAmountBound('min')}
                                     />
                                     <input
                                         inputMode="decimal"
-                                        placeholder="max"
+                                        aria-label={AMOUNT_TO_LABEL}
+                                        placeholder={AMOUNT_PLACEHOLDER}
                                         value={amountText.max}
                                         onChange={(e) => changeAmountBound('max', e.target.value)}
                                         onBlur={() => normalizeAmountBound('max')}
@@ -928,7 +960,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                 </div>
 
                                 <div className="row row--2">
-                                    <label>{FIELD_LABEL.assignee}</label>
+                                    <label htmlFor="filter-assignee">{FIELD_LABEL.assignee}</label>
                                     {/*
                                       Two positions, not a name to type. The box here was a text
                                       field that could never match anything: no screen could write
@@ -939,6 +971,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                       the query the second one builds is a username.
                                     */}
                                     <select
+                                        id="filter-assignee"
                                         value={filters.assignee ? 'mine' : ''}
                                         onChange={(e) => {
                                             const mine = e.target.value === 'mine';
@@ -953,8 +986,14 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                     </select>
                                 </div>
 
-                                <div className="row row--2">
-                                    <label>Withdrawn</label>
+                                {/*
+                                  One name for one checkbox. There were two: a row label reading
+                                  `Withdrawn`, which is a word only this platform used, beside a
+                                  lower case restatement of the same instruction. The sentence
+                                  under the counters points at this control by name, and it can
+                                  only do that if the control has one name.
+                                */}
+                                <div className="row row--check">
                                     <label>
                                         <input
                                             type="checkbox"
@@ -976,7 +1015,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                                 }));
                                             }}
                                         />
-                                        {' '}show alerts on cancelled payments
+                                        {' '}{SHOW_WITHDRAWN_ALERTS}
                                     </label>
                                 </div>
                             </div>
@@ -1029,7 +1068,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                     ? <ErrorBox failure={listErr} />
                                     : alerts.length === 0 && (
                                         <div className="hint">
-                                            {busyList ? QUEUE_LOADING : emptyQueueLine(filters)}
+                                            {busyList ? QUEUE_LOADING : emptyQueueNote(filters)}
                                         </div>
                                     )}
 
@@ -1110,13 +1149,10 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                             */}
                             {counters && (
                                 <div className="counters">
-                                    <div>
-                                        Whole queue, before any filter,{' '}
-                                        {counters.newCount + counters.suspiciousCount + counters.okCount}:
-                                    </div>
-                                    <div>{alertStateLabel('NEW')}: {counters.newCount}</div>
-                                    <div>{alertStateLabel('SUSPICIOUS')}: {counters.suspiciousCount}</div>
-                                    <div>{alertStateLabel('OK')}: {counters.okCount}</div>
+                                    <div>{QUEUE_COUNTERS_BASIS}, {queueCounterTotal(counters)}:</div>
+                                    {queueCounterCells(counters).map(cell => (
+                                        <div key={cell.state}>{cell.label}: {cell.count}</div>
+                                    ))}
                                 </div>
                             )}
 
@@ -1133,7 +1169,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                               that has just answered beside it.
                             */}
                             {hiddenCount > 0 && (
-                                <div className="hint queue-note">{hiddenNote(hiddenCount)}</div>
+                                <div className="hint queue-note">{hiddenAlertsNote(hiddenCount)}</div>
                             )}
                             {hiddenErr && <div className="hint queue-note">{hiddenErr}</div>}
                         </div>
@@ -1142,7 +1178,12 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                     {/* RIGHT: detail */}
                     <div className="right">
                         <div className="panel">
-                            <div className="panel-title">Alert Detail: Review Suspicious Transaction</div>
+                            {/*
+                              A name and not a slogan. This title used to tell an analyst who had
+                              opened the fraud desk what the fraud desk is for, in the largest type
+                              on this half of the screen, on every alert they read.
+                            */}
+                            <div className="panel-title">{ALERT_DETAILS_TITLE}</div>
 
                             <div className="panel-scroll">
 
@@ -1155,12 +1196,15 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                   to select an alert directly above the alert they had selected,
                                   the whole case still on the pane under the sentence.
                                 */}
+                                {/* The invitation names the queue and not a position: `on the
+                                    left` describes furniture, and stops being true at the width
+                                    where the two panels stack. */}
                                 {!detail && !busyDetail && !detailErr && (
-                                    <div className="hint">Select an alert on the left.</div>
+                                    <div className="hint">{SELECT_ALERT}</div>
                                 )}
 
                                 {detailErr && <ErrorBox failure={detailErr} />}
-                                {busyDetail && <div className="hint">Loading detail…</div>}
+                                {busyDetail && <div className="hint">{ALERT_DETAIL_LOADING}</div>}
 
                                 {detail && !busyDetail && (
                                     <>
@@ -1219,18 +1263,23 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                             */}
                                             <div className="facts-split">
                                                 <dl className="facts">
-                                                    <dt>From</dt>
+                                                    {/* The words are the shared panel map's, not
+                                                        this pane's own. They were literals here
+                                                        and read the same, which is the state a
+                                                        word is in just before it drifts: one
+                                                        payment listed in two applications has to
+                                                        be listed under one set of names. */}
+                                                    <dt>{TRANSFER_DETAIL_LABEL.fromIban}</dt>
                                                     <dd>{formatIban(detail.transfer.fromIban)}</dd>
                                                     {/* The account number and the balance behind it
                                                         are two facts; they used to share one line. */}
-                                                    <dt>From balance</dt>
+                                                    <dt>{TRANSFER_DETAIL_LABEL.fromBalance}</dt>
                                                     <dd className="num">{formatMoney(detail.transfer.fromBalance)}</dd>
                                                     {/* Its own word, not the history column's: this
                                                         pair is the alerted payment's beneficiary,
                                                         and the column below names a route across
-                                                        two accounts. The From above it has always
-                                                        been a literal for the same reason. */}
-                                                    <dt>To</dt>
+                                                        two accounts. */}
+                                                    <dt>{TRANSFER_DETAIL_LABEL.toIban}</dt>
                                                     {/* A list of facts one to a line is not
                                                         scanned the way a column is, so here both
                                                         readings are worth printing and the one
@@ -1248,9 +1297,35 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                                             )}
                                                         </div>
                                                     </dd>
-                                                    <dt>Fee</dt>
+                                                    <dt>{TRANSFER_DETAIL_LABEL.fee}</dt>
                                                     <dd className="num">{formatMoney(detail.transfer.feeAmount)}</dd>
-                                                    <dt>Auth method</dt>
+                                                    {/*
+                                                      What is left to happen to money that has
+                                                      already left the account, which is a fact the
+                                                      wire carries and neither desk was printing.
+
+                                                      Drawn only where there is something to say.
+                                                      The field is null on a payment credited
+                                                      inside this bank, on anything unsettled, and
+                                                      on every row written before the column
+                                                      existed, so an empty line here would read as
+                                                      "the money stayed with us" on three
+                                                      situations, one of which is most of a fraud
+                                                      desk's queue. Which side of the bank the
+                                                      money went is the To line above and nothing
+                                                      else.
+                                                    */}
+                                                    {dispatchStateLabel(detail.transfer.dispatchState) && (
+                                                        <>
+                                                            <dt>{TRANSFER_DETAIL_LABEL.dispatchState}</dt>
+                                                            <dd>
+                                                                {dispatchStateLabel(
+                                                                    detail.transfer.dispatchState,
+                                                                )}
+                                                            </dd>
+                                                        </>
+                                                    )}
+                                                    <dt>{TRANSFER_DETAIL_LABEL.authMethod}</dt>
                                                     <dd>{authMethodLabel(detail.transfer.authMethod) || NOT_RECORDED}</dd>
                                                 </dl>
                                                 <dl className="facts">
@@ -1293,6 +1368,28 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                                             <dd>{detail.alert.decidedBy || NOT_RECORDED}</dd>
                                                             <dt>Resolved</dt>
                                                             <dd>{formatDateTime(detail.alert.resolvedAt)}</dd>
+                                                        </>
+                                                    )}
+                                                    {/*
+                                                      What colleagues have written about this
+                                                      alert, as a fact of record.
+
+                                                      The same text is loaded into the box at the
+                                                      foot of the panel, and that is the copy that
+                                                      gets edited: this one stays readable while it
+                                                      is being typed over, which is the whole
+                                                      reason to print it twice. An analyst rewriting
+                                                      a paragraph could not see what it said before
+                                                      they started.
+
+                                                      Under the same word the box carries. Two
+                                                      words for one column on one screen is what
+                                                      the checkbox above was just cured of.
+                                                    */}
+                                                    {detail.alert.notes && (
+                                                        <>
+                                                            <dt>{DECISION_NOTES_LABEL}</dt>
+                                                            <dd>{detail.alert.notes}</dd>
                                                         </>
                                                     )}
                                                 </dl>
@@ -1361,7 +1458,7 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                             {shownHistoryErr && <ErrorBox failure={shownHistoryErr} />}
                                             {busyHistory && <div className="hint">Loading payments…</div>}
                                             {shownHistory && (shownHistory.rows.length === 0 ? (
-                                                <div className="hint">No history</div>
+                                                <div className="hint">{NO_HISTORY}</div>
                                             ) : (
                                                 <table className="history">
                                                     <colgroup>
@@ -1408,14 +1505,32 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                                                         </td>
                                                                     ))}
                                                                 </tr>
-                                                                {h.declineReason && (
-                                                                    <tr className="history-note">
-                                                                        <td colSpan={HISTORY_COLUMN_FIELDS.length}>
-                                                                            {FIELD_LABEL[HISTORY_NOTE_FIELD]}:{' '}
-                                                                            {cells[HISTORY_NOTE_FIELD]}
-                                                                        </td>
-                                                                    </tr>
-                                                                )}
+                                                                {/*
+                                                                  The two fields that are prose,
+                                                                  in the order they were written:
+                                                                  the payer's words, then the
+                                                                  bank's. Both stand under the row
+                                                                  rather than in it, and each is
+                                                                  drawn only where there is text,
+                                                                  so a payment with nothing to add
+                                                                  costs the table no height at all.
+
+                                                                  The list is the shared one, so a
+                                                                  third piece of prose on the wire
+                                                                  arrives here on the build that
+                                                                  adds it rather than on the day
+                                                                  somebody notices.
+                                                                */}
+                                                                {HISTORY_UNDER_ROW_FIELDS.map(f => (
+                                                                    cells[f] ? (
+                                                                        <tr key={f} className="history-note">
+                                                                            <td colSpan={HISTORY_COLUMN_FIELDS.length}>
+                                                                                {FIELD_LABEL[f]}:{' '}
+                                                                                {cells[f]}
+                                                                            </td>
+                                                                        </tr>
+                                                                    ) : null
+                                                                ))}
                                                             </tbody>
                                                         );
                                                     })}
@@ -1473,32 +1588,65 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                             */}
                             {detail && !busyDetail && (
                                 <div className="panel-foot">
-                                    <div className="box-title">Decision</div>
+                                    <div className="box-title">{DECISION_TITLE}</div>
                                     {/*
                                       The caption is the shared one, and it says "this decision"
                                       rather than "the reason": the comment rides with all three
                                       presses, so a word about declining would tell an analyst
                                       clearing an alert that what they wrote belongs to a refusal
                                       they are not making. The other desk carries the same string.
+
+                                      A textarea and not a single line box. On a decline this text
+                                      becomes the sentence the customer is shown for why their
+                                      payment was stopped, so it is prose, and a field that shows
+                                      forty characters of it invites forty characters. The
+                                      placeholder is an example of what to write rather than the
+                                      word `optional`: what happens to an empty box is said once,
+                                      in the hint under the buttons, where it covers both boxes.
                                     */}
                                     <div className="row row--2">
-                                        <label>{DECISION_REASON_LABEL}</label>
-                                        <input value={decisionReason} onChange={(e) => setDecisionReason(e.target.value)} placeholder="optional" />
+                                        <label htmlFor="decision-reason">{DECISION_REASON_LABEL}</label>
+                                        <textarea
+                                            id="decision-reason"
+                                            /*
+                                             * Two lines and not the other box's three, which is a
+                                             * height and not a kind: both are prose boxes and the
+                                             * customer application makes both three. This block is
+                                             * pinned as the panel's footer rather than scrolling
+                                             * with the page, so every line it grows is a line taken
+                                             * off the evidence above it, and the reason is one
+                                             * sentence to a customer where the notes are a running
+                                             * record. Both grow on drag and scroll past their cap.
+                                             */
+                                            rows={2}
+                                            value={decisionReason}
+                                            onChange={(e) => setDecisionReason(e.target.value)}
+                                            placeholder={DECISION_REASON_PLACEHOLDER}
+                                        />
                                     </div>
                                     {/*
                                       The alert's notes, not a blank box beside them. It opens
                                       holding whatever is stored, so a colleague's paragraph is
                                       read before it is written over rather than replaced by the
-                                      first line typed into an empty field, and it is a textarea
-                                      because what it now holds is somebody's paragraph.
+                                      first line typed into an empty field.
+
+                                      The caption says who reads it, which is the whole difference
+                                      between this box and the one above: the reason rides with the
+                                      decision and reaches the customer on a refusal, and what is
+                                      typed here reaches colleagues and nobody else. `Notes` over a
+                                      hint reading `internal notes` said the word twice and said
+                                      neither of those things.
                                     */}
                                     <div className="row row--2">
-                                        <label>Notes</label>
-                                        <textarea rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="internal notes" />
+                                        <label htmlFor="decision-notes">{DECISION_NOTES_LABEL}</label>
+                                        <textarea
+                                            id="decision-notes"
+                                            rows={3}
+                                            value={notes}
+                                            onChange={(e) => setNotes(e.target.value)}
+                                            placeholder={DECISION_NOTES_PLACEHOLDER}
+                                        />
                                     </div>
-
-                                    {decisionErr && <ErrorBox failure={decisionErr} />}
-                                    {decisionMsg && <div className="result">{decisionMsg}</div>}
 
                                     {/* The buttons mirror the domain guards exactly, so
                                         a click the server would refuse - taking the
@@ -1514,35 +1662,70 @@ export default function FraudDesk(props: { username: string; onLogout: () => voi
                                         customer" and "record confirmed fraud", so one
                                         analyst doing one job read two labels for the same
                                         press. */}
+                                    {/*
+                                      The word goes on the button that was pressed and on no
+                                      other. Three buttons all reading `Applying…` would say three
+                                      decisions were being taken, and a row that said nothing at
+                                      all left three live looking controls over a request already
+                                      out. All three are disabled and marked busy together,
+                                      because the server takes one verdict per alert and a second
+                                      press is a refusal that would carry the typed notes with it.
+                                    */}
                                     <div className="actions">
                                         <button
                                             className="btn btn--primary"
                                             disabled={busyDecision || detail.alert.state !== 'NEW'}
+                                            aria-busy={busyDecision || undefined}
                                             onClick={() => decide('APPROVE')}
-                                        >{decisionActionLabel('APPROVE')}</button>
+                                        >
+                                            {pendingDecision === 'APPROVE'
+                                                ? DECISION_BUSY
+                                                : decisionActionLabel('APPROVE')}
+                                        </button>
                                         <button
                                             className="btn btn--danger"
                                             disabled={busyDecision || detail.alert.state === 'SUSPICIOUS'}
+                                            aria-busy={busyDecision || undefined}
                                             onClick={() => decide('DECLINE')}
-                                        >{decisionActionLabel('DECLINE')}</button>
+                                        >
+                                            {pendingDecision === 'DECLINE'
+                                                ? DECISION_BUSY
+                                                : decisionActionLabel('DECLINE')}
+                                        </button>
                                         {/* The token this posts was REQUEST_CONFIRMATION, which
                                             named something it has never done: it asks nobody for
                                             anything and takes no decision. */}
                                         <button
                                             className="btn btn--quiet"
                                             disabled={busyDecision}
+                                            aria-busy={busyDecision || undefined}
                                             onClick={() => decide('ANNOTATE')}
-                                        >{decisionActionLabel('ANNOTATE')}</button>
+                                        >
+                                            {pendingDecision === 'ANNOTATE'
+                                                ? DECISION_BUSY
+                                                : decisionActionLabel('ANNOTATE')}
+                                        </button>
                                     </div>
 
-                                    <div className="hint">
-                                        Approving does not send the money: it releases the
-                                        payment for the customer to confirm. Declining a
-                                        payment that has already been sent records the
-                                        verdict; it does not reverse it. The notes box holds
-                                        what is stored on the alert, so whatever is left in it
-                                        is what any of the three buttons saves.
-                                    </div>
+                                    <div className="hint">{DECISION_HINT}</div>
+
+                                    {/*
+                                      WHAT THE PRESS DID, after the press that did it.
+
+                                      Both of these used to stand above the buttons, between the
+                                      notes box and the row of controls, where a sentence about a
+                                      verdict already taken sat in the path of the next one. An
+                                      outcome is read after the action, and it is worth a title:
+                                      an unlabelled green line under a row of buttons is not
+                                      obviously an answer to any of them.
+                                    */}
+                                    {decisionErr && <ErrorBox failure={decisionErr} />}
+                                    {decisionMsg && (
+                                        <div className="result">
+                                            <div className="result-title">Result</div>
+                                            {decisionMsg}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </div>

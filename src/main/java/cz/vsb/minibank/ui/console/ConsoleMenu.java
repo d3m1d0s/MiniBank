@@ -504,7 +504,7 @@ public class ConsoleMenu {
                     + ", reason=" + a.reason());
         }
 
-        System.out.print("Action (approve/decline/request): ");
+        System.out.print("Action (approve/decline/annotate): ");
         String act = in.nextLine().trim();
         int tid = askInt("Transfer id");
 
@@ -529,13 +529,15 @@ public class ConsoleMenu {
                         ? " - the payment had already been sent and was not reversed."
                         : "."));
             }
-            // Prints a line because the call is now a no-op on both aggregates: without one the
-            // operator would see a menu redraw and no evidence that anything happened.
-            case "request" -> {
-                services.fraudService.requestCustomerConfirmation(tid);
+            // The third decision, under the name the wire and both desks use for it. It was
+            // "request" here, which promised the customer a message that nothing anywhere sends.
+            // Prints a line because the call changes no state: without one the operator would see
+            // a menu redraw and no evidence that anything happened.
+            case "annotate" -> {
+                services.fraudService.annotate(tid);
                 System.out.println("[OK] Alert left open and the transfer left as it was."
                         + " The customer's confirmation step is what 'approve' unlocks,"
-                        + " and the console carries no notes to record.");
+                        + " and the console carries no comment or notes to record.");
             }
             default -> System.out.println("Unknown action");
         }

@@ -40,6 +40,7 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.fail;
 
 /**
@@ -77,6 +78,11 @@ import static org.junit.jupiter.api.Assertions.fail;
  * payment that settled and a payment that did not, side by side, on both routes. That is the cast
  * this class already seeds, and a class of its own would seed it a second time to say something
  * about the field standing next to this one.
+ *
+ * The three fields these rows grew afterwards are here for the same reason. When the money moved,
+ * what the payer wrote on the payment, and how far a payment leaving the bank has got are all
+ * answered by the settled and the unsettled halves of one cast, and the last of them is the same
+ * dispatch record the boundary rule above reads without being its answer.
  */
 class BankBoundaryOnTheWireTest {
 
@@ -99,6 +105,18 @@ class BankBoundaryOnTheWireTest {
     private static final Instant BASE = Instant.parse("2026-03-01T09:00:00Z");
 
     private static final Money AMOUNT = Money.czk(12_000);
+
+    /** What the payer wrote on the two payments that carry a message. */
+    private static final String PAYERS_OWN_REFERENCE = "Invoice 2026/114";
+
+    /**
+     * When the money on the in-bank payment actually moved: three days after it was asked for.
+     *
+     * Every other settled row in this fixture settles at the instant it was created, which is
+     * what let a row print the creation instant under a settlement heading and look right. Pulled
+     * apart here so that a mapper reading the wrong one of the two fails.
+     */
+    private static final Instant SENT_INSIDE_SETTLED_AT = BASE.plusSeconds(3 * 24 * 60 * 60L);
 
     /**
      * What the tariff of the day took, on the run that settles its payments under one policy and
@@ -125,12 +143,15 @@ class BankBoundaryOnTheWireTest {
      * and fails every test in this class instead of the one it is about.
      */
     private static final Set<String> HISTORY_ITEM_FIELDS = Set.of(
-            "id", "createdAt", "amount", "fee", "status", "fromIban", "toIban",
-            "declineReason");
+            "id", "createdAt", "settledAt", "amount", "fee", "status", "fromIban", "toIban",
+            "message", "declineReason");
 
+    // dispatchState is listed for the reason it is listed on the detail below: what these tests
+    // reach for is the ONE component not accounted for, so leaving it off would offer it as a
+    // second candidate for the route. It is not the route and must never be read as one.
     private static final Set<String> TRANSFER_INFO_FIELDS = Set.of(
-            "id", "code", "status", "fromIban", "fromBalance", "toIban", "amount", "feeAmount",
-            "createdAt", "authMethod");
+            "id", "code", "status", "fromIban", "fromBalance", "toIban", "dispatchState", "amount",
+            "feeAmount", "createdAt", "authMethod");
 
     // dispatchState is the second component this record has grown for a reason of its own, and it
     // is listed here for the reason fee is listed above: what these tests reach for is the ONE
@@ -153,6 +174,7 @@ class BankBoundaryOnTheWireTest {
     private int payerCustomerId;
     private int alertOnHeldToOutside;
     private int alertOnSentInside;
+    private int alertOnSentOutside;
 
     /** Transfer ids of the nine seeded cases, by the name each case is argued under. */
     private final Map<String, Integer> seeded = new LinkedHashMap<>();
@@ -488,6 +510,108 @@ class BankBoundaryOnTheWireTest {
     }
 
     // -------------------------------------------------------------------------
+    // What else a row of this table now says
+    // -------------------------------------------------------------------------
+
+    /**
+     * A row says when the money moved, which is not the same question as when it was asked for.
+     *
+     * The row carried one instant and both desks printed it under a heading about the payment,
+     * so a payment submitted on the first and sent on the fourth read as a payment of the first
+     * on every screen there is. The fixture settles this one three days after it was created
+     * precisely so that a mapper reading the wrong field of the two cannot pass here: everywhere
+     * else in this seed the two instants are equal, which is how the gap survived being looked at.
+     *
+     * Null on anything that has not settled, and that is the honest answer rather than a hole:
+     * there is no instant to print, and the shared formatter draws the absence as a dash.
+     */
+    @Test
+    void aRowSaysWhenTheMoneyMovedAndSaysNothingWhereItHasNotYet() {
+        Map<Integer, HistoryItemDto> desk = deskHistoryById();
+        Map<Integer, HistoryItemDto> mine = customerHistoryById();
+
+        HistoryItemDto settled = row(desk, "sentInside");
+
+        assertEquals(SENT_INSIDE_SETTLED_AT.toString(), settled.settledAt(),
+                "the money moved three days after the payment was asked for, and that is the"
+                        + " instant a settlement heading stands over");
+        assertNotEquals(settled.createdAt(), settled.settledAt(),
+                "the two instants answer different questions, and a row that prints the created"
+                        + " one under both is a row that cannot show how long a payment sat");
+        assertEquals(settled.settledAt(), row(mine, "sentInside").settledAt(),
+                "the customer and the analyst are looking at the same payment");
+
+        for (String unsettled : List.of("heldToOutside", "declinedToOutside")) {
+            assertNull(row(desk, unsettled).settledAt(),
+                    "nothing has moved on the " + unsettled + " payment, so there is no instant"
+                            + " to print and inventing one would date a settlement that never"
+                            + " happened");
+            assertNull(row(mine, unsettled).settledAt(), "on both routes");
+        }
+    }
+
+    /**
+     * A row carries the payer's own reference for the payment.
+     *
+     * The one field on this record whose absence was asymmetric in the worst direction: a customer
+     * could write a message on the payment form and had no screen anywhere that read it back to
+     * them, so the only sentence they ever attached to their own payment was write-only. On the
+     * desk it is what tells an analyst what a payment was said to be for, which is most of what
+     * makes an amount look in or out of character.
+     *
+     * Both readings are in the fixture. A payment the payer wrote nothing on carries null, which
+     * is a different fact from an empty string and is why the two rows are asserted together.
+     */
+    @Test
+    void aRowCarriesWhatThePayerWroteOnTheirOwnPayment() {
+        Map<Integer, HistoryItemDto> desk = deskHistoryById();
+        Map<Integer, HistoryItemDto> mine = customerHistoryById();
+
+        assertEquals(PAYERS_OWN_REFERENCE, row(desk, "sentInside").message(),
+                "the payer typed this into the payment form, and until now nothing read it back");
+        assertEquals(PAYERS_OWN_REFERENCE, row(mine, "sentInside").message(),
+                "least of all the person who wrote it");
+        assertEquals(PAYERS_OWN_REFERENCE, row(desk, "heldToOutside").message(),
+                "a payment that has not settled carries its message too: the desk reading it is"
+                        + " deciding about exactly those");
+
+        assertNull(row(desk, "sentOutside").message(),
+                "nothing was written on this one, and absent is a different fact from empty");
+        assertNull(row(mine, "sentOutside").message(), "on both routes");
+    }
+
+    /**
+     * The alerted payment says how far it has got on the way out of the bank.
+     *
+     * This is the one payment an analyst is deciding about, and the decision turns on the answer:
+     * a payment still owed to the network is one a DECLINE can still stop, and one already handed
+     * over is a case file. The panel could say whether the money was leaving and not whether it
+     * had left, and those are two questions.
+     *
+     * Beside {@code toIbanInBank} and not instead of it. Null is asserted here on both a payment
+     * credited inside this bank and a payment that has not settled at all, which is the whole of
+     * why the two fields cannot be derived from each other: the same null stands over an
+     * intra-bank payment, an unsettled one, and a row written before the column existed.
+     */
+    @Test
+    void theAlertedPaymentSaysHowFarItHasGotOnTheWayOut() {
+        asAnalyst();
+
+        assertEquals("PENDING",
+                fraudController.getAlert(alertOnSentOutside).transfer().dispatchState(),
+                "the money has left this bank and the network has not been handed it yet, which"
+                        + " is the state an analyst can still act on");
+        assertNull(fraudController.getAlert(alertOnSentInside).transfer().dispatchState(),
+                "a payment credited inside this bank owes the network nothing, and silence is"
+                        + " what that reads as");
+        assertNull(fraudController.getAlert(alertOnHeldToOutside).transfer().dispatchState(),
+                "and a payment that has not settled has nothing written down at all, which is"
+                        + " the same silence over a different situation - the reason this field"
+                        + " may never be read as the answer to which side of the bank it was"
+                        + " going");
+    }
+
+    // -------------------------------------------------------------------------
     // Reading the surfaces
     // -------------------------------------------------------------------------
 
@@ -648,7 +772,11 @@ class BankBoundaryOnTheWireTest {
             // SENT, credited here: send resolves a destination, so nothing is owed to the
             // network and nothing is written about a dispatch.
             Transfer sentInside = created(payerAccountId, IN_BANK_IBAN.value(), 0);
-            sentInside.send(payerAccount, inBankAccount, feePolicy, BASE);
+            // The payer's own reference. On this one and on the held payment below, and on
+            // neither of the others, so that both readings of the field are in the fixture: a
+            // payment carries what its payer wrote, and a payment written nothing carries null.
+            sentInside.attachMessage(PAYERS_OWN_REFERENCE);
+            sentInside.send(payerAccount, inBankAccount, feePolicy, SENT_INSIDE_SETTLED_AT);
             record("sentInside", sentInside);
 
             // SENT, out through the network and still owed to it.
@@ -682,6 +810,7 @@ class BankBoundaryOnTheWireTest {
             record("heldToInside", heldToInside);
 
             Transfer heldToOutside = created(payerAccountId, OUTSIDE_IBAN, 6);
+            heldToOutside.attachMessage(PAYERS_OWN_REFERENCE);
             heldToOutside.holdForReview(null);
             record("heldToOutside", heldToOutside);
 
@@ -702,6 +831,13 @@ class BankBoundaryOnTheWireTest {
 
             alertOnSentInside = infra.alerts.nextId();
             infra.alerts.add(new FraudAlert(alertOnSentInside, sentInside.id(),
+                    "New beneficiary + high amount"));
+
+            // The third alert exists so that the alerted-payment panel can be read on a payment
+            // that owes the network something. On the other two the dispatch state is null, and a
+            // panel asserted only against nulls would pass while carrying nothing.
+            alertOnSentOutside = infra.alerts.nextId();
+            infra.alerts.add(new FraudAlert(alertOnSentOutside, sentOutside.id(),
                     "New beneficiary + high amount"));
 
             scope.uow().commit();

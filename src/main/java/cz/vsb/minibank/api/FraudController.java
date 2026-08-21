@@ -423,7 +423,12 @@ public class FraudController {
     // -------------------------------------------------------------------------
 
     /**
-     * Applies a decision to a fraud alert (approve, decline or request customer confirmation).
+     * Applies a decision to a fraud alert: APPROVE, DECLINE or ANNOTATE.
+     *
+     * The third is named here as the wire names it. It used to read "request customer
+     * confirmation", which is a promise nothing in this application keeps: no message is sent to
+     * anybody. See {@link FraudApplicationService#annotate}, which is the console's half of the
+     * same decision and now carries the same name.
      */
     @PostMapping("/alerts/{id}/decision")
     public AlertDetailDto decide(@PathVariable("id") int id,
@@ -543,11 +548,25 @@ public class FraudController {
                 MoneyDto.of(source.balance()),
                 t.targetIbanSnapshot(),
                 HistoryItemDto.isToIbanInBank(t, this::holdsIban),
+                dispatchStateOf(t),
                 MoneyDto.of(t.amount()),
                 fee,
                 createdAtStr,
                 authMethod
         );
+    }
+
+    /**
+     * What this payment still owes the payment network, or null when it owes it nothing.
+     *
+     * The same one line AuthorizationController.dispatchStateOf answers for the customer's own
+     * detail screen, and stated the same way on purpose: this is the fact under one name on every
+     * record that carries it. Null is the common case and covers three situations, which
+     * {@link cz.vsb.minibank.domain.DispatchState} sets out, so it is not the opposite reading of
+     * a present value.
+     */
+    private static String dispatchStateOf(Transfer t) {
+        return t.dispatchState() != null ? t.dispatchState().name() : null;
     }
 
     /**
@@ -609,6 +628,10 @@ public class FraudController {
                 .map(t -> new HistoryItemDto(
                         t.id(),
                         t.createdAt().toString(),
+                        // When the money actually moved, and null while it has not. The instant
+                        // beside it is when the payment was asked for, and on a desk full of held
+                        // payments those two are days apart.
+                        t.settledAt() != null ? t.settledAt().toString() : null,
                         MoneyDto.of(t.amount()),
                         // feeFor and not fee(): what was taken where the payment settled, and what
                         // this tariff would take where it has not. Held and waiting payments fill
@@ -619,6 +642,7 @@ public class FraudController {
                         ibans.get(t.sourceAccountId()),
                         t.targetIbanSnapshot(),
                         HistoryItemDto.isToIbanInBank(t, inBankNow),
+                        t.message(),
                         t.declineReason()
                 ))
                 .toList();

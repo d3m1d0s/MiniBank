@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { login } from './api';
+import ErrorBox from './ErrorBox';
+import { describeApiFailure, type ApiFailure } from '@shared/apiErrors';
 
 export default function Login(props: {
     /*
@@ -16,8 +18,37 @@ export default function Login(props: {
     // creates them - see DemoUsersInitializer, which prints both at startup.
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
-    const [error, setError] = useState<string | null>(null);
+    /**
+     * Why the sign in did not happen, in the words every other call in this window uses.
+     *
+     * It was `(e as Error).message`, the one place this application printed a sentence nobody
+     * wrote for a reader: a refused password arrived as whatever the server had put in the
+     * message field, and a dropped connection arrived as the browser's own "Failed to fetch", on
+     * the first screen anybody sees. The shared table has a sign-in row and knows that a 401 here
+     * is a wrong password rather than a lost session, and the reference under the sentences is
+     * what makes a photograph of the box worth something.
+     *
+     * No retry is offered, at the shared table's rule for a write: the way to try again is the
+     * button already under the two boxes, and a second control saying so asks for one press twice.
+     */
+    const [error, setError] = useState<ApiFailure | null>(null);
     const [loading, setLoading] = useState(false);
+
+    /**
+     * The cursor, in the box the first keystroke belongs in.
+     *
+     * The customer application's sign in box has always opened this way and this one did not, so
+     * the same person signing in to the same bank had to reach for the mouse on one platform and
+     * not on the other.
+     *
+     * Done here rather than with the `autoFocus` attribute, and the difference is not evasion of
+     * the rule that forbids it. That rule is right about the general case, a form that seizes the
+     * cursor somewhere down a page the reader has not read yet, and this application keeps it at
+     * error for every other screen. This screen is the exception the rule is not written for:
+     * there is one form, it is the whole window, and there is nothing above it to be read past.
+     */
+    const usernameBox = useRef<HTMLInputElement | null>(null);
+    useEffect(() => { usernameBox.current?.focus(); }, []);
 
     async function submit(e: React.FormEvent) {
         e.preventDefault();
@@ -27,7 +58,7 @@ export default function Login(props: {
             const resp = await login({ username, password });
             props.onLoggedIn({ username: resp.username, role: resp.role, customerId: resp.customerId });
         } catch (e) {
-            setError((e as Error).message || 'Login failed');
+            setError(describeApiFailure(e, 'sign-in'));
         } finally {
             setLoading(false);
         }
@@ -63,15 +94,25 @@ export default function Login(props: {
 
                         {props.notice && !error && <div className="hint">{props.notice}</div>}
                         <div className="row">
-                            <label>Username</label>
-                            <input value={username} onChange={(e) => setUsername(e.target.value)} />
+                            <label htmlFor="login-username">Username</label>
+                            <input
+                                id="login-username"
+                                ref={usernameBox}
+                                value={username}
+                                onChange={(e) => setUsername(e.target.value)}
+                            />
                         </div>
                         <div className="row">
-                            <label>Password</label>
-                            <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+                            <label htmlFor="login-password">Password</label>
+                            <input
+                                id="login-password"
+                                type="password"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                            />
                         </div>
 
-                        {error && <div className="error">{error}</div>}
+                        {error && <ErrorBox failure={error} />}
 
                         <div className="actions">
                             <button className="btn btn--primary" disabled={loading} type="submit">

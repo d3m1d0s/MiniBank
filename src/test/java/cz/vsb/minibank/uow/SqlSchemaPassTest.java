@@ -370,7 +370,7 @@ public class SqlSchemaPassTest {
      * with its alert still open in the queue. From there
      * {@code FraudApplicationService.decline} records the verdict on the alert alone - its guard
      * excludes SENT and DECLINED so an analyst's wording cannot overwrite the customer's own - and
-     * the REQUEST_CONFIRMATION route writes no transfer on any status. Neither racer below touches
+     * the ANNOTATE route writes no transfer on any status. Neither racer below touches
      * the transfers row, so before fraud_alerts had a version of its own nothing looked at all and
      * the second commit simply won.
      *
@@ -408,7 +408,7 @@ public class SqlSchemaPassTest {
 
                 // Whichever thread gets here first decides which analyst this one is. Both are
                 // real: the first is what decline() does once the transfer is out of reach, the
-                // second what the REQUEST_CONFIRMATION arm does, and neither writes a transfer.
+                // second what the ANNOTATE arm does, and neither writes a transfer.
                 if (!verdictTaken.getAndSet(true)) {
                     alert.markSuspicious("Confirmed by the card scheme", "anna.analyst",
                             Instant.now());

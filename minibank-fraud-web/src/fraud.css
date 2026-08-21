@@ -238,7 +238,15 @@ h2.panel-title {
     min-width: 0;
 }
 
-.row label { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-secondary); }
+/*
+ * The row's word, whether or not it belongs to a control.
+ *
+ * The amount filter is one field asked about twice, so its word names neither box and cannot be
+ * a <label>: the two boxes carry their own names, and this is set exactly like the labels beside
+ * it so that the column of words down the filters stays one column.
+ */
+.row label,
+.row .row-label { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-secondary); }
 /*
  * The checkbox is excluded by name. What follows is the grammar of a text field, and a
  * checkbox given a field's width, height, radius and fill stops looking like a switch and
@@ -278,6 +286,14 @@ h2.panel-title {
 
 .row--2 { grid-template-columns: var(--size-row-label) 1fr; }
 .row--3 { grid-template-columns: var(--size-row-label) 1fr 1fr; }
+
+/*
+ * A checkbox whose own sentence is its name, so the row has no separate word to set beside it.
+ * It starts where the controls above it start rather than at the panel edge, or the one row of
+ * the filters that carries prose would be the one row that does not line up with the rest.
+ */
+.row--check { grid-template-columns: var(--size-row-label) 1fr; }
+.row--check > label { grid-column: 2; }
 
 /*
  * The tray is a hole in the panel, not more panel: at #fafafa against #ffffff a short queue
@@ -694,6 +710,26 @@ h2.panel-title {
 }
 
 /*
+ * When the payment was asked for, and under it when the money moved.
+ *
+ * The same two line grammar as the amount and its fee, and for the same reason: two facts about
+ * one payment that are read against each other belong in one cell rather than in two columns a
+ * reader has to align by eye. The second line carries its own word, which the fee's does not,
+ * because two timestamps are the same shape and nothing else in the cell would say which is which.
+ *
+ * Drawn only where the payment settled, so most rows on this desk are one line as before.
+ */
+.history .created-value,
+.history .created-settled {
+    display: block;
+    line-height: var(--leading-tight);
+}
+
+.history .created-settled {
+    color: var(--color-text-muted);
+}
+
+/*
  * Where the money left and where it went, in one column.
  *
  * Two lines of one number, so they are set at one size and led tighter than a line of prose:
@@ -936,6 +972,16 @@ h2.panel-title {
     border-color: var(--color-success-border);
     color: var(--color-success-text);
 }
+
+/*
+ * The name of the box, over the sentences in it.
+ *
+ * A bordered red block with no name reads as a fault of the screen; a named one reads as an
+ * answer to the thing that was asked. Set like a .box-title, because that is what it is: the
+ * blocks in this window are titled, and these two were the only ones that were not.
+ */
+.error-title,
+.result-title { font-weight: var(--weight-bold); margin-bottom: var(--space-3); }
 
 /*
  * The status and the code of the answer, under the sentences that explain it.

@@ -65,14 +65,23 @@ export type AlertQueueField =
  * or absent independently of the amount, so it is a field of its own. Being a field is not being a
  * column: it is the second line of the amount it was added to, and the list below says which of
  * the two it takes.
+ *
+ * `settledAt` and `message` reached this row later than the rest, and they are on the list for the
+ * reason the list exists. Both used to be readable on one route only, so a table that wanted them
+ * had to open the payment; the server now sends them on every history row, and a wire field left
+ * off this union is a field one platform prints and the other never learns about. Neither takes a
+ * column: the settlement is read against the creation it belongs to, and the payer's own reference
+ * is prose, like the reason a payment was stopped.
  */
 export type HistoryField =
     | 'id'
     | 'createdAt'
+    | 'settledAt'
     | 'amount'
     | 'fee'
     | 'status'
     | 'route'
+    | 'message'
     | 'declineReason';
 
 /**
@@ -87,8 +96,8 @@ export type HistoryField =
  * Three of these are why the list exists. `settledAt` says when the money actually moved, which a
  * created timestamp never did; `message` is the customer's own reference, which they had been able
  * to write and never to read back; `dispatchState` says what is left to happen to a payment that
- * has left the account. All three are on this record and on no list, so a table that wants them
- * has to open the payment.
+ * has left the account. The first two have since reached the history row as well and are on its
+ * field list too, in a form a row can carry. `dispatchState` is still this record's alone.
  *
  * `declineReason` is here under the name the tables use, and the customer's screen says it in the
  * customer's own words. That is the same split the status label makes by audience and not a second
@@ -143,13 +152,23 @@ export const ALERT_QUEUE_FIELDS: readonly AlertQueueField[] = [
     'createdAt',
 ];
 
+/**
+ * Reading order for a row, and the two additions sit where they are read rather than at the end.
+ *
+ * `settledAt` follows `createdAt` because the pair is one reading: asked for then, moved then, and
+ * a reader who has to hunt for the second half is comparing two timestamps across the row.
+ * `message` comes after the route and before the reason, which puts the two pieces of prose
+ * together at the foot in the order they were written: the payer's words, then the bank's.
+ */
 export const HISTORY_FIELDS: readonly HistoryField[] = [
     'id',
     'createdAt',
+    'settledAt',
     'amount',
     'fee',
     'status',
     'route',
+    'message',
     'declineReason',
 ];
 
@@ -200,17 +219,40 @@ export const HISTORY_NOTE_FIELD: HistoryField = 'declineReason';
 /** The fee, which is a fact of the payment and shares the cell of the amount it was added to. */
 export const HISTORY_FEE_FIELD: HistoryField = 'fee';
 
+/** The payer's own reference: the second thing on the row that is prose somebody typed. */
+export const HISTORY_MESSAGE_FIELD: HistoryField = 'message';
+
+/** When the money moved, which shares the cell of the moment it was asked for. */
+export const HISTORY_SETTLED_FIELD: HistoryField = 'settledAt';
+
+/**
+ * The two fields that stand under the row rather than in it, in the order they are read.
+ *
+ * The payer's words first and the bank's second, because that is the order they happened in and
+ * because the reason a payment was stopped is the last word on it. A desk draws each of the two
+ * only where there is text, and a row with neither draws nothing extra at all: an empty line under
+ * every payment would double the height of a table whose rows mostly have nothing to add.
+ */
+export const HISTORY_UNDER_ROW_FIELDS: readonly HistoryField[] = [
+    HISTORY_MESSAGE_FIELD,
+    HISTORY_NOTE_FIELD,
+];
+
 /**
  * The history fields that open no column of their own, and they do not for two different reasons.
  *
- * The decline reason is prose and a sentence has no width to be given, so it stands under the row
- * it explains. The fee is a number and has a width, but it is the second line of the amount it was
- * added to: read as a column of its own it would be a second money value about the same payment,
- * and the customer would have to add the two to learn what left the account.
+ * Two of them are prose. A sentence somebody wrote has no width to be given, so it stands under
+ * the row it belongs to; that is the set above. The other two are numbers with widths, and they
+ * are still not columns, because each is the second line of the value it belongs to. The fee read
+ * as a column of its own would be a second money value about the same payment, and the customer
+ * would have to add the two to learn what left the account. The settlement read as a column of its
+ * own would be a second timestamp with nothing beside it saying which question it answers, and it
+ * is empty on most of a fraud desk's rows, so it would be a column that is mostly dashes.
  */
 export const HISTORY_NON_COLUMN_FIELDS: readonly HistoryField[] = [
     HISTORY_FEE_FIELD,
-    HISTORY_NOTE_FIELD,
+    HISTORY_SETTLED_FIELD,
+    ...HISTORY_UNDER_ROW_FIELDS,
 ];
 
 /**
@@ -256,6 +298,11 @@ export const HISTORY_COLUMN_FIELDS: readonly HistoryField[] = HISTORY_FIELDS.fil
  * the status in the next cell is what says which. One word that covers both is the only honest
  * heading for a field with two readings - see HistoryItemDto on the wire, which carries the rule.
  *
+ * `settledAt` and `message` are here for the same reason and carry the same words the panel gives
+ * them, which is what the map below now takes rather than restates. Both are read on the row
+ * itself, one under the timestamp it is compared against and one under the row entirely, and a
+ * line of prose with no word in front of it is a sentence the reader has to guess the subject of.
+ *
  * The three sets below this one carry their own maps rather than more keys here, and the reason is
  * the beneficiary. A history row says where the money left AND where it went in one field, so a
  * lone `toIban` in this map is exactly the second name that used to give the desks a column
@@ -274,11 +321,34 @@ export const FIELD_LABEL: Record<AlertQueueField | HistoryField, string> = {
     createdAt: 'Created',
 
     id: 'Payment',
+    settledAt: 'Settled',
     fee: 'Fee',
     status: 'Status',
     route: 'From / To',
+    message: 'Message for recipient',
     declineReason: 'Decline reason',
 };
+
+/**
+ * What the two boxes of the amount filter are called, and what stands in them while they are empty.
+ *
+ * `FIELD_LABEL.amount` names the field and cannot name either box: the filter is one field asked
+ * about twice, and a single `Amount` over a pair of inputs leaves a reader to work out which end
+ * is which from their order. Two words, one per box, so each control has a name of its own.
+ *
+ * How that name is delivered is each skin's business and the two differ on purpose. The customer
+ * application prints both above their boxes; the workstation has room for one row label and gives
+ * these to the boxes as accessible names, so a person reading the screen sees the short form and a
+ * person listening to it hears the same two words the other platform prints.
+ *
+ * The placeholder is the same in all four boxes and it is an example rather than an instruction.
+ * `min` and `max` repeat what the labels already say and answer the question these boxes actually
+ * raise, which is what a number looks like here: the queue beside them prints Czech amounts, the
+ * boxes accept the string the queue prints, and a comma in the hint says so without a sentence.
+ */
+export const AMOUNT_FROM_LABEL = 'Amount from';
+export const AMOUNT_TO_LABEL = 'Amount to';
+export const AMOUNT_PLACEHOLDER = '0,00';
 
 /**
  * The headings of a history table, which differ from the map above in exactly one word.
@@ -296,19 +366,25 @@ export const FIELD_LABEL: Record<AlertQueueField | HistoryField, string> = {
 export const HISTORY_FIELD_LABEL: Record<HistoryField, string> = {
     id: FIELD_LABEL.id,
     createdAt: FIELD_LABEL.createdAt,
+    settledAt: FIELD_LABEL.settledAt,
     amount: 'Full Amount',
     fee: FIELD_LABEL.fee,
     status: FIELD_LABEL.status,
     route: FIELD_LABEL.route,
+    message: FIELD_LABEL.message,
     declineReason: FIELD_LABEL.declineReason,
 };
 
 /**
  * What each fact of one payment is called in the panel that reads it in full.
  *
- * Five of the twelve are taken from the map above rather than restated, which is what keeps the
- * panel and the table that lists the same payment saying one word for one thing. The seven that
- * are written out here are the ones a table has no cell for.
+ * Seven of the twelve are taken from the map above rather than restated, which is what keeps the
+ * panel and the table that lists the same payment saying one word for one thing. The five that are
+ * written out here are the ones a history row has no cell for.
+ *
+ * Two of the seven joined it when the wire grew. `settledAt` and `message` are now on a history
+ * row as well, so the word for each is settled once next door and read from there; the sentences
+ * below that explain the choice of word are kept here, where the panel that first needed them is.
  *
  * `From` and `To` on their own lines. The table's `From / To` is a heading for one cell holding
  * two account numbers, and it has to state their order because nothing on the row does; a panel
@@ -331,10 +407,10 @@ export const TRANSFER_DETAIL_LABEL: Record<TransferDetailField, string> = {
     fee: FIELD_LABEL.fee,
     status: FIELD_LABEL.status,
     createdAt: FIELD_LABEL.createdAt,
-    settledAt: 'Settled',
+    settledAt: FIELD_LABEL.settledAt,
     dispatchState: 'Onward transfer',
     authMethod: 'Auth method',
-    message: 'Message for recipient',
+    message: FIELD_LABEL.message,
     declineReason: FIELD_LABEL.declineReason,
 };
 

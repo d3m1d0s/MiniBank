@@ -2,11 +2,16 @@
  * The customer's half of the API: the accounts they hold, one payment read back in full, what a
  * payment would cost before it is sent, and who is signed in.
  *
- * Shapes only, and that is deliberate. The fraud desk exists twice, so its calls are shared next
- * door in fraud.ts; the customer screens exist once so far, and each application's own api.ts owns
- * the fetching. What must not exist twice is the description of the wire: the workstation grows
- * these same screens later, and a second declaration of a record is how one platform learns about
- * a field the other has been reading for a month. The same argument as fields.ts, one level down.
+ * Shapes, and ONE call. The fraud desk exists twice, so its calls are shared next door in fraud.ts;
+ * the customer screens exist once so far, and each application's own api.ts owns the fetching. What
+ * must not exist twice is the description of the wire: the workstation grows these same screens
+ * later, and a second declaration of a record is how one platform learns about a field the other
+ * has been reading for a month. The same argument as fields.ts, one level down.
+ *
+ * The exception is {@link fetchMe}, and the test it passes is the one the rule is made of. A call
+ * is shared when both platforms make it, and both make this one: `GET /api/me` is not guarded by
+ * role, so it answers about whoever is at the keyboard. It was written out twice, identically, and
+ * the two copies had already begun to explain themselves in different words.
  *
  * Every field the server always sends is written `| null` rather than optional, for the reason
  * fraud.ts gives: the key is always there, and null is a value with a meaning. Optional would say
@@ -15,6 +20,7 @@
 
 import type { Money } from './money';
 import type { LoginResponse } from './http';
+import { API_BASE, apiFetch, handle } from './http';
 
 /**
  * The four roles the server has, named once.
@@ -76,8 +82,9 @@ export interface AccountSummary {
 /**
  * One payment read back in full: `GET /api/transfers/{id}`.
  *
- * This is the only route that carries the customer's own reference and the moment the money moved.
- * Neither is on a history row, so a list that wants to show them opens the payment.
+ * It used to be the only route carrying the customer's own reference and the moment the money
+ * moved. Both are on a history row now, so a list no longer has to open the payment for them; what
+ * is still this route's alone is the onward leg, the tries left and the authorization deadline.
  */
 export interface TransferDetails {
     id: number;
@@ -165,4 +172,21 @@ export interface Me {
     name: string | null;
     email: string | null;
     address: Address | null;
+}
+
+/**
+ * Who is signed in, by name rather than by login.
+ *
+ * The header band had only the string that was typed into the sign-in box, so a customer whose
+ * record says Alice Novakova was greeted as `alice`. The workstation asks the same route about its
+ * own analyst: the four customer fields come back null for a login with no customer behind it, so
+ * the title bar keeps the login for now, and a window that never asked would go on printing one
+ * after the server has something better to give it.
+ *
+ * The one fetcher in this module, because it is the one call both applications make. See the note
+ * at the top for why the rest of the customer's routes stay in each application's own api.ts.
+ */
+export async function fetchMe(): Promise<Me> {
+    const res = await apiFetch(`${API_BASE}/me`);
+    return handle<Me>(res);
 }

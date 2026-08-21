@@ -3,6 +3,13 @@ import { useEffect, useState } from 'react';
 import './App.css';
 import { setSessionExpiredHandler, logoutSession, fetchMe, type Me } from './api';
 import type { NavRole } from '@shared/navigation';
+import {
+    NO_SCREENS_TITLE,
+    SIGNED_OUT_NOTICE,
+    SIGN_IN_AS_SOMEONE_ELSE,
+    noScreensNote,
+} from '@shared/navigation';
+import { roleLabel } from '@shared/glossary';
 import NewPaymentPage from './NewPaymentPage';
 import HistoryPage from './HistoryPage';
 import { WaitingAuthorizationsPage } from './WaitingAuthorizationsPage';
@@ -17,12 +24,6 @@ export type View = 'new-payment' | 'history' | 'waiting-auth' | 'fraud-desk';
  * below. NavRole already declares exactly these two, so they are not declared a second time.
  */
 const SERVED_ROLES: readonly NavRole[] = ['CUSTOMER', 'FRAUD_ANALYST'];
-
-/** What each of them is called on screen. The server's values are not a reader's words. */
-const ROLE_LABEL: Record<NavRole, string> = {
-    CUSTOMER: 'Customer',
-    FRAUD_ANALYST: 'Fraud analyst',
-};
 
 /**
  * The role when this client has screens for it, null when it does not.
@@ -72,7 +73,7 @@ function App() {
             // A name left standing after the session has gone would greet whoever reaches this
             // browser next by the person who was ejected from it.
             setMe(null);
-            setSignedOutReason('You have been signed out. Please sign in again.');
+            setSignedOutReason(SIGNED_OUT_NOTICE);
         });
         return () => setSessionExpiredHandler(null);
     }, []);
@@ -136,18 +137,15 @@ function App() {
                     </header>
                     <div className="card-body">
                         <main className="form-panel">
-                            <h2>There are no screens for this account</h2>
-                            <p className="helper-text">
-                                You are signed in as {auth.username}. MiniBank has screens for
-                                customers and for fraud analysts, and this account is neither.
-                            </p>
+                            <h2>{NO_SCREENS_TITLE}</h2>
+                            <p className="helper-text">{noScreensNote(auth.username)}</p>
                             <div className="actions">
                                 <button
                                     type="button"
                                     className="btn-primary"
                                     onClick={handleSignOut}
                                 >
-                                    Sign in as someone else
+                                    {SIGN_IN_AS_SOMEONE_ELSE}
                                 </button>
                             </div>
                         </main>
@@ -188,7 +186,7 @@ function App() {
         <div className="identity">
             <span className="identity-who">
                 {signedInAs}
-                <span className="identity-role">{ROLE_LABEL[auth.role]}</span>
+                <span className="identity-role">{roleLabel(auth.role)}</span>
             </span>
             <button type="button" className="identity-exit" onClick={handleSignOut}>
                 Sign out

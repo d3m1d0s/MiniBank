@@ -246,6 +246,10 @@ public class AuthorizationController {
         return new HistoryItemDto(
                 t.id(),
                 t.createdAt().toString(),
+                // When the money actually moved, and null while it has not. Until now this list
+                // could only print when the payment was asked for, so one sent three days later
+                // read as a payment of the day it was submitted.
+                t.settledAt() != null ? t.settledAt().toString() : null,
                 MoneyDto.of(t.amount()),
                 // feeFor and not fee(): the charge where there is one, and this tariff's answer
                 // where the payment has not settled, so that every row carries a fee line. The
@@ -256,6 +260,9 @@ public class AuthorizationController {
                 fromIban,
                 t.targetIbanSnapshot(),
                 HistoryItemDto.isToIbanInBank(t, inBankNow),
+                // The customer's own reference, which they could write on the payment form and
+                // had no screen anywhere that read it back to them.
+                t.message(),
                 t.declineReason()
         );
     }

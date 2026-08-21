@@ -22,7 +22,8 @@ import {
     FIELD_LABEL,
     HISTORY_FIELD_LABEL,
     HISTORY_COLUMN_FIELDS,
-    HISTORY_NOTE_FIELD,
+    HISTORY_SETTLED_FIELD,
+    HISTORY_UNDER_ROW_FIELDS,
     type HistoryField,
     type HistoryRowCells,
 } from '@shared/fields';
@@ -88,10 +89,32 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
     const alerted = alertedIban !== null && h.fromIban === alertedIban;
     const boundary = bankBoundaryMark(h.toIbanInBank);
     const feeLine = formatFeeLine(h.fee);
+    // Tested for a value rather than against null: an API that predates the column sends no key,
+    // and `=== null` would let `undefined` reach formatDateTime, which answers an absence with the
+    // table's dash. A second line carrying EMPTY_VALUE under every date would say the settlement
+    // is known and being withheld.
+    const settled = h.settledAt ? formatDateTime(h.settledAt) : null;
 
     return {
         id: formatTransferId(h.id),
-        createdAt: formatDateTime(h.createdAt),
+        // When it was asked for, and under it when the money actually moved. Two questions a
+        // customer reads against each other, so they share a cell rather than standing at two
+        // ends of the row; the second line is absent on a payment that has not settled, which is
+        // the whole of what it has to say about one.
+        createdAt: (
+            <>
+                <span className="time-asked">{formatDateTime(h.createdAt)}</span>
+                {settled && (
+                    <span className="time-settled">
+                        <span className="visually-hidden">
+                            {FIELD_LABEL[HISTORY_SETTLED_FIELD]}:{' '}
+                        </span>
+                        {settled}
+                    </span>
+                )}
+            </>
+        ),
+        settledAt: settled,
         // The amount the customer sent, and under it what the bank added to it. Two lines of one
         // sum, stacked like the two account numbers next door, so the column can be read down.
         // Every row has the second line: on a payment that never went out it is the price rather
@@ -131,6 +154,9 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
                 </span>
             </>
         ),
+        // What the customer typed into the message box, read back in their own words. Prose, so
+        // it takes no column and stands under the row; absent where the box was left alone.
+        message: h.message,
         // The same function, and therefore the same sentence, the analyst reads for this row.
         // A payment that was not declined has no note row under it at all, which is why nothing
         // stands in for the absent value any more.
@@ -299,10 +325,13 @@ export default function HistoryPage({ role, brand, identity, onNavigate }: Props
                                             {items.map((h) => {
                                                 const cells = historyCells(h, null);
                                                 return (
-                                                    /* One row group per payment, so the reason a
-                                                       payment was refused stays part of the row it
-                                                       explains rather than becoming a column of
-                                                       prose. */
+                                                    /* One row group per payment, so the two pieces
+                                                       of prose it carries stay part of the row
+                                                       they belong to rather than becoming two
+                                                       columns of sentences. The shared list is
+                                                       what decides which fields those are and in
+                                                       what order: the payer's words, then the
+                                                       bank's. */
                                                     <tbody key={h.id}>
                                                     <tr>
                                                         {HISTORY_COLUMN_FIELDS.map((f) => (
@@ -311,18 +340,19 @@ export default function HistoryPage({ role, brand, identity, onNavigate }: Props
                                                             </td>
                                                         ))}
                                                     </tr>
-                                                    {h.declineReason && (
-                                                        <tr className="history-note">
+                                                    {HISTORY_UNDER_ROW_FIELDS.filter(
+                                                        (f) => cells[f],
+                                                    ).map((f) => (
+                                                        <tr className="history-note" key={f}>
                                                             <td
                                                                 colSpan={
                                                                     HISTORY_COLUMN_FIELDS.length
                                                                 }
                                                             >
-                                                                {FIELD_LABEL[HISTORY_NOTE_FIELD]}:{' '}
-                                                                {cells[HISTORY_NOTE_FIELD]}
+                                                                {FIELD_LABEL[f]}: {cells[f]}
                                                             </td>
                                                         </tr>
-                                                    )}
+                                                    ))}
                                                     </tbody>
                                                 );
                                             })}

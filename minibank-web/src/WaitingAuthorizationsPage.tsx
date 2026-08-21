@@ -16,6 +16,8 @@ import { formatMoney } from './money';
 import ErrorBox from './ErrorBox';
 import { describeApiFailure, type ApiFailure } from '@shared/apiErrors';
 import {
+    REFRESH,
+    REFRESH_BUSY,
     authMethodLabel,
     bankBoundaryLabel,
     describeDeclineReason,
@@ -468,15 +470,21 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                             <h2 className="section-title">Waiting transfers</h2>
 
                             {/* Refreshing decides nothing, so it carries no shape of its own.
-                                With no row selected it used to be the loudest control here. */}
+                                With no row selected it used to be the loudest control here.
+
+                                The two words come from the glossary now, and this screen is the
+                                third that reads them. It said `Refreshing…` while the two fraud
+                                desks said two other things for the same request; one wait has one
+                                word, and it is the one the Show more control beside it says. */}
                             <div className="section-block inline">
                                 <button
                                     type="button"
                                     className="btn-quiet"
                                     onClick={handleRefresh}
                                     disabled={refreshing}
+                                    aria-busy={refreshing || undefined}
                                 >
-                                    {refreshing ? 'Refreshing…' : 'Refresh'}
+                                    {refreshing ? REFRESH_BUSY : REFRESH}
                                 </button>
                             </div>
 

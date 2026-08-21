@@ -127,6 +127,102 @@ class FraudDecisionRecordTest {
     }
 
     /**
+     * The comment an analyst types is kept whichever of the three verdicts they press.
+     *
+     * The box is labelled on both desks as a comment stored with the alert, and the request has
+     * always carried it on all three decisions. Only DECLINE ever wrote it: FraudAlert exposed no
+     * writer of the field other than markSuspicious, so on APPROVE and on ANNOTATE the text was
+     * read off the request, validated and dropped without a word. Two buttons out of three
+     * silently lost the only thing the analyst had written down.
+     *
+     * Three alerts rather than three presses on one, because a verdict is refused a second time by
+     * design and this is about what one press keeps. Every assertion reads the alert back out of
+     * the store: a field written on the aggregate and dropped at the store boundary is exactly the
+     * shape of defect being closed, and only a round trip can see the difference.
+     *
+     * The rules' own sentence is asserted beside the analyst's on every one of them. It is the
+     * only record of why the alert was raised at all, and a comment that replaced it would leave a
+     * case file that no longer says what was suspicious about the payment.
+     */
+    @Test
+    void theAnalystsCommentIsKeptOnEveryOneOfTheThreeVerdicts() {
+        record Verdict(String token, String comment) { }
+
+        List<Verdict> verdicts = List.of(
+                new Verdict("APPROVE", "beneficiary confirmed by phone"),
+                new Verdict("DECLINE", "card reported stolen"),
+                new Verdict("ANNOTATE", "waiting on the card scheme"));
+
+        for (Verdict verdict : verdicts) {
+            int transferId = flaggedPayment();
+            int alertId = alertFor(transferId).id();
+            String raised = alertFor(transferId).reason();
+
+            services.fraudService.decideAndUpdateAlert(
+                    alertId, verdict.token(), verdict.comment(), null, "anna.analyst");
+
+            String stored = alertFor(transferId).reason();
+
+            assertNotNull(stored, verdict.token() + " left the case file empty");
+            assertTrue(stored.contains(verdict.comment()),
+                    verdict.token() + " dropped the analyst's comment: the alert reads \""
+                            + stored + "\"");
+            assertTrue(stored.contains(raised),
+                    verdict.token() + " overwrote the reason the rules raised the alert for,"
+                            + " which is the only record of what was suspicious about the"
+                            + " payment");
+        }
+    }
+
+    /**
+     * A decision taken without a comment adds nothing, rather than a separator with nothing after
+     * it.
+     *
+     * Absent is what the two desks send when the box is empty, and it is the common case on an
+     * APPROVE: most cleared alerts are cleared without a word. A case file that grew a trailing
+     * bar on every one of them would be longer without saying more.
+     */
+    @Test
+    void aVerdictWithNoCommentLeavesTheCaseFileExactlyAsItWas() {
+        int transferId = flaggedPayment();
+        int alertId = alertFor(transferId).id();
+        String raised = alertFor(transferId).reason();
+
+        services.fraudService.decideAndUpdateAlert(alertId, "APPROVE", "   ", null, "anna.analyst");
+
+        assertEquals(raised, alertFor(transferId).reason());
+    }
+
+    /**
+     * ANNOTATE is the one route that reaches an alert somebody has already decided, and every
+     * comment left through it is kept.
+     *
+     * Both halves matter. APPROVE and DECLINE refuse a second verdict and would take the writing
+     * down with them, so this is where a follow-up note has to land; and a route that kept the
+     * first comment and lost the rest would be the same defect one step further along.
+     */
+    @Test
+    void anAnnotationReachesADecidedAlertAndEveryCommentIsKept() {
+        int transferId = flaggedPayment();
+        int alertId = alertFor(transferId).id();
+
+        services.fraudService.decideAndUpdateAlert(
+                alertId, "APPROVE", "beneficiary confirmed by phone", null, "anna.analyst");
+        services.fraudService.decideAndUpdateAlert(
+                alertId, "ANNOTATE", "customer called back to confirm", null, "bob.analyst");
+
+        FraudAlert stored = alertFor(transferId);
+
+        assertTrue(stored.reason().contains("beneficiary confirmed by phone"),
+                "the comment that came with the verdict stays");
+        assertTrue(stored.reason().contains("customer called back to confirm"),
+                "and the one added afterwards is beside it");
+        assertEquals(FraudAlertState.OK, stored.state(), "an annotation is not a verdict");
+        assertEquals("anna.analyst", stored.decidedBy(),
+                "and it does not put the annotator's name on somebody else's decision");
+    }
+
+    /**
      * The console has no login, so its decisions name nobody rather than inventing somebody.
      *
      * Null is the honest answer and a placeholder like "console" would be a name in an audit

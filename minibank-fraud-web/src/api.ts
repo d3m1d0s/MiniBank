@@ -19,6 +19,33 @@ export {
     logoutSession,
 } from '@shared/http';
 
+import { API_BASE, apiFetch, handle } from '@shared/http';
+
+/*
+ * Who is signed in, described next door because the route is not the customer's.
+ *
+ * `GET /api/me` is not guarded by role, so both applications ask it about whoever is at the
+ * keyboard: the customer application to greet somebody by name rather than by the login they
+ * typed, and this window to name the analyst at the desk. The record is declared once in the
+ * shared directory for the usual reason, that a second declaration of a wire shape is how one
+ * platform comes to be reading a field the other has never heard of.
+ */
+export type { Me } from '@shared/customer';
+import type { Me } from '@shared/customer';
+
+/**
+ * The person behind the current session.
+ *
+ * An analyst has no customer record, so `name` comes back null for this window's own role and the
+ * title bar keeps the login. Asked anyway, and by the same route the customer application asks:
+ * the fact that the answer is presently empty for `fraud` is the server's to change, and a window
+ * that never asks would go on printing a login after it does.
+ */
+export async function fetchMe(): Promise<Me> {
+    const res = await apiFetch(`${API_BASE}/me`);
+    return handle<Me>(res);
+}
+
 export type { Money } from '@shared/money';
 /*
  * The reader as well as the writer now. parseAmount used to be the customer application's alone,

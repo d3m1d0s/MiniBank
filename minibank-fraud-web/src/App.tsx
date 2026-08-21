@@ -1,8 +1,14 @@
 import { useEffect, useState } from 'react';
 import Login from './Login';
 import FraudDesk from './FraudDesk';
-import { logoutSession, setSessionExpiredHandler } from './api';
-import type { NavRole } from '@shared/navigation';
+import { fetchMe, logoutSession, setSessionExpiredHandler, type Me } from './api';
+import {
+    NO_SCREENS_TITLE,
+    SIGNED_OUT_NOTICE,
+    SIGN_IN_AS_SOMEONE_ELSE,
+    noScreensNote,
+    type NavRole,
+} from '@shared/navigation';
 
 /**
  * The roles MiniBank has screens for. The server's UserRole has four values and two of them
@@ -32,6 +38,7 @@ interface AuthState {
 export default function App() {
     const [auth, setAuth] = useState<AuthState | null>(null);
     const [signedOutReason, setSignedOutReason] = useState<string | null>(null);
+    const [me, setMe] = useState<Me | null>(null);
 
     // This app already had the "return to sign-in" mechanism, on the sign-out controls below.
     // Nothing in any error path ever invoked it, so a session the server had forgotten
@@ -42,10 +49,45 @@ export default function App() {
     useEffect(() => {
         setSessionExpiredHandler(() => {
             setAuth(null);
-            setSignedOutReason('You have been signed out. Please sign in again.');
+            // A name left standing after the session has gone would put the ejected analyst's
+            // name over whoever reaches this workstation next.
+            setMe(null);
+            setSignedOutReason(SIGNED_OUT_NOTICE);
         });
         return () => setSessionExpiredHandler(null);
     }, []);
+
+    // Asked once per session, and by the route the customer application asks. The name is dropped
+    // where the session is dropped rather than here, both because an effect that sets state on the
+    // way in is a render that could have been avoided, and because the two places that end a
+    // session are the two that know it has ended. The hook sits above the early returns below
+    // because the rules of hooks require it.
+    useEffect(() => {
+        if (!auth) return;
+
+        let cancelled = false;
+
+        void (async () => {
+            try {
+                const who = await fetchMe();
+                if (!cancelled) setMe(who);
+            } catch {
+                // Nothing on any screen depends on the name; the title bar keeps the login.
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [auth]);
+
+    // Closes the session at both ends before dropping back to the dialog, and drops the name with
+    // it. Written once here because both ways out of this window press the same thing.
+    const handleSignOut = () => {
+        logoutSession();
+        setAuth(null);
+        setMe(null);
+    };
 
     if (!auth) {
         return (
@@ -82,15 +124,21 @@ export default function App() {
                     </div>
                     <div className="content">
                         <div className="panel">
+                            {/*
+                              * The second branch is both applications' sentence and is read from
+                              * the shared module. The first is this window's alone: a signed in
+                              * customer at the analyst's workstation has screens in MiniBank and
+                              * simply not here, which is not what the other branch says.
+                              */}
                             <h2 className="panel-title">
                                 {customer
                                     ? 'This workstation is for fraud analysts'
-                                    : 'There are no screens for this account'}
+                                    : NO_SCREENS_TITLE}
                             </h2>
                             <p>
                                 {customer
                                     ? `You are signed in as ${auth.username}, a customer account. Customer screens are not part of this workstation.`
-                                    : `You are signed in as ${auth.username}. MiniBank has screens for customers and for fraud analysts, and this account is neither.`}
+                                    : noScreensNote(auth.username)}
                             </p>
                             {/*
                               * The only control on the screen, so it may be the primary, and it
@@ -102,9 +150,9 @@ export default function App() {
                             <div className="actions">
                                 <button
                                     className="btn btn--primary"
-                                    onClick={() => { logoutSession(); setAuth(null); }}
+                                    onClick={handleSignOut}
                                 >
-                                    Sign in as someone else
+                                    {SIGN_IN_AS_SOMEONE_ELSE}
                                 </button>
                             </div>
                         </div>
@@ -114,13 +162,24 @@ export default function App() {
         );
     }
 
+    /**
+     * The name the title bar prints, which is the person's own where the server knows one.
+     *
+     * The login is the fallback rather than the default, and it is reached twice: before the
+     * answer arrives, and for a login with no customer record behind it, which is every analyst
+     * today. The answer is checked against the login it was asked for, so a name fetched for the
+     * previous session cannot be printed over the current one.
+     */
+    const signedInAs =
+        me && me.username === auth.username && me.name ? me.name : auth.username;
+
     return (
         <FraudDesk
             username={auth.username}
-            onLogout={() => {
-                logoutSession();
-                setAuth(null);
-            }}
+            signedInAs={signedInAs}
+            /* Narrowed one line above, so this is FRAUD_ANALYST and the header can say so. */
+            role={auth.role}
+            onLogout={handleSignOut}
         />
     );
 }

@@ -33,7 +33,18 @@
  * the buttons and the outcome sentences behind. Two declarations of one closed set do not fail a
  * build when they part company; they answer the analyst with the raw token.
  */
-import type { FraudDecision } from './fraud';
+import type { AlertCounters, AlertFilters, FraudDecision } from './fraud';
+
+/**
+ * One word for one wait, across both applications and both panels of the desk.
+ *
+ * The queue's Refresh and the Show more at the foot of every list are the same promise to the
+ * reader, that a request is out and the screen has not stopped. They said `Refreshing…` on one
+ * platform and `Loading…` on the other, over lists that page with `Loading…` underneath, so the
+ * one panel could be watched saying two words about one wait. The busy word is taken from the
+ * paging module rather than written again here: two literals agreeing today is how they stop.
+ */
+import { SHOW_MORE_BUSY } from './paging';
 
 /**
  * Who is reading.
@@ -283,6 +294,254 @@ export const ASSIGNED_TO_ME = 'Mine';
 export const ASSIGNED_TO_ANYONE = 'All';
 
 /**
+ * The three panels a fraud desk is made of, named once.
+ *
+ * They were named twice and the two disagreed about more than case. One platform titled the middle
+ * panel `Alert Detail: Review Suspicious Transaction`, which is not a name: it tells an analyst who
+ * has opened the fraud desk what the fraud desk is for, on every alert they read, in the largest
+ * type on that half of the screen. A panel title is read a hundred times a day and has to survive
+ * being read a hundred times, which the short form does and a slogan does not.
+ *
+ * Sentence case, because the rest of both applications is in sentence case and a title in Title
+ * Case reads as a heading from somewhere else. Plural on the queue and on the details, singular on
+ * the decision: the first two are panels about many alerts and one alert's many facts, the third is
+ * one press.
+ */
+export const ALERTS_QUEUE_TITLE = 'Alerts queue';
+export const ALERT_DETAILS_TITLE = 'Alert details';
+export const DECISION_TITLE = 'Decision';
+
+/**
+ * What a list says before it has anything to show, and the control that asks the queue again.
+ *
+ * Both desks had these words and one of them had them as literals inside its markup, so the two
+ * could be changed apart. They are the same sentence about the same request and there is no idiom
+ * in either of them: what differs between the platforms is where the button sits and what it is
+ * skinned like, and neither of those is a word.
+ *
+ * The table of payments takes the same argument and had gone one further: its word was typed as a
+ * literal in three places, the customer's own history, the desk inside the customer application and
+ * the workstation's desk. The three agreed, which is the state a word is in just before it drifts
+ * rather than evidence that it will not.
+ *
+ * ONE name for those three, although they are two different lists. The customer's history and the
+ * history beside an alert are the same rows read by two readers, so a second constant for the
+ * customer's half would be a second word with nothing to keep it equal to the first: the moment one
+ * of them is reworded, one role reads a sentence the other role never sees.
+ *
+ * Each names what is loading rather than saying `Loading…` twice. The two lists are on screen
+ * together on both desks, and a reader who glances at either learns which request is out.
+ */
+export const QUEUE_LOADING = 'Loading alerts…';
+export const PAYMENTS_LOADING = 'Loading payments…';
+export const REFRESH = 'Refresh';
+export const REFRESH_BUSY = SHOW_MORE_BUSY;
+
+/**
+ * The checkbox that puts the hidden alerts back, and the only name it has.
+ *
+ * Capital S because it is a control's label rather than a phrase in a sentence, and because the
+ * note below prints this string inside a sentence to point at it: a lower case name would read as
+ * a description of the box and leave the reader hunting for what to press. One platform had it
+ * twice over, as a row label reading `Withdrawn` beside a lower case restatement of the same
+ * instruction, which is two names for one checkbox on one screen.
+ */
+export const SHOW_WITHDRAWN_ALERTS = 'Show alerts on cancelled payments';
+
+/**
+ * Why the queue is shorter than the counters above it say.
+ *
+ * It said the whole mechanism: that a payment the customer withdrew and one an analyst declined
+ * both end as Declined, that the desk cannot hide the first without the second, and that the
+ * counters go on counting both. All true, and all of it an implementation note delivered to
+ * somebody who wants to know why a row is missing and how to get it back. Those are the two things
+ * this says now, in one line, because a paragraph above a queue is a paragraph nobody finishes.
+ *
+ * `Declined` is the reader's word for the status and comes from the table at the top of this file,
+ * so the sentence and the rows it explains say the same thing; the wire's spelling in capitals was
+ * a value nobody outside the server has to know. The control is named by the label the checkbox
+ * actually carries, for the same reason.
+ */
+export function hiddenAlertsNote(hidden: number): string {
+    const declined = transferStatusLabel('DECLINED', 'analyst');
+    return hidden === 1
+        ? `1 alert is hidden, on a payment that ended ${declined}. ${SHOW_WITHDRAWN_ALERTS} brings it back.`
+        : `${hidden} alerts are hidden, on payments that ended ${declined}. ${SHOW_WITHDRAWN_ALERTS} brings them back.`;
+}
+
+/**
+ * Why the list is empty, in the words that stop it contradicting the numbers above it.
+ *
+ * A bare "No alerts" under a strip reading `Whole queue, before any filter, 2` is a contradiction
+ * until the sentence says which alerts it means: the strip counts the queue and the list is what
+ * the filters matched, and both are true. The desk opens filtered, on New with withdrawn payments
+ * hidden, so the filtered branch is the ordinary case rather than the exception, and it points at
+ * the row of controls that would widen it.
+ *
+ * A queue with nothing in it at all says so plainly instead, because there is no filter to blame
+ * and sending the reader to the controls would waste the only line the empty list has.
+ *
+ * Four wordings across two desks became these two. The exclusion counts as a filter: it is set
+ * from a control on that same row, and an analyst who cannot see the alert they are looking for
+ * has to be told that something on the screen is narrowing the list, not which something.
+ */
+export function emptyQueueNote(filters: AlertFilters): string {
+    const filtered = Boolean(
+        filters.state ||
+            filters.assignee ||
+            filters.minAmount ||
+            filters.maxAmount ||
+            filters.createdFrom ||
+            filters.createdTo ||
+            filters.excludeTransferStatus?.length,
+    );
+
+    return filtered
+        ? 'No alerts match the filters above.'
+        : 'There are no alerts in the queue.';
+}
+
+/**
+ * What the counters strip counts, which is the whole point of the line and was said on one desk
+ * only.
+ *
+ * `Whole queue: 2 alerts.` and `Whole queue, before any filter, 2:` are not the same claim. The
+ * numbers are taken before any filter and before any page, so they go on saying how much work
+ * exists while the analyst reads three rows of a filtered list, and a strip that does not say so
+ * reads as a miscount of the rows underneath it.
+ */
+export const QUEUE_COUNTERS_BASIS = 'Whole queue, before any filter';
+
+/** One state of the strip: the word for it, and how many alerts are in it. */
+export interface QueueCounterCell {
+    /** The server's own value, so a skin can key a list or a style off it. */
+    state: string;
+    /** What that state is called, from {@link alertStateLabel} and never typed again. */
+    label: string;
+    count: number;
+}
+
+/**
+ * The three states and their counts, in the order they are read.
+ *
+ * New first, because it is the work waiting; then the two verdicts, in the order the buttons under
+ * the panel take them. Both desks had this list, one as three labelled cells and one as three
+ * words typed into a sentence, and the typed one said `confirmed fraud` and `cleared` where the
+ * rows below it said `Confirmed fraud` and `Cleared`.
+ *
+ * Cells rather than a finished line, because the layout is the one thing the two are allowed to
+ * disagree about: the workstation reads them as a strip of figures and the customer application as
+ * a caption. What each cell says is decided here; where it sits is not.
+ */
+export function queueCounterCells(counters: AlertCounters): readonly QueueCounterCell[] {
+    return [
+        { state: 'NEW', label: alertStateLabel('NEW'), count: counters.newCount },
+        {
+            state: 'SUSPICIOUS',
+            label: alertStateLabel('SUSPICIOUS'),
+            count: counters.suspiciousCount,
+        },
+        { state: 'OK', label: alertStateLabel('OK'), count: counters.okCount },
+    ];
+}
+
+/**
+ * How many alerts there are, which is the sum of the three and not a fourth number off the wire.
+ *
+ * The three states are the only three an alert can be in, so their sum is the queue. Asking the
+ * server for a total beside them would be one fact sent twice, and the two halves can disagree.
+ */
+export function queueCounterTotal(counters: AlertCounters): number {
+    return counters.newCount + counters.suspiciousCount + counters.okCount;
+}
+
+/** The same strip as one line, for a skin that draws it as a caption rather than as figures. */
+export function queueCountersSentence(counters: AlertCounters): string {
+    const cells = queueCounterCells(counters)
+        .map((c) => `${c.label} ${c.count}`)
+        .join(', ');
+    return `${QUEUE_COUNTERS_BASIS}, ${queueCounterTotal(counters)}: ${cells}.`;
+}
+
+/**
+ * What the panel beside the queue says when it is holding nothing, and while it is filling.
+ *
+ * The invitation names the queue and not a position. `Select an alert on the left` is true of one
+ * of the two layouts and describes furniture rather than the thing to press, and it stops being
+ * true at the width where the two panels stack.
+ *
+ * The loading line names what is loading. `Loading detail…` sat in a panel next to a queue that
+ * was also capable of loading, and a reader who glanced at it learned only that something was.
+ */
+export const SELECT_ALERT = 'Select an alert from the queue.';
+export const ALERT_DETAIL_LOADING = 'Loading alert details…';
+
+/** An empty payment history, with the full stop that every other sentence on these screens has. */
+export const NO_HISTORY = 'No history.';
+
+/**
+ * The invitation on an empty decision panel, which is a different sentence from the one above.
+ *
+ * The panel beside the queue asks to be given an alert to show; this one asks to be given an alert
+ * to act on, and a reader looking at both at once must not read one sentence twice.
+ */
+export const SELECT_ALERT_TO_DECIDE = 'Select an alert to take a decision.';
+
+/**
+ * The hint under the box the comment is typed into, and the caption and hint of the box beside it.
+ *
+ * {@link DECISION_REASON_LABEL} is next door and these are its neighbours, for the same reason: two
+ * boxes above three buttons had four wordings between the platforms, and the pair that named the
+ * second box disagreed about what it was. `Notes` over `internal notes` and `Internal notes` over
+ * `Additional notes for future investigation.` are not two skins of one caption; one of them says
+ * the word twice and neither says what the box is for.
+ *
+ * The surviving caption is the one that says who reads it, since that is the whole difference
+ * between this box and the one above: the reason rides with the decision and reaches the customer
+ * on a refusal, and what is typed here reaches colleagues and nobody else.
+ *
+ * Both placeholders are examples of what to write rather than repetitions of the caption, which is
+ * what a placeholder is worth. Neither says `optional`: what happens to an empty box is stated
+ * once, in the hint under the buttons, where it applies to both of them.
+ */
+export const DECISION_REASON_PLACEHOLDER =
+    'Optional comment that will be stored with the alert.';
+export const DECISION_NOTES_LABEL = 'Internal notes';
+export const DECISION_NOTES_PLACEHOLDER = 'Additional notes for future investigation.';
+
+/**
+ * What a decision button says while its own press is in flight.
+ *
+ * On the button that was pressed and on no other, which is what neither desk was doing. One put
+ * this word on Approve whichever of the three was pressed, so Decline made Approve announce the
+ * work; the other said nothing at all and left three live looking buttons over a request already
+ * out. All three are disabled while any one of them is working, because the server takes one
+ * verdict per alert and the second press is a refusal that would take the typed notes with it, but
+ * only the pressed one changes its word: a row of three buttons all reading `Applying…` would say
+ * three decisions were being taken.
+ */
+export const DECISION_BUSY = 'Applying…';
+
+/**
+ * What the three buttons do, under the three buttons.
+ *
+ * Three sentences and each answers a thing an analyst gets wrong once. Approving sounds like
+ * sending money and does not send it. Declining a payment that has already gone sounds like
+ * pulling it back and does not pull it back. And the notes box holds what is stored on the alert
+ * rather than what is being added to it, so whatever is left in it is what gets saved, by any of
+ * the three buttons, including an emptied box.
+ *
+ * The third sentence was true of both desks and printed by one, which is the shape of every entry
+ * in this file: not a disagreement about wording, a fact one platform's readers were told and the
+ * other platform's were left to discover.
+ */
+export const DECISION_HINT =
+    'Approving does not send the money: it releases the payment for the customer to confirm. ' +
+    'Declining a payment that has already been sent records the verdict; it does not reverse it. ' +
+    'The notes box holds what is stored on the alert, so whatever is left in it is what any of ' +
+    'the three buttons saves.';
+
+/**
  * What the history beside an alert is a history OF.
  *
  * The two desks headed one table with two sentences and neither was true: one said "last 10
@@ -290,8 +549,14 @@ export const ASSIGNED_TO_ANYONE = 'All';
  * the payments of one account out of the customer's two. It now holds the customer's payments
  * across every account they hold, and the heading has to say so, or the account marked in the
  * column below is marked for no stated reason.
+ *
+ * It used to end in "(last 10)", which was true of a table that could not be made longer. The
+ * table pages now and states its own count underneath, so after one press of Show more the
+ * parenthetical contradicted the line below it. Where a list stops is what the count line says,
+ * on every list in both applications; a heading that says it too is a second answer that goes
+ * stale the moment the first one changes.
  */
-export const CUSTOMER_HISTORY_TITLE = 'Customer history, all accounts (last 10)';
+export const CUSTOMER_HISTORY_TITLE = 'Customer history, all accounts';
 
 /**
  * Where the account a payment names is held: this bank, or one on the far side of the network.
@@ -349,6 +614,23 @@ export function bankBoundaryMark(toIbanInBank: boolean): string {
 export function bankBoundaryLabel(toIbanInBank: boolean): string {
     return toIbanInBank ? BANK_BOUNDARY.internal : BANK_BOUNDARY.outbound;
 }
+
+/**
+ * The word over the sentence {@link describeDecision} returns.
+ *
+ * A block that appears under three buttons after one of them is pressed needs to say that it is the
+ * answer to the press, because the sentence inside it does not: `Alert cleared.` is a statement
+ * about the alert and reads, at a glance, like one more of the panel's own captions. The title is
+ * what makes the sentence a reply.
+ *
+ * `Result` and not `Decision`, which is the panel this block sits in and is already the heading
+ * above the buttons. Two headings reading the same word, one inside the other, name nothing.
+ *
+ * Both desks had reached this word independently and both typed it, which is the cheapest kind of
+ * agreement to lose: nothing fails on either build the day one of them is reworded, and the two
+ * platforms then answer one press with two different names for the answer.
+ */
+export const DECISION_RESULT_TITLE = 'Result';
 
 /**
  * What a decision actually did, read off the payment the server sent back rather than off the
@@ -435,3 +717,22 @@ export function describeDeclineReason(reason: string | null | undefined): string
 
     return reason;
 }
+
+/**
+ * The name over a failure box, wherever either application draws one.
+ *
+ * It belongs beside the sentences above it for the same reason they are here: the words a refusal
+ * is delivered in are not skin. Each application's ErrorBox is its own markup, a summary block on
+ * one platform and a bordered stack on the other, and each defaults its title to this word by
+ * typing it. Two literals agreeing is what this file exists to replace.
+ *
+ * A DEFAULT and not the title of every failure, which is what keeps it to one word. A screen with a
+ * better sentence for its own refusal passes one, and that is where a sentence belongs; what stands
+ * here has to be true of a sign in that was rejected, a queue that could not be reached and a
+ * verdict the server would not take, and the only honest word for all three is the short one.
+ *
+ * It is a name rather than an apology because of what the box replaces. A bordered red block with
+ * nothing over it reads as a fault of the screen; named, it reads as the answer to whatever was
+ * just asked, which is what the reader is waiting for.
+ */
+export const FAILURE_TITLE = 'Error';

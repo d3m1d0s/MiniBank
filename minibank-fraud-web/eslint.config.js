@@ -32,12 +32,19 @@ export default defineConfig([
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
       /*
-       * A warning only because the screens have not been fixed yet, not because the complaint is
-       * wrong: five labels here name a field without being attached to it. Raise it to error in
-       * the same change that attaches the last one, so the gate keeps them attached. The rest of
-       * the accessibility set, no-autofocus included, is at its recommended level and green here.
+       * At error, which is what the note that stood here asked for: it was a warning only while
+       * labels in these screens still named a field without being attached to it, and it said to
+       * raise it in the same change that attached the last one. That change has happened, every
+       * control on the desk and in the sign in box carries its own name, and the gate now keeps
+       * them attached. The one word that names two boxes, the amount filter, is not a label at
+       * all: the two boxes carry the two names the customer application prints above its own.
+       *
+       * The rest of the accessibility set, no-autofocus included, is at its recommended level and
+       * green. The sign in box does put the cursor in the username field, deliberately, and does
+       * it in an effect rather than with the attribute the rule forbids; see Login.tsx for why
+       * that is the exception the rule is not written for rather than a way around it.
        */
-      'jsx-a11y/label-has-associated-control': 'warn',
+      'jsx-a11y/label-has-associated-control': 'error',
     },
   },
 ])

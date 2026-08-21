@@ -44,16 +44,31 @@ import java.util.function.Predicate;
  * The name is therefore no longer {@code feeCharged}. It stopped being only the charge, and a name
  * that says one rule over a field that follows another is exactly how the two came apart before.
  * It agrees with {@link TransferInfoDto#feeAmount} now, which has always answered {@code feeFor}.
+ *
+ * {@code settledAt} stands beside the instant it is measured against, and it is the fact this row
+ * was missing rather than a convenience. {@code createdAt} is when the payment was asked for, which
+ * is the only instant a row could print, so a payment submitted on Friday and sent on Tuesday read
+ * as a Friday payment on every screen that shows this record. The two are not the same question and
+ * on a fraud desk the difference is the whole point: how long a payment sat is what a held queue is
+ * made of. Null on anything that has not settled, which is the honest answer and the one the shared
+ * formatter already prints as a dash.
+ *
+ * {@code message} is the customer's own reference for the payment, and it travels for a reason that
+ * is not symmetry: they could write one on the payment form and had nowhere to read it back. Beside
+ * {@code declineReason} because the two are the sentences attached to a payment, the payer's and
+ * the bank's, and a reader should meet them together.
  */
 public record HistoryItemDto(
         int id,
         String createdAt,
+        String settledAt,
         MoneyDto amount,
         MoneyDto fee,
         String status,
         String fromIban,
         String toIban,
         boolean toIbanInBank,
+        String message,
         String declineReason
 ) {
 

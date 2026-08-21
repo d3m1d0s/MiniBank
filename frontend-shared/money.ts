@@ -107,9 +107,28 @@ function groupCzech(amount: string): string {
  * was designed around one once: the field carried the charge alone, three of twelve demonstration
  * rows arrived empty, and on the analyst's desk it was most of the table.
  *
- * A fee of zero IS printed, as `+0,00`. The tariff is free below a threshold, so zero is a real
+ * A fee of zero IS printed, as `+0,00 CZK`. The tariff is free below a threshold, so zero is a real
  * outcome the customer paid nothing for rather than a missing value, and a row that stays silent
  * about it is a row that looks like it forgot.
+ *
+ * THE CURRENCY STAYS ON THIS LINE, and it has now been argued twice, so the answer is written down
+ * rather than left to be rediscovered. The case against it is that `+0,00 CZK` under `300,00 CZK`
+ * has the shape of a second complete value, and a reader glancing at the pair can take the two for
+ * the ends of a range before the sign registers. True of the glance and not of the reading: the
+ * plus is what a range has no room for, and it is in front of every one of these lines by
+ * construction.
+ *
+ * Against that glance stands the state this module was built to end. A fee printed bare under an
+ * amount that carried a unit is the exact defect both fraud desks shipped, it is what the note on
+ * {@link Money} points at, and there is a test named after it. Dropping the code here would put all
+ * three tables back in that state and rest the unit on a neighbouring line staying where it is,
+ * which is a layout promise this function cannot make and cannot check.
+ *
+ * The rejected form was `formatCzech(Number(fee.amount))`, which fails for a second reason that has
+ * nothing to do with the unit: it reparses a decimal the server owns. {@link formatMoney} regroups
+ * that string and never reparses it, precisely so that no scale is invented and nothing wider than
+ * a double is rounded on its way to a screen, and a fee that took the other route would be the one
+ * money value on the row printed by a different rule.
  */
 export function formatFeeLine(fee: Money | null | undefined): string | null {
     return fee ? `+${formatMoney(fee)}` : null;

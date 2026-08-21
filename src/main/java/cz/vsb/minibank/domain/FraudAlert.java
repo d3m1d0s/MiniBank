@@ -217,11 +217,10 @@ public class FraudAlert implements RecordsDomainEvents {
      *
      * SUSPICIOUS is terminal. There is no way back to OK.
      *
-     * The analyst's reason is appended rather than substituted. {@code reason} is the only
-     * record of why the rules raised this alert at all, and replacing "New beneficiary + high
-     * amount" with "Declined by fraud analyst" left a confirmed-fraud case file that no longer
-     * said what had been suspicious about the payment. At most one append can ever happen,
-     * because SUSPICIOUS is terminal.
+     * The analyst's reason is appended rather than substituted, through {@link #appendReason}.
+     * {@code reason} is the only record of why the rules raised this alert at all, and replacing
+     * "New beneficiary + high amount" with "Declined by fraud analyst" left a confirmed-fraud case
+     * file that no longer said what had been suspicious about the payment.
      *
      * @param decidedBy the analyst's username, or null for a decision recorded from the console
      * @param decidedAt when the verdict was recorded
@@ -234,11 +233,7 @@ public class FraudAlert implements RecordsDomainEvents {
         FraudAlertState old = this.state;
         this.state = FraudAlertState.SUSPICIOUS;
 
-        if (reason != null && !reason.isBlank()) {
-            this.reason = (this.reason == null || this.reason.isBlank())
-                    ? reason
-                    : this.reason + " | " + reason;
-        }
+        appendReason(reason);
 
         // Overwrites an earlier APPROVE, which is right: OK -> SUSPICIOUS is the fraud-confirmed
         // -after-the-fact path, and the decision of record is the last one taken. SUSPICIOUS is
@@ -248,6 +243,36 @@ public class FraudAlert implements RecordsDomainEvents {
         this.resolvedAt = java.util.Objects.requireNonNull(decidedAt, "decidedAt");
 
         raise(new FraudAlertStateChanged(this, old, this.state));
+    }
+
+    /**
+     * Adds what an analyst wrote to the case file, keeping everything already in it.
+     *
+     * The one writer of {@code reason} other than the constructor and the load path, and it exists
+     * because until now there was only {@link #markSuspicious}. The decision route carries the
+     * analyst's comment on all three verdicts and the two desks label the box as a comment stored
+     * with the alert, so on APPROVE and on ANNOTATE the text was parsed, validated and dropped
+     * without a word: two buttons out of three silently lost the only thing the analyst typed.
+     *
+     * Appended and never substituted, for the reason markSuspicious appends. The rules' own
+     * sentence is why the alert exists, and an analyst's "beneficiary confirmed by phone" beside it
+     * is a second fact about the same case rather than a correction of the first. Unlike the
+     * append inside markSuspicious this one can happen more than once, because ANNOTATE is
+     * repeatable by design: it is the only route that reaches an already-decided alert. That is
+     * accepted rather than guarded, since the alternative is a case file that keeps the first
+     * comment and loses every later one, which is the defect being closed here.
+     *
+     * A null or blank comment writes nothing. Absent is what a decision taken without a comment
+     * sends, and appending an empty separator to a case file would make the record longer without
+     * making it say more.
+     */
+    public void appendReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return;
+        }
+        this.reason = (this.reason == null || this.reason.isBlank())
+                ? reason
+                : this.reason + " | " + reason;
     }
 
     public void setRiskScore(Integer riskScore) {

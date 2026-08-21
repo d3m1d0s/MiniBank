@@ -1,5 +1,21 @@
 import { describe, it, expect } from 'vitest';
 import {
+    ALERTS_QUEUE_TITLE,
+    ALERT_DETAILS_TITLE,
+    ALERT_DETAIL_LOADING,
+    DECISION_HINT,
+    DECISION_NOTES_LABEL,
+    DECISION_NOTES_PLACEHOLDER,
+    DECISION_REASON_LABEL,
+    DECISION_REASON_PLACEHOLDER,
+    DECISION_TITLE,
+    QUEUE_COUNTERS_BASIS,
+    QUEUE_LOADING,
+    REFRESH,
+    REFRESH_BUSY,
+    SELECT_ALERT,
+    SELECT_ALERT_TO_DECIDE,
+    SHOW_WITHDRAWN_ALERTS,
     alertStateLabel,
     alertStateTone,
     authMethodLabel,
@@ -8,6 +24,11 @@ import {
     CUSTOMER_HISTORY_TITLE,
     decisionLabel,
     describeDeclineReason,
+    emptyQueueNote,
+    hiddenAlertsNote,
+    queueCounterCells,
+    queueCounterTotal,
+    queueCountersSentence,
     roleLabel,
     transferStatusLabel,
     transferStatusTone,
@@ -17,9 +38,18 @@ import {
     HISTORY_COLUMN_FIELDS,
     HISTORY_FEE_FIELD,
     HISTORY_FIELDS,
+    HISTORY_MESSAGE_FIELD,
     HISTORY_NON_COLUMN_FIELDS,
     HISTORY_NOTE_FIELD,
+    HISTORY_SETTLED_FIELD,
+    HISTORY_UNDER_ROW_FIELDS,
 } from '@shared/fields';
+import {
+    SIGNED_OUT_NOTICE,
+    SIGN_IN_AS_SOMEONE_ELSE,
+    noScreensNote,
+} from '@shared/navigation';
+import { SHOW_MORE_BUSY } from '@shared/paging';
 import type { HistoryItem } from '@shared/fraud';
 
 /**
@@ -302,10 +332,14 @@ describe('what the history beside an alert claims to be', () => {
         expect(CUSTOMER_HISTORY_TITLE.toLowerCase()).not.toContain('this account');
     });
 
-    it('admits that it stops at ten', () => {
-        // Nothing pages this table and no wider view opens from it, so a reader who is not told
-        // the limit reads ten rows as the whole of what the customer has ever done.
-        expect(CUSTOMER_HISTORY_TITLE).toMatch(/\b(10|ten)\b/i);
+    it('no longer states where the table stops, because the table now says so itself', () => {
+        // This pinned "(last 10)" while nothing paged the table: a reader not told the limit read
+        // ten rows as the whole of what the customer had ever done. The table pages now and prints
+        // its own count underneath, so after one press of Show more the heading contradicted the
+        // line below it. Where a list stops is what the count line says, on every list in both
+        // applications, and a heading that answers it too is a second answer that goes stale the
+        // moment the first one changes.
+        expect(CUSTOMER_HISTORY_TITLE).not.toMatch(/\b(10|ten)\b/i);
     });
 });
 
@@ -326,12 +360,12 @@ describe('what one row of payment history says', () => {
         expect(Object.keys(FIELD_LABEL)).not.toContain('toIban');
     });
 
-    it('is still seven facts, each named once', () => {
-        // Seven facts and five columns: two of them are drawn somewhere other than a column, one
-        // because it is prose and one because it belongs to the number above it. Which two, and
-        // why, is the group below. The count is asserted rather than derived so that a field
-        // arriving on the wire has to be placed here before it can be read anywhere.
-        expect(HISTORY_FIELDS).toHaveLength(7);
+    it('is nine facts, each named once', () => {
+        // Nine facts and five columns: four are drawn somewhere other than a column, two because
+        // they are prose and two because each belongs to the cell above it. Which four, and why,
+        // is the group below. The count is asserted rather than derived so that a field arriving
+        // on the wire has to be placed here before it can be read anywhere.
+        expect(HISTORY_FIELDS).toHaveLength(9);
         expect(new Set(HISTORY_FIELDS).size).toBe(HISTORY_FIELDS.length);
     });
 
@@ -447,7 +481,9 @@ describe('the history facts that take no column', () => {
         expect(HISTORY_COLUMN_FIELDS).toEqual(
             HISTORY_FIELDS.filter((f) => !HISTORY_NON_COLUMN_FIELDS.includes(f)),
         );
-        expect(HISTORY_COLUMN_FIELDS).toHaveLength(HISTORY_FIELDS.length - 2);
+        expect(HISTORY_COLUMN_FIELDS).toHaveLength(
+            HISTORY_FIELDS.length - HISTORY_NON_COLUMN_FIELDS.length,
+        );
     });
 
     it('loses nothing between the field list and the shapes it is split into', () => {
@@ -463,8 +499,158 @@ describe('the history facts that take no column', () => {
 
     it('frees the column the route stack is short of, and only that one', () => {
         // The point of the move, stated as the number it changed: five headings where the customer
-        // application drew six, and the space goes to the cell holding two account numbers.
+        // application drew six, and the space goes to the cell holding two account numbers. The
+        // field list has grown by two since and this number has not, which is what it is for: both
+        // additions were placed, one under the row and one inside a cell already there.
         expect(HISTORY_COLUMN_FIELDS).toHaveLength(5);
         expect(HISTORY_COLUMN_FIELDS).toContain('route');
+    });
+
+    it('puts the payer\'s message under the row and not in it, because it is prose too', () => {
+        // The second sentence a row can carry, and it arrived after the decline reason had already
+        // settled the shape. Same rule and therefore the same place: what somebody typed has no
+        // width to be given, and a column of free text is a column of clipped free text.
+        expect(HISTORY_MESSAGE_FIELD).toBe('message');
+        expect(HISTORY_UNDER_ROW_FIELDS).toContain(HISTORY_MESSAGE_FIELD);
+        expect(HISTORY_COLUMN_FIELDS).not.toContain(HISTORY_MESSAGE_FIELD);
+        expect(FIELD_LABEL[HISTORY_MESSAGE_FIELD].length).toBeGreaterThan(0);
+    });
+
+    it('reads the two sentences in the order they were written', () => {
+        // The payer's words, then the bank's. Both tables walk this list to draw the rows under a
+        // payment, so the order is the order on screen and is decided once rather than per table.
+        expect(HISTORY_UNDER_ROW_FIELDS).toEqual([HISTORY_MESSAGE_FIELD, HISTORY_NOTE_FIELD]);
+    });
+
+    it('keeps the settlement in the cell of the moment it is read against', () => {
+        // Two timestamps and two questions: when it was asked for, and when the money moved. A
+        // column of its own would have put them at two ends of the row, which is where a reader
+        // cannot compare them; it is the second line of the created cell instead, the way the fee
+        // is the second line of the amount.
+        expect(HISTORY_SETTLED_FIELD).toBe('settledAt');
+        expect(HISTORY_NON_COLUMN_FIELDS).toContain(HISTORY_SETTLED_FIELD);
+        expect(HISTORY_COLUMN_FIELDS).not.toContain(HISTORY_SETTLED_FIELD);
+        // It has no heading over it, so the word it is announced by is the only one there is.
+        expect(FIELD_LABEL[HISTORY_SETTLED_FIELD].length).toBeGreaterThan(0);
+        expect(FIELD_LABEL[HISTORY_SETTLED_FIELD]).not.toBe(FIELD_LABEL.createdAt);
+    });
+});
+
+/**
+ * The words two desks say for one thing, which is the whole reason this file exists.
+ *
+ * Each of these was typed twice, once per platform, and the two copies had drifted: a checkbox
+ * with two names on one screen, a queue that said `Refreshing…` on one side and `Loading…` on the
+ * other, a panel inviting the reader to look `on the left` at a layout with no left. They are one
+ * constant each now, and what is checked here is not the wording but the properties the two desks
+ * were disagreeing about.
+ */
+describe('one word for one thing across the two desks', () => {
+    it('names the checkbox in the sentence that points at it', () => {
+        // The note has to name the control by the label the control actually carries, or a reader
+        // told that alerts are hidden is left hunting for what to press. One platform named a row
+        // label only it had.
+        expect(hiddenAlertsNote(3)).toContain(SHOW_WITHDRAWN_ALERTS);
+        expect(hiddenAlertsNote(1)).toContain(SHOW_WITHDRAWN_ALERTS);
+    });
+
+    it('says Declined in the reader\'s word and not in the wire\'s', () => {
+        // The sentence explains rows that read `Declined`, so it has to use that word. It used to
+        // print the wire value in capitals, which is a fact about the server.
+        expect(hiddenAlertsNote(2)).toContain(transferStatusLabel('DECLINED', 'analyst'));
+        expect(hiddenAlertsNote(2)).not.toContain('DECLINED');
+    });
+
+    it('counts one alert in the singular', () => {
+        expect(hiddenAlertsNote(1)).toContain('1 alert is');
+        expect(hiddenAlertsNote(2)).toContain('2 alerts are');
+    });
+
+    it('tells an empty queue apart from a queue narrowed by its filters', () => {
+        // A bare "No alerts" under a strip counting two is a contradiction until the sentence says
+        // which alerts it means. The desk opens filtered, so the filtered branch is the ordinary
+        // case rather than the exception.
+        expect(emptyQueueNote({})).not.toBe(emptyQueueNote({ state: 'NEW' }));
+        expect(emptyQueueNote({ excludeTransferStatus: ['DECLINED'] })).toBe(
+            emptyQueueNote({ state: 'NEW' }),
+        );
+    });
+
+    it('says what the counters strip counts, which is not the list under it', () => {
+        const counters = { newCount: 1, suspiciousCount: 0, okCount: 1 };
+        const sentence = queueCountersSentence(counters);
+
+        // The numbers are taken before any filter and before any page, so a strip that does not
+        // say so reads as a miscount of the rows below it.
+        expect(sentence).toContain(QUEUE_COUNTERS_BASIS);
+        expect(queueCounterTotal(counters)).toBe(2);
+        expect(sentence).toContain('2');
+
+        // The three words are the queue's own, not three literals typed into a sentence: this
+        // desk used to say `confirmed fraud` and `cleared` beside rows saying `Confirmed fraud`
+        // and `Cleared`.
+        for (const cell of queueCounterCells(counters)) {
+            expect(cell.label).toBe(alertStateLabel(cell.state));
+            expect(sentence).toContain(cell.label);
+        }
+    });
+
+    it('gives the queue and the panel beside it one waiting word each', () => {
+        // `Loading detail…` sat next to a queue that was also capable of loading, so a reader who
+        // glanced at it learned only that something was.
+        expect(QUEUE_LOADING).not.toBe(ALERT_DETAIL_LOADING);
+        expect(readable(QUEUE_LOADING)).toBe(true);
+        expect(readable(ALERT_DETAIL_LOADING)).toBe(true);
+    });
+
+    it('waits in one word wherever a list is being re-read', () => {
+        // `Refreshing…` against `Loading…` for the same request. One wait, one word, and it is the
+        // same one the Show more control already says.
+        expect(REFRESH_BUSY).toBe(SHOW_MORE_BUSY);
+        expect(REFRESH_BUSY).not.toBe(REFRESH);
+    });
+
+    it('invites the reader to the queue rather than to a position on the screen', () => {
+        // `Select an alert on the left` describes furniture, is true of one of the two layouts,
+        // and stops being true at the width where the panels stack.
+        expect(SELECT_ALERT.toLowerCase()).not.toContain('left');
+        // Two panels can be empty at once, and a reader looking at both must not read one
+        // sentence twice: one asks for an alert to show, the other for an alert to act on.
+        expect(SELECT_ALERT).not.toBe(SELECT_ALERT_TO_DECIDE);
+    });
+
+    it('titles the three panels by name and in sentence case', () => {
+        // One platform titled the middle panel `Alert Detail: Review Suspicious Transaction`,
+        // which tells an analyst what a fraud desk is for on every alert they read.
+        for (const title of [ALERTS_QUEUE_TITLE, ALERT_DETAILS_TITLE, DECISION_TITLE]) {
+            expect(title).toBe(title.charAt(0) + title.slice(1).toLowerCase());
+            expect(title).not.toContain(':');
+        }
+        expect(new Set([ALERTS_QUEUE_TITLE, ALERT_DETAILS_TITLE, DECISION_TITLE]).size).toBe(3);
+    });
+
+    it('captions the two decision boxes by who reads what is typed in them', () => {
+        // `Notes` over a hint reading `internal notes` says the word twice and neither time says
+        // what the box is for. The difference between these two boxes is their audience: the
+        // reason rides with the decision and reaches the customer on a refusal.
+        expect(DECISION_REASON_LABEL).not.toBe(DECISION_NOTES_LABEL);
+        expect(DECISION_NOTES_PLACEHOLDER).not.toBe(DECISION_NOTES_LABEL);
+        expect(DECISION_REASON_PLACEHOLDER).not.toBe(DECISION_REASON_LABEL);
+    });
+
+    it('tells the analyst what the emptied notes box will do', () => {
+        // True of both desks and printed by one. Whatever is left in the box is what any of the
+        // three buttons saves, an emptied box included, and that is the sentence an analyst gets
+        // wrong once.
+        expect(DECISION_HINT).toContain('notes');
+        expect(DECISION_HINT.split('. ').length).toBeGreaterThanOrEqual(3);
+    });
+
+    it('says the sign-out notice and the way back in once', () => {
+        // Typed into both shells, identically, which is the state a word is in just before it
+        // drifts. It names no cause, because four different endings answer the same 401.
+        expect(SIGNED_OUT_NOTICE).not.toMatch(/expire/i);
+        expect(SIGN_IN_AS_SOMEONE_ELSE).not.toMatch(/log ?out/i);
+        expect(noScreensNote('alice')).toContain('alice');
     });
 });

@@ -12,6 +12,11 @@
  * must offer the same role the same destinations in the same order, so the desktop reads this file
  * unchanged when its customer screens arrive.
  *
+ * The rule binds what a role is offered and in what order: no application may add a destination,
+ * drop one, or reorder them. The planned entries are not deleted for a role that can reach only
+ * one screen today, and they are not hidden either: they are what the product intends to offer,
+ * and the column is where a reader learns that the intention exists.
+ *
  * No JSX, no class names and nothing else about how any of this looks: the two skins draw the same
  * list in their own palette, which is the one thing they are allowed to disagree about.
  */
@@ -71,3 +76,44 @@ export const NAV_ENTRIES: Record<NavRole, readonly NavEntry[]> = {
         { kind: 'screen', id: 'fraud-desk', label: 'Fraud desk', view: 'fraud-desk' },
     ],
 };
+
+/**
+ * What the shell says when the server stops accepting the session it is holding.
+ *
+ * It names no cause, and that is the server's decision carried through rather than vagueness. A
+ * session that has gone idle, hit its ceiling, been closed, or belonged to a user who has since
+ * been removed all answer the same 401, deliberately, so a notice reading "expired" would be a
+ * false statement about three of the four.
+ *
+ * Typed into both shells, identically, which is the state a word is in just before it drifts.
+ */
+export const SIGNED_OUT_NOTICE = 'You have been signed out. Please sign in again.';
+
+/**
+ * The way out of a screen that has nothing on it for whoever is standing there.
+ *
+ * `Logout` was the old word and it is wrong for somebody who never got in: what pressing this buys
+ * is a different session, not the end of this one.
+ */
+export const SIGN_IN_AS_SOMEONE_ELSE = 'Sign in as someone else';
+
+/**
+ * What both applications say to a signed in role neither of them has screens for.
+ *
+ * The heading names the situation and the sentence names the person, because a bare heading over
+ * an empty panel reads as a fault in the application rather than as a fact about the account.
+ * Neither prints the role: the client narrowed its type on purpose so that it has no name to
+ * print here, and inventing one would promise screens that do not exist.
+ *
+ * A signed in customer at the analyst's workstation is a different case and is NOT this one. That
+ * person has screens in MiniBank and simply not in that window, so the workstation says so in its
+ * own words; one sentence cannot carry both truths, and the wrong half of it is a lie.
+ */
+export const NO_SCREENS_TITLE = 'There are no screens for this account';
+
+export function noScreensNote(username: string): string {
+    return (
+        `You are signed in as ${username}. MiniBank has screens for customers and for fraud ` +
+        'analysts, and this account is neither.'
+    );
+}
