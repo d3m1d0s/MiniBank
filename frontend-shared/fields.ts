@@ -1,5 +1,6 @@
 /**
- * Which fields a list of alerts and a list of payments carry, and what each one is called.
+ * Which fields a list of alerts, a list of payments, one payment read in full and one account
+ * carry, and what each one is called.
  *
  * The two fraud desks had drifted apart without anybody noticing. The analyst's workstation
  * showed four of a payment's six history fields and nine of a queue entry's nine minus three,
@@ -75,6 +76,56 @@ export type HistoryField =
     | 'declineReason';
 
 /**
+ * One payment read in full, as the panel beside it lists the facts.
+ *
+ * `fromIban` and `toIban` and not the history row's single `route`, and the difference is the
+ * shape rather than the data. A row of a table answers one question, where the money went, and
+ * both account numbers are that one answer in one cell. A panel answers each question on its own
+ * line and both desks had already written it that way, with a From line and a To line, so one
+ * heading reading "From / To" would be a heading for two lines that already have their own.
+ *
+ * Three of these are why the list exists. `settledAt` says when the money actually moved, which a
+ * created timestamp never did; `message` is the customer's own reference, which they had been able
+ * to write and never to read back; `dispatchState` says what is left to happen to a payment that
+ * has left the account. All three are on this record and on no list, so a table that wants them
+ * has to open the payment.
+ *
+ * `declineReason` is here under the name the tables use, and the customer's screen says it in the
+ * customer's own words. That is the same split the status label makes by audience and not a second
+ * word for a field: what is fixed here is which fact the panel is obliged to carry.
+ */
+export type TransferDetailField =
+    | 'fromIban'
+    | 'fromBalance'
+    | 'toIban'
+    | 'amount'
+    | 'fee'
+    | 'status'
+    | 'createdAt'
+    | 'settledAt'
+    | 'dispatchState'
+    | 'authMethod'
+    | 'message'
+    | 'declineReason';
+
+/**
+ * One account of the customer, as the payment form has to describe it.
+ *
+ * The three below the balance are what decides whether a payment is refused and whether it is
+ * asked for a code, and they are useless one without another: a ceiling with no running total
+ * against it is a number nobody can act on. They are named as one set for that reason.
+ */
+export type AccountField =
+    | 'iban'
+    | 'balance'
+    | 'dailyLimit'
+    | 'softDailyThreshold'
+    | 'spentToday';
+
+/** What the bank quotes for a payment before it is sent: what it moves, what it costs, and the sum. */
+export type QuoteField = 'amount' | 'fee' | 'total';
+
+/**
  * Reading order, for a skin that lays its fields out in one line.
  *
  * Identity first, then what the row is about, then the triage: an analyst scanning the queue
@@ -101,6 +152,38 @@ export const HISTORY_FIELDS: readonly HistoryField[] = [
     'route',
     'declineReason',
 ];
+
+/**
+ * Reading order for the panel: where the money went, what it was, what happened to it.
+ *
+ * The two timestamps sit together because they are read against each other, and the onward leg
+ * follows the settlement it belongs to: there is nothing to say about it until the money has left.
+ * The reason a payment was stopped comes last, being the one entry that is prose.
+ */
+export const TRANSFER_DETAIL_FIELDS: readonly TransferDetailField[] = [
+    'fromIban',
+    'fromBalance',
+    'toIban',
+    'amount',
+    'fee',
+    'status',
+    'createdAt',
+    'settledAt',
+    'dispatchState',
+    'authMethod',
+    'message',
+    'declineReason',
+];
+
+export const ACCOUNT_FIELDS: readonly AccountField[] = [
+    'iban',
+    'balance',
+    'dailyLimit',
+    'softDailyThreshold',
+    'spentToday',
+];
+
+export const QUOTE_FIELDS: readonly QuoteField[] = ['amount', 'fee', 'total'];
 
 /**
  * The one history field that is prose, which is one of the two reasons a field takes no column.
@@ -172,6 +255,12 @@ export const HISTORY_COLUMN_FIELDS: readonly HistoryField[] = HISTORY_FIELDS.fil
  * settled the number is what was taken; on one that has not, it is what the tariff would take, and
  * the status in the next cell is what says which. One word that covers both is the only honest
  * heading for a field with two readings - see HistoryItemDto on the wire, which carries the rule.
+ *
+ * The three sets below this one carry their own maps rather than more keys here, and the reason is
+ * the beneficiary. A history row says where the money left AND where it went in one field, so a
+ * lone `toIban` in this map is exactly the second name that used to give the desks a column
+ * nobody was writing. The panel that reads a payment in full does need that name, on its own line,
+ * so it gets it in a map of its own and takes the words for everything else from this one.
  */
 export const FIELD_LABEL: Record<AlertQueueField | HistoryField, string> = {
     alertCode: 'Alert',
@@ -215,6 +304,73 @@ export const HISTORY_FIELD_LABEL: Record<HistoryField, string> = {
 };
 
 /**
+ * What each fact of one payment is called in the panel that reads it in full.
+ *
+ * Five of the twelve are taken from the map above rather than restated, which is what keeps the
+ * panel and the table that lists the same payment saying one word for one thing. The seven that
+ * are written out here are the ones a table has no cell for.
+ *
+ * `From` and `To` on their own lines. The table's `From / To` is a heading for one cell holding
+ * two account numbers, and it has to state their order because nothing on the row does; a panel
+ * puts each on its own line with its own word, which both desks had already done.
+ *
+ * `dispatchState` is `Onward transfer` and not `Dispatch`: the reader is the customer whose money
+ * it is, and the fact is the second half of their payment's journey rather than a queue in the
+ * bank's machinery. It also has to stay clear of `Status` above it, which is the payment's own
+ * lifecycle - `Status: Sent` over `Dispatch: Sent` is two words a reader would take for one fact.
+ *
+ * `message` keeps the caption it was written under. The customer typed it into a box labelled
+ * `Message for recipient` and reads it back here, and a shorter word would make the two look like
+ * two fields.
+ */
+export const TRANSFER_DETAIL_LABEL: Record<TransferDetailField, string> = {
+    fromIban: 'From',
+    fromBalance: 'From balance',
+    toIban: 'To',
+    amount: FIELD_LABEL.amount,
+    fee: FIELD_LABEL.fee,
+    status: FIELD_LABEL.status,
+    createdAt: FIELD_LABEL.createdAt,
+    settledAt: 'Settled',
+    dispatchState: 'Onward transfer',
+    authMethod: 'Auth method',
+    message: 'Message for recipient',
+    declineReason: FIELD_LABEL.declineReason,
+};
+
+/**
+ * What the three numbers under an account balance are called.
+ *
+ * `softDailyThreshold` is named by what it does to the customer and not by what the rules call it.
+ * `Soft daily threshold` is the tier's name inside the bank and says nothing on a form; the figure
+ * means the point above which this account will be asked for a code, so that is the word.
+ *
+ * There is deliberately no cells type beside this one. An account is chosen from a control on a
+ * form rather than laid out as a row, so there is no table for a mapped type to oblige, and the
+ * one thing that must not vary between the platforms is what the numbers are called.
+ */
+export const ACCOUNT_LABEL: Record<AccountField, string> = {
+    iban: 'Account',
+    balance: 'Balance',
+    dailyLimit: 'Daily limit',
+    softDailyThreshold: 'Code required above',
+    spentToday: 'Spent today',
+};
+
+/**
+ * What the bank's quote calls its three figures, before the payment is sent.
+ *
+ * `Total` is the one word this map adds, and it is the whole reason a quote is worth showing: the
+ * amount and the fee are two numbers the customer has to add up themselves otherwise, and the sum
+ * is what will actually leave the account.
+ */
+export const QUOTE_LABEL: Record<QuoteField, string> = {
+    amount: FIELD_LABEL.amount,
+    fee: FIELD_LABEL.fee,
+    total: 'Total',
+};
+
+/**
  * One rendering of one queue row: a value per field, and neither desk may leave a key out.
  *
  * Generic in what a value is, because the two skins render different things. A cell may be a
@@ -225,3 +381,13 @@ export type QueueRowCells<T> = { [K in AlertQueueField]: T };
 
 /** The same for one row of payment history. */
 export type HistoryRowCells<T> = { [K in HistoryField]: T };
+
+/**
+ * The same for one payment read in full, and it is total for the reason the two above it are.
+ *
+ * A fact the wire has nothing for is a null value and not a missing key: the panel decides whether
+ * an absent settlement is drawn as a dash, said in words or left out, and it can only make that
+ * decision about a cell it was obliged to build. A key quietly missing is the case that produced
+ * this file, a field that exists on the wire and on one platform's screen only.
+ */
+export type TransferDetailCells<T> = { [K in TransferDetailField]: T };

@@ -133,8 +133,11 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
      * A version rather than a state token, deliberately, and here that is not a refinement but the
      * whole point: the write that reopens a decided alert is the one that changes no state at all.
      *
-     * Tags are joined with commas here and split on commas coming back, which is why
-     * FraudApplicationService refuses a comma inside a tag: this column cannot represent one.
+     * Tags are joined with commas here and split on commas coming back, so a tag containing one
+     * would be written as a single tag and read as two. Nothing over HTTP can put a tag in the
+     * column any more: the field left the decision request together with the validation rule that
+     * used to refuse that character, and the statement keeps writing what the aggregate holds so
+     * that anything already stored survives a decision and is still readable on the alert detail.
      */
     private void upsertAlert(Connection conn, FraudAlert a) throws SQLException {
         String sql = """
@@ -377,8 +380,8 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
      * the JSON adapter already answers - its list is appended to in id-allocation order and a
      * save replaces the row in place instead of moving it - and the defect being fixed is the two
      * backends listing the same data differently. How the queue ought to be sorted for a human is
-     * a presentation question and belongs with the front end, where
-     * FraudController.mapHistoryForAccount already keeps its own newest-first Comparator.
+     * the paged read's question rather than this one's, and {@link #queuePage} answers it with
+     * created_at descending and the id descending behind it.
      */
     private List<FraudAlert> loadAllWithConnection(Connection conn, UnitOfWork uow)
             throws SQLException {

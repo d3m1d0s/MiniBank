@@ -7,6 +7,8 @@ import cz.vsb.minibank.application.TransferApplicationService;
 import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
 import cz.vsb.minibank.domain.exceptions.ConflictException;
+import cz.vsb.minibank.domain.exceptions.DailyLimitExceededException;
+import cz.vsb.minibank.domain.exceptions.InvalidAmountException;
 import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
 import cz.vsb.minibank.domain.exceptions.ValidationException;
@@ -31,6 +33,15 @@ public class PaymentAndAuthorizationApiTest {
     private static final int TEST_CUSTOMER_ID = 2;
     private static final int TEST_ACCOUNT_ID = 101;
     private static final double WAITING_TRANSFER_AMOUNT = 6000.0;
+
+    /**
+     * A payee this customer trusts.
+     *
+     * The quote is the only thing that reads it, and it reads it to answer the one question that
+     * splits on trust alone: the same 6 000 asks for a code when it is going to a stranger and
+     * settles at once when it is going here.
+     */
+    private static final int TRUSTED_BENEFICIARY_ID = 5001;
 
     /** A second customer, so "exists but is not yours" can be told apart from "does not exist". */
     private static final int VICTIM_CUSTOMER_ID = 3;
@@ -86,6 +97,10 @@ public class PaymentAndAuthorizationApiTest {
             customers.save(customer);
         }
 
+        infra.customers.saveBeneficiary(TEST_CUSTOMER_ID, new Beneficiary(
+                TRUSTED_BENEFICIARY_ID, "Trusted payee",
+                new IBAN("CZ1301000000000098765432"), true));
+
         // 3) Simulate logged-in customer with customerId = 2 via SecurityContext
         byte[] dummy = new byte[0];
         User user = new User(
@@ -129,7 +144,7 @@ public class PaymentAndAuthorizationApiTest {
                 WAITING_TRANSFER_AMOUNT, "victim's own").transferId();
 
         paymentController = new PaymentController(transferService, accounts,
-                services.ownershipGuard);
+                services.ownershipGuard, transfers, services.feePolicy, infra.uowFactory);
 
         authorizationController = new AuthorizationController(
                 transferService,
@@ -464,5 +479,275 @@ public class PaymentAndAuthorizationApiTest {
         assertTrue(result.transferId() > 0, "Transfer id must be > 0");
         assertNotNull(result.status());
         assertNotNull(result.newBalance());
+    }
+
+    // ------------------------------------------------------- what a transfer read says about itself
+
+    /**
+     * A settled payment says when the money moved, what the customer wrote on it, and what it
+     * still owes the network.
+     *
+     * All three were stored and none reached a screen. The settlement instant is the only record
+     * of when the money actually left - it is a different number from the creation instant on
+     * every payment an analyst held - and the message is what the customer typed into the form and
+     * could never read back afterwards.
+     */
+    @Test
+    void aSettledPaymentSaysWhenItMovedWhatWasWrittenOnItAndWhatItOwesTheNetwork() {
+        NewPaymentRequest req = new NewPaymentRequest(
+                TEST_ACCOUNT_ID, "CZ2001000000000012345678", null, 1_000.0, "Rent for August");
+
+        int transferId = paymentController.createPayment(req).getBody().transferId();
+
+        TransferDetailsDto details = authorizationController.transferDetails(transferId);
+
+        assertEquals("SENT", details.status(), "Precondition: 1 000 settles without a code");
+        assertNotNull(details.settledAt(),
+                "a payment that has settled has an instant at which it did");
+        assertEquals("Rent for August", details.message(),
+                "the customer's own reference has been accepted by the creation request since"
+                        + " long before it was stored, and this is where it is read back");
+        assertEquals("PENDING", details.dispatchState(),
+                "this beneficiary is not an account of this bank, so the money left it and the"
+                        + " network is owed a dispatch that no gateway has been handed yet");
+    }
+
+    /**
+     * A payment that has not settled owes the network nothing and has no settlement instant, and
+     * the wire says so with nulls rather than with a third value.
+     */
+    @Test
+    void aWaitingPaymentHasNoSettlementInstantAndOwesTheNetworkNothing() {
+        int transferId = createWaitingTransferForCustomer2();
+
+        TransferDetailsDto details = authorizationController.transferDetails(transferId);
+
+        assertNull(details.settledAt(), "nothing has moved, so there is no instant at which it did");
+        assertNull(details.dispatchState(),
+                "a payment that has not settled owes the network nothing; null here is not"
+                        + " 'stayed in the bank', which is what toIbanInBank answers");
+    }
+
+    /**
+     * A transfer with no authorization method recorded says null, not an empty string.
+     *
+     * One wire field used to arrive in three shapes: "CARD" from a held payment, null from the
+     * fraud desk's own producer of the same field, and "" from here. A client cannot tell the
+     * third from the second without knowing which endpoint it came from, and both front ends
+     * printed an empty cell where a settled payment simply has no method on record.
+     */
+    @Test
+    void aTransferWithNoAuthorizationMethodSaysNullAndNotAnEmptyString() {
+        NewPaymentRequest req = new NewPaymentRequest(
+                TEST_ACCOUNT_ID, "CZ2001000000000012345678", null, 1_000.0, "settles at once");
+
+        int transferId = paymentController.createPayment(req).getBody().transferId();
+
+        assertNull(authorizationController.transferDetails(transferId).authMethod(),
+                "this payment settled without ever asking for a code, so it has no method to"
+                        + " name, and absent has one spelling on this wire");
+    }
+
+    // ------------------------------------------------------------------------------- the fee quote
+
+    /**
+     * The tariff is answered before the money moves, and it is answered by the server.
+     *
+     * 1 500.00 pays one percent. The number matters less than where it comes from: a copy of this
+     * schedule in the browser is a copy that drifts, and the customer met the fee for the first
+     * time on the receipt.
+     */
+    @Test
+    void theQuoteAnswersTheFeeAndTheTotalBeforeAnythingIsSent() {
+        PaymentQuoteDto quote = paymentController.quotePayment(TEST_ACCOUNT_ID, 1_500.00, null);
+
+        assertEquals("1500.00", quote.amount().amount());
+        assertEquals("15.00", quote.fee().amount(), "one percent of the whole amount");
+        assertEquals("1515.00", quote.total().amount(),
+                "what leaves the account is the amount plus the fee, added once and on the"
+                        + " server");
+        assertEquals("CZK", quote.total().currency());
+    }
+
+    /**
+     * The boundary the schedule turns on is visible from the route.
+     *
+     * This is the whole reason a quote exists. The tariff is a step on the WHOLE amount, so one
+     * heller past 1 000.00 turns a free payment into a ten crown fee, and rounding an amount up
+     * costs a thousand times the difference. A customer who can see it before pressing Send can
+     * choose; one who meets it on the receipt cannot.
+     */
+    @Test
+    void theQuoteShowsTheStepAtTheFreeBoundary() {
+        assertEquals("0.00", paymentController.quotePayment(TEST_ACCOUNT_ID, 1_000.00, null)
+                .fee().amount(), "1 000.00 belongs to the free tier");
+        assertEquals("10.00", paymentController.quotePayment(TEST_ACCOUNT_ID, 1_000.01, null)
+                .fee().amount(), "and one heller past it pays one percent of the whole amount");
+    }
+
+    /**
+     * The quote says whether a code will be asked for, and the saved payee is what decides it.
+     *
+     * Both calls are the same amount out of the same account on the same day. Without the payee
+     * the route would have to assume the stranger, and a form that announced a code for every
+     * payment above the tier would be wrong about every payment to a trusted payee.
+     */
+    @Test
+    void theQuoteSaysWhetherACodeWillBeAskedForAndTheSavedPayeeDecidesIt() {
+        assertTrue(paymentController.quotePayment(TEST_ACCOUNT_ID, 6_000.00, null)
+                        .authorizationRequired(),
+                "6 000 to an account number typed by hand is above the untrusted tier, and a"
+                        + " typed number has no payee row behind it and never can be trusted");
+
+        assertFalse(paymentController.quotePayment(TEST_ACCOUNT_ID, 6_000.00, TRUSTED_BENEFICIARY_ID)
+                        .authorizationRequired(),
+                "the same amount to a payee this customer trusts settles at once, and the quote"
+                        + " has to say what the submit will do rather than what it might");
+    }
+
+    /**
+     * The quote refuses what the submit would refuse, over the same ceiling.
+     *
+     * A quote that answered a price for a payment the bank will not accept would be a form that
+     * says 145.00 and then a screen that says no.
+     */
+    @Test
+    void aQuoteOverTheDailyCeilingIsRefusedExactlyAsThePaymentWouldBe() {
+        assertThrows(DailyLimitExceededException.class,
+                () -> paymentController.quotePayment(TEST_ACCOUNT_ID, 50_000.00, null));
+    }
+
+    /**
+     * The quote is scoped like every other route under a session: an account the caller does not
+     * own is refused exactly like one that does not exist.
+     *
+     * Without it this route would answer, for any account id, whether that account's day is close
+     * to its ceiling - which is a fact about somebody else's spending.
+     */
+    @Test
+    void aQuoteOnAnotherCustomersAccountIsNotFound() {
+        assertThrows(NotFoundException.class,
+                () -> paymentController.quotePayment(VICTIM_ACCOUNT_ID, 100.00, null));
+        assertThrows(NotFoundException.class,
+                () -> paymentController.quotePayment(TEST_ACCOUNT_ID, 100.00, VICTIM_BENEFICIARY_ID));
+
+        assertVictimUntouched();
+    }
+
+    /**
+     * A missing parameter is refused by this method rather than by Spring.
+     *
+     * A required {@code @RequestParam} raises a checked ServletException that the error advice
+     * cannot catch, so the caller would get a body with no code field in it and the error contract
+     * would have a hole in exactly the place a form is most likely to find one.
+     */
+    @Test
+    void aQuoteWithAMissingParameterIsAValidationError() {
+        assertThrows(ValidationException.class,
+                () -> paymentController.quotePayment(null, 1_000.00, null));
+        assertThrows(ValidationException.class,
+                () -> paymentController.quotePayment(TEST_ACCOUNT_ID, null, null));
+    }
+
+    /**
+     * An amount the submit would not accept is not priced either: the two doors take the same
+     * amounts, or the form would quote a fee for something that cannot be sent.
+     */
+    @Test
+    void aQuoteForAnAmountThePaymentWouldRefuseIsRefusedToo() {
+        assertThrows(InvalidAmountException.class,
+                () -> paymentController.quotePayment(TEST_ACCOUNT_ID, 0.0, null));
+        assertThrows(InvalidAmountException.class,
+                () -> paymentController.quotePayment(TEST_ACCOUNT_ID, 10.001, null));
+    }
+
+    // ----------------------------------------------------------------- what the day's ceiling means
+
+    /**
+     * The account list carries the two limits and the day's running total they are measured
+     * against.
+     *
+     * The limits alone are two numbers with nothing to compare them to. The customer sees the same
+     * amount settle in the morning and ask for a code in the afternoon, and the only thing that
+     * changed is a total no screen has ever shown.
+     */
+    @Test
+    void theAccountListCarriesTheCeilingTheTierAndWhatHasGoneToday() {
+        AccountSummaryDto before = paymentController.listMyAccounts().get(0);
+
+        assertEquals("40000.00", before.dailyLimit().amount(),
+                "the hard ceiling on one day's outflow");
+        assertNull(before.softDailyThreshold(),
+                "this account has no tier of its own, and the bank-wide one is not this"
+                        + " account's property to print");
+        assertEquals("0.00", before.spentToday().amount(),
+                "nothing has settled out of it yet today");
+
+        paymentController.createPayment(new NewPaymentRequest(
+                TEST_ACCOUNT_ID, "CZ2001000000000012345678", null, 1_000.0, "counts today"));
+
+        AccountSummaryDto after = paymentController.listMyAccounts().get(0);
+
+        assertEquals("1000.00", after.spentToday().amount(),
+                "a payment that settled today counts against today, fees excluded");
+    }
+
+    /**
+     * A payment waiting for its code has moved nothing, so it counts against nothing.
+     *
+     * This is the same rule the refusal itself keeps, and it has to be: a form that counted
+     * pending payments would show a budget the bank does not enforce, and every abandoned payment
+     * would shrink the customer's day until it expired.
+     */
+    @Test
+    void aPaymentWaitingForItsCodeHasNotBeenSpentYet() {
+        createWaitingTransferForCustomer2();
+
+        assertEquals("0.00", paymentController.listMyAccounts().get(0).spentToday().amount(),
+                "nothing has left the account, so nothing has been spent");
+    }
+
+    // -------------------------------------------------------------------------- who is signed in
+
+    /**
+     * The browser can name the person signed in.
+     *
+     * The console has been able to do this since it was written - it holds the customer aggregate
+     * directly - and the product had no route that returned one, so both front ends printed a
+     * login name where a person's name belongs.
+     */
+    @Test
+    void meNamesTheCustomerBehindTheLoginAndNotOnlyTheLogin() {
+        MeDto me = paymentController.me();
+
+        assertEquals("test-customer", me.username());
+        assertEquals("CUSTOMER", me.role());
+        assertEquals(TEST_CUSTOMER_ID, me.customerId());
+        assertEquals("Test Customer 2", me.name());
+        assertEquals("test2@example.com", me.email());
+        assertNotNull(me.address(), "this customer has an address on file");
+        assertEquals("Test Street 2", me.address().street());
+        assertEquals("Ostrava", me.address().city());
+    }
+
+    /**
+     * A user who is not a customer is answered rather than refused.
+     *
+     * An analyst has no customer row and that is not a fault. Refusing them would leave the fraud
+     * desk with no way to name the person signed in, which is the same defect on the other screen.
+     */
+    @Test
+    void meAnswersAnAnalystWithTheTwoFactsThatAreTrueOfThem() {
+        SecurityContext.setCurrentUser(new User(
+                2, "fraud", new byte[0], new byte[0], UserRole.FRAUD_ANALYST, null));
+
+        MeDto me = paymentController.me();
+
+        assertEquals("fraud", me.username());
+        assertEquals("FRAUD_ANALYST", me.role());
+        assertNull(me.customerId());
+        assertNull(me.name());
+        assertNull(me.email());
+        assertNull(me.address());
     }
 }

@@ -1,7 +1,7 @@
 // src/App.tsx
 import { useEffect, useState } from 'react';
 import './App.css';
-import { setSessionExpiredHandler, logoutSession } from './api';
+import { setSessionExpiredHandler, logoutSession, fetchMe, type Me } from './api';
 import type { NavRole } from '@shared/navigation';
 import NewPaymentPage from './NewPaymentPage';
 import HistoryPage from './HistoryPage';
@@ -47,6 +47,16 @@ function App() {
     const [auth, setAuth] = useState<AuthState | null>(null);
     const [signedOutReason, setSignedOutReason] = useState<string | null>(null);
 
+    /**
+     * The person behind the login, or null until the answer arrives.
+     *
+     * The sign-in response carries the string that was typed into the box and nothing else, so
+     * the header band greeted a customer whose record says Alice Novakova as `alice`. This is the
+     * one call in the application whose failure changes nothing: the band falls back to the login
+     * it already has, so there is no error state and no loading state for it.
+     */
+    const [me, setMe] = useState<Me | null>(null);
+
     // A 401 AUTH_REQUIRED means the server no longer accepts the session this app is
     // holding: it has gone idle, hit its ceiling, been closed, or the user behind it has
     // been removed or replaced - and the server deliberately does not say which. Until now
@@ -59,10 +69,36 @@ function App() {
     useEffect(() => {
         setSessionExpiredHandler(() => {
             setAuth(null);
+            // A name left standing after the session has gone would greet whoever reaches this
+            // browser next by the person who was ejected from it.
+            setMe(null);
             setSignedOutReason('You have been signed out. Please sign in again.');
         });
         return () => setSessionExpiredHandler(null);
     }, []);
+
+    // Asked once per session. The name is dropped where the session is dropped rather than here,
+    // both because an effect that sets state on the way in is a render that could have been
+    // avoided, and because the two places that end a session are the two that know it has ended.
+    // The hook sits above the early return below because the rules of hooks require it.
+    useEffect(() => {
+        if (!auth) return;
+
+        let cancelled = false;
+
+        void (async () => {
+            try {
+                const who = await fetchMe();
+                if (!cancelled) setMe(who);
+            } catch {
+                // Nothing on any screen depends on the name; the band keeps the login.
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [auth]);
 
     // While the user is not logged in, show only the login dialog
     if (!auth) {
@@ -86,6 +122,7 @@ function App() {
         logoutSession();
         setSignedOutReason(null);
         setAuth(null);
+        setMe(null);
     };
 
     // Ahead of the view switch, so a role with no screens never reaches the payment form and
@@ -130,16 +167,27 @@ function App() {
     };
 
     /**
+     * The name the band greets, which is the person's own where the server knows one.
+     *
+     * The login is the fallback rather than the default, and it is reached twice: before the
+     * answer arrives, and for a login with no customer record behind it, which is every analyst.
+     * The answer is checked against the login it was asked for, so a name fetched for the
+     * previous session cannot be printed over the current one.
+     */
+    const signedInAs =
+        me && me.username === auth.username && me.name ? me.name : auth.username;
+
+    /**
      * Who is signed in and the way out, built once here and handed to every screen as one
      * opaque piece of furniture, so no screen has to learn what a role or a session is.
-     * The username is shown because this application serves two roles from one sign-in and
+     * The person is named because this application serves two roles from one sign-in and
      * gives each a different set of screens, and the role label is the only thing on screen
      * that explains why the screens differ.
      */
     const identity = (
         <div className="identity">
             <span className="identity-who">
-                {auth.username}
+                {signedInAs}
                 <span className="identity-role">{ROLE_LABEL[auth.role]}</span>
             </span>
             <button type="button" className="identity-exit" onClick={handleSignOut}>
@@ -189,6 +237,9 @@ function App() {
             {view === 'fraud-desk' && (
                 <FraudDeskPage
                     role={auth.role}
+                    /* The login and not the name: the assignee column holds what was typed at
+                       sign-in, so the queue's mine filter is a match against that string. */
+                    username={auth.username}
                     brand={brand}
                     identity={identity}
                     onNavigate={handleNavigate}

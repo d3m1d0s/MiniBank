@@ -48,4 +48,19 @@ export type {
     AlertFilters,
 } from '@shared/fraud';
 
-export { fetchAlerts, fetchAlertDetail, postFraudDecision } from '@shared/fraud';
+/*
+ * Six calls where there were three. The three new ones are what the desk needed to stop
+ * contradicting itself: the hidden list reconciles the counters with a queue its own filter has
+ * emptied, the history route carries the page, the size and the total the alert detail never did,
+ * and the assignment pair is the only way a name can be written into the column this desk has
+ * always printed and filtered on.
+ */
+export {
+    fetchAlerts,
+    fetchAlertDetail,
+    fetchAlertHistory,
+    fetchHiddenAlerts,
+    postFraudDecision,
+    releaseAlert,
+    takeAlert,
+} from '@shared/fraud';

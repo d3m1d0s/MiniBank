@@ -1,11 +1,12 @@
 // src/HistoryPage.tsx
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import './App.css';
 import { fetchMyTransfers, type HistoryItem, type Page } from './api';
 import { formatMoney } from './money';
 import { formatFeeLine } from '@shared/money';
-import { describeApiErrorLines } from '@shared/apiErrors';
+import ErrorBox from './ErrorBox';
+import { describeApiFailure, type ApiFailure } from '@shared/apiErrors';
 import {
     bankBoundaryMark,
     describeDeclineReason,
@@ -168,32 +169,44 @@ export default function HistoryPage({ role, brand, identity, onNavigate }: Props
      */
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
-    const [error, setError] = useState<string[] | null>(null);
+    const [error, setError] = useState<ApiFailure | null>(null);
+
+    /* Whether this screen is still on. Held in a ref rather than in a local of the effect, because
+       the loader below is called from the effect and from the retry beside its own error box. */
+    const alive = useRef(true);
 
     useEffect(() => {
-        let cancelled = false;
-
-        async function loadFirst() {
-            try {
-                setLoading(true);
-                setError(null);
-                const answer = await fetchMyTransfers(0, PAGE_SIZE);
-                if (cancelled) return;
-                setItems(answer.items);
-                setLast(answer);
-            } catch (e) {
-                if (cancelled) return;
-                setError(describeApiErrorLines(e, 'payments-history'));
-            } finally {
-                if (!cancelled) setLoading(false);
-            }
-        }
-
+        alive.current = true;
         void loadFirst();
         return () => {
-            cancelled = true;
+            alive.current = false;
         };
     }, []);
+
+    /**
+     * The first page, and the way back from a first page that failed.
+     *
+     * The retry is the same call rather than a reload of the browser tab, which is what a customer
+     * was left with: the screen is mounted by a nav click, and clicking the entry they are already
+     * standing on does not mount it again.
+     */
+    async function loadFirst() {
+        try {
+            setLoading(true);
+            setError(null);
+            const answer = await fetchMyTransfers(0, PAGE_SIZE);
+            if (!alive.current) return;
+            setItems(answer.items);
+            setLast(answer);
+        } catch (e) {
+            if (!alive.current) return;
+            setError(
+                describeApiFailure(e, 'payments-history', { retry: () => void loadFirst() }),
+            );
+        } finally {
+            if (alive.current) setLoading(false);
+        }
+    }
 
     /**
      * The next page, appended under the rows already on screen.
@@ -216,7 +229,8 @@ export default function HistoryPage({ role, brand, identity, onNavigate }: Props
             setItems((held) => appendPage(held, answer.items));
             setLast(answer);
         } catch (e) {
-            setError(describeApiErrorLines(e, 'payments-history'));
+            // The retry asks for the page that failed, not for the first one.
+            setError(describeApiFailure(e, 'payments-history', { retry: () => void loadMore() }));
         } finally {
             setLoadingMore(false);
         }
@@ -261,14 +275,7 @@ export default function HistoryPage({ role, brand, identity, onNavigate }: Props
                             {loading ? (
                                 <p className="helper-text">Loading payments…</p>
                             ) : error && items.length === 0 ? (
-                                <div className="summary summary--danger gap-above-sm">
-                                    <div className="summary-title">Error</div>
-                                    <ul>
-                                        {error.map((line) => (
-                                            <li key={line}>{line}</li>
-                                        ))}
-                                    </ul>
-                                </div>
+                                <ErrorBox failure={error} />
                             ) : items.length === 0 ? (
                                 <p className="helper-text">No payments yet.</p>
                             ) : (
@@ -322,16 +329,7 @@ export default function HistoryPage({ role, brand, identity, onNavigate }: Props
                                         </table>
                                     </div>
 
-                                    {error && (
-                                        <div className="summary summary--danger gap-above-sm">
-                                            <div className="summary-title">Error</div>
-                                            <ul>
-                                                {error.map((line) => (
-                                                    <li key={line}>{line}</li>
-                                                ))}
-                                            </ul>
-                                        </div>
-                                    )}
+                                    {error && <ErrorBox failure={error} />}
 
                                     {/*
                                       Paging decides nothing, so the button carries no shape of

@@ -1,31 +1,54 @@
 // src/NewPaymentPage.tsx
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import './App.css';
 import {
     getMyAccounts,
     createPayment,
     fetchMyBeneficiaries,
+    fetchPaymentQuote,
     type AccountSummary,
     type Beneficiary,
     type NewPaymentRequest,
     type NewPaymentResult,
+    type PaymentQuote,
     isUnderReview,
 } from './api';
 import { formatMoney, readerLocale } from './money';
 import { parseAmount } from '@shared/money';
-import { describeApiError, describeApiErrorLines } from '@shared/apiErrors';
-import { transferStatusLabel, transferStatusTone } from '@shared/glossary';
+import ErrorBox from './ErrorBox';
+import { describeApiFailure, type ApiFailure } from '@shared/apiErrors';
+import { authorizationNote, transferStatusLabel, transferStatusTone } from '@shared/glossary';
+import { ACCOUNT_LABEL, QUOTE_FIELDS, QUOTE_LABEL } from '@shared/fields';
 import { formatIban, formatTransferId } from '@shared/format';
 import Nav from './Nav';
 import type { NavRole, NavView } from '@shared/navigation';
 
 const MAX_MESSAGE_LENGTH = 140;
 
+/**
+ * What the panel under the form is saying, and it says one thing at a time.
+ *
+ * The failure is carried in the shared shape rather than as loose strings so that the box under
+ * this form is the box every other screen draws: sentences, and where there is one, the reference
+ * for the small type. A refusal the form worked out for itself has no reference and says so with
+ * null, which is exactly what an answer that never left the browser should print.
+ */
 type InfoState =
     | { type: 'none' }
     | { type: 'success'; result: NewPaymentResult }
-    | { type: 'error'; messages: string[] };
+    | { type: 'error'; failure: ApiFailure };
+
+/**
+ * A refusal this form worked out for itself, in the shape the box renders.
+ *
+ * No reference, because nothing was asked of the bank: printing "HTTP 0" under a sentence about an
+ * empty IBAN box would name an answer that does not exist. No retry either, for the same reason -
+ * the way out of these three is the field they name.
+ */
+function refusedHere(line: string): ApiFailure {
+    return { lines: [line], reference: null };
+}
 
 interface Props {
     role: NavRole;
@@ -60,59 +83,94 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
     const [beneficiariesFailed, setBeneficiariesFailed] = useState(false);
 
     const [loadingAccounts, setLoadingAccounts] = useState(true);
-    const [accountsError, setAccountsError] = useState<string | null>(null);
+    const [accountsError, setAccountsError] = useState<ApiFailure | null>(null);
+
+    /* Whether this screen is still on. The accounts are read from the mount effect and again from
+       the retry beside their own error box, so the guard cannot live in a local of the effect. */
+    const alive = useRef(true);
 
     const [submitting, setSubmitting] = useState(false);
     const [info, setInfo] = useState<InfoState>({ type: 'none' });
 
+    /**
+     * What the bank says this payment would cost, and why it might refuse to price it.
+     *
+     * Quoted rather than computed here. The tariff has a step in it, free below a threshold and
+     * charged above, so a customer met the fee for the first time on the receipt; a copy of the
+     * step in this file would be a second tariff that goes on quoting last month's price. The
+     * refusal is worth showing for the same reason: an amount past the account's daily ceiling is
+     * refused by the quote in the same words the submit would use, before the money moves.
+     */
+    const [quote, setQuote] = useState<PaymentQuote | null>(null);
+    const [quoteError, setQuoteError] = useState<ApiFailure | null>(null);
+
+    /**
+     * Which quote request is the current one.
+     *
+     * Every answer carries the amount it was asked about, and the reader cannot see which: a
+     * price for 1 500,00 landing under a box that now reads 15 000,00 is a wrong number rather
+     * than a stale one. The counter is bumped on every ask AND on every keystroke in the amount,
+     * so an answer already in flight cannot come back and stand under an amount nobody quoted.
+     */
+    const quoteToken = useRef(0);
+
     // Load accounts when the component is mounted
     useEffect(() => {
-        let cancelled = false;
-
-        async function load() {
-            try {
-                setLoadingAccounts(true);
-                setAccountsError(null);
-                const data = await getMyAccounts();
-                if (cancelled) return;
-                setAccounts(data);
-                if (data.length > 0) {
-                    setSelectedAccountId(data[0].id);
-                }
-            } catch (e) {
-                if (cancelled) return;
-                setAccountsError(describeApiError(e, 'accounts'));
-            } finally {
-                if (!cancelled) setLoadingAccounts(false);
-            }
-        }
-
-        /**
-         * The address book, fetched beside the accounts and gating nothing.
-         *
-         * A slow list of payees must not delay a payment, so this has no loading line of its own:
-         * the row simply is not there until the names arrive, and "Loading accounts…" stays the
-         * form's only such sentence.
-         */
-        async function loadBeneficiaries() {
-            try {
-                const saved = await fetchMyBeneficiaries();
-                if (cancelled) return;
-                setBeneficiaries(saved);
-                setBeneficiariesFailed(false);
-            } catch {
-                if (cancelled) return;
-                setBeneficiaries([]);
-                setBeneficiariesFailed(true);
-            }
-        }
-
-        load();
+        alive.current = true;
+        void loadAccounts();
         void loadBeneficiaries();
         return () => {
-            cancelled = true;
+            alive.current = false;
         };
     }, []);
+
+    /**
+     * The accounts, without which there is no form at all.
+     *
+     * Its failure is the one on this screen that leaves nothing to do, and there was no way out of
+     * it: the screen is mounted by a nav click and clicking the entry the customer is standing on
+     * does not mount it again, so the only recovery was the browser's reload button. It is a read
+     * and costs nothing to ask twice, which is exactly the case the retry is for.
+     */
+    async function loadAccounts() {
+        try {
+            setLoadingAccounts(true);
+            setAccountsError(null);
+            const data = await getMyAccounts();
+            if (!alive.current) return;
+            setAccounts(data);
+            if (data.length > 0) {
+                setSelectedAccountId(data[0].id);
+            }
+        } catch (e) {
+            if (!alive.current) return;
+            setAccountsError(
+                describeApiFailure(e, 'accounts', { retry: () => void loadAccounts() }),
+            );
+        } finally {
+            if (alive.current) setLoadingAccounts(false);
+        }
+    }
+
+    /**
+     * The address book, fetched beside the accounts and gating nothing.
+     *
+     * A slow list of payees must not delay a payment, so this has no loading line of its own:
+     * the row simply is not there until the names arrive, and "Loading accounts…" stays the
+     * form's only such sentence.
+     */
+    async function loadBeneficiaries() {
+        try {
+            const saved = await fetchMyBeneficiaries();
+            if (!alive.current) return;
+            setBeneficiaries(saved);
+            setBeneficiariesFailed(false);
+        } catch {
+            if (!alive.current) return;
+            setBeneficiaries([]);
+            setBeneficiariesFailed(true);
+        }
+    }
 
     /**
      * A name was chosen, or the choice was given up.
@@ -126,6 +184,62 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
         const chosen = beneficiaries.find((b) => String(b.id) === raw) ?? null;
         setBeneficiaryId(chosen?.id ?? null);
         setTargetIban(chosen ? formatIban(chosen.iban) : '');
+        // The destination decides whether a code is asked for, so the quote is re-asked rather
+        // than left standing: the same amount settles at once to a payee the bank trusts.
+        void askForQuote(selectedAccountId, chosen?.id ?? null, amount);
+    }
+
+    /**
+     * Drops whatever price is on screen, because the payment it was about has changed.
+     *
+     * The token goes up with it: without that, an answer already in flight for the old amount
+     * would arrive after this and put the old price back under the new one.
+     */
+    function forgetQuote() {
+        quoteToken.current += 1;
+        setQuote(null);
+        setQuoteError(null);
+    }
+
+    /**
+     * Asks the bank what this payment would cost, if there is enough of a payment to price.
+     *
+     * The three inputs are passed rather than read off the state, because every call site is a
+     * change handler: the state it just set is not visible to it, and quoting the previous
+     * account is worse than not quoting at all.
+     */
+    async function askForQuote(
+        accountId: number | null,
+        payeeId: number | null,
+        rawAmount: string,
+    ) {
+        const parsed = parseAmount(rawAmount, readerLocale());
+        if (accountId == null || !parsed.ok) {
+            forgetQuote();
+            return;
+        }
+
+        const token = ++quoteToken.current;
+
+        try {
+            const priced = await fetchPaymentQuote(accountId, parsed.value, payeeId);
+            if (token !== quoteToken.current) return;
+            setQuote(priced);
+            setQuoteError(null);
+        } catch (e) {
+            if (token !== quoteToken.current) return;
+            // The price is gone as well as unknown: a figure left standing beside the sentence
+            // explaining why it could not be got would be read as the answer.
+            setQuote(null);
+            // A price is a read and asking again is free, so this one carries a retry, and it
+            // re-asks with the values that were quoted rather than with whatever is in the boxes
+            // by the time it is pressed.
+            setQuoteError(
+                describeApiFailure(e, 'payment-quote', {
+                    retry: () => void askForQuote(accountId, payeeId, rawAmount),
+                }),
+            );
+        }
     }
 
     const selectedAccount = selectedAccountId != null
@@ -139,10 +253,7 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
 
         // Validate selected account
         if (selectedAccountId == null) {
-            setInfo({
-                type: 'error',
-                messages: ['Please select source account.'],
-            });
+            setInfo({ type: 'error', failure: refusedHere('Please select source account.') });
             return;
         }
 
@@ -151,7 +262,7 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
         // ones where the difference between two readings is a factor of a thousand.
         const parsed = parseAmount(amount, readerLocale());
         if (!parsed.ok) {
-            setInfo({ type: 'error', messages: [parsed.reason] });
+            setInfo({ type: 'error', failure: refusedHere(parsed.reason) });
             return;
         }
         const amountValue = parsed.value;
@@ -161,10 +272,7 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
         // names both, and a request that named both would be this form having lost track of
         // which destination the customer meant.
         if (beneficiaryId == null && !targetIban.trim()) {
-            setInfo({
-                type: 'error',
-                messages: ['Target IBAN is required.'],
-            });
+            setInfo({ type: 'error', failure: refusedHere('Target IBAN is required.') });
             return;
         }
 
@@ -195,6 +303,9 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
             setBeneficiaryId(null);
             setAmount('');
             setMessage('');
+            // The quote priced the payment that has just been sent. Left on screen under an
+            // empty amount box it would read as a price for the next one.
+            forgetQuote();
 
             // The payment may have moved money, so the balances fetched on mount
             // are stale next to the confirmation's new one.
@@ -208,7 +319,10 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
             // One table, asked for the words by the name of the call. It answers a failure with
             // no response at all as well, which is why there is no isApiError branch here any
             // more: that branch rendered the browser's own "Failed to fetch".
-            setInfo({ type: 'error', messages: describeApiErrorLines(e, 'payment-create') });
+            //
+            // No retry, and this is the call the rule was written for: a second press is a second
+            // payment, and a request that timed out may have been carried out.
+            setInfo({ type: 'error', failure: describeApiFailure(e, 'payment-create') });
         } finally {
             setSubmitting(false);
         }
@@ -230,14 +344,20 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                     <main className="form-panel">
                         <h2>New Payment</h2>
 
-                        {loadingAccounts && <p>Loading accounts…</p>}
-                        {accountsError && (
-                            <p className="text-danger">Error: {accountsError}</p>
-                        )}
-
-                        {!loadingAccounts && !accountsError && accounts.length === 0 && (
-                            <p>No accounts available.</p>
-                        )}
+                        {/* One statement at the head of the form: what is on its way, then why
+                            nothing came and the way to ask again, then the empty case. They were
+                            three independent conditions, so a failed read printed its sentence
+                            with no way out of it. */}
+                        {loadingAccounts ? (
+                            <p className="helper-text">Loading accounts…</p>
+                        ) : accountsError ? (
+                            /* The plain title. One branch of the wording table for this call
+                               already says "Your accounts could not be loaded.", and a heading
+                               saying it again above it read as a stutter. */
+                            <ErrorBox failure={accountsError} />
+                        ) : accounts.length === 0 ? (
+                            <p className="helper-text">No accounts available.</p>
+                        ) : null}
 
                         {accounts.length > 0 && (
                             <form className="form" onSubmit={handleSendClick}>
@@ -250,9 +370,14 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                         id="payment-source"
                                         className="field-input"
                                         value={selectedAccountId ?? ''}
-                                        onChange={(e) =>
-                                            setSelectedAccountId(Number(e.target.value))
-                                        }
+                                        onChange={(e) => {
+                                            const chosen = Number(e.target.value);
+                                            setSelectedAccountId(chosen);
+                                            // Each account has its own ceiling and its own day
+                                            // total, so the price and the answer about a code
+                                            // belong to the account, not to the amount alone.
+                                            void askForQuote(chosen, beneficiaryId, amount);
+                                        }}
                                     >
                                         {/*
                                           Grouped in fours like every other account number on
@@ -270,9 +395,59 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                         ))}
                                     </select>
                                     <div className="field-side">
-                                        Balance: {formatMoney(selectedAccount?.balance)}
+                                        {ACCOUNT_LABEL.balance}:{' '}
+                                        {formatMoney(selectedAccount?.balance)}
                                     </div>
                                 </div>
+
+                                {/*
+                                  The three numbers that decide what may leave this account, under
+                                  the account they belong to.
+
+                                  They were invisible, and the behaviour they produce therefore
+                                  looked arbitrary: the same amount settled at once in the morning
+                                  and asked for a one time code in the afternoon, with nothing on
+                                  this form saying that the difference was the day's running total.
+                                  Spent today is what the other two are measured against, so it is
+                                  printed beside them rather than left to be worked out.
+
+                                  The threshold line is absent when the account has none of its
+                                  own. The bank-wide default is not printed in its place: stated
+                                  on this row it would look like a property of this account, and
+                                  it moves when the bank moves it.
+                                */}
+                                {selectedAccount && (
+                                    <div className="fact-line under-field">
+                                        <span>
+                                            <span className="fact-label">
+                                                {ACCOUNT_LABEL.spentToday}:
+                                            </span>{' '}
+                                            <span className="fact-value">
+                                                {formatMoney(selectedAccount.spentToday)}
+                                            </span>
+                                        </span>
+                                        <span>
+                                            <span className="fact-label">
+                                                {ACCOUNT_LABEL.dailyLimit}:
+                                            </span>{' '}
+                                            <span className="fact-value">
+                                                {formatMoney(selectedAccount.dailyLimit)}
+                                            </span>
+                                        </span>
+                                        {selectedAccount.softDailyThreshold && (
+                                            <span>
+                                                <span className="fact-label">
+                                                    {ACCOUNT_LABEL.softDailyThreshold}:
+                                                </span>{' '}
+                                                <span className="fact-value">
+                                                    {formatMoney(
+                                                        selectedAccount.softDailyThreshold,
+                                                    )}
+                                                </span>
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
 
                                 {/*
                                   The saved payees, above the field they fill in, so cause sits
@@ -355,6 +530,14 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                         onChange={(e) => {
                                             setTargetIban(e.target.value);
                                             setBeneficiaryId(null);
+                                            // Only where a choice is actually being given up.
+                                            // A typed destination has no payee behind it and is
+                                            // never trusted, so the answer about a code can
+                                            // change; the price cannot, and neither can either
+                                            // of them on the next keystroke.
+                                            if (beneficiaryId != null) {
+                                                void askForQuote(selectedAccountId, null, amount);
+                                            }
                                         }}
                                     />
                                 </div>
@@ -392,16 +575,101 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                         inputMode="decimal"
                                         placeholder="0,00"
                                         value={amount}
-                                        onChange={(e) => setAmount(e.target.value)}
+                                        onChange={(e) => {
+                                            setAmount(e.target.value);
+                                            // Half an amount is not an amount, and a price for
+                                            // the previous one standing under it is a wrong
+                                            // number rather than an old one.
+                                            forgetQuote();
+                                        }}
                                         onBlur={() => {
                                             const parsed = parseAmount(amount, readerLocale());
                                             if (parsed.ok) {
                                                 setAmount(parsed.czech);
                                             }
+                                            // Priced on blur for the reason the box is
+                                            // normalized on blur: while someone is still typing
+                                            // there is nothing settled to price.
+                                            void askForQuote(
+                                                selectedAccountId,
+                                                beneficiaryId,
+                                                amount,
+                                            );
                                         }}
                                     />
                                     <div className="field-side">CZK</div>
                                 </div>
+
+                                {/*
+                                  What the bank says this payment costs, before it is sent.
+
+                                  Three figures rather than one, because the fee is the number
+                                  nobody could see coming: the tariff is free below a threshold
+                                  and charged above it, so a heller past a boundary is ten crowns,
+                                  and the total is what actually leaves the account. The sentence
+                                  under them is spoken only when there will be a code, by the same
+                                  restraint the rest of these screens use: a line that appears on
+                                  every payment has stopped being read by the time it matters.
+                                */}
+                                {quote && (
+                                    <div className="under-field">
+                                        <div className="fact-line">
+                                            {QUOTE_FIELDS.map((f) => (
+                                                <span key={f}>
+                                                    <span className="fact-label">
+                                                        {QUOTE_LABEL[f]}:
+                                                    </span>{' '}
+                                                    <span className="fact-value">
+                                                        {formatMoney(quote[f])}
+                                                    </span>
+                                                </span>
+                                            ))}
+                                        </div>
+                                        {authorizationNote(quote.authorizationRequired) && (
+                                            <p className="helper-text">
+                                                {authorizationNote(quote.authorizationRequired)}
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/*
+                                  The quote refusing is worth saying. It prices a payment and does
+                                  not accept one, so nothing here is about the balance; what it
+                                  does refuse is an amount past the account's daily ceiling, in
+                                  the same words the submit would use and before the money moves.
+                                */}
+                                {/*
+                                  Kept as lines under the field rather than promoted to the box
+                                  the rest of this application draws a failure in: nothing has
+                                  been sent, nothing is lost, and a bordered panel would be
+                                  louder than the price it stands in for. The reference and the
+                                  way to ask again come with it all the same, in the same quiet
+                                  type as the sentences.
+                                */}
+                                {quoteError && (
+                                    <div className="under-field">
+                                        {quoteError.lines.map((line) => (
+                                            <p key={line} className="helper-text text-danger">
+                                                {line}
+                                            </p>
+                                        ))}
+                                        {quoteError.retry && (
+                                            <button
+                                                type="button"
+                                                className="btn-quiet"
+                                                onClick={quoteError.retry}
+                                            >
+                                                {quoteError.retryLabel}
+                                            </button>
+                                        )}
+                                        {quoteError.reference && (
+                                            <p className="summary-reference">
+                                                {quoteError.reference}
+                                            </p>
+                                        )}
+                                    </div>
+                                )}
 
                                 {/* Message for recipient */}
                                 <div className="field-column">
@@ -423,14 +691,10 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
 
                                 {/* Result / errors */}
                                 {info.type === 'error' && (
-                                    <div className="summary summary--danger" role="alert">
-                                        <div className="summary-title">We could not send this payment</div>
-                                        <ul>
-                                            {info.messages.map((m, idx) => (
-                                                <li key={idx}>{m}</li>
-                                            ))}
-                                        </ul>
-                                    </div>
+                                    <ErrorBox
+                                        failure={info.failure}
+                                        title="We could not send this payment"
+                                    />
                                 )}
 
                                 {info.type === 'success' && (

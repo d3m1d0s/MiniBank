@@ -251,6 +251,79 @@ public class FraudController {
         return (int) offset;
     }
 
+    /**
+     * The other half of the queue: the alerts the caller's own payment-status exclusion is
+     * keeping off their screen right now.
+     *
+     * WHY THIS EXISTS. One transfer status carries two meanings that read as opposites on a fraud
+     * desk. A payment the customer withdrew and a payment an analyst declined are both DECLINED,
+     * so a desk that hides withdrawn payments - which is the sensible default, since there is
+     * nothing left to decide on one - also hides every alert it has itself confirmed as fraud.
+     * The screen then contradicts itself in one glance: the counter above the list says Cleared 1
+     * while the list under it says no alerts, and nothing on the wire told it why. Both desks
+     * open in exactly that state.
+     *
+     * The queue's own rule is deliberately left alone. Hiding by payment status is right, the
+     * counters describing the whole queue are right, and neither is going to change to paper over
+     * a naming collision. What was missing is the number that reconciles them, and that is what
+     * this answers.
+     *
+     * HOW TO CALL IT: send the same query string the queue was sent, to this path instead. Every
+     * filter means what it means there, including {@code excludeTransferStatus}, which still
+     * names the statuses being hidden; this route returns those alerts and only those, so the two
+     * responses are the two halves of one filter and their totals add up to the filter without
+     * the exclusion. A caller that excluded nothing is hiding nothing and gets an empty page
+     * without the store being touched.
+     */
+    @GetMapping("/alerts/hidden")
+    public PageDto<AlertQueueItemDto> listHiddenAlerts(
+            @RequestParam(name = "state",       required = false) String state,
+            @RequestParam(name = "minAmount",   required = false) BigDecimal minAmount,
+            @RequestParam(name = "maxAmount",   required = false) BigDecimal maxAmount,
+            @RequestParam(name = "createdFrom", required = false) String createdFrom,
+            @RequestParam(name = "createdTo",   required = false) String createdTo,
+            @RequestParam(name = "assignee",    required = false) String assignee,
+            @RequestParam(name = "excludeTransferStatus", required = false)
+            List<String> excludeTransferStatus,
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size
+    ) {
+        requireRole(UserRole.FRAUD_ANALYST);
+        requireUsableAmountRange(minAmount, maxAmount);
+
+        Set<TransferStatus> hidden = parseTransferStatuses(excludeTransferStatus);
+
+        int pageIndex = requirePage(page);
+        int pageSize = requireSize(size);
+        int offset = requireReachableOffset(pageIndex, pageSize);
+
+        if (hidden.isEmpty()) {
+            return new PageDto<>(List.of(), pageIndex, pageSize, 0);
+        }
+
+        // The queue's filter with its payment-status dimension turned inside out: excluding every
+        // status the caller did NOT exclude keeps exactly the rows their exclusion removed. It is
+        // expressed this way, rather than by adding an inclusion to QueueFilter, because the same
+        // predicate then serves both halves and the two cannot drift apart into answering about
+        // different sets.
+        FraudAlertRepository.QueueFilter filter = new FraudAlertRepository.QueueFilter(
+                parseState(state),
+                parseInstant(createdFrom),
+                parseInstant(createdTo),
+                assignee,
+                minAmount,
+                maxAmount,
+                EnumSet.complementOf(EnumSet.copyOf(hidden)));
+
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
+            List<AlertQueueItemDto> items = alerts.queuePage(filter, offset, pageSize).stream()
+                    .map(FraudController::mapQueueItem)
+                    .toList();
+
+            return new PageDto<>(items, pageIndex, pageSize, alerts.queueTotal(filter));
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Alert details
     // -------------------------------------------------------------------------
@@ -281,9 +354,67 @@ public class FraudController {
 
             AlertInfoDto alertDto = mapAlertInfo(alert);
             TransferInfoDto transferDto = mapTransferInfo(transfer, source);
-            List<HistoryItemDto> history = mapHistoryForCustomer(source.id());
+            List<HistoryItemDto> history =
+                    mapHistoryForCustomer(source.id(), 0, DETAIL_HISTORY_ROWS, 0).items();
 
             return new AlertDetailDto(alertDto, transferDto, history);
+        }
+    }
+
+    /**
+     * How many history rows travel inside the alert detail.
+     *
+     * Ten, which is what this response has always carried and what the panel heading on both
+     * desks promises. It is left at ten rather than raised to {@link PageDto#DEFAULT_SIZE},
+     * because the detail cannot say how many rows it left behind: its history is a bare list, so
+     * a screen reading it alone can never tell a customer with ten payments from one with two
+     * hundred. The route below is the one that answers that, and the one a panel with a
+     * "Showing 10 of 137" line under it should be reading.
+     */
+    private static final int DETAIL_HISTORY_ROWS = 10;
+
+    /**
+     * The same customer history, paged, counted, and asked for on its own.
+     *
+     * A route beside the detail rather than three more numbers inside it. The detail is one
+     * screenful of an alert and the history is a table underneath it that an analyst scrolls
+     * independently, so the two have different lifetimes: paging the table should not re-read the
+     * alert, the payment, the account and the customer behind it. It also keeps the shape the
+     * rest of this API pages with, {@link PageDto}, rather than inventing a fourth spelling of
+     * page, size and total for one panel.
+     *
+     * The scope, the order and the reach are {@link #mapHistoryForCustomer}'s and are stated
+     * there. Nothing here takes a customer or an account id: the customer is reached through the
+     * alert, so this route is exactly as narrow as the detail beside it.
+     */
+    @GetMapping("/alerts/{id}/history")
+    public PageDto<HistoryItemDto> getAlertHistory(
+            @PathVariable("id") int id,
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size
+    ) {
+        requireRole(UserRole.FRAUD_ANALYST);
+
+        // Refused before a connection is opened for it, like the queue's own paging parameters.
+        int pageIndex = requirePage(page);
+        int pageSize = requireSize(size);
+        int offset = requireReachableOffset(pageIndex, pageSize);
+
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
+            FraudAlert alert = alerts.byId(id)
+                    .orElseThrow(() -> new NotFoundException("Fraud alert not found: " + id));
+
+            // Both references came from stored rows, not from the request, exactly as in getAlert.
+            Transfer transfer = transfers.byId(alert.transferId())
+                    .orElseThrow(() -> new DataIntegrityException(
+                            "Fraud alert " + id + " points at missing transfer " + alert.transferId()));
+
+            Account source = accounts.byId(transfer.sourceAccountId())
+                    .orElseThrow(() -> new DataIntegrityException(
+                            "Transfer " + transfer.id() + " points at missing account "
+                                    + transfer.sourceAccountId()));
+
+            return mapHistoryForCustomer(source.id(), pageIndex, pageSize, offset);
         }
     }
 
@@ -302,19 +433,65 @@ public class FraudController {
         // From the session, never from the body. FraudDecisionRequest deliberately has no
         // analyst field, for the reason NewPaymentRequest has no customerId: a field the caller
         // can set is one line away from being trusted, and this one becomes an audit record.
-        // Not req.assignee() either - an assignee is who should look at an alert, decided_by is
-        // who did. requireRole above has already proved there is a signed-in user.
+        // An assignee is a different fact anyway - who should look at an alert, where decided_by
+        // is who did - and it has a route of its own below. requireRole above has already proved
+        // there is a signed-in user.
         String analyst = AuthHelpers.requireUser().username();
 
         fraudService.decideAndUpdateAlert(
                 id,
                 req.decision(),
                 req.reason(),
-                req.assignee(),
-                req.tags(),
                 req.notes(),
                 analyst
         );
+
+        return getAlert(id);
+    }
+
+    // -------------------------------------------------------------------------
+    // Assignment
+    // -------------------------------------------------------------------------
+
+    /**
+     * Takes this alert into the signed-in analyst's name, and answers with the alert as it now
+     * stands so the screen needs no second call.
+     *
+     * No request body, and that is the design rather than an economy. The queue offers two
+     * operations, take it and give it back, and the assignee of the first is always the person
+     * asking: an analyst assigning work to a colleague is a different feature, with a directory
+     * of analysts behind it that this application does not have. Taking the name from the session
+     * is also what keeps the audit trail honest, exactly as {@link #decide} takes decided_by from
+     * the session and not from the payload.
+     *
+     * Until this route existed the assignee filter on both desks could never match anything:
+     * the column was on the wire, printed on both desks and filtered on, and nothing anywhere
+     * could write it.
+     */
+    @PostMapping("/alerts/{id}/assignment")
+    public AlertDetailDto takeAlert(@PathVariable("id") int id) {
+        requireRole(UserRole.FRAUD_ANALYST);
+
+        fraudService.assign(id, AuthHelpers.requireUser().username());
+
+        return getAlert(id);
+    }
+
+    /**
+     * Gives this alert back to the queue.
+     *
+     * DELETE on the same path rather than a POST carrying an empty assignee, because the two
+     * spellings of "no assignee" are exactly what the decision route could not tell apart: there,
+     * a blank meant leave it alone and there was no way left to say release it.
+     *
+     * Any analyst may release any alert, for the reason any analyst may take one: an alert held
+     * by somebody who has gone home must not be able to hold up the queue.
+     */
+    @DeleteMapping("/alerts/{id}/assignment")
+    public AlertDetailDto releaseAlert(@PathVariable("id") int id) {
+        requireRole(UserRole.FRAUD_ANALYST);
+
+        fraudService.assign(id, null);
 
         return getAlert(id);
     }
@@ -375,7 +552,7 @@ public class FraudController {
 
     /**
      * Recent outgoing payments of the CUSTOMER behind the alert: every account they hold, newest
-     * first, at most ten.
+     * first, one page at a time.
      *
      * THE SCOPE IS THE PERSON, NOT THE ACCOUNT, and that is the whole of this change. The question
      * this list answers beside an alert is whether the payment is out of character, and character
@@ -391,8 +568,20 @@ public class FraudController {
      * The order and the limit are the query's now. It answers created_at descending with id
      * descending behind it, which is totally ordered where the Comparator this method used to hold
      * left same-instant payments undecided.
+     *
+     * THE TOTAL IS COUNTED IN THE STORE, over the same predicate the page is taken with, so the
+     * two can never describe different sets. It is what the hard ten this method used to end at
+     * could not give a screen: a table cut off at ten rows with no way to say how many there were
+     * reads as the whole of a customer's history, and it was most often not.
+     *
+     * @param page   the page index being served, echoed back in the response
+     * @param size   how many rows it holds
+     * @param offset how many to skip to reach it, already checked against overflow by the caller
      */
-    private List<HistoryItemDto> mapHistoryForCustomer(int alertedAccountId) {
+    private PageDto<HistoryItemDto> mapHistoryForCustomer(int alertedAccountId,
+                                                          int page,
+                                                          int size,
+                                                          int offset) {
         int customerId = customers.byAccountId(alertedAccountId)
                 .orElseThrow(() -> new DataIntegrityException(
                         "Account " + alertedAccountId + " belongs to no customer"))
@@ -415,7 +604,8 @@ public class FraudController {
 
         // An empty status set is the repository's word for every status, which is what a history
         // means. See TransferRepository.bySourceAccountsNewestFirst.
-        return transfers.bySourceAccountsNewestFirst(ids, Set.of(), 0, 10).stream()
+        List<HistoryItemDto> items = transfers.bySourceAccountsNewestFirst(ids, Set.of(), offset, size)
+                .stream()
                 .map(t -> new HistoryItemDto(
                         t.id(),
                         t.createdAt().toString(),
@@ -432,6 +622,8 @@ public class FraudController {
                         t.declineReason()
                 ))
                 .toList();
+
+        return new PageDto<>(items, page, size, transfers.countBySourceAccounts(ids, Set.of()));
     }
 
     /**

@@ -202,4 +202,70 @@ class FraudControllerAuthTest {
 
         assertThrows(AccessDeniedException.class, () -> ctrl.getAlert(1));
     }
+
+    /**
+     * The four routes added since the cases above, gated the same way and asserted the same way.
+     *
+     * Two of them write, and one of those writes a name into an audit-facing column, so they are
+     * worth pinning individually rather than trusting to the class they live in: the gate is in
+     * this controller and nowhere behind it, because FraudApplicationService deliberately checks
+     * no role of its own.
+     */
+    @Test
+    void theAssignmentTheHistoryAndTheHiddenQueueAreAllForbiddenForCustomer() {
+        SecurityContext.setCurrentUser(customerUser());
+
+        FraudController ctrl = new FraudController(
+                mock(FraudAlertRepository.class),
+                mock(TransferRepository.class),
+                mock(AccountRepository.class),
+                mock(CustomerRepository.class),
+                mock(FraudApplicationService.class),
+                new ZeroFeePolicy(),
+                noOpUnitOfWork()
+        );
+
+        assertThrows(AccessDeniedException.class, () -> ctrl.takeAlert(1));
+        assertThrows(AccessDeniedException.class, () -> ctrl.releaseAlert(1));
+        assertThrows(AccessDeniedException.class, () -> ctrl.getAlertHistory(1, null, null));
+        assertThrows(AccessDeniedException.class, () -> ctrl.listHiddenAlerts(
+                null, null, null, null, null, null, null, null, null));
+    }
+
+    /**
+     * An analyst takes an alert into their own name and no other, whatever the request says.
+     *
+     * There is no assignee on the wire at all: the route carries no body, so the only name it can
+     * write is the one on the session. That is the same rule the decision route follows for
+     * decided_by, and it is what makes an open assignment route safe - an analyst can claim work
+     * and give it back, and cannot put a colleague's name on anything.
+     */
+    @Test
+    void takingAnAlertRecordsTheSignedInAnalystAndNothingElse() {
+        SecurityContext.setCurrentUser(fraudUser());
+
+        FraudApplicationService fraudService = mock(FraudApplicationService.class);
+        FraudAlertRepository alerts = mock(FraudAlertRepository.class);
+        when(alerts.byId(anyInt())).thenReturn(Optional.empty());
+
+        FraudController ctrl = new FraudController(
+                alerts,
+                mock(TransferRepository.class),
+                mock(AccountRepository.class),
+                mock(CustomerRepository.class),
+                fraudService,
+                new ZeroFeePolicy(),
+                noOpUnitOfWork()
+        );
+
+        // The alert is missing, so the read that follows the write raises. What is asserted is
+        // the write that had already happened by then.
+        assertThrows(cz.vsb.minibank.domain.exceptions.NotFoundException.class,
+                () -> ctrl.takeAlert(7));
+        verify(fraudService).assign(7, "fraud");
+
+        assertThrows(cz.vsb.minibank.domain.exceptions.NotFoundException.class,
+                () -> ctrl.releaseAlert(7));
+        verify(fraudService).assign(7, null);
+    }
 }

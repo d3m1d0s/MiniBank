@@ -245,7 +245,8 @@ h2.panel-title {
  * starts looking like an empty box waiting to be typed into.
  */
 .row input:not([type="checkbox"]),
-.row select {
+.row select,
+.row textarea {
     /*
      * min-height rather than height. A fixed 34px clipped the control's own label the
      * moment the text grew, and in rem the floor grows with it instead.
@@ -373,13 +374,35 @@ h2.panel-title {
 .list-more { width: 100%; }
 
 /*
+ * How much of the tray is on screen, and the control that asks the queue again.
+ *
+ * The first thing under the tray, so it took the divider that used to open the counters strip:
+ * this line is about the list directly above it, and the strip below counts something else.
+ *
+ * flex-end and not space-between, because the count is not always there. An empty tray says so in
+ * words inside itself and this line stays quiet rather than saying "Showing: 0" underneath it, and
+ * after a refusal there is no page to count at all; in both the button has to stay at the right
+ * edge where it was, rather than sliding to the left because its neighbour went away.
+ */
+.queue-line {
+    margin-top: var(--space-5);
+    padding-top: var(--space-5);
+    border-top: var(--border-width-hairline) solid var(--color-border-container);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-4);
+}
+
+.queue-line > .hint { margin-right: auto; }
+
+/*
  * A status line under the list, and it wraps: at 200 percent text the last counter was cut
  * off by the panel edge and read "show".
  */
 .counters {
     margin-top: var(--space-5);
-    padding-top: var(--space-5);
-    border-top: var(--border-width-hairline) solid var(--color-border-container);
     display: flex;
     flex-wrap: wrap;
     /* The shorthand first: it resets row-gap, so the wrapped row spacing has to follow it. */
@@ -399,6 +422,24 @@ h2.panel-title {
 }
 
 .box-title { font-weight: var(--weight-bold); margin-bottom: var(--space-4); }
+
+/*
+ * The foot of a box that holds a list: how much of it is on screen, and the way to see the rest.
+ *
+ * The two sit on one line, the count under the first column of the table and the control at the
+ * far edge, and they fall to two lines when there is no room for that. The queue puts the same
+ * pair in two different places, the count in the counters strip and the button as the last row of
+ * the tray, because there the rows are what scrolls; here the box is inside a pane that scrolls,
+ * so the foot of the table is where both belong.
+ */
+.box-foot {
+    margin-top: var(--space-5);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+}
 
 /*
  * THE CASE HEAD. Not a .box, and that is the point.
@@ -896,7 +937,43 @@ h2.panel-title {
     color: var(--color-success-text);
 }
 
+/*
+ * The status and the code of the answer, under the sentences that explain it.
+ *
+ * Nobody at this desk needs to read it; it is there so that a photograph of the box is worth
+ * something to whoever runs the bank, now that an unreadable body is dropped before it can reach a
+ * screen. Small, and quieter than the prose above it by a shade rather than by a colour: the
+ * danger palette has three slots, surface, border and text, and none of them is a muted text.
+ */
+.error-reference {
+    margin-top: var(--space-4);
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+    font-variant-numeric: tabular-nums;
+    opacity: 0.8;
+}
+
+/*
+ * A queue that could not answer says so where its rows would be, so the tray goes on being the
+ * one place this panel makes a statement about what it holds. At the top of the tray when there
+ * are no rows, and under the last of them when the failure was a page that did not arrive.
+ */
+.list > .error:first-child { margin-top: 0; }
+
 .hint { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
+
+/*
+ * The sentence that reconciles the counters with a queue the desk's own filter has emptied.
+ *
+ * It stands under both of them, because it is about the difference between them, and it is prose
+ * in a panel of data: three sentences set at the dense leading the counter cells take would read
+ * as a block rather than as something written to be read. Not an error box, and nothing here may
+ * make it one: nothing has failed, the desk is explaining a default it applied itself.
+ */
+.queue-note {
+    margin-top: var(--space-4);
+    line-height: var(--leading-normal);
+}
 
 /*
  * The horizontal counterpart of the rule the vertical axis already had. A grid item
@@ -948,7 +1025,22 @@ h2.panel-title {
 }
 
 /* A reason and a note are short. The cell can be wide; the field has no business being. */
-.panel-foot .row input { max-width: 32rem; }
+.panel-foot .row input,
+.panel-foot .row textarea { max-width: 32rem; }
+
+/*
+ * The notes box, which now opens holding whatever a colleague stored on the alert.
+ *
+ * A ceiling and a hand grip, in that order. The block it is in is the panel's sole and is capped
+ * at half the panel, so a note of twenty lines has to stop growing before it pushes the three
+ * buttons out of the panel entirely; past the ceiling it scrolls inside itself. Vertical only,
+ * because the width is settled by the rule above and a box dragged wider than its row would sit
+ * over the evidence beside it.
+ */
+.panel-foot .row textarea {
+    max-height: var(--size-textarea-max);
+    resize: vertical;
+}
 
 /*
  * Above this width the single column stops being the right answer: the ceiling that keeps a

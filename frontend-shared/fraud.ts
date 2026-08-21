@@ -1,5 +1,5 @@
 /**
- * The fraud desk's half of the API: what the three endpoints return, and how to call them.
+ * The fraud desk's half of the API: what its endpoints return, and how to call them.
  *
  * Shared because it was written twice. Both front ends carry a fraud desk - the analyst's own
  * application, and the same desk inside the customer application for a signed-in analyst - and
@@ -61,7 +61,21 @@ export interface AlertInfo {
     reason: string;
     riskScore: number | null;
     createdAt: string | null;
+    /**
+     * Who holds the alert, written by the assignment route and by nothing else.
+     *
+     * No screen types a name here and no request body carries one: the only name that can be
+     * written is the session's, which is the rule decidedBy already followed. See {@link takeAlert}.
+     */
     assignee: string | null;
+    /**
+     * Read only, and the whole of what is left of tags.
+     *
+     * The decision route no longer accepts them, so nothing in either application can write this
+     * column; it stays on the wire because the column is still read back, and an alert tagged by
+     * anything else still shows what it carries. Do not build an editor against it. What that cost
+     * the last time is in {@link FraudDecisionRequest}.
+     */
     tags: string[];
     notes: string | null;
 }
@@ -137,13 +151,19 @@ export interface AlertDetail {
 }
 
 /**
- * What an analyst can post about an alert.
+ * What an analyst can post about an alert, and the one name each of the three carries.
  *
  * The third was called REQUEST_CONFIRMATION, which named something it has never done: it asks
- * nobody for anything, it writes the assignee, the tags and the notes, and it takes no decision.
- * The server accepts both spellings so the rename can reach the two desks in any order, but only
- * ANNOTATE is on this list: the list is what a client may send, and leaving the old name here is
- * what would let a screen go on sending it.
+ * nobody for anything, it saves the notes and it takes no decision. The server accepts both
+ * spellings so the rename can reach the two desks in any order, but only ANNOTATE is on this
+ * list: the list is what a client may send, and leaving the old name here is what would let a
+ * screen go on sending it.
+ *
+ * This union is also the only declaration of the three tokens in this directory. The word list
+ * next door keys its buttons and its outcome sentences off this type instead of writing the set
+ * out a second time, because a closed set declared twice is a set that grows in one place: a
+ * fourth decision added to the wire and not to the labels compiles, and answers the analyst with
+ * the token.
  *
  * Rows written before the rename keep the old spelling in the database forever. Reading one back
  * is the glossary's problem and it is handled there, in decisionLabel, which gives both spellings
@@ -151,11 +171,28 @@ export interface AlertDetail {
  */
 export type FraudDecision = 'APPROVE' | 'DECLINE' | 'ANNOTATE';
 
+/**
+ * The body of a decision: the verdict, the analyst's own comment on it, and the notes.
+ *
+ * TWO FIELDS LEFT THIS BODY and neither is coming back, which is worth stating here because both
+ * desks were filling them in.
+ *
+ * `tags` went because nothing on either platform could produce one. Both desks sent back the
+ * empty list they had just been read, one as `[]` and one as nothing at all, and the server read
+ * those two as opposite instructions, so one desk cleared the column on every decision and the
+ * other left it alone. See {@link AlertInfo.tags}, which is still read.
+ *
+ * `assignee` went because it has a route of its own, {@link takeAlert} and {@link releaseAlert}.
+ * Kept here it would be a second writer of one field with the opposite convention about a blank,
+ * and echoing back the assignee the desk had read is enough to resurrect an assignment a
+ * colleague cleared in the meantime.
+ *
+ * `reason` is what the analyst wrote about THIS decision, and it rides with all three verdicts
+ * rather than belonging to the refusal. Nothing on a screen may call it the reason for declining.
+ */
 export interface FraudDecisionRequest {
     decision: FraudDecision;
     reason?: string;
-    assignee?: string;
-    tags?: string[];
     notes?: string;
 }
 
@@ -177,11 +214,15 @@ export interface AlertFilters {
     excludeTransferStatus?: string[];
 }
 
-export async function fetchAlerts(
-    filters: AlertFilters = {},
-    page = 0,
-    size = DEFAULT_PAGE_SIZE,
-): Promise<AlertQueueResponse> {
+/**
+ * The queue's query string, built once for the two routes that have to be asked the same question.
+ *
+ * The hidden list answers "which alerts is this filter keeping off the screen", which is only an
+ * answer while both requests carry the same filters. Two builders drifting by one parameter would
+ * make the two numbers stop adding up, and the collision they exist to explain would look like a
+ * miscount instead.
+ */
+function queueQuery(filters: AlertFilters, page: number, size: number): URLSearchParams {
     const params = new URLSearchParams();
 
     if (filters.state) params.set('state', filters.state);
@@ -195,15 +236,71 @@ export async function fetchAlerts(
         params.append('excludeTransferStatus', status);
     }
 
-    applyPaging(params, page, size);
+    return applyPaging(params, page, size);
+}
 
-    const res = await apiFetch(`${API_BASE}/fraud/alerts?${params.toString()}`);
+export async function fetchAlerts(
+    filters: AlertFilters = {},
+    page = 0,
+    size = DEFAULT_PAGE_SIZE,
+): Promise<AlertQueueResponse> {
+    const qs = queueQuery(filters, page, size);
+    const res = await apiFetch(`${API_BASE}/fraud/alerts?${qs.toString()}`);
     return handle<AlertQueueResponse>(res);
+}
+
+/**
+ * The alerts the caller's own `excludeTransferStatus` is keeping off the queue, and only those.
+ *
+ * It exists for one sight the desk could not explain. With the state filter on Cleared and
+ * withdrawn payments hidden, the list answers nothing while the counters strip beside it still
+ * says Cleared 1, because the counters count the whole queue and the exclusion is applied to the
+ * rows. This route says where that one alert went, so the strip can be reconciled on screen
+ * instead of read as a miscount.
+ *
+ * Send it the filters the queue was sent. Excluding nothing is not an error and not the whole
+ * queue: it answers no rows and a total of zero, which is the truthful answer to "what is being
+ * hidden" when nothing is.
+ *
+ * A page rather than the queue's envelope, because there are no counters to send: they count the
+ * queue and are the number this list is being reconciled against.
+ */
+export async function fetchHiddenAlerts(
+    filters: AlertFilters = {},
+    page = 0,
+    size = DEFAULT_PAGE_SIZE,
+): Promise<Page<AlertQueueItem>> {
+    const qs = queueQuery(filters, page, size);
+    const res = await apiFetch(`${API_BASE}/fraud/alerts/hidden?${qs.toString()}`);
+    return handle<Page<AlertQueueItem>>(res);
 }
 
 export async function fetchAlertDetail(id: number): Promise<AlertDetail> {
     const res = await apiFetch(`${API_BASE}/fraud/alerts/${id}`);
     return handle<AlertDetail>(res);
+}
+
+/**
+ * The customer's payments as the desk reads them, a page at a time.
+ *
+ * The same rows as {@link AlertDetail.history} and a different promise. The detail carries at most
+ * ten of them and says nothing about how many there are; this counts the lot, so the panel can say
+ * which ten of how many it is showing and offer the rest. Scope is the alert's own: the customer
+ * behind it, every account they hold, newest first, and reachable through the alert and nothing
+ * else.
+ *
+ * A panel that pages through a history must read this rather than re-read the alert. Turning a
+ * page on the detail would make the server rebuild the alert, the payment, the account and the
+ * customer to answer a question about none of them.
+ */
+export async function fetchAlertHistory(
+    id: number,
+    page = 0,
+    size = DEFAULT_PAGE_SIZE,
+): Promise<Page<HistoryItem>> {
+    const qs = applyPaging(new URLSearchParams(), page, size);
+    const res = await apiFetch(`${API_BASE}/fraud/alerts/${id}/history?${qs.toString()}`);
+    return handle<Page<HistoryItem>>(res);
 }
 
 export async function postFraudDecision(
@@ -215,5 +312,33 @@ export async function postFraudDecision(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
     });
+    return handle<AlertDetail>(res);
+}
+
+/**
+ * Takes the alert into the name of whoever is signed in.
+ *
+ * NO BODY, and that is the design rather than an omission: the only name this can write is the
+ * session's, the same rule the recorded verdict already follows, which is what makes a route open
+ * to every analyst safe to leave open. There is no directory of analysts in this application and
+ * therefore no way to hand work to a named colleague; what a desk offers is this control and a
+ * filter of mine against all.
+ *
+ * Answers the whole detail, exactly as a decision does, so the screen needs no second call to
+ * find out what it now holds.
+ */
+export async function takeAlert(id: number): Promise<AlertDetail> {
+    const res = await apiFetch(`${API_BASE}/fraud/alerts/${id}/assignment`, { method: 'POST' });
+    return handle<AlertDetail>(res);
+}
+
+/**
+ * Gives the alert back to the queue: the answering detail carries a null assignee.
+ *
+ * Any analyst may release any alert, including one held by somebody else. Deliberate at the
+ * server: an alert held by an analyst who has gone home must not be able to hold up the queue.
+ */
+export async function releaseAlert(id: number): Promise<AlertDetail> {
+    const res = await apiFetch(`${API_BASE}/fraud/alerts/${id}/assignment`, { method: 'DELETE' });
     return handle<AlertDetail>(res);
 }

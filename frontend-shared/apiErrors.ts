@@ -21,11 +21,17 @@
  * wrong on one of them. Both used to say "The panel above has been refreshed" and on the
  * workstation that panel is on the right.
  *
+ * Below the table sit the failures that have no code to look up, and they are the ones that used
+ * to reach a reader as machine text: no answer at all, an answer that could not be read, a 5xx
+ * with no code, and a refusal carrying a body that is not the contract. Each has one sentence
+ * here, chosen by what came back rather than by what the screen was doing, and each keeps a short
+ * status-and-code reference for the small type so that a screenshot is still worth something.
+ *
  * Pure: no DOM, no framework, no environment read, nothing thrown. Every export is a function of
  * its arguments.
  */
 
-import { isApiError } from './http';
+import { isApiError, isMalformedResponse } from './http';
 
 /**
  * Every code the ApiErrors catalogue can put on the wire, which is everything a mapped endpoint
@@ -62,17 +68,23 @@ export type ApiErrorCode =
  * different screens and the same endpoint.
  */
 export type ApiOperation =
-    | 'sign-in'             // POST /api/auth/login
-    | 'accounts'            // GET  /api/me/accounts
-    | 'payment-create'      // POST /api/payments
-    | 'payments-waiting'    // GET  /api/me/waiting-transfers
-    | 'payments-history'    // GET  /api/me/transfers
-    | 'payment-details'     // GET  /api/transfers/{id}
-    | 'payment-authorize'   // POST /api/transfers/{id}/authorize
-    | 'payment-cancel'      // POST /api/transfers/{id}/cancel
-    | 'alert-queue'         // GET  /api/fraud/alerts
-    | 'alert-details'       // GET  /api/fraud/alerts/{id}
-    | 'alert-decision';     // POST /api/fraud/alerts/{id}/decision
+    | 'sign-in'             // POST   /api/auth/login
+    | 'me'                  // GET    /api/me
+    | 'accounts'            // GET    /api/me/accounts
+    | 'payment-quote'       // GET    /api/payments/quote
+    | 'payment-create'      // POST   /api/payments
+    | 'payments-waiting'    // GET    /api/me/waiting-transfers
+    | 'payments-history'    // GET    /api/me/transfers
+    | 'payment-details'     // GET    /api/transfers/{id}
+    | 'payment-authorize'   // POST   /api/transfers/{id}/authorize
+    | 'payment-cancel'      // POST   /api/transfers/{id}/cancel
+    | 'alert-queue'         // GET    /api/fraud/alerts
+    | 'alert-hidden'        // GET    /api/fraud/alerts/hidden
+    | 'alert-details'       // GET    /api/fraud/alerts/{id}
+    | 'alert-history'       // GET    /api/fraud/alerts/{id}/history
+    | 'alert-decision'      // POST   /api/fraud/alerts/{id}/decision
+    | 'alert-assign'        // POST   /api/fraud/alerts/{id}/assignment
+    | 'alert-release';      // DELETE /api/fraud/alerts/{id}/assignment
 
 /** Facts the caller has and this module cannot read, for the few sentences that use one. */
 export interface ApiErrorContext {
@@ -171,8 +183,28 @@ const BY_OPERATION: Record<ApiOperation, Partial<Record<ApiErrorCode, readonly s
         VALIDATION_ERROR: ['Enter a username and a password.'],
     },
 
+    // Nothing to add. This call takes no values and names no object, so every failure it can have
+    // means what it means everywhere else: the session is gone, or the bank is.
+    me: {},
+
     accounts: {
         NOT_FOUND: ['Your accounts could not be loaded.', 'Reload the page and try again.'],
+    },
+
+    'payment-quote': {
+        // A price asked for while somebody is still typing, so the sentences name the box to
+        // correct rather than the request that carried it.
+        VALIDATION_ERROR: ['That amount could not be priced.', 'Check the amount and try again.'],
+        // The one refusal a quote shares with the payment itself, and the advice differs because
+        // the moment does: nothing has been offered yet, so there is still a choice to make.
+        DAILY_LIMIT_EXCEEDED: [
+            "This payment would take the day's payments on the selected account above its daily limit.",
+            'Lower the amount, or send it from a different account.',
+        ],
+        NOT_FOUND: [
+            'The selected account or payee is not available.',
+            'Reload the page and try again.',
+        ],
     },
 
     'payment-create': {
@@ -254,8 +286,29 @@ const BY_OPERATION: Record<ApiOperation, Partial<Record<ApiErrorCode, readonly s
         FORBIDDEN: ['The alert queue is only available to a fraud analyst.'],
     },
 
+    // The list that says which alerts the queue's own filter is holding back. It carries the same
+    // filters, so it can be refused for the same reasons and says so in the same words; what it
+    // must not do is read as a failure of the queue it is standing beside.
+    'alert-hidden': {
+        VALIDATION_ERROR: [
+            'One of the filters was not accepted, so what it is hiding could not be listed.',
+            'Check the amount range and the dates, then search again.',
+        ],
+        FORBIDDEN: ['The alert queue is only available to a fraud analyst.'],
+    },
+
     'alert-details': {
         NOT_FOUND: ['This alert no longer exists.'],
+    },
+
+    'alert-history': {
+        NOT_FOUND: ['This alert no longer exists.'],
+        // The only values in this request are the page and its size, neither of them typed by
+        // anybody; see payments-history, which is refused for the same reason and says so.
+        VALIDATION_ERROR: [
+            'That page of the history was not accepted.',
+            'Open the alert again and try again.',
+        ],
     },
 
     'alert-decision': {
@@ -273,6 +326,41 @@ const BY_OPERATION: Record<ApiOperation, Partial<Record<ApiErrorCode, readonly s
         VALIDATION_ERROR: ['That decision was not accepted.', 'Please try again.'],
         FORBIDDEN: ['You are not allowed to decide this alert.'],
     },
+
+    /*
+     * Taking an alert and giving it back. A lost race here is not a lost verdict: nothing the
+     * analyst typed was at stake, so these sentences say what happened and where to look, rather
+     * than warning that work was discarded, which is what the decision route has to say.
+     *
+     * Neither says "somebody else holds it", although that is the usual cause. Any analyst may
+     * take an alert another analyst holds and may release one, on purpose, so a refusal here is
+     * about the alert having moved on rather than about whose name is on it.
+     */
+    'alert-assign': {
+        CONFLICT: [
+            'This alert changed while you were reading it, so it was not taken.',
+            'Open it again to see where it stands.',
+        ],
+        ALERT_CHANGED: [
+            'This alert changed while you were reading it, so it was not taken.',
+            'Open it again to see where it stands.',
+        ],
+        NOT_FOUND: ['This alert no longer exists.'],
+        FORBIDDEN: ['The alert queue is only available to a fraud analyst.'],
+    },
+
+    'alert-release': {
+        CONFLICT: [
+            'This alert changed while you were reading it, so it was not released.',
+            'Open it again to see where it stands.',
+        ],
+        ALERT_CHANGED: [
+            'This alert changed while you were reading it, so it was not released.',
+            'Open it again to see where it stands.',
+        ],
+        NOT_FOUND: ['This alert no longer exists.'],
+        FORBIDDEN: ['The alert queue is only available to a fraud analyst.'],
+    },
 };
 
 /**
@@ -287,9 +375,39 @@ const UNREACHABLE: readonly string[] = [
     'Check your connection and try again.',
 ];
 
-/** A server answer this table has no entry for, and which carried no sentence of its own. */
+/**
+ * A refusal this table has no entry for, which carried no sentence of its own, and which is not
+ * the bank's own fault: a 4xx with a body that is not the error contract.
+ *
+ * The third of the three sentences a failure with nothing to say falls back to, beside
+ * UNREACHABLE above and SERVER_FAULT below. Which of the three is chosen is decided by what came
+ * back and not by what the screen was doing, because that is all that is known.
+ */
 const UNRECOGNIZED: readonly string[] = [
     'The bank refused this request and did not say why.',
+    'Please try again in a moment.',
+];
+
+/**
+ * A 5xx with no code, which is the bank breaking rather than the request being refused.
+ *
+ * The same words as INTERNAL_ERROR on purpose, by taking them rather than by repeating them. A
+ * handled failure answers 500 with the code and an unhandled one answers 500 without it, and the
+ * difference is invisible from the reader's chair: two wordings for one event would be the
+ * drift this module exists to stop.
+ */
+const SERVER_FAULT: readonly string[] = GENERAL.INTERNAL_ERROR;
+
+/**
+ * A 2xx whose body could not be read as the value the call promised.
+ *
+ * Not a refusal: the request was accepted, and what failed is the answer. It says so, because
+ * "the bank refused this request" would send somebody to change something about a request that
+ * was fine. What it must never do is show the body, which is the whole reason handle() throws
+ * this rather than returning the text.
+ */
+const UNREADABLE: readonly string[] = [
+    "The bank's answer could not be read.",
     'Please try again in a moment.',
 ];
 
@@ -308,13 +426,23 @@ function attemptsSentence(triesLeft: number): string {
  *
  * An unknown code falls back to the server's own message when there is one. That is not a
  * concession: it is how a code added to the catalogue tomorrow still reads as a sentence today,
- * and the server's messages are written for the caller.
+ * and the server's messages are written for the caller. It is safe because handle() only ever
+ * puts a string from the error contract in `message`; a body that is not the contract is dropped
+ * there, so nothing that reaches this line can be page source.
+ *
+ * With no code and no message there are exactly three things worth saying, and the status
+ * decides which: nothing came back, the bank has a problem, the request was refused.
  */
 export function describeApiErrorLines(
     error: unknown,
     operation: ApiOperation,
     context: ApiErrorContext = {},
 ): string[] {
+    // Before isApiError, which this also satisfies: it carries a status off a real response.
+    if (isMalformedResponse(error)) {
+        return [...UNREADABLE];
+    }
+
     if (!isApiError(error)) {
         return [...UNREACHABLE];
     }
@@ -322,7 +450,10 @@ export function describeApiErrorLines(
     const raw = error.code;
     if (raw === undefined || !(raw in GENERAL)) {
         const message = error.message.trim();
-        return message ? [message] : [...UNRECOGNIZED];
+        if (message) {
+            return [message];
+        }
+        return (error.status ?? 0) >= 500 ? [...SERVER_FAULT] : [...UNRECOGNIZED];
     }
 
     const code = raw as ApiErrorCode;
@@ -342,4 +473,60 @@ export function describeApiError(
     context: ApiErrorContext = {},
 ): string {
     return describeApiErrorLines(error, operation, context).join(' ');
+}
+
+/**
+ * The one short line that keeps a failure diagnosable once the sentences above have stopped
+ * printing machine text at the reader.
+ *
+ * Status and code, nothing else, and never the body. It is meant for small type under the
+ * sentences, so that a screenshot mailed to whoever runs the bank still names which answer this
+ * was. Null when there was no answer at all: UNREACHABLE has already said that in words, and
+ * "HTTP 0" would be an invention.
+ */
+export function apiErrorReference(error: unknown): string | null {
+    if (isMalformedResponse(error)) {
+        return `HTTP ${error.status} ${error.empty ? 'EMPTY_BODY' : 'MALFORMED_BODY'}`;
+    }
+    if (!isApiError(error)) {
+        return null;
+    }
+    return error.code ? `HTTP ${error.status} ${error.code}` : `HTTP ${error.status}`;
+}
+
+/**
+ * One failure, in the shape an error box renders: the sentences, the reference for the small
+ * type, and the way out where the caller has one.
+ *
+ * The retry is the caller's own loader, not something this module can build: only the screen
+ * knows which request failed and what it costs to ask again. Pass one for a read, which can be
+ * asked again for free, and do not pass one for anything that moves money, where a second press
+ * is a second payment. A failure with no retry is rendered exactly as before, sentences and
+ * reference, so a screen adopts the control one call site at a time.
+ */
+export interface ApiFailure {
+    readonly lines: readonly string[];
+    /** "HTTP 409 CONFLICT", or null when nothing came back. */
+    readonly reference: string | null;
+    readonly retry?: () => void;
+    /** Set whenever `retry` is, so the two applications do not label one control twice. */
+    readonly retryLabel?: string;
+}
+
+export interface ApiFailureOptions extends ApiErrorContext {
+    /** Runs the failed request again. Reads only: see {@link ApiFailure}. */
+    retry?: () => void;
+}
+
+export function describeApiFailure(
+    error: unknown,
+    operation: ApiOperation,
+    options: ApiFailureOptions = {},
+): ApiFailure {
+    const { retry, ...context } = options;
+    const failure: ApiFailure = {
+        lines: describeApiErrorLines(error, operation, context),
+        reference: apiErrorReference(error),
+    };
+    return retry ? { ...failure, retry, retryLabel: 'Try again' } : failure;
 }

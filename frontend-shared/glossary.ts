@@ -24,6 +24,18 @@
  */
 
 /**
+ * The three things an analyst can press, which are the three tokens the wire takes.
+ *
+ * Imported rather than declared a second time. The set used to be written out here as well, on
+ * the argument that a word list must not pull the HTTP layer in behind it, and that argument was
+ * about the wrong thing: `import type` is erased, so this module still reaches no server and is
+ * still testable without one, while a fourth decision can no longer arrive on the wire and leave
+ * the buttons and the outcome sentences behind. Two declarations of one closed set do not fail a
+ * build when they part company; they answer the analyst with the raw token.
+ */
+import type { FraudDecision } from './fraud';
+
+/**
  * Who is reading.
  *
  * One status genuinely needs two sentences. `WAITING_AUTH` is `Waiting for your code` to the
@@ -116,6 +128,19 @@ const AUTH_METHOD: Record<string, string> = {
 };
 
 /**
+ * Where a payment that has already left the account stands with the bank on the other side.
+ *
+ * Two values on the wire and a null, and the null is not a third value: it covers a payment
+ * credited inside this bank, a payment that has not settled, and every row written before the
+ * column existed. Which side of the bank the money was going is answered by the destination
+ * account and by nothing else; see {@link bankBoundaryLabel}.
+ */
+const DISPATCH_STATE: Record<string, string> = {
+    PENDING: 'Waiting in the outgoing queue',
+    DISPATCHED: 'Handed to the other bank',
+};
+
+/**
  * The sentence for a transfer status, for the person in front of this screen.
  *
  * @param audience which application is asking; see {@link Audience} for why it is required
@@ -151,6 +176,36 @@ export function authMethodLabel(method: string | null | undefined): string {
 }
 
 /**
+ * What is left to happen to a payment that has left the account, or the empty string when there
+ * is nothing left to say.
+ *
+ * The empty string is the point of the function rather than a gap in it. A payment credited
+ * inside this bank has no onward leg, and neither has one that has not settled, so a screen that
+ * read the absence as "the money stayed here" would state as a fact something this field cannot
+ * know. What answers that is the destination account, in {@link bankBoundaryLabel}.
+ */
+export function dispatchStateLabel(state: string | null | undefined): string {
+    return label(DISPATCH_STATE, state);
+}
+
+/**
+ * What a quote says about the one time code, before the payment is sent.
+ *
+ * Spoken only when there will be one, by the same restraint that leaves an ordinary destination
+ * unmarked: a customer who will simply be charged has nothing to be told, and a line that appears
+ * on every payment has stopped being read by the time it matters.
+ *
+ * It is the bank's real rule and not the screen's guess at it: the quote is priced through the
+ * same risk rules the payment itself runs, so the same amount answers differently to a saved payee
+ * the bank trusts than to an account number typed into the box. It says nothing about whether the
+ * payment would be held for review, and must not be made to: that would tell whoever holds the
+ * customer's credentials where the threshold lies.
+ */
+export function authorizationNote(required: boolean): string {
+    return required ? 'This payment will ask for a one time code.' : '';
+}
+
+/**
  * Which of the three treatments a transfer status takes.
  *
  * An unknown status is `pending`, not `settled`. A state the server has just learned to send is
@@ -174,15 +229,6 @@ function label(table: Record<string, string>, value: string | null | undefined):
 }
 
 /**
- * The three things an analyst can press, as a closed set.
- *
- * The same three tokens as FraudDecision in fraud.ts, written out again rather than imported:
- * that module carries the calls to the server, and a word list must not pull the HTTP layer in
- * behind it. Each desk passes its own value and the two unions meet by structure.
- */
-export type DecisionAction = 'APPROVE' | 'DECLINE' | 'ANNOTATE';
-
-/**
  * What the three buttons say.
  *
  * They said different things: `Approve: release to customer` against `Approve: release to the
@@ -196,16 +242,45 @@ export type DecisionAction = 'APPROVE' | 'DECLINE' | 'ANNOTATE';
  * names differently. And the payment goes back to the customer to confirm, so `to the customer`
  * is the phrase the sentence under the button already uses.
  */
-const DECISION_ACTION: Record<DecisionAction, string> = {
+const DECISION_ACTION: Record<FraudDecision, string> = {
     APPROVE: 'Approve: release to the customer',
     DECLINE: 'Decline: record confirmed fraud',
     ANNOTATE: 'Save notes, no decision',
 };
 
 /** What one of the three decision buttons says. Identical on both desks, which is the point. */
-export function decisionActionLabel(action: DecisionAction): string {
+export function decisionActionLabel(action: FraudDecision): string {
     return DECISION_ACTION[action];
 }
+
+/**
+ * What the box above those three buttons is called.
+ *
+ * One caption, because the two desks had two: one said "Reason / note for this decision" and the
+ * other said "Reason" over a box hinting "optional reason". Neither names a verdict and neither
+ * may, which is the part worth stating out loud: the comment goes on the wire whichever of the
+ * three is pressed, so a caption reading "reason for declining" would tell an analyst clearing an
+ * alert that what they wrote is for a refusal they are not making.
+ */
+export const DECISION_REASON_LABEL = 'Reason for this decision';
+
+/**
+ * The words for holding an alert: the two controls, the alert nobody holds, and the two positions
+ * of the filter that reads the queue by it.
+ *
+ * One vocabulary because there is one behaviour behind it. Assignment is a control and a filter
+ * and not a field: the only name that can be written is the analyst's own, so there is nobody to
+ * type and no colleague to hand an alert to, and the queue is read either as mine or as all of it.
+ *
+ * `unassigned` is a word and not the table's dash, and only in the panel that lists facts one to a
+ * line. Both desks had already reached for it there, where a dash reads as a value withheld; the
+ * queue column keeps the dash, which is what every other unfilled cell in it shows.
+ */
+export const TAKE_ALERT = 'Take this alert';
+export const RELEASE_ALERT = 'Release';
+export const UNASSIGNED = 'unassigned';
+export const ASSIGNED_TO_ME = 'Mine';
+export const ASSIGNED_TO_ANYONE = 'All';
 
 /**
  * What the history beside an alert is a history OF.
@@ -293,7 +368,7 @@ export function bankBoundaryLabel(toIbanInBank: boolean): string {
  * @param status the payment's status AFTER the decision, not before it
  */
 export function describeDecision(
-    action: DecisionAction,
+    action: FraudDecision,
     status: string | null | undefined,
 ): string {
     // The analyst's own vocabulary, in the same words the queue and the panel above it use. It
@@ -312,7 +387,11 @@ export function describeDecision(
             : `Alert recorded as confirmed fraud, and the transfer is ${said}.`;
     }
 
-    return 'Notes, assignee and tags saved. No decision was taken: the alert is still open and the transfer is unchanged.';
+    // The sentence used to promise two things this press cannot do. Tags cannot be written over
+    // the decision route at all, and the assignee is written by a route of its own that no button
+    // in this panel calls, so an analyst was told twice over that something had been saved which
+    // had never been sent. What is left is what the press actually does.
+    return 'Notes saved. No decision was taken: the alert is still open and the transfer is unchanged.';
 }
 
 /**

@@ -370,6 +370,7 @@ public class AuthorizationController {
                 t.status().name(),
                 t.createdAt().toString(),
                 t.settledAt() != null ? t.settledAt().toString() : null,
+                dispatchStateOf(t),
                 t.message(),
                 t.declineReason(),
                 authMethodOf(t),
@@ -379,16 +380,40 @@ public class AuthorizationController {
     }
 
     /**
-     * The name of the method that authorized a transfer, or an empty string when it has none.
+     * The name of the method that authorized a transfer, or null when it has none.
      *
      * {@code Payment} is an abstract base class with no {@code toString}, so asking it for one
      * yields {@code Object}'s identity string: both of these screens used to show the customer
      * something of the shape {@code cz.vsb.minibank.domain.CardPayment@13e69db6}. The field it
      * should read is {@code method()}, which is what the two persistence mappers and the fraud
      * desk already store and return.
+     *
+     * NULL AND NOT AN EMPTY STRING, which is the whole of this method's remaining reason to exist.
+     * The same field is built in {@code FraudController.mapTransferInfo} and has always answered
+     * null there, so one wire field arrived in three shapes: a name, a null and an empty string.
+     * A client cannot tell the third from the second without knowing which endpoint it came from,
+     * and both front ends read it through a label lookup that answers "" for "" and therefore drew
+     * an empty cell where a settled payment has no recorded method. Absent is one fact and it now
+     * has one spelling.
      */
     private static String authMethodOf(Transfer t) {
-        return t.authMethod() != null ? t.authMethod().method() : "";
+        return t.authMethod() != null ? t.authMethod().method() : null;
+    }
+
+    /**
+     * What this payment still owes the payment network, or null when it owes it nothing.
+     *
+     * Sent beside {@code toIbanInBank} rather than instead of it, because the two answer different
+     * questions and a client cannot derive either from the other. The boolean says which side of
+     * this bank's edge the money was going; this says how far it has got on the way out - PENDING
+     * is settled and queued for the network, DISPATCHED is settled and handed over. Null is the
+     * common case and covers three situations at once, which {@link DispatchState} sets out: an
+     * intra-bank payment, anything that has not settled, and every row written before the column
+     * existed. That is why {@link HistoryItemDto#isToIbanInBank} may not read this field as the
+     * opposite answer, and why this one is not a substitute for it.
+     */
+    private static String dispatchStateOf(Transfer t) {
+        return t.dispatchState() != null ? t.dispatchState().name() : null;
     }
 
     /**

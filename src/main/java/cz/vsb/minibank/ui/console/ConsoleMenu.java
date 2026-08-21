@@ -21,6 +21,7 @@ import cz.vsb.minibank.domain.exceptions.DomainException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Scanner;
 
 /**
@@ -507,7 +508,11 @@ public class ConsoleMenu {
         String act = in.nextLine().trim();
         int tid = askInt("Transfer id");
 
-        switch (act.toLowerCase()) {
+        // Locale.ROOT: the words compared below are English and the default locale is the JVM's.
+        // Under a Turkish default the I of "DECLINE" folds to a lower case letter with no dot, so
+        // the result is not "decline", it matches no case here, and the operator's decision falls
+        // through to "Unknown action" with the alert left exactly as it was and nothing said.
+        switch (act.toLowerCase(Locale.ROOT)) {
             case "approve" -> {
                 services.fraudService.approve(tid);
                 System.out.println("[OK] Alert cleared. Transfer " + tid
@@ -668,9 +673,20 @@ public class ConsoleMenu {
         }
     }
 
+    /**
+     * The prompt names the decimal separator it accepts, because this reader does not accept the
+     * one the operator is most likely to type.
+     *
+     * Double.parseDouble takes a point and nothing else, so "1500,00" - which is how an amount is
+     * written in Czech, and what the web form both shows and requires - is refused here as "not an
+     * amount" with no hint as to what would be one. The parser is deliberately left alone: it is
+     * the console's, the two front ends have their own convention settled in the shared layer, and
+     * a second amount grammar written here is a third one to keep in step. What is fixed is the
+     * prompt, which now says which of the two forms this door takes.
+     */
     private double askDouble(String label, double defVal) {
         while (true) {
-            String s = askLine(label + " [" + defVal + "]: ");
+            String s = askLine(label + " (decimal point, for example 1500.00) [" + defVal + "]: ");
             if (s.isEmpty()) {
                 return defVal;
             }
@@ -678,7 +694,8 @@ public class ConsoleMenu {
                 return Double.parseDouble(s);
             } catch (NumberFormatException e) {
                 System.out.println("[Error] '" + s + "' is not an amount."
-                        + " Type a number, or leave the line blank for " + defVal + ".");
+                        + " Amounts are typed with a decimal point, for example 1500.00,"
+                        + " or leave the line blank for " + defVal + ".");
             }
         }
     }

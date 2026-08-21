@@ -458,7 +458,7 @@ public class SqlSchemaPassTest {
      *
      * Both halves matter and the second is not padding. A decision writes the alert TWICE in one
      * unit of work - {@code decideAndUpdateAlert} saves in the verdict arm and again after the
-     * assignee, tags and notes block - so a guard whose write-back was missing would refuse every
+     * notes block - so a guard whose write-back was missing would refuse every
      * decision this application makes, on the second save, with nobody racing anybody. The load
      * path fails the other way and just as silently: an alert that came back without its version
      * would carry 0, and the next update would be compared against the version of a row nobody has
@@ -479,8 +479,7 @@ public class SqlSchemaPassTest {
                 "the aggregate must carry the version the store holds after a load");
 
         services.fraudService.decideAndUpdateAlert(
-                held.alertId(), "APPROVE", null, "anna.analyst", List.of("manual-review"),
-                "looked fine", "anna.analyst");
+                held.alertId(), "APPROVE", null, "looked fine", "anna.analyst");
 
         assertEquals(2, versionOfAlert(held.alertId()),
                 "the verdict and the metadata are two guarded writes in one unit of work, and the"
@@ -755,7 +754,7 @@ public class SqlSchemaPassTest {
                 customerId, accountId, EXTERNAL_IBAN.value(), 12_000, "over the alert threshold").transferId();
         services.fraudService.decideAndUpdateAlert(
                 infra.alerts.byTransferId(flagged).orElseThrow().id(),
-                "APPROVE", null, null, List.of("manual-review"), "looked fine", "anna.analyst");
+                "APPROVE", null, "looked fine", "anna.analyst");
 
         FraudAlert decided = infra.alerts.byTransferId(flagged).orElseThrow();
         assertEquals(FraudAlert.DECISION_APPROVE, decided.decision(),

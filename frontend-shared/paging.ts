@@ -2,12 +2,13 @@
  * A page of a list, the payee list beside the payment form, and the words at the foot of a list
  * that offers more.
  *
- * Three lists across two applications now arrive a page at a time: the alert queue, the waiting
- * transfers, and the customer's own payment history. All three grew the same control at their
- * foot, a Show more button and a line saying how much of the list is on screen, and a control
- * that says one thing on the web and another on the workstation is the divergence this directory
- * exists to prevent. The strings and the arithmetic are settled once, here; where the button
- * sits and what it is skinned like belongs to each idiom.
+ * Five lists across two applications now arrive a page at a time: the alert queue, the list of
+ * what its own filter is hiding, the payments beside an alert, the waiting transfers, and the
+ * customer's own payment history. All of them grow the same control at their foot, a Show more
+ * button and a line saying how much of the list is on screen, and a control that says one thing on
+ * the web and another on the workstation is the divergence this directory exists to prevent. The
+ * strings and the arithmetic are settled once, here; where the button sits and what it is skinned
+ * like belongs to each idiom.
  *
  * The two interfaces below are the wire, and they are the TypeScript halves of PageDto and
  * BeneficiaryDto. Neither is fetched here: the fraud calls live in fraud.ts and the customer's

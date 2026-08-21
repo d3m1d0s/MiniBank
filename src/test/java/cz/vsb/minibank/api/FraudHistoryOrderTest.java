@@ -2,6 +2,7 @@ package cz.vsb.minibank.api;
 
 import cz.vsb.minibank.api.dto.AlertDetailDto;
 import cz.vsb.minibank.api.dto.HistoryItemDto;
+import cz.vsb.minibank.api.dto.PageDto;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.Address;
@@ -11,6 +12,8 @@ import cz.vsb.minibank.domain.SimpleFeePolicy;
 import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.UserRole;
+import cz.vsb.minibank.domain.exceptions.NotFoundException;
+import cz.vsb.minibank.domain.exceptions.ValidationException;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
@@ -198,6 +201,89 @@ class FraudHistoryOrderTest {
                         BASE.toString()),
                 history.stream().map(HistoryItemDto::createdAt).toList(),
                 "newest first has to hold across the mix of accounts, not within each of them");
+    }
+
+    /**
+     * The route beside the detail says how many payments there are and pages through all of them.
+     *
+     * The detail's list is ten rows and nothing else: no page, no size, no total. A panel drawn
+     * from it cannot tell a customer with ten payments from one with two hundred, and both desks
+     * covered that with a heading that promises the last ten, which is a caption rather than an
+     * answer. The total is what makes "Showing 10 of 137" possible, and the pages are what make
+     * the rest of the table reachable at all.
+     */
+    @Test
+    void theHistoryRouteCountsEveryPaymentAndPagesThroughThem() {
+        seedHistory(11);
+        int alertId = infra.alerts.all().get(0).id();
+
+        PageDto<HistoryItemDto> first = fraudController.getAlertHistory(alertId, 0, 4);
+
+        assertEquals(4, first.items().size());
+        assertEquals(0, first.page());
+        assertEquals(4, first.size());
+        assertEquals(11, first.total(),
+                "the number the panel had no way of stating, and the reason the last row of a"
+                        + " truncated table used to look like the last payment");
+        assertEquals(BASE.plusSeconds(10 * 60).toString(), first.items().get(0).createdAt(),
+                "newest first holds on the paged route too");
+
+        PageDto<HistoryItemDto> lastPage = fraudController.getAlertHistory(alertId, 2, 4);
+
+        assertEquals(3, lastPage.items().size(), "eleven rows in pages of four");
+        assertEquals(11, lastPage.total(), "the total does not depend on which page was asked for");
+        assertEquals(BASE.toString(), lastPage.items().get(2).createdAt(),
+                "the oldest payment is on the last page rather than off the end of the table");
+    }
+
+    /** No page and no size is the first page at the size the rest of this API defaults to. */
+    @Test
+    void theHistoryRouteDefaultsToTheFirstPageAndRefusesOneNoTableCouldHave() {
+        seedHistory(11);
+        int alertId = infra.alerts.all().get(0).id();
+
+        PageDto<HistoryItemDto> page = fraudController.getAlertHistory(alertId, null, null);
+
+        assertEquals(0, page.page());
+        assertEquals(PageDto.DEFAULT_SIZE, page.size());
+        assertEquals(11, page.items().size(), "all eleven fit inside the default page");
+
+        // Refused rather than clamped, exactly as the queue's own paging parameters are: a
+        // request nobody honoured must not answer with a table that is not the one asked for.
+        assertThrows(ValidationException.class,
+                () -> fraudController.getAlertHistory(alertId, -1, null));
+        assertThrows(ValidationException.class,
+                () -> fraudController.getAlertHistory(alertId, null, 0));
+        assertThrows(ValidationException.class,
+                () -> fraudController.getAlertHistory(alertId, null, PageDto.MAX_SIZE + 1));
+    }
+
+    /**
+     * The paged route reaches the same customer the detail's own list does, through the alert and
+     * through nothing else.
+     *
+     * Worth its own case because the reach is the point of the panel and the route takes an alert
+     * id rather than a customer id: a second way to this table that read one account, or that
+     * took a customer from the caller, would be a wider door than the screen it serves.
+     */
+    @Test
+    void theHistoryRouteCoversEveryAccountTheCustomerHolds() {
+        seedTwoAccounts();
+        int alertId = infra.alerts.all().get(0).id();
+
+        PageDto<HistoryItemDto> page = fraudController.getAlertHistory(alertId, null, null);
+
+        assertEquals(4, page.total());
+        assertTrue(page.items().stream().anyMatch(h -> SECOND_IBAN.value().equals(h.fromIban())),
+                "the account the alert was not raised on is reached through the customer");
+    }
+
+    /** An alert nobody raised has no history, and says so rather than answering with an empty one. */
+    @Test
+    void theHistoryRouteRefusesAnAlertThatDoesNotExist() {
+        seedHistory(1);
+
+        assertThrows(NotFoundException.class, () -> fraudController.getAlertHistory(4242, null, null));
     }
 
     private List<HistoryItemDto> historyOfTheFirstAlert() {

@@ -164,11 +164,11 @@ public class FraudApplicationService {
      * existed.
      *
      * Over HTTP the same idea is the ANNOTATE branch of {@link #decideAndUpdateAlert}: it
-     * changes no state and the assignee/tags/notes block after it runs and commits. That makes
-     * it the one route by which an analyst can annotate an already-decided alert, since
-     * approve() and markSuspicious() both refuse a second verdict and take the metadata down
-     * with them. This method is the console's half of it and keeps the use case's name; only
-     * the token on the wire was renamed.
+     * changes no state and the notes block after it runs and commits. That makes it the one
+     * route by which an analyst can annotate an already-decided alert, since approve() and
+     * markSuspicious() both refuse a second verdict and take the notes down with them. This
+     * method is the console's half of it and keeps the use case's name; only the token on the
+     * wire was renamed.
      *
      * The console carries no metadata, so this method has nothing left to do but prove the
      * alert exists. No unit of work: both backends serve a read with no ambient one.
@@ -188,8 +188,6 @@ public class FraudApplicationService {
             int alertId,
             String decisionRaw,
             String reason,
-            String assignee,
-            java.util.List<String> tags,
             String notes,
             String decidedBy
     ) {
@@ -205,10 +203,6 @@ public class FraudApplicationService {
                     .trim()
                     .toUpperCase(java.util.Locale.ROOT);
 
-            // Validated before the switch, so a comma in a tag cannot cost the analyst their
-            // verdict: raised inside the switch it would roll back an approve or decline that
-            // had already been applied to the aggregate.
-            java.util.List<String> cleanedTags = cleanTags(tags);
             Instant decidedAt = clock.instant();
 
             switch (decision) {
@@ -238,10 +232,10 @@ public class FraudApplicationService {
                     alerts.save(alert);
 
                     // Recorded, not reversed, once the money has left. Refusing it here used to
-                    // roll the assignee, tags and notes below back with the verdict, so a
-                    // settled transfer accepted APPROVE and nothing else and confirmed fraud
-                    // was filed as OK. DECLINED is excluded so an analyst's wording does not
-                    // overwrite the customer's own cancellation reason.
+                    // roll the notes below back with the verdict, so a settled transfer accepted
+                    // APPROVE and nothing else and confirmed fraud was filed as OK. DECLINED is
+                    // excluded so an analyst's wording does not overwrite the customer's own
+                    // cancellation reason.
                     if (t.status() != TransferStatus.SENT && t.status() != TransferStatus.DECLINED) {
                         t.decline(r);
                         transfers.save(t);
@@ -253,23 +247,18 @@ public class FraudApplicationService {
                     // only APPROVE unlocks the customer's confirmation step - and marking it
                     // suspicious destroyed the risk reason that says why it was raised.
                     //
-                    // What it does do is fall through to the metadata block below, which is why
-                    // it survives: it is the only route that can attach an assignee, tags or
-                    // notes to an alert that has already been decided. ANNOTATE is that and
-                    // nothing else, which is why REQUEST_CONFIRMATION lost the name: it asked
-                    // for a confirmation nobody was ever sent. The old spelling stays accepted
-                    // so the rename can reach the two desks in either order.
+                    // What it does do is fall through to the notes block below, which is why it
+                    // survives: it is the only route that can attach notes to an alert that has
+                    // already been decided. ANNOTATE is that and nothing else, which is why
+                    // REQUEST_CONFIRMATION lost the name: it asked for a confirmation nobody was
+                    // ever sent. The old spelling stays accepted so the rename can reach the two
+                    // desks in either order.
                 }
                 default -> throw new ValidationException("Unsupported decision: " + decisionRaw);
             }
 
-            // Metadata update (still inside same UoW)
-            if (assignee != null && !assignee.isBlank()) {
-                alert.assignTo(assignee.trim());
-            }
-            if (cleanedTags != null) {
-                alert.replaceTags(cleanedTags);
-            }
+            // Notes update (still inside same UoW). Null means the caller sent none and the
+            // stored notes are left alone; an empty string is a caller clearing them.
             if (notes != null) {
                 alert.updateNotes(notes);
             }
@@ -281,36 +270,40 @@ public class FraudApplicationService {
     }
 
     /**
-     * The one place a tag is validated, and the only reason a tag can be refused.
+     * Puts an alert in an analyst's name, or takes it out of everybody's.
      *
-     * A comma is rejected because the two backends store tags differently and neither can
-     * represent one: SqlFraudAlertRepository joins them with commas and splits on commas coming
-     * back, so "high,risk" is written as one tag and read as two, while the JSON store keeps a
-     * real list and reads back the one tag that was typed. The same alert would then answer the
-     * same question differently depending on which store it came from. Refusing the character
-     * is the smaller fix than escaping it or moving the column to a PostgreSQL array, and it
-     * costs a tag vocabulary nothing - a comma inside a label is punctuation, not information.
+     * A method of its own rather than a parameter on the decision above, because assignment is
+     * not a verdict and the two have different lifetimes: an analyst takes an alert when they
+     * start looking at it and decides it when they have finished, and an alert that has already
+     * been decided can still be handed to somebody to follow up. Folded into the decision it was
+     * also unable to express the half that matters most to a queue, which is giving an alert
+     * back: a blank assignee there meant "leave it alone", so nothing could ever clear one.
      *
-     * ValidationException maps to 400 VALIDATION_ERROR. The offending tag is in the exception
-     * message, which reaches the log only; no handler echoes it.
+     * The caller decides who, and the only caller over HTTP passes the signed-in analyst, never
+     * a name off the request. That is what makes this route safe to leave open to every analyst:
+     * taking an alert and releasing it are the two things a queue needs, and neither of them can
+     * put a colleague's name on your work. An alert already held by somebody else is taken
+     * rather than refused, deliberately: an analyst who has gone home must not be able to hold a
+     * queue hostage.
      *
-     * @return null when the caller sent no tags at all, which means "leave them alone" and is a
-     *         different instruction from an empty list, which means "clear them"
+     * The write is guarded like every other alert write, so an assignment built on a stale read
+     * is refused with the 409 that sends the analyst back to the alert rather than silently
+     * winning over a colleague's.
+     *
+     * @param assignee the analyst's username; null or blank releases the alert, which is the one
+     *                 instruction the decision route could not carry
      */
-    private static java.util.List<String> cleanTags(java.util.List<String> tags) {
-        if (tags == null) {
-            return null;
+    public void assign(int alertId, String assignee) {
+        String holder = (assignee == null || assignee.isBlank()) ? null : assignee.trim();
+
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
+            FraudAlert alert = alerts.byId(alertId)
+                    .orElseThrow(() -> new NotFoundException("Fraud alert not found: " + alertId));
+
+            alert.assignTo(holder);
+            alerts.save(alert);
+
+            scope.uow().commit();
         }
-        java.util.List<String> cleaned = tags.stream()
-                .filter(java.util.Objects::nonNull)
-                .map(String::trim)
-                .filter(s -> !s.isEmpty())
-                .toList();
-        for (String tag : cleaned) {
-            if (tag.indexOf(',') >= 0) {
-                throw new ValidationException("A fraud tag must not contain a comma: " + tag);
-            }
-        }
-        return cleaned;
     }
 }

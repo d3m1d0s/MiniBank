@@ -7,7 +7,6 @@ import cz.vsb.minibank.domain.FraudAlert;
 import cz.vsb.minibank.domain.FraudAlertState;
 import cz.vsb.minibank.domain.RuleBasedRiskService;
 import cz.vsb.minibank.domain.ZeroFeePolicy;
-import cz.vsb.minibank.domain.exceptions.ValidationException;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
@@ -28,12 +27,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The rest of the alert lifecycle: an analyst's verdict, their name and the moment they gave it are recorded
- * and can be read back - plus the one thing a tag may not contain.
+ * and can be read back - plus who the alert is waiting on.
  *
  * fraud_alerts.decision and resolved_at have been declared in db/init/schema.sql since the table
  * was created, written by nothing and read by nothing. decided_by did not exist at all, and no
  * analyst identity could reach the service: FraudController checked the role and threw the user
  * away. So an approved alert stored "OK" and no record of who approved it or when.
+ *
+ * assignee was the same shape of defect one column over, and the assignment cases below are what
+ * closed it: it was stored, printed on both desks and filtered on, and the only way to write it
+ * was to send back the value that had just been read, which meant it could never hold anything
+ * but null and the filter could never match a row.
  */
 class FraudDecisionRecordTest {
 
@@ -92,7 +96,7 @@ class FraudDecisionRecordTest {
         assertNull(alertFor(transferId).resolvedAt());
 
         services.fraudService.decideAndUpdateAlert(
-                alertId, "APPROVE", null, null, null, null, "anna.analyst");
+                alertId, "APPROVE", null, null, "anna.analyst");
 
         FraudAlert stored = alertFor(transferId);
         assertEquals(FraudAlertState.OK, stored.state());
@@ -111,7 +115,7 @@ class FraudDecisionRecordTest {
         int alertId = alertFor(transferId).id();
 
         services.fraudService.decideAndUpdateAlert(
-                alertId, "DECLINE", "card reported stolen", null, null, null, "bob.analyst");
+                alertId, "DECLINE", "card reported stolen", null, "bob.analyst");
 
         FraudAlert stored = alertFor(transferId);
         assertEquals(FraudAlertState.SUSPICIOUS, stored.state());
@@ -142,55 +146,114 @@ class FraudDecisionRecordTest {
     }
 
     /**
-     * A comma in a tag is refused at the single validation point.
+     * An alert can be taken into an analyst's name and given back again.
      *
-     * The two backends store tags differently and neither can represent one: the SQL repository
-     * joins them with commas and splits on commas coming back, so "high,risk" is written as one
-     * tag and read as two, while the JSON store keeps a real list and returns the one tag that
-     * was typed. The same alert would then answer the same question differently depending on
-     * which store it came from.
+     * Both halves are the case, and the second is the one the old shape could not express at all.
+     * Assignment used to travel on the decision, where a blank assignee meant "leave it alone",
+     * so there was no value a caller could send that released an alert. A queue whose rows can be
+     * claimed and never returned is worse than one with no assignment in it.
      */
     @Test
-    void aCommaInsideATagIsRefused() {
+    void anAlertIsTakenIntoAnAnalystsNameAndGivenBack() {
         int transferId = flaggedPayment();
         int alertId = alertFor(transferId).id();
 
-        ValidationException refused = assertThrows(ValidationException.class,
-                () -> services.fraudService.decideAndUpdateAlert(
-                        alertId, "APPROVE", null, null, List.of("high,risk"), null, "anna.analyst"));
-        assertTrue(refused.getMessage().contains("high,risk"),
-                "the message names the offending tag, for the log: " + refused.getMessage());
+        assertNull(alertFor(transferId).assignee(), "an alert arrives in nobody's name");
+
+        services.fraudService.assign(alertId, "anna.analyst");
+        assertEquals("anna.analyst", alertFor(transferId).assignee());
+
+        services.fraudService.assign(alertId, null);
+        assertNull(alertFor(transferId).assignee(), "and can be put back on the queue");
+    }
+
+    /** Blank is the same instruction as absent: it releases the alert rather than holding it. */
+    @Test
+    void aBlankAssigneeReleasesTheAlertAndAPaddedOneIsTrimmed() {
+        int transferId = flaggedPayment();
+        int alertId = alertFor(transferId).id();
+
+        services.fraudService.assign(alertId, "  anna.analyst  ");
+        assertEquals("anna.analyst", alertFor(transferId).assignee(),
+                "the assignee filter is a containment test, so a stored name with spaces around"
+                        + " it would match on some queries and not on others");
+
+        services.fraudService.assign(alertId, "   ");
+        assertNull(alertFor(transferId).assignee());
     }
 
     /**
-     * And the refusal costs the analyst nothing else.
+     * Taking an alert is not a verdict, and deciding one is not an assignment.
      *
-     * The check runs before the switch, so a bad tag cannot roll back a verdict that has already
-     * been applied to the aggregate. Raised from inside the switch it would have taken the
-     * approval down with it and the analyst would have had to decide the alert twice.
+     * The two facts have different lifetimes: an analyst takes an alert when they start looking
+     * at it and decides it when they have finished, and an alert that has been decided can still
+     * be handed to somebody to follow up. That is why assignment left the decision route rather
+     * than staying on it as one more field.
      */
     @Test
-    void aRefusedTagLeavesTheAlertExactlyAsItWas() {
+    void assignmentAndTheVerdictDoNotDisturbEachOther() {
         int transferId = flaggedPayment();
         int alertId = alertFor(transferId).id();
 
-        assertThrows(ValidationException.class, () -> services.fraudService.decideAndUpdateAlert(
-                alertId, "APPROVE", null, "someone", List.of("ok", "bad,tag"), "notes", "anna.analyst"));
+        services.fraudService.assign(alertId, "anna.analyst");
 
-        FraudAlert untouched = alertFor(transferId);
-        assertEquals(FraudAlertState.NEW, untouched.state(), "the verdict must not have been applied");
-        assertNull(untouched.decision());
-        assertNull(untouched.decidedBy());
-        assertNull(untouched.assignee(), "nor any of the metadata that travelled with it");
-        assertTrue(untouched.tags().isEmpty());
+        FraudAlert claimed = alertFor(transferId);
+        assertEquals(FraudAlertState.NEW, claimed.state(), "claiming an alert decides nothing");
+        assertNull(claimed.decision());
         assertEquals(cz.vsb.minibank.domain.TransferStatus.HELD_FOR_REVIEW,
                 infra.transfers.byId(transferId).orElseThrow().status(),
-                "and the transfer stays held, so the alert can still be decided");
+                "and it leaves the payment where it was");
 
-        // A tag without a comma goes through, so the rule refuses one character and not tags.
         services.fraudService.decideAndUpdateAlert(
-                alertId, "APPROVE", null, "someone", List.of("ok", "good tag"), "notes", "anna.analyst");
-        assertEquals(List.of("ok", "good tag"), alertFor(transferId).tags());
+                alertId, "APPROVE", null, "looked fine", "bob.analyst");
+
+        FraudAlert decided = alertFor(transferId);
+        assertEquals("anna.analyst", decided.assignee(),
+                "the decision must not clear the assignee, and must not overwrite it with the"
+                        + " name of whoever happened to decide");
+        assertEquals("bob.analyst", decided.decidedBy());
+
+        // And an already-decided alert can still be handed on, which is the follow-up case.
+        services.fraudService.assign(alertId, "carol.analyst");
+        assertEquals("carol.analyst", alertFor(transferId).assignee());
+        assertEquals(FraudAlert.DECISION_APPROVE, alertFor(transferId).decision(),
+                "without reopening anything");
+    }
+
+    /**
+     * The tags column is read only now: a decision leaves whatever is stored in it alone.
+     *
+     * Tags were a field on the wire, a column and a validation rule with nothing that could
+     * produce one, and the two desks disagreed about what a decision did to them - one sent an
+     * empty list, which cleared the column, and the other sent nothing, which did not. With the
+     * field gone from the request and from the service, neither can happen. The alert detail
+     * still reads the column, so anything already stored in it survives a decision and is still
+     * shown, which is what this pins.
+     */
+    @Test
+    void aDecisionLeavesTheStoredTagsAlone() {
+        int transferId = flaggedPayment();
+        int alertId = alertFor(transferId).id();
+
+        try (cz.vsb.minibank.infrastructure.uow.UowScope scope =
+                     new cz.vsb.minibank.infrastructure.uow.UowScope(infra.uowFactory.begin())) {
+            FraudAlert alert = infra.alerts.byId(alertId).orElseThrow();
+            alert.replaceTags(List.of("manual-review"));
+            infra.alerts.save(alert);
+            scope.uow().commit();
+        }
+
+        services.fraudService.decideAndUpdateAlert(
+                alertId, "APPROVE", null, "looked fine", "anna.analyst");
+
+        assertEquals(List.of("manual-review"), alertFor(transferId).tags());
+    }
+
+    /** An alert nobody ever raised cannot be assigned, and says so rather than doing nothing. */
+    @Test
+    void assigningAnAlertThatDoesNotExistIsRefused() {
+        assertThrows(cz.vsb.minibank.domain.exceptions.NotFoundException.class,
+                () -> services.fraudService.assign(4242, "anna.analyst"));
     }
 
     // ------------------------------------------------------------------ fixture

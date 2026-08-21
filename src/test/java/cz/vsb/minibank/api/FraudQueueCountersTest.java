@@ -1,9 +1,12 @@
 package cz.vsb.minibank.api;
 
+import cz.vsb.minibank.api.dto.AlertQueueItemDto;
 import cz.vsb.minibank.api.dto.AlertQueueResponseDto;
+import cz.vsb.minibank.api.dto.PageDto;
 import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.domain.Account;
 import cz.vsb.minibank.domain.FraudAlert;
+import cz.vsb.minibank.domain.FraudAlertState;
 import cz.vsb.minibank.domain.SimpleFeePolicy;
 import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.User;
@@ -227,9 +230,110 @@ class FraudQueueCountersTest {
                 null, null, null, null, null, null, List.of("WITHDRAWN"), null, null));
     }
 
+    /**
+     * The contradiction a fraud desk opens in, and the number that resolves it.
+     *
+     * One transfer status carries two meanings. A payment the customer withdrew and a payment an
+     * analyst declined are both DECLINED, so a desk hiding withdrawn payments - which is right,
+     * there is nothing left to decide on one - also hides every alert it has itself confirmed.
+     * The screen then says two things at once: the strip above the list counts the cleared alert
+     * and the list under it is empty. Both desks ship in exactly that state.
+     *
+     * The queue's rule is not what changes here. The hidden page is: the same query sent to the
+     * other path answers with the rows that were left out, so the screen can name them instead of
+     * contradicting itself.
+     */
+    @Test
+    void whatTheQueueHidesByPaymentStatusCanBeAskedForByName() {
+        int clearedTransferId = transferUnder(FraudAlertState.OK);
+        withdraw(clearedTransferId);
+
+        AlertQueueResponseDto shown = controller.listAlerts(
+                "OK", null, null, null, null, null, List.of("DECLINED"), null, null);
+
+        assertEquals(0, shown.alerts().items().size(), "the contradiction as the desk sees it");
+        assertEquals(1, shown.counters().okCount(),
+                "the counter above the empty list keeps saying the cleared alert exists");
+
+        PageDto<AlertQueueItemDto> hidden = controller.listHiddenAlerts(
+                "OK", null, null, null, null, null, List.of("DECLINED"), null, null);
+
+        assertEquals(1, hidden.total(), "and this is the number that explains it");
+        assertEquals(1, hidden.items().size());
+        assertEquals("DECLINED", hidden.items().get(0).transferStatus(),
+                "with the payment status that caused it, so the screen can say which filter did it");
+        assertEquals("OK", hidden.items().get(0).state());
+    }
+
+    /**
+     * The two pages are the two halves of one filter: what is shown plus what is hidden is
+     * everything the filter would have matched without the exclusion, and no alert is in both.
+     */
+    @Test
+    void theShownPageAndTheHiddenPageAddUpAndDoNotOverlap() {
+        withdraw(firstTransferId);
+
+        AlertQueueResponseDto shown = controller.listAlerts(
+                null, null, null, null, null, null, List.of("DECLINED"), null, null);
+        PageDto<AlertQueueItemDto> hidden = controller.listHiddenAlerts(
+                null, null, null, null, null, null, List.of("DECLINED"), null, null);
+
+        assertEquals(2, shown.alerts().total());
+        assertEquals(1, hidden.total());
+        assertEquals(queue().alerts().total(), shown.alerts().total() + hidden.total(),
+                "together they are the queue the exclusion was applied to");
+
+        List<Integer> shownIds = idsOf(shown);
+        List<Integer> hiddenIds = hidden.items().stream().map(AlertQueueItemDto::id).toList();
+        assertTrue(java.util.Collections.disjoint(shownIds, hiddenIds),
+                "an alert that is on the screen is not one the screen is hiding");
+    }
+
+    /** A caller hiding nothing is told nothing is hidden, without the store being asked. */
+    @Test
+    void anExclusionOfNothingHidesNothing() {
+        withdraw(firstTransferId);
+
+        assertEquals(0, controller.listHiddenAlerts(
+                null, null, null, null, null, null, null, null, null).total());
+        assertEquals(0, controller.listHiddenAlerts(
+                null, null, null, null, null, null, List.of(), null, null).total());
+        assertEquals(0, controller.listHiddenAlerts(
+                null, null, null, null, null, null, List.of("  "), null, null).total());
+    }
+
+    /** The hidden page pages, and refuses exactly what the queue beside it refuses. */
+    @Test
+    void theHiddenPageTakesTheSameParametersAndRefusesTheSameOnes() {
+        withdraw(firstTransferId);
+
+        PageDto<AlertQueueItemDto> page = controller.listHiddenAlerts(
+                null, null, null, null, null, null, List.of("DECLINED", "CREATED"), 0, 1);
+
+        assertEquals(1, page.items().size(), "one row was asked for");
+        assertEquals(3, page.total(), "out of the three the inverted filter matched");
+
+        assertThrows(ValidationException.class, () -> controller.listHiddenAlerts(
+                null, null, null, null, null, null, List.of("WITHDRAWN"), null, null));
+        assertThrows(ValidationException.class, () -> controller.listHiddenAlerts(
+                null, new BigDecimal("900"), new BigDecimal("100"), null, null, null,
+                List.of("DECLINED"), null, null));
+        assertThrows(ValidationException.class, () -> controller.listHiddenAlerts(
+                null, null, null, null, null, null, List.of("DECLINED"), null, 0));
+    }
+
     // ------------------------------------------------------------------
     // fixture and plumbing
     // ------------------------------------------------------------------
+
+    /** The payment under the one alert in the given state, for a test that needs to move it. */
+    private int transferUnder(FraudAlertState state) {
+        return infra.alerts.all().stream()
+                .filter(a -> a.state() == state)
+                .map(FraudAlert::transferId)
+                .findFirst()
+                .orElseThrow();
+    }
 
     private AlertQueueResponseDto queue() {
         return controller.listAlerts(null, null, null, null, null, null, null, null, null);

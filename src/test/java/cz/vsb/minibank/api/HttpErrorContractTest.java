@@ -298,7 +298,8 @@ class HttpErrorContractTest {
         victimSentTransfer = transferService.submitPaymentToIban(
                 VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, TARGET_IBAN, 100.0, "victim sent").transferId();
 
-        paymentController = new PaymentController(transferService, accounts, services.ownershipGuard);
+        paymentController = new PaymentController(transferService, accounts, services.ownershipGuard,
+                transfers, services.feePolicy, infra.uowFactory);
         authorizationController = new AuthorizationController(transferService, accounts, transfers,
                 services.feePolicy, services.ownershipGuard, infra.uowFactory);
         FraudController fraudController = new FraudController(

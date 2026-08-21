@@ -8,6 +8,13 @@ export default defineConfig({
     alias: {
       '@shared': fileURLToPath(new URL('../frontend-shared', import.meta.url)),
     },
+    /*
+     * ../frontend-shared has no node_modules and there is none above it either, so rollup, which
+     * resolves from the importing file's own directory, cannot find react/jsx-runtime for the one
+     * component in the shared layer that renders. Without this the bundle step fails and only the
+     * dev server works, because vite serves that file through this package's graph.
+     */
+    dedupe: ['react', 'react-dom'],
   },
   server: {
     port: 5174,

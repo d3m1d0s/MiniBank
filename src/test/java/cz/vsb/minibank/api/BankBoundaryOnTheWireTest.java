@@ -132,10 +132,16 @@ class BankBoundaryOnTheWireTest {
             "id", "code", "status", "fromIban", "fromBalance", "toIban", "amount", "feeAmount",
             "createdAt", "authMethod");
 
+    // dispatchState is the second component this record has grown for a reason of its own, and it
+    // is listed here for the reason fee is listed above: what these tests reach for is the ONE
+    // component not accounted for, so a field left off would be read as a second candidate for the
+    // route. It is not the route and must never be read as one - it says how far a payment that is
+    // leaving has got, and null on it covers three situations, which is exactly why isToIbanInBank
+    // exists.
     private static final Set<String> TRANSFER_DETAILS_FIELDS = Set.of(
             "id", "fromIban", "fromBalance", "toIban", "amount", "feeAmount", "status",
-            "createdAt", "settledAt", "message", "declineReason", "authMethod", "triesLeft",
-            "authValidUntil");
+            "createdAt", "settledAt", "dispatchState", "message", "declineReason", "authMethod",
+            "triesLeft", "authValidUntil");
 
     @TempDir
     Path tempDir;

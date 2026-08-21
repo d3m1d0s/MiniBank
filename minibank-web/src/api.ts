@@ -24,11 +24,25 @@ export type { Beneficiary, Page } from '@shared/paging';
 export type { Money } from '@shared/money';
 import type { Money } from '@shared/money';
 
-export interface AccountSummary {
-    id: number;
-    iban: string;
-    balance: Money;
-}
+/**
+ * The customer's own wire, described next door and re-exported here.
+ *
+ * Two of these records used to be declared in this file and both had drifted from what the server
+ * sends: an account was three fields where six arrive, and a payment read in full declared half
+ * its keys optional where the server always sends them and means null by it. The workstation grows
+ * these same screens later and reads the same routes, so the description of the wire belongs where
+ * both platforms can see it; what stays here is the fetching.
+ */
+export type {
+    AccountSummary,
+    Address,
+    DispatchState,
+    Me,
+    PaymentQuote,
+    TransferDetails,
+    UserRole,
+} from '@shared/customer';
+import type { AccountSummary, Me, PaymentQuote, TransferDetails } from '@shared/customer';
 
 /**
  * A payment as it is submitted, with exactly one of the two destinations set.
@@ -89,54 +103,6 @@ export function isUnderReview(status?: string | null): boolean {
     return status === 'HELD_FOR_REVIEW';
 }
 
-export interface TransferDetails {
-    id: number;
-    fromIban: string;
-    fromBalance: Money;
-    toIban: string;
-    /**
-     * Whether this bank holds the account named above, which is what decides whether the money
-     * stayed inside or was owed to the payment network.
-     *
-     * The same derived answer HistoryItem carries, sent by the same rule and for the same reason:
-     * the server has a record for a settled payment and a live lookup for one that has not
-     * settled, and handing a screen the two halves would put that rule in every screen that draws
-     * a destination. See the field of this name in @shared/fraud for the whole of it.
-     */
-    toIbanInBank: boolean;
-    /**
-     * What the transfer was charged once it has settled, and a quote from the current fee
-     * policy until then. This used to be recomputed on every read, so it could restate what
-     * a customer was charged last month the day the fee policy changed.
-     */
-    amount: Money;
-    feeAmount: Money;
-    status: string;
-    createdAt: string;
-    /** When the money moved. Null on a transfer that has not settled. */
-    settledAt?: string | null;
-    /**
-     * The customer's own reference. Optional because a payment created before this was stored,
-     * or created without one, has none. NewPaymentPage has sent this in the request body all
-     * along; this is the first time it can be read back.
-     */
-    message?: string | null;
-    /**
-     * Why the payment was stopped, or null while it still might go through. The analyst could
-     * already read this string in the alert history of the very same transfer; its owner could
-     * not read it anywhere, which is what this field is here to end.
-     */
-    declineReason?: string | null;
-    authMethod?: string;
-    /**
-     * How many one time codes are left, and the deadline for using one. Both are null unless the
-     * transfer is WAITING_AUTH: they answer "how do I finish authorizing this", and a held
-     * transfer was reporting three attempts beside a Confirm button that will not take one.
-     */
-    triesLeft?: number | null;
-    authValidUntil?: string | null;
-}
-
 export interface AuthorizePaymentRequest {
     transferId: number;
     otp: string;
@@ -152,9 +118,50 @@ export interface AuthorizePaymentResult {
 
 // === UC04 ===
 
+/**
+ * Who is signed in, by name rather than by login.
+ *
+ * The header band had only the string that was typed into the sign-in box, so a customer whose
+ * record says Alice Novakova was greeted as `alice`. Not guarded by role on the server, which is
+ * why the analyst desk can use it too: an analyst has no customer behind the login and gets nulls
+ * for the four customer fields.
+ */
+export async function fetchMe(): Promise<Me> {
+    const res = await apiFetch(`${API_BASE}/me`);
+    return handle<Me>(res);
+}
+
 export async function getMyAccounts(): Promise<AccountSummary[]> {
     const res = await apiFetch(`${API_BASE}/me/accounts`);
     return handle<AccountSummary[]>(res);
+}
+
+/**
+ * What this payment would cost, priced by the bank before anything is sent.
+ *
+ * Asked rather than computed. The tariff is a step function, so a heller past a boundary is ten
+ * crowns, and a copy of it in the browser is a copy that goes on quoting last month's price after
+ * the bank changes its mind. The answer also carries the bank's real decision about a one time
+ * code, which depends on where the money is going as well as on how much.
+ *
+ * @param beneficiaryId the saved payee, when one was chosen. It changes the answer rather than
+ *                      decorating it: the same amount can settle at once to a payee the bank
+ *                      trusts and ask for a code when it goes to a typed account number
+ */
+export async function fetchPaymentQuote(
+    sourceAccountId: number,
+    amountCzk: number,
+    beneficiaryId?: number | null,
+): Promise<PaymentQuote> {
+    const params = new URLSearchParams();
+    params.set('sourceAccountId', String(sourceAccountId));
+    params.set('amountCzk', String(amountCzk));
+    if (beneficiaryId != null) {
+        params.set('beneficiaryId', String(beneficiaryId));
+    }
+
+    const res = await apiFetch(`${API_BASE}/payments/quote?${params.toString()}`);
+    return handle<PaymentQuote>(res);
 }
 
 /**
@@ -264,4 +271,12 @@ export type {
     AlertFilters,
 } from '@shared/fraud';
 
-export { fetchAlerts, fetchAlertDetail, postFraudDecision } from '@shared/fraud';
+export {
+    fetchAlerts,
+    fetchAlertDetail,
+    fetchAlertHistory,
+    fetchHiddenAlerts,
+    postFraudDecision,
+    releaseAlert,
+    takeAlert,
+} from '@shared/fraud';

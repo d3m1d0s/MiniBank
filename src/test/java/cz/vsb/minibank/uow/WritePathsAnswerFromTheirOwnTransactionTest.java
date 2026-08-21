@@ -119,7 +119,7 @@ class WritePathsAnswerFromTheirOwnTransactionTest {
                 customers, accounts, transfers, alerts, infra.uowFactory);
 
         paymentController = new PaymentController(services.transferService, accounts,
-                services.ownershipGuard);
+                services.ownershipGuard, transfers, services.feePolicy, infra.uowFactory);
         authorizationController = new AuthorizationController(services.transferService, accounts,
                 transfers, services.feePolicy, services.ownershipGuard, infra.uowFactory);
 

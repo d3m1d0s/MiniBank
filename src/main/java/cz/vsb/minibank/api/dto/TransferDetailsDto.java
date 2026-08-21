@@ -10,6 +10,16 @@ package cz.vsb.minibank.api.dto;
  * @param feeAmount      what this transfer was charged once it has settled, and a quote from the
  *                       current fee policy until then - see Transfer.feeFor
  * @param settledAt      when the money moved, or null on a transfer that has not settled
+ * @param dispatchState  what this payment still owes the payment network: PENDING once it has
+ *                       settled out of this bank and no gateway has been handed it, DISPATCHED
+ *                       once one has, and null when it owes nothing. Null is the common answer
+ *                       and covers three cases at once - an intra-bank payment, anything that has
+ *                       not settled, and every row written before the column existed - so it is
+ *                       NOT the opposite of the two named states and a screen must not read it as
+ *                       "stayed in the bank". {@code toIbanInBank} above is the field that answers
+ *                       that, and it is derived rather than left for a client to combine; this one
+ *                       says how far a payment that is leaving has got on the way out, which is
+ *                       the only fact on this record that no other field carries
  * @param message        the customer's own reference, or null when they gave none. Accepted on the
  *                       creation request since long before it was stored; this is the first time it
  *                       can be read back.
@@ -35,8 +45,11 @@ public record TransferDetailsDto(
         String status,
         String createdAt,
         String settledAt,
+        String dispatchState,
         String message,
         String declineReason,
+        // Null, never an empty string, on every producer of this field. See
+        // AuthorizationController.authMethodOf for the three shapes it used to arrive in.
         String authMethod,
         Integer triesLeft,
         String authValidUntil
