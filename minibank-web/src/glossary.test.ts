@@ -7,7 +7,8 @@ import {
     ALERT_REASON_LABEL,
     DECISION_COMMENT_LABEL,
     DECISION_COMMENT_PLACEHOLDER,
-    DECISION_HINT,
+    DECLINE_ALREADY_SENT,
+    DECLINE_NEEDS_COMMENT,
     DECISION_NOTE_LABEL,
     DECISION_NOTE_PLACEHOLDER,
     DECISION_TITLE,
@@ -687,13 +688,21 @@ describe('one word for one thing across the two desks', () => {
         expect(noteAuthorLabel('')).toBe(NOTE_AUTHOR_UNKNOWN);
     });
 
-    it('tells the analyst that a note is added and nothing is replaced', () => {
-        // The warning it used to carry is gone and the sentence is turned around: the box held
-        // the whole of the alert's notes, so an emptied one destroyed a colleague's paragraph.
-        // An analyst who still believes that rule leaves the box alone and files nothing at all.
-        expect(DECISION_HINT).toContain('notes');
-        expect(DECISION_HINT).toMatch(/nothing already written is replaced/);
-        expect(DECISION_HINT.split('. ').length).toBeGreaterThanOrEqual(3);
+    it('says only what a payment already sent makes true', () => {
+        // The standing paragraph this replaces carried three sentences, two of which the screen
+        // already showed: the Approve button is labelled with what it does, and the notes journal
+        // is a list anybody can read. What is left is drawn only against a sent payment.
+        expect(DECLINE_ALREADY_SENT).toMatch(/already been sent/);
+        expect(DECLINE_ALREADY_SENT).toMatch(/without reversing it/);
+        expect(DECLINE_ALREADY_SENT.length).toBeLessThan(120);
+    });
+
+    it('keeps the decline rule to what the analyst cannot see', () => {
+        // Two facts: it is required, and the customer reads it. Which box is meant is carried by
+        // the star on that box's own label, so the sentence does not name a field twice.
+        expect(DECLINE_NEEDS_COMMENT).toMatch(/[Rr]equired to decline/);
+        expect(DECLINE_NEEDS_COMMENT).toMatch(/customer/);
+        expect(DECLINE_NEEDS_COMMENT.length).toBeLessThan(80);
     });
 
     it('says the sign-out notice and the way back in once', () => {

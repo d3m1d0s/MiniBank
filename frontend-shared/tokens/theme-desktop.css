@@ -21,7 +21,14 @@
    * .actions, .form and .inline disagree between the two platforms by a few pixels. They are
    * reconciled by sharing one vocabulary rather than one number: the idiom picks the rung.
    */
-  --gap-form: var(--space-6);
+  /*
+   * Twice the gap inside a row, and it has to be, because this skin stacks a label above its own
+   * field. At 12px against 8px a label sat almost as close to the field above it as to the one it
+   * names, and the focus ring took 4 of those 12 the moment a box was chosen: measured on the sign
+   * in window, 12px of air under the username box and 8px of it left once the ring was drawn. Two
+   * rungs apart is what tells a reader which word belongs to which box.
+   */
+  --gap-form: var(--space-8);
   --gap-actions: var(--space-4);
   --gap-actions-top: var(--space-5);
   --gap-inline: var(--space-4);

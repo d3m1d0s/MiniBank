@@ -16,7 +16,7 @@ import {
     SESSION_IDLE_NOTE,
     SIGN_IN_AS_SOMEONE_ELSE,
     noScreensNote,
-    signedOutFrom,
+    SIGNED_OUT_WITH_LOSS,
 } from '@shared/navigation';
 import {
     allowedForRole,
@@ -40,48 +40,6 @@ import LoginDialog from './LoginDialog.tsx';
  */
 const SERVED_ROLES: readonly NavRole[] = ['CUSTOMER', 'FRAUD_ANALYST'];
 
-/**
- * What was open when the session ended, and what that costs whoever was in the middle of it.
- *
- * Read from the address at the moment the session ends rather than from a value captured when the
- * handler was registered: the handler is installed once, so anything it closed over would name the
- * screen that was open when the tab was opened. The hash is read directly for the same reason it
- * is read here at all, and because the reader that resolves a route needs a role this effect does
- * not have.
- *
- * The second clause is the one that matters. Told only that they have been signed out, somebody
- * who had just pressed Send has no way to know whether the money moved, and the honest answer is
- * that a request refused with 401 changed nothing.
- */
-function signedOutSentence(hash: string): string {
-    const head = hash.replace(/^#\/?/, '').split('/')[0];
-
-    if (head === 'payments') {
-        return signedOutFrom(
-            'You were filling in a payment.',
-            'Nothing you had typed was sent, so the amount, the beneficiary and your reference ' +
-            'have not been kept, and no payment was made.',
-        );
-    }
-    if (head === 'authorizations') {
-        return signedOutFrom(
-            'You were on Waiting authorizations, and signing in opens it again.',
-            'Nothing you had typed was sent, so a code in the box has not been kept, and no ' +
-            'payment was confirmed or cancelled.',
-        );
-    }
-    if (head === 'alerts') {
-        return signedOutFrom(
-            'You were at the fraud desk, and signing in opens it again.',
-            'Nothing you had typed was sent, so a decision comment or a note in progress has not ' +
-            'been kept, and no decision was recorded.',
-        );
-    }
-    return signedOutFrom(
-        'You were reading your payment history.',
-        'Nothing was sent and nothing has changed.',
-    );
-}
 
 /**
  * The role when this client has screens for it, null when it does not.
@@ -152,7 +110,7 @@ function App() {
             // A name left standing after the session has gone would greet whoever reaches this
             // browser next by the person who was ejected from it.
             setMe(null);
-            setSignedOutReason(signedOutSentence(window.location.hash));
+            setSignedOutReason(SIGNED_OUT_WITH_LOSS);
         });
         return () => setSessionExpiredHandler(null);
     }, []);
@@ -193,8 +151,8 @@ function App() {
      * done with the answer, because the point of the call is that it was made at all.
      *
      * A refusal is not swallowed: a 401 AUTH_REQUIRED goes through the same handler every other
-     * read does, so whoever is here is told, with the screen they were on named, rather than
-     * typing on into a session the bank has already closed.
+     * read does, so whoever is here is told rather than typing on into a session the bank has
+     * already closed.
      *
      * The same three events and the same floor as the workstation, from the shared module, because
      * one role is owed the same product on both platforms and a second copy of this is how the two
@@ -307,18 +265,11 @@ function App() {
      * that explains why the screens differ.
      */
     const identity = (
-        <div className="identity">
+        <div className="identity" title={SESSION_IDLE_NOTE}>
             <span className="identity-who">
                 {signedInAs}
                 <span className="identity-role">{roleLabel(auth.role)}</span>
             </span>
-            {/*
-              * The rule the session is judged by, beside the name it applies to and next to the
-              * way out, which is the corner of the band that is about the session rather than
-              * about the screen. A rule somebody is judged by is one they are owed in advance,
-              * and the workstation says the same sentence in the same corner of its title bar.
-              */}
-            <span className="identity-idle">{SESSION_IDLE_NOTE}</span>
             <button type="button" className="identity-exit" onClick={handleSignOut}>
                 Sign out
             </button>

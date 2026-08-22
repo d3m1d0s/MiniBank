@@ -69,7 +69,8 @@ import {
     DECISION_BUSY,
     DECISION_COMMENT_LABEL,
     DECISION_COMMENT_PLACEHOLDER,
-    DECISION_HINT,
+    DECLINE_ALREADY_SENT,
+    DECLINE_NEEDS_COMMENT,
     DECISION_NOTE_LABEL,
     DECISION_NOTE_PLACEHOLDER,
     DECISION_TITLE,
@@ -125,27 +126,11 @@ const WITHDRAWN = 'DECLINED';
  */
 const QUEUE_ERROR_ID = 'queue-error';
 
-/**
- * Why Decline is dead while the comment box is empty.
- *
- * A disabled control that says nothing about itself is the defect this wave is about, and this
- * one is disabled by a rule the analyst can satisfy in five seconds once they know it. So it is
- * shown while the rule is unmet and taken off the screen the moment it is, rather than standing
- * as one more line of general guidance beside the hint that is always there.
- *
- * The server refuses the same press, and it refuses it with the catalogue's general validation
- * sentence, which carries no word about a comment box. That is what makes this line the only
- * thing on either desk that says what is missing.
- *
- * IT MUST READ THE SAME ON BOTH DESKS. One analyst does this job in two windows, and a rule
- * worded twice is a rule that drifts: it belongs in frontend-shared/glossary.ts beside
- * DECISION_HINT, and it is written here only because that file is not this owner's to add to in
- * this pass. The customer application's desk is being given the identical string.
+/*
+ * Why Decline is dead while the comment box is empty: DECLINE_NEEDS_COMMENT, now in
+ * frontend-shared/glossary.ts. It was written here and again on the customer desk, in two
+ * different wordings, which is the drift the shared file exists to prevent.
  */
-const DECLINE_NEEDS_COMMENT =
-    'Declining needs the analyst comment filled in: on a refusal that sentence is the reason the ' +
-    'customer is shown, so the payment is not refused in words nobody typed.';
-
 /*
  * Which clock the times on this screen are told by: TIMES_ZONE_NOTE, now in
  * frontend-shared/glossary.ts, where the wording and the reasons for it live.
@@ -1097,7 +1082,7 @@ export default function FraudDesk(props: {
                       * screen is named the same way in the customer application.
                       */}
                     <div className="title">MiniBank · Fraud Desk</div>
-                    <div className="titlebar-right">
+                    <div className="titlebar-right" title={SESSION_IDLE_NOTE}>
                         {/*
                           * Who is at the desk and what they are, which is what the customer
                           * application's header has always printed and this one did not. The
@@ -1111,16 +1096,6 @@ export default function FraudDesk(props: {
                           * recorded neither window has to be found and fixed.
                           */}
                         <div className="user">{props.signedInAs} · {roleLabel(props.role)}</div>
-                        {/*
-                          * How long this session lasts, next to the name it belongs to.
-                          *
-                          * The rule is the server's and it was enforced in silence: fifteen idle
-                          * minutes ended the session and the first anybody heard of it was the
-                          * sign-in card. A rule a person is judged by is one they are owed in
-                          * advance, and this is the corner of the window that is about the
-                          * session rather than about the queue.
-                          */}
-                        <div className="hint">{SESSION_IDLE_NOTE}</div>
                         {/* The action paired with "Sign in" is "Sign out". One product, one verb. */}
                         <button className="btn" onClick={props.onLogout}>Sign out</button>
                     </div>
@@ -1988,7 +1963,9 @@ export default function FraudDesk(props: {
                                       in the hint under the buttons, where it covers both boxes.
                                     */}
                                     <div className="row row--2">
-                                        <label htmlFor="decision-comment">{DECISION_COMMENT_LABEL}</label>
+                                        <label htmlFor="decision-comment">
+                                            {DECISION_COMMENT_LABEL}<span aria-hidden="true"> *</span>
+                                        </label>
                                         <textarea
                                             id="decision-comment"
                                             /*
@@ -2112,11 +2089,16 @@ export default function FraudDesk(props: {
                                       for. Above the buttons it would be read before there was
                                       anything to explain.
                                     */}
-                                    {declineNeedsComment && (
-                                        <div className="hint hint--blocking">{DECLINE_NEEDS_COMMENT}</div>
-                                    )}
+                                    {/* The star on the box's own label says which box; this says
+                                        the rule, once, under the whole block rather than between
+                                        two fields. */}
+                                    <div className="hint">* {DECLINE_NEEDS_COMMENT}</div>
 
-                                    <div className="hint">{DECISION_HINT}</div>
+                                    {/* Only against a payment that has already gone, which is
+                                        the one case the buttons cannot show for themselves. */}
+                                    {detail.transfer.status === 'SENT' && (
+                                        <div className="hint">{DECLINE_ALREADY_SENT}</div>
+                                    )}
 
                                     {/*
                                       WHAT THE PRESS DID, after the press that did it.

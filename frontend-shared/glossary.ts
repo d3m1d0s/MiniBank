@@ -677,22 +677,19 @@ export function noteAuthorLabel(author: string | null | undefined): string {
 export const DECISION_BUSY = 'Applying…';
 
 /**
- * What the three buttons do, under the three buttons.
+ * The one thing about a decision an analyst cannot see for themselves.
  *
- * Three sentences and each answers a thing an analyst gets wrong once. Approving sounds like
- * sending money and does not send it. Declining a payment that has already gone sounds like
- * pulling it back and does not pull it back. And the third one has been turned around, because
- * what it was warning about is gone: the box used to hold the whole of the alert's notes, so
- * whatever was left in it was filed over what was already there. It now adds one entry and nothing
- * is ever overwritten, which is worth saying in the same place for the same reason. An analyst who
- * still believes the old rule will leave the box empty to avoid destroying a colleague's paragraph,
- * and will file nothing at all.
+ * It replaces a standing paragraph of three sentences. Two of them said what the screen already
+ * says: the first repeated the Approve button, which is labelled with what it does, and the third
+ * described the notes journal, which is a list anybody can look at. What is left is the sentence
+ * nothing on the screen can show, because it is about a payment that has already gone: the verdict
+ * is recorded and the money is not coming back.
+ *
+ * Shown only against a payment in that state, which is why it is a sentence about a condition and
+ * not guidance standing under the buttons at all times.
  */
-export const DECISION_HINT =
-    'Approving does not send the money: it releases the payment for the customer to confirm. ' +
-    'Declining a payment that has already been sent records the verdict; it does not reverse it. ' +
-    'A note is added to the case notes and nothing already written is replaced, so leaving the ' +
-    'box empty simply adds nothing.';
+export const DECLINE_ALREADY_SENT =
+    'This payment has already been sent. Declining records the verdict without reversing it.';
 
 /**
  * Why Decline is dead while the comment box is empty.
@@ -701,23 +698,16 @@ export const DECISION_HINT =
  * no box, so if the screen does not say what is missing then nothing does. That makes this the
  * load bearing line under the buttons rather than one more piece of guidance.
  *
- * It is not a clause added to {@link DECISION_HINT}, and that was considered. Those three
- * sentences are true of every alert and stand whatever the panel is doing; this one is about the
- * state the panel is in at this moment and has to appear and disappear with the box, which is a
- * different thing and needs its own name to be rendered on its own condition.
+ * Two facts and no more: it is required, and it is not internal. Which box is meant is carried by
+ * the star on that box's own label rather than spelled out here, so the sentence does not have to
+ * name a field the reader is already looking at.
  *
  * HERE BECAUSE IT DRIFTED. Both desks wrote this sentence for themselves, each recording in a
  * comment that the other was being given the identical string, and the two strings were not
- * identical: one asked for "the Analyst comment box" and one for "the analyst comment filled
- * in". One analyst does this job in two windows. Of the two wordings this is the one that names
- * the box by {@link DECISION_COMMENT_LABEL} rather than by a copy of it in prose, so renaming the
- * field renames the sentence that points at it, and the pair cannot come apart the way the
- * sentence itself just did.
+ * identical: one asked for "the Analyst comment box" and one for "the analyst comment filled in",
+ * at ninety one and a hundred and sixty three characters. One analyst does this job in two windows.
  */
-export const DECLINE_NEEDS_COMMENT =
-    `Decline needs a reason: say in the ${DECISION_COMMENT_LABEL} box why this payment is ` +
-    'refused. That sentence is what the customer is told, so it is the one box a refusal cannot ' +
-    'leave empty.';
+export const DECLINE_NEEDS_COMMENT = 'Required to decline. The customer is shown it.';
 
 /**
  * What the history beside an alert is a history OF.
@@ -929,17 +919,11 @@ export const FAILURE_TITLE = 'Error';
  * whatever zone the device is set to, and two people comparing the same payment over a telephone
  * are reading two different times from the same row.
  *
- * The last clause says device rather than naming any one of them, because the same words are read
- * at a workstation, on a laptop and on a phone, and a sentence that names the furniture of one of
- * those cannot be the sentence the others say.
- *
- * It was typed into the workstation first, with a comment asking for exactly this move: both desks
- * show the same queue and owe the same sentence, and so does the screen where a customer waits for
- * a code.
+ * A label rather than a sentence. It stands under a table of times as the unit those numbers are
+ * in, which is the whole of what a reader needs from it; the fuller wording it replaces went on to
+ * explain that this is the bank's clock and not the device's, which is what naming a zone means.
  */
-export const TIMES_ZONE_NOTE =
-    'All times here are Prague time (Europe/Prague), the bank\'s own clock, whatever zone this ' +
-    'device is set to.';
+export const TIMES_ZONE_NOTE = 'Times: Europe/Prague';
 
 /**
  * What a sign in that is taking its time says while it takes it.

@@ -323,16 +323,6 @@ tr[role="button"]:focus-visible {
 }
 
 /*
- * The idle rule, on the quietest rung the band has. It is a standing fact rather than a message,
- * so it is set below the name it stands beside and never competes with the way out next to it.
- */
-.identity-idle {
-  font-size: var(--text-1);
-  line-height: var(--leading-dense);
-  color: var(--color-text-muted);
-}
-
-/*
  * A control with no shape of its own, for the same reason a navigation entry has none:
  * an outline in the header band would be the brightest thing on a working screen, and
  * this is the control a person presses last. The hover fill is what says it is a

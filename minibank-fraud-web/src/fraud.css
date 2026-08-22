@@ -1246,6 +1246,16 @@ h2.panel-title {
     overflow: auto;
 }
 
+/*
+ * Air between one row and the next, and nowhere else.
+ *
+ * The footer is a plain block and a row carries no margin of its own, so the comment box and the
+ * note box under it met edge to edge: two fields with no seam read as one control, and choosing
+ * either drew a ring that touched the other. The same two rungs the sign in form keeps, for the
+ * same reason, and only between rows so the title above and the buttons below keep their own.
+ */
+.panel-foot .row + .row { margin-top: var(--gap-form); }
+
 /* A comment and a note are short. The cell can be wide; the field has no business being. */
 .panel-foot .row input,
 .panel-foot .row textarea { max-width: 32rem; }

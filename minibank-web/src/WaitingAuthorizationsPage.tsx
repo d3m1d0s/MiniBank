@@ -78,17 +78,6 @@ const UNDER_REVIEW_TEXT =
     'finished, or you can cancel it.';
 
 /**
- * What the panel says once a cancellation has gone through.
- *
- * Past tense of the sentence in the confirmation panel above, so somebody who read what they were
- * about to do reads the same thing back as done. The two facts a customer needs after cancelling
- * are that this cost them nothing and that the money does not go by itself later.
- */
-const CANCELLED_TEXT =
-    'Nothing was taken from your account, and this payment cannot be brought back. Sending the ' +
-    'same money means making a new payment.';
-
-/**
  * The last thing the bank did to the open payment, together with which press asked for it.
  *
  * One state and not two, because the two have to be read as one sentence. Cancelling and
@@ -995,7 +984,6 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                             {formatMoney(outcome.result.newBalance)}
                                         </li>
                                     </ul>
-                                    <p className="helper-text">{CANCELLED_TEXT}</p>
                                 </div>
                             )}
 

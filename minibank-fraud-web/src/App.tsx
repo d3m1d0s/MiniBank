@@ -10,10 +10,9 @@ import { fetchMe, logoutSession, setSessionExpiredHandler, type Me } from './api
  */
 import { restoreSession } from '@shared/http';
 /* The alert code, spelled the way the queue card and the detail panel spell it. */
-import { formatAlertId } from '@shared/format';
 import {
     NO_SCREENS_TITLE,
-    SIGNED_OUT_NOTICE,
+    SIGNED_OUT_WITH_LOSS,
     SIGN_IN_AS_SOMEONE_ELSE,
     noScreensNote,
     type NavRole,
@@ -32,41 +31,6 @@ import {
  * to it on every render rather than a new one that means the same thing.
  */
 const readHash = () => location.hash;
-
-/**
- * What the sign-in card says when the session ended in the middle of the work, rather than because
- * anybody pressed Sign out.
- *
- * SIGNED_OUT_NOTICE on its own states the fact and stops there, and the fact is the smaller half of
- * what the person needs. Somebody who has just spent five minutes writing why a payment is being
- * refused is not asking whether they are signed in; they are asking whether that sentence still
- * exists. It does not, the desk was unmounted with the session, and saying so here is the only
- * chance to say it before they sign in and find the box empty.
- *
- * What is NOT lost is named in the same breath, because it is the reassuring half and it is true:
- * the alert being read lives in the address bar, the card does not touch the address, and signing
- * in again lands back on it. A notice that named only the loss would send an analyst hunting
- * through the queue for a case that is one press away.
- *
- * The alert is read from the address at the moment the session ends and not from a value captured
- * when the handler was registered, which was the state before this: the handler is installed once,
- * so anything it closed over would name the alert that was open when the window opened.
- *
- * Both applications lose work this way and owe a sentence of this shape, so this belongs in
- * frontend-shared/navigation.ts beside SIGNED_OUT_NOTICE; it is written here because that file is
- * not this owner's to add to in this pass, and because what is lost differs by screen and only the
- * shell knows which screen was open.
- */
-function signedOutFrom(shown: Route | null): string {
-    const alert = shown?.kind === 'fraud-desk' && shown.id !== null ? shown.id : null;
-    const reading = alert === null
-        ? 'You were at the fraud desk.'
-        : `You were reading ${formatAlertId(alert)} at the fraud desk, and signing in opens it again.`;
-    return (
-        `${SIGNED_OUT_NOTICE} ${reading} Nothing you had typed was sent, so a decision comment or a ` +
-        'note in progress has not been kept, and no decision was recorded.'
-    );
-}
 
 /**
  * What counts as somebody working, as far as the session is concerned.
@@ -219,7 +183,7 @@ export default function App() {
             setMe(null);
             // The address is read here rather than closed over: this handler is installed once,
             // and a route captured then would name whatever alert was open when the tab opened.
-            setSignedOutReason(signedOutFrom(parseHash(location.hash)));
+            setSignedOutReason(SIGNED_OUT_WITH_LOSS);
         });
         return () => setSessionExpiredHandler(null);
     }, []);

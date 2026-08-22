@@ -37,7 +37,8 @@ import {
     DECISION_BUSY,
     DECISION_COMMENT_LABEL,
     DECISION_COMMENT_PLACEHOLDER,
-    DECISION_HINT,
+    DECLINE_ALREADY_SENT,
+    DECLINE_NEEDS_COMMENT,
     DECISION_NOTE_LABEL,
     DECISION_NOTE_PLACEHOLDER,
     DECISION_TITLE,
@@ -123,45 +124,11 @@ const WITHDRAWN = 'DECLINED';
  */
 const PAYMENTS_LOADING = 'Loading payments…';
 
-/**
- * Why there are no rows when a bound cannot be used, said where the rows would be.
- *
- * What stood here was the refusal itself, the parser's sentence about the string or the shared
- * guard's about the two numbers being the wrong way round. It was the only place either sentence
- * appeared, so the analyst read what was wrong with a box in a panel below the table and beside
- * neither box. The sentence stands at the box now; this says why the queue is empty, which is the
- * question the space under the filters is actually asking, and points at the one that says what
- * to change.
- */
-const QUEUE_NOT_ASKED =
-    'This queue was not asked again while the amount filter cannot be used. The sentence at the ' +
-    'box above says what to change.';
-
 /* The sentences the two amount boxes point at with aria-describedby. The range one is named
    separately because it belongs to both boxes and is written once. */
 const AMOUNT_MIN_ERROR_ID = 'filter-amount-min-error';
 const AMOUNT_MAX_ERROR_ID = 'filter-amount-max-error';
 const AMOUNT_RANGE_ERROR_ID = 'filter-amount-range-error';
-
-/**
- * Why Decline is dead, said beside it.
- *
- * A disabled control with nothing explaining it is the defect this whole order is about, and this
- * one is worse than most: the server's refusal of a blank-comment Decline arrives as the general
- * validation sentence, which names no box, so if the screen does not say what is missing then
- * nothing does.
- *
- * It names the box by the caption the box actually carries, which is the shared one, so renaming
- * the field renames it here too. Written out in this file the way PAYMENTS_LOADING above is, and
- * for the same reason: it belongs in the shared glossary beside DECISION_HINT, because the
- * workstation's desk needs the identical sentence under the identical button, and the constant
- * has been asked for. Two desks saying this in two different ways is the fault; this one existing
- * until the shared one lands is not.
- */
-const DECLINE_NEEDS_COMMENT =
-    `Decline needs a reason: say in the ${DECISION_COMMENT_LABEL} box why this payment is ` +
-    'refused. That sentence is what the customer is told, so it is the one box a refusal cannot ' +
-    'leave empty.';
 
 /**
  * Which amount bound the analyst is typing in. The two boxes are one control by role, so they
@@ -615,7 +582,6 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
             // Not an answer from the bank, so there is no status to print and nothing to ask
             // again: the way out is the box the analyst typed into, and the sentence about what
             // is wrong with it now stands at that box. This one says why the rows are gone.
-            setListError({ lines: [QUEUE_NOT_ASKED], reference: null });
             // The counters are deliberately NOT cleared. They count the whole queue before any
             // filter, so a filter this desk refused to send cannot have changed them, and the
             // caption is the one thing on the screen that still holds. It used to go with the
@@ -2031,6 +1997,11 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                 htmlFor="decision-comment"
                                             >
                                                 {DECISION_COMMENT_LABEL}
+                                                {/* The star, and the line under the block that
+                                                    reads it. A rule set between two boxes puts
+                                                    prose where the eye is looking for the next
+                                                    field. */}
+                                                <span aria-hidden="true"> *</span>
                                             </label>
                                             <textarea
                                                 id="decision-comment"
@@ -2167,14 +2138,15 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                             the reason: on a SUSPICIOUS alert Decline is dead for
                                             a different one, and naming the comment box there
                                             would send the analyst to fix what is not broken. */}
-                                        {declineNeedsComment &&
-                                            detail.alert.state !== 'SUSPICIOUS' && (
-                                            <p className="helper-text">
-                                                {DECLINE_NEEDS_COMMENT}
-                                            </p>
-                                        )}
+                                        <p className="helper-text">
+                                            * {DECLINE_NEEDS_COMMENT}
+                                        </p>
 
-                                        <p className="helper-text">{DECISION_HINT}</p>
+                                        {/* Only against a payment that has already gone, which
+                                            is the one case the buttons cannot show themselves. */}
+                                        {detail.transfer.status === 'SENT' && (
+                                            <p className="helper-text">{DECLINE_ALREADY_SENT}</p>
+                                        )}
                                     </div>
 
                                     {decisionError && <ErrorBox failure={decisionError} />}

@@ -126,7 +126,7 @@ export function noScreensNote(username: string): string {
  * work that the server has no way to hear about. Naming it is half the answer and the keep alive
  * below is the other half; a rule a person is judged by is one they are owed in advance.
  */
-export const SESSION_IDLE_NOTE = 'Signed out after 15 minutes with nothing done. Typing counts.';
+export const SESSION_IDLE_NOTE = 'Signed out after 15 minutes idle';
 
 /**
  * What counts as somebody working, as far as the session is concerned.
@@ -149,14 +149,13 @@ export const ACTIVITY_REFRESH_MS = 5 * 60 * 1000;
 /**
  * What the shell says when the session ends under somebody who was working.
  *
- * {@link SIGNED_OUT_NOTICE} states the fact and stops there, and the fact is the smaller half of
- * what the reader needs: the larger half is what has just happened to the thing they were in the
- * middle of. Both applications lose work this way, so the shape of the sentence is written once
- * here and each shell supplies the two clauses only it can know.
+ * One clause more than {@link SIGNED_OUT_NOTICE}, and it is the only one the reader cannot work
+ * out for themselves: whether the thing they were in the middle of went through. Being told they
+ * were signed out does not answer that, and silence reads as yes.
  *
- * @param reading which screen they were on, and what signing in again will do about it
- * @param lost what was not sent, said plainly, because silence here reads as "it went through"
+ * What it deliberately does NOT say is which screen they were on and that signing in returns to
+ * it. Both are about to happen in front of them, and a card that narrates them is a card nobody
+ * finishes reading.
  */
-export function signedOutFrom(reading: string, lost: string): string {
-    return `${SIGNED_OUT_NOTICE} ${reading} ${lost}`;
-}
+export const SIGNED_OUT_WITH_LOSS =
+    `${SIGNED_OUT_NOTICE} Nothing you had typed was sent.`;
