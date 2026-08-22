@@ -55,6 +55,61 @@ textarea:focus-visible {
     padding: var(--space-7);
 }
 
+/*
+ * THE DOOR DOES NOT MOVE WHEN IT REFUSES.
+ *
+ * Centred, a window that grows grows in both directions: the error box under the password added
+ * 128px of height and the centring gave 64 of it back off the top, so both fields and the button
+ * a person had just pressed slid up the screen while they were still looking at them. Measured at
+ * 1440x900 on a refused password: the window top went 268.9 to 204.8 and the password box went
+ * 515.1 to 451.0.
+ *
+ * So this screen is offset from the top by half of what is left over at its resting height, which
+ * puts it exactly where centring put it and holds it there while the box below the fields opens.
+ * --size-dialog-nominal is that resting height, 362px, measured on the running window; the token
+ * was declared for this rule and had no call site until now. If it ever drifts from the true
+ * height the window sits a few pixels off centre, which is the whole of the failure.
+ *
+ * The band under the password field is subtracted with it, and so is the form's own gap. The window
+ * now rests that much taller than its nominal height, because the band is one more child of a flex
+ * column and costs both its own height and the space in front of it; an offset computed without
+ * them stands the window that much below centre. Both are named rather than folded into one number,
+ * so the reason the second one is there survives.
+ *
+ * max() keeps a gutter on a viewport too short to centre in; under that the shell scrolls, which
+ * is what it should do and is not a jump.
+ *
+ * Scoped to the window that holds a form. The same class carries the "no screens for this account"
+ * window, which has nothing under it that can grow and a resting height of its own, and there is
+ * no reason to move a screen that never jumped.
+ */
+.shell:has(.window--login .form) {
+    align-items: flex-start;
+    padding: max(var(--space-7),
+                 calc((100vh
+                       - var(--size-dialog-nominal, var(--size-dialog-max))
+                       - var(--size-login-error-slot)
+                       - var(--gap-form)) / 2))
+             var(--space-7) var(--space-7);
+}
+
+/*
+ * The band itself. Empty until something is refused, and exactly as tall then as it is now.
+ *
+ * The top of the window is held still by the offset above; this is the other half of the same
+ * fault, measured at 1440x900 on both an empty submit and a wrong password: the box appearing
+ * under the two fields grew the window from 362px to 460px and took the Sign in button 98px down
+ * with it, out from under the pointer that had just pressed it. Held open, nothing on the window
+ * moves at all.
+ *
+ * --size-login-error-slot is 5.75rem on this skin, against the tallest box this door draws: 70px
+ * of box inside 8px of its own margin top and bottom. In rem, so the band grows with the text
+ * rather than letting the box out of it at 200 percent.
+ */
+.login-error-slot {
+    min-block-size: var(--size-login-error-slot);
+}
+
 .window {
     /*
      * A maximised window. The old pair of ceilings held it at 1700x1180 whatever the display,
@@ -273,15 +328,64 @@ h2.panel-title {
     min-width: 0;
 }
 
+/*
+ * A box the screen has refused, marked where the mistake is.
+ *
+ * The refusal itself is a sentence and stays one; this is the thing that says which of four
+ * controls it is about, and without it a filter row answers with a red block under the list and
+ * nothing at all around the box that has to be corrected. --color-danger-accent is the red
+ * declared for exactly this, 3:1 against the field's own fill, and it is louder than the ordinary
+ * --color-border so that the edge reads as marked rather than as merely present.
+ *
+ * The colour never carries it alone: every control marked here also names, through
+ * aria-describedby, the sentence that explains it.
+ */
+.row input[aria-invalid="true"],
+.row select[aria-invalid="true"],
+.row textarea[aria-invalid="true"] {
+    border-color: var(--color-danger-accent);
+}
 
 /*
  * The box and the sentence it switches are one line, not a field with a caption under it:
  * the field rules above no longer reach a checkbox, and the label that wraps it is the row.
+ *
+ * flex-start and not center, because the sentence wraps. At 200 percent text it is two lines
+ * tall, and centred against a 64px block the 13px box stood beside the gap between them: the pair
+ * stopped reading as one thing, and the control appeared to belong to neither line. Against the
+ * first line it is where a reader expects the switch for the sentence that starts there.
  */
 .row label:has(> input[type="checkbox"]) {
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: var(--space-3);
+}
+
+/*
+ * The one control in this window the palette did not paint, and the one that did not grow.
+ *
+ * A checkbox is drawn by the browser, so at 200 percent text it stayed 13px beside a sentence
+ * that had gone from 16px to 32px, and it was drawn in the browser's blue on both skins: the
+ * single control that looked identical in the dark window and the light one was the one neither
+ * of them had touched. In em it is sized from the text beside it and holds its proportion at any
+ * text size, and accent-color hands the tick to this theme's own accent.
+ *
+ * accent-color rather than appearance: none. The second draws the box, the tick, the disabled
+ * state and the focus ring from scratch, and a switch every operating system already draws well
+ * is a poor place to spend that; what was wrong was the colour and the size, and this is both.
+ *
+ * The line box the em is measured against is a step taller than the letters in it, so the box
+ * would sit a shade high against the first line under flex-start. Half the difference between the
+ * two puts its middle on the middle of the text, which is where centring had it on a sentence
+ * short enough not to wrap.
+ */
+.row label:has(> input[type="checkbox"]) > input[type="checkbox"] {
+    flex: none;
+    inline-size: 1em;
+    block-size: 1em;
+    margin: 0;
+    margin-block-start: calc((var(--leading-dense) * 1em - 1em) / 2);
+    accent-color: var(--color-accent);
 }
 
 .row--2 { grid-template-columns: var(--size-row-label) 1fr; }
@@ -1069,6 +1173,18 @@ h2.panel-title {
 .hint { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
 
 /*
+ * A hint that is not guidance but a condition: the reason a control the analyst has reached for
+ * is dead right now.
+ *
+ * The same size and leading as the hints around it, because it is the same kind of line and a
+ * larger one would read as a failure; the muted colour is what it may not keep, since a sentence
+ * printed in the colour of asides is a sentence a reader in a hurry has been taught to skip, and
+ * this one is the whole explanation of a button that will not press. The warning colour and not
+ * the blocked one: nothing has gone wrong, something is missing.
+ */
+.hint--blocking { color: var(--color-warning-text); margin-bottom: var(--space-4); }
+
+/*
  * The sentence that reconciles the counters with a queue the desk's own filter has emptied.
  *
  * It stands under both of them, because it is about the difference between them, and it is prose
@@ -1216,4 +1332,43 @@ h2.panel-title {
     .list { max-height: 40vh; }
     .right .panel-scroll { overflow: visible; }
     .panel-foot { max-height: none; }
+}
+
+/*
+ * A DISPLAY THAT PAINTS ITS OWN COLOURS.
+ *
+ * Forced colours replace the whole palette with the reader's four or five, and drop fills,
+ * shadows and images on the way. This window comes through it well, because its controls carry a
+ * real border rather than a fill: the buttons, the fields, the cards and the two tables all keep
+ * their edges and lose only the tones. One thing does not, and it is the one the screen is for.
+ *
+ * Selection here is drawn with two inset box-shadows, a marker edge and a tint, and box-shadow is
+ * among the things forced colours discard: the tray kept every card and lost all trace of which
+ * one is open, on a screen whose entire job is one case at a time. The edge is what comes back,
+ * in Highlight, which is the colour that palette keeps for the chosen thing, and at the marker
+ * width so that it is told from the hairline the other cards wear without depending on the colour
+ * at all. Nothing moves: the cards are border-box, so the second pixel is taken from the padding.
+ *
+ * The edge and not a fill, and this was measured rather than assumed. Painted Highlight with
+ * HighlightText on it, the card came out solid cyan with three of its four lines struck out in
+ * black: the browser lays a backplate of the page colour behind text inside an author painted
+ * block, so every line whose ink this stylesheet had not set was drawn in the reader's black on
+ * the reader's black. An edge asks for none of that and leaves the four lines exactly as legible
+ * as they are on every other card.
+ *
+ * Written to two classes rather than one so it outweighs the hover rule, which is .list-item plus
+ * a pseudo class: at equal weight the later rule wins, and this one has to win over a pointer
+ * resting somewhere else in the tray.
+ *
+ * What is NOT done here, so nobody reads this block as the whole item: the four state tones. They
+ * are colour plus weight, so under a forced palette a settled row still reads apart from the
+ * three that want attention, but blocked, pending and open become one another. Telling them apart
+ * without colour needs a word or a mark rather than a stylesheet rule, which is a decision about
+ * what the screen says and not about how it is painted. prefers-contrast is untouched here too.
+ */
+@media (forced-colors: active) {
+    .list-item.list-item--active {
+        border-color: Highlight;
+        border-width: var(--border-width-marker);
+    }
 }

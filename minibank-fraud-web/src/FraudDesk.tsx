@@ -24,6 +24,11 @@ import { amountRangeProblem } from '@shared/alertFilters';
  * application asks of the API and a fee line is drawn from a value that already arrived.
  */
 import { formatFeeLine } from '@shared/money';
+/*
+ * The address bar, which is where the selection lives. The shell reads it and hands the id down;
+ * this desk writes it when the selection moves, and hears its own write back as that prop.
+ */
+import { goTo, replaceRoute, routeFor } from '@shared/route';
 import { describeApiError, describeApiFailure } from '@shared/apiErrors';
 import type { ApiFailure } from '@shared/apiErrors';
 import ErrorBox from './ErrorBox';
@@ -95,6 +100,7 @@ import {
     queueCounterCells,
     queueCounterTotal,
     roleLabel,
+    TIMES_ZONE_NOTE,
     transferStatusLabel,
     transferStatusTone,
 } from '@shared/glossary';
@@ -106,10 +112,78 @@ import {
     nextPage,
     showingLine,
 } from '@shared/paging';
-import type { NavRole } from '@shared/navigation';
+import { SESSION_IDLE_NOTE, type NavRole } from '@shared/navigation';
 
 /** The transfer status a withdrawn payment ends in. */
 const WITHDRAWN = 'DECLINED';
+
+/**
+ * The name of the box in the tray that says why the queue is empty.
+ *
+ * A filter control the desk has refused points at it rather than repeating its sentence: the
+ * statement is made once, in the tray, and the box that caused it says which statement is its own.
+ */
+const QUEUE_ERROR_ID = 'queue-error';
+
+/**
+ * Why Decline is dead while the comment box is empty.
+ *
+ * A disabled control that says nothing about itself is the defect this wave is about, and this
+ * one is disabled by a rule the analyst can satisfy in five seconds once they know it. So it is
+ * shown while the rule is unmet and taken off the screen the moment it is, rather than standing
+ * as one more line of general guidance beside the hint that is always there.
+ *
+ * The server refuses the same press, and it refuses it with the catalogue's general validation
+ * sentence, which carries no word about a comment box. That is what makes this line the only
+ * thing on either desk that says what is missing.
+ *
+ * IT MUST READ THE SAME ON BOTH DESKS. One analyst does this job in two windows, and a rule
+ * worded twice is a rule that drifts: it belongs in frontend-shared/glossary.ts beside
+ * DECISION_HINT, and it is written here only because that file is not this owner's to add to in
+ * this pass. The customer application's desk is being given the identical string.
+ */
+const DECLINE_NEEDS_COMMENT =
+    'Declining needs the analyst comment filled in: on a refusal that sentence is the reason the ' +
+    'customer is shown, so the payment is not refused in words nobody typed.';
+
+/*
+ * Which clock the times on this screen are told by: TIMES_ZONE_NOTE, now in
+ * frontend-shared/glossary.ts, where the wording and the reasons for it live.
+ *
+ * Said once, at the foot of the tray, rather than on every row. The zone the times carry is an
+ * abbreviation, CET in winter and CEST in summer, and the sentence spells that abbreviation out;
+ * the two are not the same statement and neither replaces the other.
+ */
+
+/**
+ * How long a session survives with nothing asked of the bank.
+ *
+ * SessionStore.IDLE_TIMEOUT is fifteen minutes and it is refreshed by every request the screens
+ * make, which is why the number belongs on screen: an analyst who spends twenty minutes writing a
+ * decision comment and touches nothing else is signed out at the press of Decline, and until now
+ * the rule that did it was written down nowhere they could read.
+ *
+ * The second half is what the sentence used to get wrong. It read "Typing does not count", and it
+ * was true: an analyst who spent twenty minutes writing a decision comment and touched nothing else
+ * was signed out at the press of Decline, because only a request refreshed the timer and typing is
+ * not a request. That is a rule the bank has no reason to want. The shell now turns real work into
+ * a request, so typing counts, and the sentence says so.
+ *
+ * What it still does not say, because it is no longer true, is that a client holds the session open
+ * on its own. Nothing here asks the bank on a timer: the request is made only where somebody has
+ * just done something, so a desk left alone asks nothing and is signed out on the server's
+ * schedule. See the keep-alive in App.tsx, which is where the session lives.
+ *
+ * In the title bar, beside the name and the way out, because that is the session's own corner of
+ * the window. That row is one line of chrome across the title, the name and the way out, and it is
+ * what keeps the second half to two words: a fuller wording of the same fact, measured at 1024 by
+ * 768, broke the product name across two lines and split the Sign out button in half. Typing was
+ * the case the old sentence had to warn about, so naming it is what the correction needs; a person
+ * who reads that typing counts does not go on to wonder about scrolling.
+ *
+ * Both applications end a session by the same rule and say the same sentence, so it now lives in
+ * frontend-shared/navigation.ts beside SIGNED_OUT_NOTICE and is imported from there.
+ */
 
 /**
  * How many alerts arrive at a time.
@@ -372,6 +446,16 @@ export default function FraudDesk(props: {
      * two different ways in the same product.
      */
     role: NavRole;
+    /**
+     * Which alert the address bar is pointing at, which is the one this desk shows.
+     *
+     * The address bar is the shell's to read, so the selection arrives here as a prop rather than
+     * being kept twice. The desk publishes back into the address when it moves the selection, and
+     * hears the result on this prop at the next hashchange: `#/alerts/12` is then an alert one
+     * analyst can send another, and a reload lands on the case that was open rather than on an
+     * empty panel.
+     */
+    selectedId: number | null;
     onLogout: () => void;
 }) {
     /**
@@ -411,7 +495,16 @@ export default function FraudDesk(props: {
     const [hiddenCount, setHiddenCount] = useState(0);
     const [hiddenErr, setHiddenErr] = useState<string | null>(null);
 
-    const [selectedId, setSelectedId] = useState<number | null>(null);
+    /**
+     * The alert this panel is open on, seeded from the address and moved through it.
+     *
+     * Not derived from the prop on every render, and the reason is the one correction that is
+     * made without a hashchange: when the decided alert leaves the queue the desk replaces the
+     * address rather than pushing onto it, and history.replaceState notifies nobody, so the shell
+     * is still holding the id that was there. This state is what the panel is drawn from, the
+     * prop is what the address says, and the effect below is where the two meet.
+     */
+    const [selectedId, setSelectedId] = useState<number | null>(props.selectedId);
     const [detail, setDetail] = useState<AlertDetail | null>(null);
 
     /**
@@ -498,6 +591,15 @@ export default function FraudDesk(props: {
 
     const [decisionComment, setDecisionComment] = useState('');
     /**
+     * Whether a refusal is refusable yet, read in the three places that need it.
+     *
+     * Trimmed, because a box holding a space is an empty box: the server trims it too and would
+     * store the refusal with a blank reason on it. The button, the sentence under it and the
+     * guard in the handler all read this one expression, so the rule cannot be tightened in one
+     * of them and left loose in the other two.
+     */
+    const declineNeedsComment = decisionComment.trim() === '';
+    /**
      * The one entry about to be appended, and nothing that is already on the alert.
      *
      * Two states used to stand here, the notes as loaded and the notes as edited, and both are
@@ -524,6 +626,26 @@ export default function FraudDesk(props: {
     // already empty field leaves the filters untouched, so on filters alone nothing would re-run
     // and the analyst would be told nothing at all.
     useEffect(() => { void reloadList(); }, [filters, amountReason]);
+
+    /*
+     * The address, when it says something other than what is on screen.
+     *
+     * Three things can move it without this desk pressing anything: the window opening on
+     * `#/alerts/12`, the Back button, and an id typed into the bar. All three land here, and the
+     * comparison is against openAlert rather than against the state beside it, because openAlert
+     * is what the requests in flight are checked against: an alert already being fetched must not
+     * be fetched a second time by the hashchange that a click of our own produced.
+     */
+    useEffect(() => {
+        const wanted = props.selectedId;
+        if (wanted === openAlert.current) return;
+        if (wanted === null) closeDetail();
+        else void openDetail(wanted);
+        // The address and nothing else. Both functions are redeclared on every render, so listing
+        // them would run this on every keystroke in a filter box; what it does is guarded by
+        // openAlert above rather than by the dependency list.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [props.selectedId]);
 
     async function reloadList(keepSelection = false) {
         // Checked before the request, and the server checks it again. This half exists to name
@@ -573,11 +695,14 @@ export default function FraudDesk(props: {
             setLastPage(resp.alerts);
             setCounters(resp.counters);
             if (!keepSelection && selectedId && !resp.alerts.items.some(x => x.id === selectedId)) {
-                // The ref with the two states: the panel is being closed, so a detail or a
-                // history page still in flight for that alert has nothing left to land on.
-                openAlert.current = null;
-                setSelectedId(null);
-                setDetail(null);
+                // The panel is being closed, so a detail or a history page still in flight for
+                // that alert has nothing left to land on.
+                closeDetail();
+                // The address said `#/alerts/12` and there is no alert 12 in this queue any
+                // more, so it is corrected rather than travelled to: replaceRoute writes no
+                // history entry, because nobody went anywhere, and fires no hashchange, so this
+                // correction cannot come back through the shell as a selection to open.
+                replaceRoute(routeFor('fraud-desk', null));
             }
             // Asked with the filters the queue was just asked with, and asked after it: the two
             // answers are the two halves of one filter, so a hidden count taken under a different
@@ -658,7 +783,33 @@ export default function FraudDesk(props: {
         }
     }
 
+    /**
+     * The panel closed, and everything that was open on one alert closed with it.
+     *
+     * The ref goes first for the same reason it is set first below: a detail or a history page
+     * still in flight has nothing left to land on, and the guards on those answers read it.
+     */
+    function closeDetail() {
+        openAlert.current = null;
+        setSelectedId(null);
+        setDetail(null);
+        setDecisionComment('');
+        setNoteText('');
+        setDecisionMsg(null);
+        setDecisionErr(null);
+        setAssignErr(null);
+    }
+
     async function openDetail(id: number) {
+        /*
+         * The selection said out loud, before it is acted on.
+         *
+         * goTo and not replaceRoute: somebody opened this alert, so it is a move of theirs and
+         * Back belongs to them. Every way into this function passes through here, the retry on a
+         * failed read and the address effect included, and all of them but a fresh click write
+         * the address that is already in the bar, which fires nothing.
+         */
+        goTo(routeFor('fraud-desk', id));
         // Before anything is asked for, so an answer to the previous question can already tell
         // that it is late by the time it arrives.
         openAlert.current = id;
@@ -756,6 +907,12 @@ export default function FraudDesk(props: {
 
     async function decide(kind: FraudDecision) {
         if (!selectedId) return;
+        // The same rule as the disabled button above, and not a repetition of it: a control can be
+        // reached by a keyboard, by a press that lands as the box is being emptied, and by
+        // anything that calls this function later. The one decision here that cannot be undone is
+        // not left resting on a `disabled` attribute. Decline alone: the comment rides with all
+        // three verdicts, and only a refusal turns it into what the customer is told.
+        if (kind === 'DECLINE' && declineNeedsComment) return;
         // Held for the whole call. Every landing below is checked against the alert the panel is
         // open on now, because a verdict takes longer than a click on the next card and its answer
         // carries the alert, the payment and the sentence that describes both.
@@ -907,6 +1064,29 @@ export default function FraudDesk(props: {
         }
     }
 
+    /*
+     * WHICH BOX THE QUEUE WAS REFUSED OVER.
+     *
+     * The sentence stays in the tray, where the rows would be, and this is the other half of it:
+     * the mark that says which of the four filter controls it is about. Without it the panel
+     * answers a mistyped bound with a red block a hundred pixels below the box, and nothing at all
+     * around the box, so the reader is told what is wrong and left to work out where.
+     *
+     * The precedence is reloadList's, deliberately and not by accident: a box the parser refused
+     * answers for itself first, and the backwards range is a fault of the pair, so it marks both.
+     * Written the same way in both places, the mark and the sentence cannot come apart.
+     *
+     * Cheap to recompute on every render: two strings out of state and one pure function over them.
+     */
+    const rangeBackwards =
+        amountReason.min === null &&
+        amountReason.max === null &&
+        amountRangeProblem(filters, { min: false, max: false }) !== null;
+    const amountInvalid = {
+        min: amountReason.min !== null || rangeBackwards,
+        max: amountReason.max !== null || rangeBackwards,
+    };
+
     return (
         <div className="shell">
             <div className="window">
@@ -931,6 +1111,16 @@ export default function FraudDesk(props: {
                           * recorded neither window has to be found and fixed.
                           */}
                         <div className="user">{props.signedInAs} · {roleLabel(props.role)}</div>
+                        {/*
+                          * How long this session lasts, next to the name it belongs to.
+                          *
+                          * The rule is the server's and it was enforced in silence: fifteen idle
+                          * minutes ended the session and the first anybody heard of it was the
+                          * sign-in card. A rule a person is judged by is one they are owed in
+                          * advance, and this is the corner of the window that is about the
+                          * session rather than about the queue.
+                          */}
+                        <div className="hint">{SESSION_IDLE_NOTE}</div>
                         {/* The action paired with "Sign in" is "Sign out". One product, one verb. */}
                         <button className="btn" onClick={props.onLogout}>Sign out</button>
                     </div>
@@ -983,17 +1173,31 @@ export default function FraudDesk(props: {
                                 */}
                                 <div className="row row--3" role="group" aria-label={FIELD_LABEL.amount}>
                                     <span className="row-label">{FIELD_LABEL.amount}</span>
+                                    {/*
+                                      aria-describedby and not a sentence of their own. The tray
+                                      below already carries the one statement about why the queue
+                                      is empty, and it is the tray's to carry: printing it a second
+                                      time under the box would announce one refusal twice. What the
+                                      box owes is to say which sentence is about it, and it can,
+                                      because the box down there has a name.
+                                    */}
                                     <input
+                                        id="filter-amount-min"
                                         inputMode="decimal"
                                         aria-label={AMOUNT_FROM_LABEL}
+                                        aria-invalid={amountInvalid.min || undefined}
+                                        aria-describedby={amountInvalid.min ? QUEUE_ERROR_ID : undefined}
                                         placeholder={AMOUNT_PLACEHOLDER}
                                         value={amountText.min}
                                         onChange={(e) => changeAmountBound('min', e.target.value)}
                                         onBlur={() => normalizeAmountBound('min')}
                                     />
                                     <input
+                                        id="filter-amount-max"
                                         inputMode="decimal"
                                         aria-label={AMOUNT_TO_LABEL}
+                                        aria-invalid={amountInvalid.max || undefined}
+                                        aria-describedby={amountInvalid.max ? QUEUE_ERROR_ID : undefined}
                                         placeholder={AMOUNT_PLACEHOLDER}
                                         value={amountText.max}
                                         onChange={(e) => changeAmountBound('max', e.target.value)}
@@ -1107,7 +1311,7 @@ export default function FraudDesk(props: {
                                   is how a refresh loses somebody their place.
                                 */}
                                 {listErr
-                                    ? <ErrorBox failure={listErr} />
+                                    ? <ErrorBox failure={listErr} id={QUEUE_ERROR_ID} />
                                     : alerts.length === 0 && (
                                         <div className="hint">
                                             {busyList ? QUEUE_LOADING : emptyQueueNote(filters)}
@@ -1219,6 +1423,15 @@ export default function FraudDesk(props: {
                                 <div className="hint queue-note">{hiddenAlertsNote(hiddenCount)}</div>
                             )}
                             {hiddenErr && <div className="hint queue-note">{hiddenErr}</div>}
+
+                            {/*
+                              Which clock every time on this screen is told by, under the tray that
+                              tabulates most of them. Always drawn, unlike the two lines above it:
+                              those explain a difference that is sometimes there, and this one is
+                              true of every row, every date in the detail beside it and every line
+                              of the customer's history under that.
+                            */}
+                            <div className="hint queue-note">{TIMES_ZONE_NOTE}</div>
                         </div>
                     </div>
 
@@ -1857,9 +2070,15 @@ export default function FraudDesk(props: {
                                                 ? DECISION_BUSY
                                                 : decisionActionLabel('APPROVE')}
                                         </button>
+                                        {/* The third term is the comment box. Declining is the
+                                            one press on this desk that reaches the customer and
+                                            cannot be taken back, and what it sends them is the
+                                            sentence in that box, so an empty box is not a
+                                            decision this bank takes. The line under the row says
+                                            so while the button is dead. */}
                                         <button
                                             className="btn btn--danger"
-                                            disabled={busyDecision || detail.alert.state === 'SUSPICIOUS'}
+                                            disabled={busyDecision || detail.alert.state === 'SUSPICIOUS' || declineNeedsComment}
                                             aria-busy={busyDecision || undefined}
                                             onClick={() => decide('DECLINE')}
                                         >
@@ -1881,6 +2100,21 @@ export default function FraudDesk(props: {
                                                 : decisionActionLabel('ANNOTATE')}
                                         </button>
                                     </div>
+
+                                    {/*
+                                      Why one of those three is dead, under the row it is in and
+                                      over the hint that is always there.
+
+                                      It comes and goes with the box that governs it, which is
+                                      what separates it from the three sentences below: those are
+                                      true whatever is typed, and this one is a condition standing
+                                      between the analyst and a press they have already reached
+                                      for. Above the buttons it would be read before there was
+                                      anything to explain.
+                                    */}
+                                    {declineNeedsComment && (
+                                        <div className="hint hint--blocking">{DECLINE_NEEDS_COMMENT}</div>
+                                    )}
 
                                     <div className="hint">{DECISION_HINT}</div>
 

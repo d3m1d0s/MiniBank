@@ -129,9 +129,16 @@ public class FraudApplicationService {
      *
      * @param comment what the operator gave as the ground for the refusal. It is recorded on the
      *        alert as the analyst's comment, beside rather than inside the sentence the rules
-     *        wrote, and it is what the payer is told about their stopped payment
+     *        wrote, and it is what the payer is told about their stopped payment. Required: a
+     *        refusal that stops a payment for good says why, and no caller of this method gets a
+     *        sentence written for it
      */
     public void decline(int transferId, String comment) {
+        if (comment == null || comment.isBlank()) {
+            throw new ValidationException(
+                    "A declined alert needs a reason: say why this payment is refused");
+        }
+
         Instant decidedAt = clock.instant();
 
         try (UowScope scope = new UowScope(uowFactory.begin())) {
@@ -197,7 +204,9 @@ public class FraudApplicationService {
      * other lost everything but the last press.
      *
      * @param comment what the analyst wrote with this decision, or null or blank for none, which
-     *        is the common case on an APPROVE
+     *        is the common case on an APPROVE. DECLINE is the exception and refuses a blank one:
+     *        a refusal that stops a payment for good says why, and nothing here writes a sentence
+     *        on the analyst's behalf
      * @param note one entry for the journal, or null or blank for none. Written under decidedBy
      *        and stamped from the same clock reading as the verdict, so a decision and the note
      *        taken with it agree about when they happened
@@ -248,10 +257,27 @@ public class FraudApplicationService {
                     }
                 }
                 case "DECLINE" -> {
+                    // A refusal says why, or it is not taken. This stands before anything is
+                    // written, so a decision refused here leaves the alert and the transfer as
+                    // they were.
+                    //
+                    // What it replaces was a substitution: a blank box became "Declined by fraud
+                    // analyst" on the payer's copy. That is the bank answering a question the
+                    // analyst was asked and did not answer, on the one decision here that stops
+                    // somebody's money and cannot be taken back, and it read on the customer's
+                    // screen exactly as a reason somebody had given. The desk now keeps its
+                    // Decline control dead until the comment box has something in it; this is the
+                    // same rule where the desk cannot be trusted to hold it, on a direct call.
+                    if (comment == null || comment.isBlank()) {
+                        throw new ValidationException(
+                                "A declined alert needs a reason: say why this payment is refused");
+                    }
+                    String reason = comment.trim();
+
                     var t = transfers.byId(transferId).orElseThrow(() -> new DataIntegrityException(
                             "Fraud alert " + alertId + " points at missing transfer " + transferId));
 
-                    alert.markSuspicious(comment, decidedBy, decidedAt);
+                    alert.markSuspicious(reason, decidedBy, decidedAt);
 
                     // Recorded, not reversed, once the money has left. Refusing it here used to
                     // roll the writing below back with the verdict, so a settled transfer accepted
@@ -259,15 +285,10 @@ public class FraudApplicationService {
                     // excluded so an analyst's wording does not overwrite the customer's own
                     // cancellation reason.
                     //
-                    // The fallback is the CUSTOMER'S half and only that: the payer is told why
-                    // their payment stopped, and "Declined by fraud analyst" is what a refusal
-                    // taken without a word says to them. It is deliberately not written to the
-                    // alert as a comment, where it would put words in an analyst's mouth that
-                    // they did not type.
+                    // The payer and the alert are told the same thing now, which is the analyst's
+                    // own sentence and nothing the bank wrote for them.
                     if (t.status() != TransferStatus.SENT && t.status() != TransferStatus.DECLINED) {
-                        t.decline((comment != null && !comment.isBlank())
-                                ? comment
-                                : "Declined by fraud analyst");
+                        t.decline(reason);
                         transfers.save(t);
                     }
                 }

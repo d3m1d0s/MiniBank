@@ -148,15 +148,44 @@ describe('what is refused, and what it says', () => {
         expect(refusal(raw, CZ)).toBe(message);
     });
 
-    it.each(['abc', '1500 CZK', '12a', '1,5,5', '-5', '+5', '1e3'])(
-        'refuses %s as not an amount at all',
+    it('refuses a separator with nothing around it as an amount not yet typed', () => {
+        // What reaches the field when somebody starts at the decimal point and stops. There are
+        // no digits and no fraction, which is the same state an empty box is in, so it gets the
+        // same sentence rather than one about grouping or about zero. An empty string never
+        // reaches this branch: it is answered several checks earlier.
+        expect(refusal(',', CZ)).toBe('Enter the amount to send.');
+        expect(refusal('.', CZ)).toBe('Enter the amount to send.');
+    });
+
+    it.each(['abc', '1500 CZK', '12a', '-5', '+5', '1e3'])(
+        'refuses %s for the characters in it, and says what an amount is made of',
         (raw) => {
-            expect(value(raw, CZ)).toBeNull();
+            // The reason is pinned and not only the refusal. A minus sign and an `e` are both
+            // things somebody types on purpose, and "not an amount" alone leaves them looking
+            // for which half of what they wrote the field objected to. `1,5,5` used to be in
+            // this row and does not belong to it: every character in it is one an amount is
+            // made of, and it is refused two checks later, for its grouping.
+            expect(refusal(raw, CZ)).toBe(
+                'An amount is digits, spaces between thousands and one decimal comma, like 1 500,00.',
+            );
         },
     );
 
     it.each(['0', '0,00', '0.00', '0,0'])('refuses %s because it moves no money', (raw) => {
         expect(refusal(raw, CZ)).toContain('greater than zero');
+    });
+
+    it('refuses an amount too long to be a number, and does not call it zero', () => {
+        // Past about 1,8e308 Number answers Infinity, which is neither negative nor zero, and
+        // the two used to share one branch: somebody who had leant on the 9 key was told to
+        // enter an amount greater than zero and left rereading three hundred digits for a minus
+        // sign. 309 is where it starts, measured, not guessed.
+        const tooLong = '9'.repeat(309);
+        expect(refusal(tooLong, CZ)).toContain('more than any amount this bank can hold');
+        expect(refusal(tooLong, CZ)).not.toContain('greater than zero');
+
+        // One digit fewer is still a number, and is still taken.
+        expect(value('9'.repeat(308), CZ)).toBe(Number('9'.repeat(308)));
     });
 
     it.each(['1,2345', '0,001', '1234,5678'])(
@@ -166,7 +195,16 @@ describe('what is refused, and what it says', () => {
         },
     );
 
-    it.each(['1.2345,00', '12.34.567,00', '1234.5,00'])(
+    it('says the same about a fraction with no whole part, whichever mark divides it', () => {
+        // Neither of these can be grouping: there is nothing in front of the separator to
+        // group. So both readings land on three decimals and both get the heller sentence, the
+        // one already pinned for ,500 under cs-CZ, in the locale that would otherwise have read
+        // the comma as a thousands mark.
+        expect(refusal(',500', EN)).toContain('two digits after the comma');
+        expect(refusal('.500', CZ)).toContain('two digits after the comma');
+    });
+
+    it.each(['1.2345,00', '12.34.567,00', '1234.5,00', '1234.567,89', '.123,45', '1,5,5'])(
         'refuses %s because the grouping does not run in threes',
         (raw) => {
             expect(refusal(raw, CZ)).toContain('threes');
@@ -191,6 +229,14 @@ describe('what the field writes back', () => {
         expect(formatCzech(1)).toBe('1,00');
         expect(formatCzech(0.5)).toBe('0,50');
         expect(formatCzech(0.01)).toBe('0,01');
+    });
+
+    it('holds that rule at zero too, which is the value most likely to lose its hellers', () => {
+        // No amount the parser accepts is zero, so this arrives only from a caller holding a
+        // number of its own. That is exactly why it is pinned: a bare 0 would be the one money
+        // value on a screen written without its heller digits, and the rule above is about
+        // every amount rather than about the ones a customer typed.
+        expect(formatCzech(0)).toBe('0,00');
     });
 
     it.each([1, 0.01, 0.5, 999.99, 1000, 1234.56, 1234567.89])(
@@ -231,6 +277,23 @@ describe('the edges of what a payment can be', () => {
 
     it('handles an amount larger than any real balance without losing digits', () => {
         expect(value('999 999 999,99', CZ)).toBe(999999999.99);
+    });
+
+    it('takes an amount past the last exact integer, and shows what it read', () => {
+        // 9007199254740993 is the first whole number a double cannot hold: it arrives as ...992.
+        // This is pinned as ACCEPTED, with the echo, rather than refused above a ceiling, and
+        // the echo is the whole of the argument: the field writes back the number that was
+        // understood, so a reading that lost a crown says so on screen before anything is sent.
+        // Sixteen digits is nine thousand billion crowns, which no account here holds; refusing
+        // it would be a rule about a case nobody reaches, and it would still need the echo for
+        // every amount below the ceiling. Pinned so that changing it is a decision somebody
+        // takes rather than a behaviour that drifts.
+        const parsed = parseAmount('9007199254740993,00', CZ);
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok) return;
+
+        expect(parsed.value).toBe(9007199254740992);
+        expect(parsed.czech).toBe(`9${NBSP}007${NBSP}199${NBSP}254${NBSP}740${NBSP}992,00`);
     });
 });
 

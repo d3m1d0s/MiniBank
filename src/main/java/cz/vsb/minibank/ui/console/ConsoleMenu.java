@@ -521,7 +521,20 @@ public class ConsoleMenu {
             case "decline" -> {
                 System.out.print("Reason: ");
                 String reason = in.nextLine().trim();
-                services.fraudService.decline(tid, reason.isEmpty() ? "Declined" : reason);
+
+                // A refusal says why, or it is not taken. An empty line used to become the word
+                // "Declined", which then reached the payer as the reason their payment was
+                // stopped: this door answering, in one word, a question the operator was asked
+                // and did not answer, on the decision here that cannot be undone. Nothing is
+                // decided now, so the command can simply be run again.
+                if (reason.isEmpty()) {
+                    System.out.println("[Error] A refusal needs a reason."
+                            + " Nothing was decided; run the command again and say why"
+                            + " this payment is refused.");
+                    return;
+                }
+
+                services.fraudService.decline(tid, reason);
                 var t = infra.transfers.byId(tid).orElseThrow();
                 System.out.println("[OK] Alert marked suspicious. Transfer " + tid
                         + " has status " + t.status()
@@ -685,10 +698,17 @@ public class ConsoleMenu {
      * the console's, the two front ends have their own convention settled in the shared layer, and
      * a second amount grammar written here is a third one to keep in step. What is fixed is the
      * prompt, which now says which of the two forms this door takes.
+     *
+     * The default is printed in that same form and not through plain concatenation, which gives a
+     * double one decimal: the line read "for example 1500.00 [1000.0]", teaching two conventions
+     * in one prompt. Locale.ROOT is what keeps it one: without it a machine whose default locale
+     * is Czech prints 1000,00 here, which is the exact string this prompt goes on to refuse.
      */
     private double askDouble(String label, double defVal) {
+        String shownDefault = String.format(Locale.ROOT, "%.2f", defVal);
         while (true) {
-            String s = askLine(label + " (decimal point, for example 1500.00) [" + defVal + "]: ");
+            String s = askLine(label + " (decimal point, for example 1500.00) ["
+                    + shownDefault + "]: ");
             if (s.isEmpty()) {
                 return defVal;
             }
@@ -697,7 +717,7 @@ public class ConsoleMenu {
             } catch (NumberFormatException e) {
                 System.out.println("[Error] '" + s + "' is not an amount."
                         + " Amounts are typed with a decimal point, for example 1500.00,"
-                        + " or leave the line blank for " + defVal + ".");
+                        + " or leave the line blank for " + shownDefault + ".");
             }
         }
     }

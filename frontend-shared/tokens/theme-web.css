@@ -203,6 +203,26 @@
      hold it still while a message grows under the password field. It is not --size-dialog-max:
      that is the width, and standing in for the height put the dialog 68px above centre. */
   --size-dialog-nominal: 344px;
+  /* The band held open under the password field so that the Sign in button does not move when a
+     refusal appears. It belongs beside the height above, for the same reason that one does: the
+     shell subtracts both when it offsets the card, and a band and a height that are kept in two
+     files drift apart on the first measurement either of them is taken again.
+
+     5rem is what the card carries today, and it is the wrong password's number rather than the
+     card's own worst case. Measured at 1440x900, box plus its own margin, at 100 and at 200
+     percent text: the local refusal for an empty press 51 and 156, a wrong password 77 and 158,
+     the validation refusal the same. Against a band of 80 and 160 those hold and the button does
+     not move, which is what the running screen shows. Three answers this same door can draw do
+     not fit it: a bank that cannot be reached at 72 and 198, the timeout at 119 and 242, the
+     sign-in throttle at 119 and 326. On those the button drops by the difference.
+
+     Covering all of them is 10.25rem, an empty band the height of two fields standing under the
+     password box before anything has gone wrong. That trade is the open decision about this card
+     rather than a number this file may pick, so the measurements are here and the value is left
+     where the screen has it. minibank-web/src/App.css declares this same name and this same value
+     on .app-shell:has(.card--narrow), written there before this file owned it; that copy shadows
+     this one for the sign-in card and is the one to delete. */
+  --size-login-error-slot: 5rem;
   --size-nav-column: 260px;
   /* The label column of a form row. It is a floor rather than a width, and it was set below
      the labels that actually stand in it - Assignee is 65px, Username 73px, Withdrawn 80px -
@@ -237,5 +257,42 @@
 @media (prefers-reduced-motion: reduce) {
   :root {
     --lift-hover: none;
+  }
+}
+
+/* ---- what is left of this palette once the reader has taken it away -------------------
+ *
+ * A forced colours mode replaces every colour a stylesheet declares, whatever the stylesheet
+ * says, so nothing above this line reaches that reader. Two of these tokens are images rather
+ * than colours, and an image is where a forced mode stops. Both were looked at in both emulated
+ * palettes at 1440x900: the canvas gradient is dropped, the shell computing background-image:
+ * none and the page standing on the reader's own ground, which is right; the monogram is painted
+ * exactly as it is written here, ink and all, which is not.
+ *
+ * That is what this block is for. The stroke is inside the data URI, so on the white palette the
+ * sign-in card drew a near white letter on a white ground, a ghost beside the word MiniBank
+ * (defg-gtok-web-forced-light.png). Asking the image for the reader's ink does not work, and this
+ * was measured rather than reasoned: stroke='CanvasText' inside the data URI comes out black in
+ * BOTH palettes, so it is right on the white one and invisible on the black one, and currentColor
+ * does the same. An SVG loaded as an image is its own document, and the reader's palette is not
+ * in it.
+ *
+ * So the mark is declared once per palette and the browser picks, reporting the forced theme's
+ * own ground through prefers-color-scheme. Pure black and pure white rather than this palette's
+ * near neighbours of them: under a forced mode the reader's ink is what it is, and a near white
+ * is a colour with an opinion. A mark baked into an image can do two grounds and no more, which
+ * is the honest limit of drawing the letter here instead of setting it in type.
+ *
+ * prefers-contrast is untouched, here and everywhere in the product.
+ */
+@media (forced-colors: active) and (prefers-color-scheme: dark) {
+  :root {
+    --brand-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M5 19V5l7 8 7-8v14' fill='none' stroke='%23ffffff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+
+@media (forced-colors: active) and (prefers-color-scheme: light) {
+  :root {
+    --brand-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M5 19V5l7 8 7-8v14' fill='none' stroke='%23000000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 }

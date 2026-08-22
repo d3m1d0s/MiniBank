@@ -66,6 +66,7 @@ import {
     hiddenAlertsNote,
     noteAuthorLabel,
     queueCountersSentence,
+    TIMES_ZONE_NOTE,
     transferStatusLabel,
     transferStatusTone,
 } from '@shared/glossary';
@@ -121,6 +122,46 @@ const WITHDRAWN = 'DECLINED';
  * here, because two of the three wordings differing is the fault, not the third one existing.
  */
 const PAYMENTS_LOADING = 'Loading payments…';
+
+/**
+ * Why there are no rows when a bound cannot be used, said where the rows would be.
+ *
+ * What stood here was the refusal itself, the parser's sentence about the string or the shared
+ * guard's about the two numbers being the wrong way round. It was the only place either sentence
+ * appeared, so the analyst read what was wrong with a box in a panel below the table and beside
+ * neither box. The sentence stands at the box now; this says why the queue is empty, which is the
+ * question the space under the filters is actually asking, and points at the one that says what
+ * to change.
+ */
+const QUEUE_NOT_ASKED =
+    'This queue was not asked again while the amount filter cannot be used. The sentence at the ' +
+    'box above says what to change.';
+
+/* The sentences the two amount boxes point at with aria-describedby. The range one is named
+   separately because it belongs to both boxes and is written once. */
+const AMOUNT_MIN_ERROR_ID = 'filter-amount-min-error';
+const AMOUNT_MAX_ERROR_ID = 'filter-amount-max-error';
+const AMOUNT_RANGE_ERROR_ID = 'filter-amount-range-error';
+
+/**
+ * Why Decline is dead, said beside it.
+ *
+ * A disabled control with nothing explaining it is the defect this whole order is about, and this
+ * one is worse than most: the server's refusal of a blank-comment Decline arrives as the general
+ * validation sentence, which names no box, so if the screen does not say what is missing then
+ * nothing does.
+ *
+ * It names the box by the caption the box actually carries, which is the shared one, so renaming
+ * the field renames it here too. Written out in this file the way PAYMENTS_LOADING above is, and
+ * for the same reason: it belongs in the shared glossary beside DECISION_HINT, because the
+ * workstation's desk needs the identical sentence under the identical button, and the constant
+ * has been asked for. Two desks saying this in two different ways is the fault; this one existing
+ * until the shared one lands is not.
+ */
+const DECLINE_NEEDS_COMMENT =
+    `Decline needs a reason: say in the ${DECISION_COMMENT_LABEL} box why this payment is ` +
+    'refused. That sentence is what the customer is told, so it is the one box a refusal cannot ' +
+    'leave empty.';
 
 /**
  * Which amount bound the analyst is typing in. The two boxes are one control by role, so they
@@ -530,6 +571,28 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
         }
     }
 
+    /**
+     * The two numbers being the wrong way round, which is a fault of neither box on its own.
+     *
+     * Asked only once both bounds are readable, in the order loadAlerts asks them in: a box the
+     * parser refused has no number in the filters at all, so a range read across it would be a
+     * range read across one bound.
+     */
+    const rangeProblem =
+        amountReason.min == null && amountReason.max == null
+            ? amountRangeProblem(filters, { min: false, max: false })
+            : null;
+
+    /** Which sentences one amount box is answered by, its own and the one about the pair. */
+    function describeAmountBox(which: AmountBound): string | undefined {
+        const ownId = which === 'min' ? AMOUNT_MIN_ERROR_ID : AMOUNT_MAX_ERROR_ID;
+        const said = [
+            amountReason[which] ? ownId : null,
+            rangeProblem ? AMOUNT_RANGE_ERROR_ID : null,
+        ].filter((id): id is string => id !== null);
+        return said.length > 0 ? said.join(' ') : undefined;
+    }
+
     async function loadAlerts(keepSelection = false) {
         // Checked before the request, and the server checks it again. This half exists to name
         // which two numbers are the wrong way round; the server cannot, because no handler
@@ -550,8 +613,9 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
             setHiddenTotal(0);
             setLoadingList(false);
             // Not an answer from the bank, so there is no status to print and nothing to ask
-            // again: the way out is the box the analyst typed into.
-            setListError({ lines: [problem], reference: null });
+            // again: the way out is the box the analyst typed into, and the sentence about what
+            // is wrong with it now stands at that box. This one says why the rows are gone.
+            setListError({ lines: [QUEUE_NOT_ASKED], reference: null });
             // The counters are deliberately NOT cleared. They count the whole queue before any
             // filter, so a filter this desk refused to send cannot have changed them, and the
             // caption is the one thing on the screen that still holds. It used to go with the
@@ -836,6 +900,15 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
     async function handleDecision(kind: FraudDecision) {
         if (!selectedId || !detail) return;
 
+        // The same rule as the dead button above, repeated where the request is built, so it
+        // cannot be walked around one. The server refuses this too, and its refusal arrives as
+        // the general validation sentence, which says nothing about a comment box: the words that
+        // name what is missing are on this screen and nowhere else.
+        //
+        // Decline alone. The comment rides with all three presses, and only this one turns what
+        // was typed into the sentence the customer is given.
+        if (kind === 'DECLINE' && decisionComment.trim() === '') return;
+
         // Three fields, and the two that left are not coming back. `tags` went because nothing on
         // either desk could produce one and the two spellings of an empty list read as opposite
         // instructions on the server. `assignee` went because it has a route of its own: echoing
@@ -931,6 +1004,20 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
     ) : hiddenTotal > 0 ? (
         <p className="helper-text gap-above-sm">{hiddenAlertsNote(hiddenTotal)}</p>
     ) : null;
+
+    /**
+     * Whether Decline is dead for want of a reason.
+     *
+     * A refusal is the one verdict on this desk that reaches the customer as words: the comment is
+     * written to the payment's decline reason, and that is the whole of what the payer is told
+     * about why their money did not move. Pressed with the box empty, this desk used to send
+     * nothing and the bank filled the gap in with "Declined by fraud analyst", so the customer was
+     * answered a question the analyst had been asked and had left blank.
+     *
+     * Approve and the third press are unaffected. The comment goes with all three, and only this
+     * one turns it into somebody's answer.
+     */
+    const declineNeedsComment = decisionComment.trim() === '';
 
     return (
         <div className="app-shell">
@@ -1034,6 +1121,13 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                   The Czech spelling is written back on blur, so the reading the
                                   parser took is the one on screen.
                                 */}
+                                {/*
+                                  Each box carries what is wrong with it, under itself. Both of
+                                  them carry the mark when the two numbers are the wrong way round,
+                                  because that refusal is about the pair and neither box is wrong
+                                  on its own; the sentence saying so is written once, under the
+                                  second of them, and both boxes point at it.
+                                */}
                                 <div className="filter-field">
                                     <label className="field-label" htmlFor="filter-amount-min">
                                         {AMOUNT_FROM_LABEL}
@@ -1045,11 +1139,22 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                         inputMode="decimal"
                                         placeholder={AMOUNT_PLACEHOLDER}
                                         value={amountText.min}
+                                        aria-invalid={
+                                            amountReason.min != null || rangeProblem != null
+                                                ? true
+                                                : undefined
+                                        }
+                                        aria-describedby={describeAmountBox('min')}
                                         onChange={(e) =>
                                             changeAmountBound('min', e.currentTarget.value)
                                         }
                                         onBlur={() => normalizeAmountBound('min')}
                                     />
+                                    {amountReason.min && (
+                                        <p className="field-error" id={AMOUNT_MIN_ERROR_ID}>
+                                            {amountReason.min}
+                                        </p>
+                                    )}
                                 </div>
 
                                 <div className="filter-field">
@@ -1063,11 +1168,27 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                         inputMode="decimal"
                                         placeholder={AMOUNT_PLACEHOLDER}
                                         value={amountText.max}
+                                        aria-invalid={
+                                            amountReason.max != null || rangeProblem != null
+                                                ? true
+                                                : undefined
+                                        }
+                                        aria-describedby={describeAmountBox('max')}
                                         onChange={(e) =>
                                             changeAmountBound('max', e.currentTarget.value)
                                         }
                                         onBlur={() => normalizeAmountBound('max')}
                                     />
+                                    {amountReason.max && (
+                                        <p className="field-error" id={AMOUNT_MAX_ERROR_ID}>
+                                            {amountReason.max}
+                                        </p>
+                                    )}
+                                    {rangeProblem && (
+                                        <p className="field-error" id={AMOUNT_RANGE_ERROR_ID}>
+                                            {rangeProblem}
+                                        </p>
+                                    )}
                                 </div>
 
                                 {/*
@@ -1191,6 +1312,11 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                     {showingLine(alerts.length, lastPage?.total ?? 0)}
                                 </p>
 
+                                {/* The same sentence the workstation says under the same queue.
+                                    This desk is read aloud to colleagues, and a time with no zone
+                                    on it is a number two people can read two ways. */}
+                                <p className="helper-text">{TIMES_ZONE_NOTE}</p>
+
                                 {/*
                                   Headers and cells both spread from the shared field set, in its
                                   reading order. The nine columns were written out twice by hand,
@@ -1203,8 +1329,15 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                     <table className="table">
                                         <thead>
                                         <tr>
+                                            {/* Each heading claims its column. Nine columns read
+                                                out cell by cell are nine values with no names on
+                                                them unless the headings say which is which. */}
                                             {ALERT_QUEUE_FIELDS.map((f) => (
-                                                <th key={f} className={QUEUE_CELL_CLASS[f]}>
+                                                <th
+                                                    key={f}
+                                                    scope="col"
+                                                    className={QUEUE_CELL_CLASS[f]}
+                                                >
                                                     {FIELD_LABEL[f]}
                                                 </th>
                                             ))}
@@ -1677,6 +1810,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                         {HISTORY_COLUMN_FIELDS.map((f) => (
                                                             <th
                                                                 key={f}
+                                                                scope="col"
                                                                 className={HISTORY_CELL_CLASS[f]}
                                                             >
                                                                 {HISTORY_FIELD_LABEL[f]}
@@ -1828,6 +1962,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                         {ALERT_NOTE_FIELDS.map((f) => (
                                                             <th
                                                                 key={f}
+                                                                scope="col"
                                                                 className={NOTE_CELL_CLASS[f]}
                                                             >
                                                                 {ALERT_NOTE_LABEL[f]}
@@ -1991,7 +2126,8 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                 className="btn-secondary btn-secondary--danger"
                                                 disabled={
                                                     loadingDecision ||
-                                                    detail.alert.state === 'SUSPICIOUS'
+                                                    detail.alert.state === 'SUSPICIOUS' ||
+                                                    declineNeedsComment
                                                 }
                                                 aria-busy={
                                                     pressed === 'DECLINE' || undefined
@@ -2023,6 +2159,20 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                     : decisionActionLabel('ANNOTATE')}
                                             </button>
                                         </div>
+
+                                        {/* Above the standing hint rather than inside it: this
+                                            one is about the state the panel is in right now and
+                                            goes away when the box is written in, while the hint
+                                            below is true of every alert. Drawn only where it is
+                                            the reason: on a SUSPICIOUS alert Decline is dead for
+                                            a different one, and naming the comment box there
+                                            would send the analyst to fix what is not broken. */}
+                                        {declineNeedsComment &&
+                                            detail.alert.state !== 'SUSPICIOUS' && (
+                                            <p className="helper-text">
+                                                {DECLINE_NEEDS_COMMENT}
+                                            </p>
+                                        )}
 
                                         <p className="helper-text">{DECISION_HINT}</p>
                                     </div>

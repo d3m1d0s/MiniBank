@@ -18,14 +18,23 @@ import { describeApiFailure, type ApiFailure } from '@shared/apiErrors';
 import {
     REFRESH,
     REFRESH_BUSY,
+    TIMES_ZONE_NOTE,
+    attemptsLeftSentence,
     authMethodLabel,
+    authWindowNote,
     bankBoundaryLabel,
     describeDeclineReason,
     dispatchStateLabel,
     transferStatusLabel,
     transferStatusTone,
 } from '@shared/glossary';
-import { formatDateTime, formatIban, formatTransferId, NOT_RECORDED } from '@shared/format';
+import {
+    authWindowState,
+    formatDateTime,
+    formatIban,
+    formatTransferId,
+    NOT_RECORDED,
+} from '@shared/format';
 import {
     TRANSFER_DETAIL_FIELDS,
     TRANSFER_DETAIL_LABEL,
@@ -67,6 +76,31 @@ const PAGE_SIZE = 25;
 const UNDER_REVIEW_TEXT =
     'The bank is reviewing this payment. You will be able to confirm it once the review is ' +
     'finished, or you can cancel it.';
+
+/**
+ * What the panel says once a cancellation has gone through.
+ *
+ * Past tense of the sentence in the confirmation panel above, so somebody who read what they were
+ * about to do reads the same thing back as done. The two facts a customer needs after cancelling
+ * are that this cost them nothing and that the money does not go by itself later.
+ */
+const CANCELLED_TEXT =
+    'Nothing was taken from your account, and this payment cannot be brought back. Sending the ' +
+    'same money means making a new payment.';
+
+/**
+ * The last thing the bank did to the open payment, together with which press asked for it.
+ *
+ * One state and not two, because the two have to be read as one sentence. Cancelling and
+ * confirming answer with the same shape, and a cancelled payment comes back DECLINED: written
+ * apart, the panel can announce a refusal to somebody who was never refused, which is what it did
+ * for as long as the cancel path wrote into the authorization result and let the status word
+ * choose the heading.
+ */
+type Outcome = {
+    asked: 'authorization' | 'cancellation';
+    result: AuthorizePaymentResult;
+};
 
 interface Props {
     role: NavRole;
@@ -153,7 +187,21 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
     const [selectedId, setSelectedId] = useState<number | null>(null);
     const [details, setDetails] = useState<TransferDetails | null>(null);
     const [otp, setOtp] = useState('');
-    const [result, setResult] = useState<AuthorizePaymentResult | null>(null);
+    const [outcome, setOutcome] = useState<Outcome | null>(null);
+
+    /**
+     * Whether the customer has asked to cancel and has not yet said so twice.
+     *
+     * Cancelling is the one press on this screen that cannot be undone: the server declines the
+     * payment, and there is no control anywhere in this application that brings a declined payment
+     * back. It sat one click away from the code box, at the far end of the same row, with nothing
+     * between the press and the cancellation.
+     *
+     * The step is a panel on the page and not a dialog over it, per owner decision 14. What the
+     * customer needs in front of them to answer is the payment itself, which is in the panel above;
+     * a modal would cover it.
+     */
+    const [confirmingCancel, setConfirmingCancel] = useState(false);
 
     /**
      * Which payment is open, readable from inside a request that started before it.
@@ -200,9 +248,64 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
      */
     const [loadingDetail, setLoadingDetail] = useState(false);
 
+    /**
+     * The instant this screen is drawing at.
+     *
+     * The five minutes a payment has to be confirmed in are the one thing on this page that
+     * changes with nothing arriving from the server, so they are the one thing that needs a clock
+     * behind them. Everything read off it is read at render time from this single value, which is
+     * what keeps the sentence under the buttons and the buttons themselves from disagreeing about
+     * what time it is.
+     */
+    const [now, setNow] = useState(() => new Date());
+
     useEffect(() => {
         void loadList();
     }, []);
+
+    /* The deadline of the payment on screen, which is what the tick below is started for. */
+    const authDeadline = details?.authValidUntil ?? null;
+
+    /**
+     * One interval, and it runs only while there is a window to count.
+     *
+     * Started for a payment that has a deadline and stopped the moment that deadline passes or
+     * the payment is put away: a timer left running behind a screen with nothing to count is a
+     * render a second for nothing, and this page can sit open for as long as a customer likes.
+     *
+     * A payment released from review has no deadline at all, so most of what this screen shows
+     * never starts a timer.
+     */
+    useEffect(() => {
+        if (!authDeadline) return;
+
+        // Taken here rather than left at whatever the last payment ticked to. A payment selected
+        // between two ticks would otherwise be read against a clock up to a second stale, and at
+        // the end of a window that second is the difference between a live Confirm and a dead one.
+        setNow(new Date());
+        if (authWindowState(authDeadline, new Date()) === 'closed') return;
+
+        const tick = setInterval(() => {
+            const at = new Date();
+            setNow(at);
+            // Nothing left to count once it has closed. What the screen says about it is decided
+            // in the render below; this only stops the clock that fed it.
+            if (authWindowState(authDeadline, at) === 'closed') clearInterval(tick);
+        }, 1000);
+
+        return () => clearInterval(tick);
+    }, [authDeadline]);
+
+    /**
+     * Whether the window has closed, recomputed every render because `now` is what moves.
+     *
+     * It kills the code box and Confirm, and it kills neither Cancel nor anything else that gets
+     * the customer out of the payment: the two clocks are not the same clock, and the note in
+     * format.ts says what this screen therefore owes the reader. Pressing Confirm past the
+     * deadline is not a wasted click, it is the server declining the payment outright, which is
+     * the whole reason the control may not stay live to be pressed.
+     */
+    const windowClosed = authWindowState(authDeadline, now) === 'closed';
 
     // The selected row as the list last reported it. The whole point of the status is that the
     // customer can see why Confirm is dead, so it has to come from the row rather than from
@@ -311,6 +414,9 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                 setDetails(null);
                 setDetailError(null);
                 setOtp('');
+                // The question was about the payment that has just left the list, so it goes with
+                // it. Left standing it would be a confirmation with nothing selected behind it.
+                setConfirmingCancel(false);
             }
         } catch (e) {
             setListError(
@@ -360,9 +466,11 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
         setSelectedId(id);
         setDetails(null);
         setDetailError(null);
-        setResult(null);
+        setOutcome(null);
         setConfirmError(null);
         setOtp('');
+        // Asked about the payment that was open, and the customer has just opened another one.
+        setConfirmingCancel(false);
         await loadDetails(id);
     }
 
@@ -375,7 +483,7 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
 
             // Step 1: try to authorize the transfer with given OTP
             const res = await confirmAuthorization({ transferId: selectedId, otp });
-            setResult(res);
+            setOutcome({ asked: 'authorization', result: res });
 
             // Step 2: refresh the list (transfers that are no longer WAITING_AUTH will disappear)
             await loadList();
@@ -406,8 +514,10 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
             }
         } catch (e) {
             // A refused authorization still changed the transfer: a wrong code costs one of
-            // the three attempts. Refresh before reporting, so the "Tries left" readout and
-            // the count inside the message are the ones the server now holds. Without this,
+            // the three attempts. Refresh before reporting, so the count under the buttons and
+            // the count inside the message are the ones the server now holds. They are one
+            // sentence from one function now, which is what makes disagreeing between them a
+            // matter of when this refresh runs rather than of two wordings. Without this,
             // moving the wrong OTP off the 200 path would freeze the counter at its
             // pre-attempt value, because the refresh above is skipped on the throw.
             await loadList();
@@ -436,7 +546,11 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
             setConfirmError(null);
 
             const res = await cancelTransfer(selectedId);
-            setResult(res);
+            // Announced as a cancellation and not as an authorization result. The bank answers
+            // DECLINED to a cancellation, because refusing the payment is how a cancellation is
+            // carried out, and that word belongs to the code path: reading it here, a customer
+            // who has just cancelled would be told the bank turned their payment down.
+            setOutcome({ asked: 'cancellation', result: res });
 
             // After cancellation the transfer will disappear from WAITING_AUTH list, so this
             // reads nothing in the ordinary case: loadList has cleared the selection above and
@@ -446,6 +560,11 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
         } catch (e) {
             setConfirmError(describeApiFailure(e, 'payment-cancel'));
         } finally {
+            // On both outcomes. The question has been answered, and after a refusal it must be
+            // asked again rather than left standing over a payment that is still waiting: the
+            // refusal is the box above, and pressing a live confirmation under it would be a
+            // second cancellation of a payment nobody has re-read.
+            setConfirmingCancel(false);
             setLoading(false);
         }
     }
@@ -511,21 +630,53 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                 <>
                                 <div className="table-wrapper">
                                     <table className="table">
+                                        {/* scope on every heading. A six column table read out
+                                            cell by cell says nothing about which column a value
+                                            is in unless each heading claims one. */}
                                         <thead>
                                         <tr>
-                                            <th>ID</th>
-                                            <th>Beneficiary IBAN</th>
-                                            <th className="cell--amount">Amount</th>
-                                            <th>Created</th>
-                                            <th>Auth</th>
-                                            <th>Status</th>
+                                            <th scope="col">ID</th>
+                                            <th scope="col">Beneficiary IBAN</th>
+                                            <th scope="col" className="cell--amount">Amount</th>
+                                            <th scope="col">Created</th>
+                                            <th scope="col">Auth</th>
+                                            <th scope="col">Status</th>
                                         </tr>
                                         </thead>
                                         <tbody>
                                         {items.map((it) => (
+                                            /*
+                                              A control, and not a row that happens to answer a
+                                              click. It was a bare <tr onClick>: no tab stop, no
+                                              role and no key handler, so a payment could not be
+                                              chosen from the keyboard at all, and this is the
+                                              screen where the only two things a customer can do
+                                              with a held payment are behind that choice. The
+                                              fraud queue on the next screen was given the same
+                                              five attributes for the same reason, and this is
+                                              them, so the two tables answer alike.
+
+                                              A row cannot BE a button without ceasing to be a
+                                              row, so it is given what a button has: the tab stop,
+                                              the role, the pressed state the tint already shows
+                                              in colour, and the two keys a reader will try. Space
+                                              is caught on keydown as well, because the page
+                                              scrolls on the default and the list would jump out
+                                              from under the selection.
+                                            */
                                             <tr
                                                 key={it.id}
+                                                tabIndex={0}
+                                                role="button"
+                                                aria-pressed={selectedId === it.id}
                                                 onClick={() => handleSelect(it.id)}
+                                                onKeyDown={(e) => {
+                                                    if (e.key !== 'Enter' && e.key !== ' ') {
+                                                        return;
+                                                    }
+                                                    e.preventDefault();
+                                                    void handleSelect(it.id);
+                                                }}
                                                 className={
                                                     selectedId === it.id ? 'table-row--selected' : ''
                                                 }
@@ -584,6 +735,12 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                         {showingLine(items.length, last?.total ?? 0)}
                                     </span>
                                 </div>
+
+                                {/* Which clock every time on this screen is told by, said once at
+                                    the foot rather than on every row. The deadline in the panel
+                                    below is the sharpest of them: a customer reading it against
+                                    their own zone can believe they have an hour they do not. */}
+                                <p className="helper-text">{TIMES_ZONE_NOTE}</p>
 
                                 {/* The page that did not arrive, under the rows that did. It is
                                     about the request rather than about the list, which is why it
@@ -661,6 +818,12 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                   is set the instant a row is clicked: for the whole of the request
                                   after that the box took a code and Confirm would send it against
                                   a payment the customer had not read yet.
+
+                                  The closed window is the third thing that kills the pair, and it
+                                  is the only one of the three the customer can walk into while
+                                  sitting still. The code they are typing cannot be accepted any
+                                  more, and sending it does not fail politely: the server declines
+                                  the payment for the attempt.
                                 */}
                                 <input
                                     className="otp-input"
@@ -669,14 +832,18 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                     onChange={(e) => setOtp(e.target.value)}
                                     placeholder="Enter OTP"
                                     maxLength={10}
-                                    disabled={!detailReady || selectedUnderReview}
+                                    disabled={!detailReady || selectedUnderReview || windowClosed}
                                 />
                                 <button
                                     type="button"
                                     className="btn-primary"
                                     onClick={handleConfirm}
                                     disabled={
-                                        !detailReady || !otp || loading || selectedUnderReview
+                                        !detailReady ||
+                                        !otp ||
+                                        loading ||
+                                        selectedUnderReview ||
+                                        windowClosed
                                     }
                                 >
                                     {loading ? 'Confirming…' : 'Confirm'}
@@ -691,13 +858,18 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                     Destructive, and drawn as one: an edge and a label, never a
                                     fill. It is also pushed to the far end of the row, so the gap
                                     itself says it is not one of the pair that finishes the
-                                    payment - and that is where the confirmation step will
-                                    attach. */}
+                                    payment.
+
+                                    It no longer cancels anything: it asks, and the answer is the
+                                    panel below. Dead while that panel stands, because the panel
+                                    carries a control that does the same thing and two live
+                                    controls for one irreversible act is how a customer ends up
+                                    pressing the one they did not read. */}
                                 <button
                                     type="button"
                                     className="btn-secondary btn-secondary--danger push-end"
-                                    onClick={handleCancel}
-                                    disabled={!detailReady || loading}
+                                    onClick={() => setConfirmingCancel(true)}
+                                    disabled={!detailReady || loading || confirmingCancel}
                                 >
                                     Cancel transfer
                                 </button>
@@ -708,27 +880,92 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                             )}
 
                             {/*
-                              Both facts belong to a transfer that is asking for a code, and the
-                              server now sends them as null on one that is not. Drawn only when
-                              there is something to say: a held payment used to report three
-                              attempts beside a Confirm button it will not take, and after the
-                              third wrong code the pair would have read "0" and a deadline for a
-                              transfer that is already declined.
+                              What this payment has left, in sentences rather than in labels and
+                              values. Both facts belong to a transfer that is asking for a code and
+                              the server sends them as null on one that is not, so the block is
+                              drawn only where there is something to say: a held payment used to
+                              report three attempts beside a Confirm button it will not take.
                             */}
-                            {(details?.triesLeft != null || details?.authValidUntil != null) && (
+                            {(details?.triesLeft != null || authDeadline != null) && (
                                 <div className="helper-text">
-                                    <p>
-                                        <span className="fact-label">Tries left:</span>{' '}
-                                        <span className="fact-value">{details.triesLeft}</span>
+                                    {/* Silent once the window has closed, which is the half of
+                                        this pair that had stopped being true. A count of three
+                                        attempts standing under a Confirm button that will not
+                                        take any of them reads as an invitation, and it is the
+                                        first line the customer's eye lands on: what is left to
+                                        say about that payment is said in the sentence below, and
+                                        it is not about attempts.
+
+                                        The last attempt changes tone, in the amber this screen
+                                        already paints a stalled payment in rather than in a new
+                                        colour. Not the red of a refusal: nothing has been refused
+                                        while a live attempt remains, and a customer who reads red
+                                        here would read it as the payment already lost. */}
+                                    {!windowClosed && details?.triesLeft != null && (
+                                        <p
+                                            className={
+                                                details.triesLeft === 1 ? 'tone-pending' : undefined
+                                            }
+                                        >
+                                            {attemptsLeftSentence(details.triesLeft)}
+                                        </p>
+                                    )}
+
+                                    {/* One sentence, chosen by the state of the window and written
+                                        in the glossary with the other two. It used to be a label
+                                        and a fixed timestamp, which could say that a moment eight
+                                        days gone was when this payment would expire. */}
+                                    <p>{authWindowNote(authDeadline, now)}</p>
+                                </div>
+                            )}
+
+                            {/*
+                              The second step, and it is inline rather than modal per owner
+                              decision 14: what the customer needs in order to answer is the
+                              payment itself, and it is in the panel a few rows above. A dialog
+                              would cover it and ask them to remember.
+
+                              It names the payment and the amount rather than saying "this
+                              transfer". The row that was clicked and the row this button acts on
+                              have come apart on this screen before, which is what detailReady is
+                              for; a confirmation that does not say which payment it is about would
+                              be that bug with a step in front of it. The amount comes from
+                              `details`, the same reading the panel above prints, so the two cannot
+                              name different payments.
+                            */}
+                            {confirmingCancel && selectedId != null && details && (
+                                <div className="summary summary--danger gap-above-md">
+                                    <div className="summary-title">
+                                        Cancel {formatTransferId(selectedId)}?
+                                    </div>
+                                    <p className="helper-text">
+                                        {formatMoney(details.amount)} to{' '}
+                                        {formatIban(details.toIban)}. The payment is refused for
+                                        good: nothing is taken from your account, and it cannot be
+                                        brought back. Sending the same money again means making a
+                                        new payment.
                                     </p>
-                                    <p>
-                                        <span className="fact-label">
-                                            Will be expired after:
-                                        </span>{' '}
-                                        <span className="fact-value">
-                                            {formatDateTime(details.authValidUntil)}
-                                        </span>
-                                    </p>
+                                    <div className="summary-actions">
+                                        <button
+                                            type="button"
+                                            className="btn-secondary btn-secondary--danger"
+                                            onClick={handleCancel}
+                                            disabled={!detailReady || loading}
+                                        >
+                                            {loading ? 'Cancelling…' : 'Cancel this payment'}
+                                        </button>
+                                        {/* Decides nothing and undoes nothing, so it carries no
+                                            shape: it puts the screen back as it was, with the
+                                            payment still waiting and the code box still live. */}
+                                        <button
+                                            type="button"
+                                            className="btn-quiet"
+                                            onClick={() => setConfirmingCancel(false)}
+                                            disabled={loading}
+                                        >
+                                            Keep this payment
+                                        </button>
+                                    </div>
                                 </div>
                             )}
 
@@ -736,42 +973,81 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                 see the sentence in handleConfirm about what a second press costs. */}
                             {confirmError && <ErrorBox failure={confirmError} />}
 
-                            {result && (
+                            {/*
+                              What was asked for chooses the panel, not what the status word says.
+                              A cancellation gets its own heading and its own two sentences: the
+                              status, the tone and the reason of the panel below all read a refusal
+                              off DECLINED, which is the truth about a code that failed and a lie
+                              about a payment the customer withdrew themselves.
+                            */}
+                            {outcome?.asked === 'cancellation' && (
+                                <div className="summary gap-above-md">
+                                    <div className="summary-title">Payment cancelled</div>
+                                    <ul>
+                                        <li>
+                                            Transfer:{' '}
+                                            {formatTransferId(outcome.result.transferId)}
+                                        </li>
+                                        {/* Nothing left the account, so this is the balance it
+                                            has had all along and is printed to say so. */}
+                                        <li>
+                                            Current balance:{' '}
+                                            {formatMoney(outcome.result.newBalance)}
+                                        </li>
+                                    </ul>
+                                    <p className="helper-text">{CANCELLED_TEXT}</p>
+                                </div>
+                            )}
+
+                            {outcome?.asked === 'authorization' && (
                                 <div className="summary gap-above-md">
                                     <div className="summary-title">
-                                        {result.status === 'SENT'
+                                        {outcome.result.status === 'SENT'
                                             ? 'Payment authorized'
                                             : 'Authorization result'}
                                     </div>
                                     <ul>
-                                        <li>Transfer: {formatTransferId(result.transferId)}</li>
+                                        <li>
+                                            Transfer:{' '}
+                                            {formatTransferId(outcome.result.transferId)}
+                                        </li>
                                         <li>
                                             Status:{' '}
                                             <span
                                                 className={`tone-${transferStatusTone(
-                                                    result.status,
+                                                    outcome.result.status,
                                                 )}`}
                                             >
-                                                {transferStatusLabel(result.status, 'customer')}
+                                                {transferStatusLabel(
+                                                    outcome.result.status,
+                                                    'customer',
+                                                )}
                                             </span>
                                         </li>
 
                                         {/* Show charged amount only if funds were actually debited */}
-                                        {result.chargedAmount && (
-                                            <li>Charged: {formatMoney(result.chargedAmount)}</li>
+                                        {outcome.result.chargedAmount && (
+                                            <li>
+                                                Charged:{' '}
+                                                {formatMoney(outcome.result.chargedAmount)}
+                                            </li>
                                         )}
 
                                         {/* newBalance is always current; wording changes depending on status */}
                                         <li>
-                                            {result.status === 'SENT' ? 'New balance: ' : 'Current balance: '}
-                                            {formatMoney(result.newBalance)}
+                                            {outcome.result.status === 'SENT'
+                                                ? 'New balance: '
+                                                : 'Current balance: '}
+                                            {formatMoney(outcome.result.newBalance)}
                                         </li>
 
                                         {/* Decline reason, if present */}
-                                        {result.declineReason && (
+                                        {outcome.result.declineReason && (
                                             <li>
                                                 Reason:{' '}
-                                                {describeDeclineReason(result.declineReason)}
+                                                {describeDeclineReason(
+                                                    outcome.result.declineReason,
+                                                )}
                                             </li>
                                         )}
                                     </ul>

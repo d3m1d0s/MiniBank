@@ -149,7 +149,8 @@
  * gap roles       --gap-form --gap-actions --gap-actions-top --gap-inline --gap-field-row
  *                 --gap-nav
  * fixed sizes     --size-shell-max --size-content-max --size-form-max --size-prose-max
- *                 --size-dialog-max --size-dialog-nominal --size-nav-column
+ *                 --size-dialog-max --size-dialog-nominal --size-login-error-slot
+ *                 --size-nav-column
  *                 --size-label-min --size-amount-field --size-amount-field-lead
  *                 --size-note-max --size-otp-field --size-textarea-min
  *                 --size-textarea-max --size-window-height --size-titlebar --size-row-label
@@ -159,4 +160,17 @@
  *                 The durations above are zeroed here because they are declared here; a
  *                 theme file is loaded after this one, so an override written here would
  *                 lose the cascade to the theme's own declaration.
+ * forced colours  What a theme owes here is not a colour. Under a forced palette every colour a
+ *                 theme declares is replaced and every gradient is dropped, both read off the
+ *                 running page in the two emulated palettes, so the ladders above reach nobody
+ *                 there and no token of theirs has a forced form. What does survive is a url()
+ *                 image, and --brand-mark is one, with its ink written inside the file where the
+ *                 reader's palette cannot reach it: stroke='CanvasText' in a data URI comes out
+ *                 black in both palettes, measured, so the image cannot be asked. Both themes
+ *                 therefore redeclare --brand-mark under @media (forced-colors: active), once
+ *                 for each palette and chosen by prefers-color-scheme, and a theme that draws a
+ *                 mark the same way owes the same two blocks. The marks the two stylesheets
+ *                 restore in that mode are system keywords, ButtonBorder, CanvasText and
+ *                 Highlight, which belong to the reader rather than to this system and are
+ *                 deliberately not wrapped in names of ours.
  * ------------------------------------------------------------------------------------- */

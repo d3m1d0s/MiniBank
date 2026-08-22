@@ -117,3 +117,46 @@ export function noScreensNote(username: string): string {
         'analysts, and this account is neither.'
     );
 }
+
+/**
+ * How long a session survives with nothing asked of the bank.
+ *
+ * SessionStore.IDLE_TIMEOUT is fifteen minutes and it is refreshed by a request and by nothing
+ * else, so the number belongs on screen: somebody who spends twenty minutes writing has done real
+ * work that the server has no way to hear about. Naming it is half the answer and the keep alive
+ * below is the other half; a rule a person is judged by is one they are owed in advance.
+ */
+export const SESSION_IDLE_NOTE = 'Signed out after 15 minutes with nothing done. Typing counts.';
+
+/**
+ * What counts as somebody working, as far as the session is concerned.
+ *
+ * Three events and deliberately not mousemove: a cursor crossing the window on its way somewhere
+ * else is not work, and counting it would keep a session alive for an empty desk, which is the
+ * thing the timeout exists to end.
+ */
+export const ACTIVITY_EVENTS = ['keydown', 'pointerdown', 'wheel'] as const;
+
+/**
+ * The floor between two keep alive reads, well under the server's fifteen minutes.
+ *
+ * The gap this measures is the worst case rather than the truth, because the screens make requests
+ * of their own that the shell never sees. Erring this way costs an occasional call the server did
+ * not need; erring the other way ends a session while somebody is mid sentence.
+ */
+export const ACTIVITY_REFRESH_MS = 5 * 60 * 1000;
+
+/**
+ * What the shell says when the session ends under somebody who was working.
+ *
+ * {@link SIGNED_OUT_NOTICE} states the fact and stops there, and the fact is the smaller half of
+ * what the reader needs: the larger half is what has just happened to the thing they were in the
+ * middle of. Both applications lose work this way, so the shape of the sentence is written once
+ * here and each shell supplies the two clauses only it can know.
+ *
+ * @param reading which screen they were on, and what signing in again will do about it
+ * @param lost what was not sent, said plainly, because silence here reads as "it went through"
+ */
+export function signedOutFrom(reading: string, lost: string): string {
+    return `${SIGNED_OUT_NOTICE} ${reading} ${lost}`;
+}

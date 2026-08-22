@@ -99,10 +99,60 @@ tr[role="button"]:focus-visible {
  * which is what it should do and is not a jump.
  */
 .app-shell:has(.card--narrow) {
+  /*
+   * The band held open under the password field for a refusal, declared here because the offset
+   * below has to know about it: the dialog now rests that much taller than its nominal height,
+   * and an offset computed without it would stand the card below centre by half of this. The
+   * measurement belongs beside --size-dialog-nominal in the theme file once somebody owns both;
+   * it is one value in one place until then, so the two uses cannot drift apart.
+   *
+   * The form's own gap goes with it. The band is one more child of a flex column, so the card
+   * grows by the band and by the space in front of it, and an offset that counted only the band
+   * left the card 8px below centre. Both are named here rather than folded into one number, so
+   * that the reason the second one exists survives.
+   *
+   * 5rem is the measurement: the tallest box this card draws is the bank's refusal of a password,
+   * 69px of box under 8px of its own margin at 100 percent text and 150 under 8 at 200, and the
+   * band is in rem so it grows with it. It was two rungs larger while the box still carried a
+   * title line reading Error; that line is gone, and the band came down with it.
+   */
+  --size-login-error-slot: 5rem;
   align-items: flex-start;
   padding: max(var(--space-10),
-               calc((100vh - var(--size-dialog-nominal, var(--size-dialog-max))) / 2))
+               calc((100vh
+                     - var(--size-dialog-nominal, var(--size-dialog-max))
+                     - var(--size-login-error-slot)
+                     - var(--gap-form)) / 2))
            var(--space-7) var(--space-7);
+}
+
+/*
+ * The band itself. Empty until something is refused, and exactly as tall then as it is now.
+ *
+ * The card top is already held still by the offset above; this is the other half of the same
+ * fault, measured at 1440x900: the box appearing under the two fields pushed the Sign in button
+ * 126px down the card, out from under the pointer that had just pressed it, and pulled it back on
+ * the next press. Held open, nothing on the card moves at all.
+ *
+ * The price is stated rather than hidden: there is an empty band under the password field before
+ * the first refusal. The alternative was to put the button above the box, which holds it still by
+ * putting the way out of a refusal above the refusal itself.
+ */
+.login-error-slot {
+  min-block-size: var(--size-login-error-slot);
+}
+
+/*
+ * A screen that is still in the tree and is not the one being looked at.
+ *
+ * The payment form is kept across a move to another screen, because it holds the confirmation
+ * of a payment that has just been made and, beside it, a payment half typed. `display: none`
+ * and not opacity or an offset: this has to take the screen out of the accessibility tree and
+ * out of the tab order as well as out of sight, or a reader lands in a form nobody can see and
+ * the tab key walks through two copies of the same navigation column.
+ */
+.screen-parked {
+  display: none;
 }
 
 /*
@@ -270,6 +320,16 @@ tr[role="button"]:focus-visible {
 .identity-role::before {
   content: "·";
   margin: 0 var(--space-3);
+}
+
+/*
+ * The idle rule, on the quietest rung the band has. It is a standing fact rather than a message,
+ * so it is set below the name it stands beside and never competes with the way out next to it.
+ */
+.identity-idle {
+  font-size: var(--text-1);
+  line-height: var(--leading-dense);
+  color: var(--color-text-muted);
 }
 
 /*
@@ -567,6 +627,103 @@ tr[role="button"]:focus-visible {
 }
 
 /*
+ * The pointer, answered by the box it is over.
+ *
+ * Every button on these screens lights up under the pointer and no field did, so on a form the
+ * cursor was the only thing saying that a box could be typed into. The four classes are the four
+ * text controls of this skin, listed together because they already share one field grammar, an
+ * edge, a fill and the same padding; a hover written for one of them would be the fifth grammar.
+ *
+ * Fill only, no lift. The workstation sets --lift-hover to none for its own fields and it is right
+ * about the reason: a box that moves under the caret is a box that moves while somebody is
+ * reading what they typed into it. Buttons are pressed, fields are aimed at.
+ */
+.field-input:hover:not(:disabled),
+.amount-input:hover:not(:disabled),
+.textarea:hover:not(:disabled),
+.otp-input:hover:not(:disabled) {
+  background-color: var(--color-surface-hover);
+}
+
+/*
+ * A field the form has refused, and the sentence saying why, under it.
+ *
+ * The edge is --color-danger-accent, which is declared as the 3:1 red for exactly this and had
+ * two call sites, both of them a button. The mark is not the only carrier: aria-invalid puts it
+ * where a colour cannot go and .field-error below is the words, so a reader who sees no red is
+ * told the same thing twice over.
+ *
+ * It outranks the focus edge on purpose, by standing after it: a field is still wrong while the
+ * caret is in it, and the ring already says which box has the caret.
+ */
+.field-input[aria-invalid="true"],
+.amount-input[aria-invalid="true"],
+.textarea[aria-invalid="true"] {
+  border-color: var(--color-danger-accent);
+}
+
+/*
+ * The sentence a refused field carries, and it is the one place on these screens where a line of
+ * prose is set against the field rather than in a box at the foot of the form. Measured, not
+ * taste: the payment form's box stood 441px under the first control it was about.
+ *
+ * The three places it is drawn are three different containers, so the base rule is only the
+ * sentence itself and each container says how it takes up its line.
+ */
+.field-error {
+  max-width: var(--size-prose-max);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-3);
+  color: var(--color-danger-text);
+}
+
+/*
+ * A form row is a wrapping flex line, so the sentence has to claim a whole one: left to size
+ * itself it sits after the box on the same line and squeezes it.
+ *
+ * max-width: none is what makes the basis work, and it is not decoration. A flex line is broken
+ * against each item's hypothetical size CLAMPED by its own max-width, so the 66ch measure on the
+ * rule above shrank the sentence to 498px, which fit in what was left of the row: measured, both
+ * refusals sat to the right of the boxes they were about, one of them 400px right of it. Without
+ * the cap the item asks for the whole row and takes the next line, which is where it belongs.
+ *
+ * The indent lines it up under the control rather than under the label, so it reads as belonging
+ * to the box and not to the form.
+ */
+.field-row > .field-error {
+  flex: 1 1 100%;
+  max-width: none;
+  margin-left: calc(var(--size-label-min) + var(--gap-field-row));
+}
+
+/*
+ * A filter is a content-sized field on a wrapping bar, and a sentence is wider than any of them.
+ * Uncapped it would make its own field as wide as itself and push the other filters onto another
+ * line, so the bar rearranges itself the moment a bound is mistyped. About 30 characters is three
+ * short lines under an 8rem box, and the bar keeps its shape.
+ */
+.filter-field > .field-error {
+  max-width: 30ch;
+}
+
+/*
+ * While a refusal stands on the bar, the fields are aligned by their top edges instead.
+ *
+ * The bar aligns to flex-end so that the boxes sit on one line whatever their labels wrap to, and
+ * that is right for a row of fields that are each a label and a box. It is wrong the moment one
+ * of them grows a sentence underneath, because the thing being aligned is then the bottom of the
+ * sentence: measured, the box for the largest amount rose 50px out of the row with its refusal
+ * beside its neighbours, and aligning that one field by its top instead sank the other one by the
+ * same 50. The whole bar has to change with it, so the boxes stay on one line.
+ *
+ * What this gives up is the case flex-end was written for, a label that wraps to two lines at a
+ * large text size. It gives it up only while something is refused.
+ */
+.filter-bar:has(.field-error) {
+  align-items: flex-start;
+}
+
+/*
  * Widths by role, for every field that has one.
  *
  * .field-input on its own fills the row, which is what a field is worth on the sign-in
@@ -690,18 +847,39 @@ tr[role="button"]:focus-visible {
  * its label on the right where theirs are above and its box aligned to their inputs rather than to
  * their labels.
  */
+/*
+ * flex-start rather than center, and it is the wrapping that decides it. The sentence beside this
+ * box is a sentence and not a word: at 200 percent text it takes two lines, and centred against a
+ * two line block the box stood beside the gap between them, which is beside neither. Against the
+ * first line the pair reads as one thing at every size.
+ */
 .filter-check {
   flex-basis: 100%;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-3);
   min-height: var(--control-min-height);
   font-size: var(--text-3);
   color: var(--color-text-secondary);
 }
 
+/*
+ * The one control on either skin that neither of them painted, and so the one control that looked
+ * identical in a dark application and a light one: the browser's own square, in the browser's own
+ * blue, 13px at 100 percent text and 13px at 200, beside a label that had grown to 28.
+ *
+ * em on both axes, so it tracks the sentence it belongs to. accent-color rather than appearance:
+ * none, deliberately: the tick, the disabled state and the platform's own focus treatment come
+ * with the control, and the palette is the one thing that was wrong.
+ *
+ * The top margin is the optical half of flex-start above: a box the height of one em still sits a
+ * little above the cap line of the text beside it, because the line box is taller than the type.
+ */
 .filter-check input[type="checkbox"] {
-  margin: 0;
+  margin: calc((1lh - 1em) / 2) 0 0;
+  inline-size: 1em;
+  block-size: 1em;
+  accent-color: var(--color-accent);
 }
 
 .field-side {
@@ -1629,4 +1807,62 @@ tr[role="button"]:focus-visible {
     border-bottom: var(--border-width-hairline) solid var(--color-border-container);
     margin-bottom: var(--space-7);
   }
+}
+
+/* ====== Forced colours ====== */
+
+/*
+ * What this skin looks like when the reader has taken its palette away.
+ *
+ * In a forced colours mode the operating system replaces every fill, every border colour and
+ * every text colour with its own pair, and it does it whatever the stylesheet says. A rule that
+ * carries meaning in a colour therefore carries nothing there, and three of this application's do:
+ * the two controls drawn with no edge at all, the table whose grid is a divider colour, and the
+ * chosen row, which is a tint. Measured with forced colours emulated at 1440x900: Refresh and
+ * Sign out read as bare words with nothing around them, and the queue read as text in columns.
+ *
+ * The focus ring is deliberately absent from this block. It is drawn with outline, which forced
+ * colours keeps, so it already survives; restating it here would be a second place to keep it
+ * right.
+ *
+ * The system keywords are the point. ButtonBorder and CanvasText are whatever the reader's own
+ * mode says they are, so this block says which things need an edge and lets the mode pick it.
+ */
+@media (forced-colors: active) {
+  /*
+   * The two controls that carry no shape of their own. That is the right answer in the palette,
+   * where the gap in front of them and their colour say what rank they are; with the colour gone
+   * they are the only things on the screen that can be pressed and do not look it.
+   */
+  .btn-quiet,
+  .identity-exit {
+    border: var(--border-width-hairline) solid ButtonBorder;
+  }
+
+  /*
+   * The grid, which is a row of dividers and goes with the fills. Every cell takes the edge
+   * rather than the row, because border-collapse draws the cell's own.
+   */
+  .table th,
+  .table td {
+    border: var(--border-width-hairline) solid CanvasText;
+  }
+
+  /*
+   * The chosen row, whose tint is a background and is dropped along with the rest. An outline is
+   * the one mark a forced mode keeps, so the selection is drawn as one; forced-color-adjust is
+   * not used here because nothing is being preserved, the mark is being replaced.
+   */
+  .table-row--selected > td {
+    outline: var(--border-width-marker) solid Highlight;
+    outline-offset: calc(-1 * var(--border-width-marker));
+  }
+
+  /*
+   * A refused field is deliberately not given an outline here, and this is the note saying so
+   * rather than an omission: the ring is drawn with outline too, and a rule naming the box by
+   * attribute outranks :focus-visible, so the field a reader had just tabbed into would be the
+   * one field with no ring. What the refusal has left in this mode is the sentence under the
+   * box and aria-invalid, which is where it was going to be read anyway.
+   */
 }

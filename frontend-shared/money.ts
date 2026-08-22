@@ -262,7 +262,18 @@ export function parseAmount(raw: string, locale: string): ParsedAmount {
     }
 
     const value = Number(`${digits || '0'}.${fraction || '0'}`);
-    if (!Number.isFinite(value) || value <= 0) {
+
+    // Two refusals and not one. Past about 1,8e308 Number gives Infinity, which is neither
+    // negative nor zero, so the joined test used to answer a held key of three hundred nines
+    // with "enter an amount greater than zero" - a sentence about the one thing that string
+    // plainly was not, and the reader is left rereading their own digits for a minus sign.
+    if (!Number.isFinite(value)) {
+        return {
+            ok: false,
+            reason: 'That is more than any amount this bank can hold: check the digits.',
+        };
+    }
+    if (value <= 0) {
         return { ok: false, reason: 'Enter an amount greater than zero.' };
     }
 

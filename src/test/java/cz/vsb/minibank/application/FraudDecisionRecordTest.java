@@ -193,23 +193,45 @@ class FraudDecisionRecordTest {
     }
 
     /**
-     * A refusal with no comment still tells the CUSTOMER why their payment stopped.
+     * A refusal with no comment is not taken at all, and nothing is written on either side of it.
      *
-     * The two halves of a DECLINE go to two different people. The payer is told something, and
-     * "Declined by fraud analyst" is what a refusal taken without a word says to them. The alert
-     * is told nothing, because putting that sentence in the comment column would attribute words
-     * to an analyst who did not type them.
+     * DECLINE is the one verdict that stops somebody's money for good, and the sentence it carries
+     * is what the payer is shown. A blank box used to become "Declined by fraud analyst" on the
+     * payer's copy, which read there exactly like a reason somebody had given and was the bank
+     * answering a question the analyst had left unanswered. Both desks keep their Decline control
+     * dead while the box is empty; this is the same rule on a direct call, where no desk is holding
+     * it.
+     *
+     * The guard stands before anything is written, so the two assertions after the throw are the
+     * point of the case: a refused decision leaves the alert open and the payment held, rather than
+     * half deciding it and then failing.
      */
     @Test
-    void aRefusalWithNoCommentNamesTheDeskToThePayerAndQuotesNobodyOnTheAlert() {
-        int transferId = flaggedPayment();
-        int alertId = alertFor(transferId).id();
+    void aRefusalWithNoReasonIsRefusedAndTheBankWritesNoSentenceOfItsOwn() {
+        for (String noReason : new String[] { null, "   " }) {
+            int transferId = flaggedPayment();
+            int alertId = alertFor(transferId).id();
 
-        services.fraudService.decideAndUpdateAlert(alertId, "DECLINE", null, null, "bob.analyst");
+            cz.vsb.minibank.domain.exceptions.ValidationException refused = assertThrows(
+                    cz.vsb.minibank.domain.exceptions.ValidationException.class,
+                    () -> services.fraudService.decideAndUpdateAlert(
+                            alertId, "DECLINE", noReason, null, "bob.analyst"),
+                    "a refusal with nothing in the comment box must be turned away");
+            assertEquals("A declined alert needs a reason: say why this payment is refused",
+                    refused.getMessage());
 
-        assertNull(alertFor(transferId).decisionComment());
-        assertEquals("Declined by fraud analyst",
-                infra.transfers.byId(transferId).orElseThrow().declineReason());
+            FraudAlert stored = alertFor(transferId);
+            assertEquals(FraudAlertState.NEW, stored.state(), "the alert is still waiting");
+            assertNull(stored.decision());
+            assertNull(stored.decisionComment());
+
+            var payment = infra.transfers.byId(transferId).orElseThrow();
+            assertEquals(cz.vsb.minibank.domain.TransferStatus.HELD_FOR_REVIEW, payment.status(),
+                    "the payment stays where it was rather than being half refused");
+            assertNull(payment.declineReason(),
+                    "and the payer is told nothing, least of all a sentence the bank wrote for the"
+                            + " analyst");
+        }
     }
 
     /**

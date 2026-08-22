@@ -22,8 +22,9 @@
  * workstation that panel is on the right.
  *
  * Below the table sit the failures that have no code to look up, and they are the ones that used
- * to reach a reader as machine text: no answer at all, an answer that could not be read, a 5xx
- * with no code, and a refusal carrying a body that is not the contract. Each has one sentence
+ * to reach a reader as machine text: no answer at all, an answer this side stopped waiting for,
+ * an answer that could not be read, a 5xx with no code, and a refusal carrying a body that is not
+ * the contract. Each has one sentence
  * here, chosen by what came back rather than by what the screen was doing, and each keeps a short
  * status-and-code reference for the small type so that a screenshot is still worth something.
  *
@@ -31,7 +32,9 @@
  * its arguments.
  */
 
-import { isApiError, isMalformedResponse } from './http';
+import { isApiError, isMalformedResponse, isRequestTimeout } from './http';
+import { attemptsLeftSentence } from './glossary';
+import { SIGNED_OUT_NOTICE } from './navigation';
 
 /**
  * Every code the ApiErrors catalogue can put on the wire, which is everything a mapped endpoint
@@ -107,7 +110,12 @@ const GENERAL: Record<ApiErrorCode, readonly string[]> = {
     // The session went away under a signed-in screen. handle() has already cleared the session
     // and called the expiry handler by the time this is read, so the screen behind this sentence
     // is on its way back to sign-in.
-    AUTH_REQUIRED: ['You have been signed out.', 'Please sign in again.'],
+    //
+    // The words are the shell's own, taken and not copied. This event is announced twice for one
+    // reader, here in the error box of the screen they were on and again on the sign-in card they
+    // land on, and the second copy of a sentence is where drift starts: whatever the notice comes
+    // to say about what was lost, both places say it together or neither does.
+    AUTH_REQUIRED: [SIGNED_OUT_NOTICE],
     AUTH_FAILED: ['The username or password is not correct.'],
     SESSION_LIMIT_REACHED: [
         'Too many people are signed in right now.',
@@ -411,11 +419,18 @@ const UNREADABLE: readonly string[] = [
     'Please try again in a moment.',
 ];
 
-function attemptsSentence(triesLeft: number): string {
-    if (triesLeft <= 0) return 'No attempts are left.';
-    if (triesLeft === 1) return 'You have 1 attempt left.';
-    return `You have ${triesLeft} attempts left.`;
-}
+/**
+ * A request this side stopped waiting for, which is not the bank being unreachable.
+ *
+ * The difference is the whole reason it has its own entry: UNREACHABLE tells somebody to check
+ * their connection, and that is false advice for a deadline this client set itself. It names who
+ * stopped and offers the retry, because a request cut off at its budget is the one failure here
+ * that quite often works on the second press.
+ */
+const TIMED_OUT: readonly string[] = [
+    'The bank did not answer in time, so this request was stopped.',
+    'Please try again in a moment.',
+];
 
 /**
  * The sentences for one failure, as separate lines: a statement of what happened, and where
@@ -443,6 +458,13 @@ export function describeApiErrorLines(
         return [...UNREADABLE];
     }
 
+    // Before the fallback below and not after it: a timeout carries no status, so isApiError
+    // answers false for it and it would otherwise be described as a bank that could not be
+    // reached, which sends the reader to check a connection that is working.
+    if (isRequestTimeout(error)) {
+        return [...TIMED_OUT];
+    }
+
     if (!isApiError(error)) {
         return [...UNREACHABLE];
     }
@@ -460,7 +482,7 @@ export function describeApiErrorLines(
     const lines = [...(BY_OPERATION[operation][code] ?? GENERAL[code])];
 
     if (code === 'INVALID_OTP' && typeof context.triesLeft === 'number') {
-        lines.push(attemptsSentence(context.triesLeft));
+        lines.push(attemptsLeftSentence(context.triesLeft));
     }
 
     return lines;
@@ -487,6 +509,16 @@ export function describeApiError(
 export function apiErrorReference(error: unknown): string | null {
     if (isMalformedResponse(error)) {
         return `HTTP ${error.status} ${error.empty ? 'EMPTY_BODY' : 'MALFORMED_BODY'}`;
+    }
+    /*
+     * The one reference that does not begin with HTTP, because there was no HTTP answer: naming a
+     * status here would be the invention the rule below forbids. It is not null either, which is
+     * what a failure with no answer usually gets, and the difference is the number. Which budget
+     * was spent, the read's or the sign-in's, is the only fact that tells a slow bank apart from
+     * a ceiling set too low, and it appears nowhere else a reader can see.
+     */
+    if (isRequestTimeout(error)) {
+        return `TIMEOUT ${Math.round(error.timeoutMs / 1000)}s`;
     }
     if (!isApiError(error)) {
         return null;

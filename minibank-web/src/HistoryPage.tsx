@@ -315,8 +315,15 @@ export default function HistoryPage({ role, brand, identity, onNavigate }: Props
                                         <table className="table table--static">
                                             <thead>
                                             <tr>
+                                                {/* Each heading claims its column. Read out cell
+                                                    by cell, a table whose headings claim nothing
+                                                    is a run of values with no names on them. */}
                                                 {HISTORY_COLUMN_FIELDS.map((f) => (
-                                                    <th key={f} className={CELL_CLASS[f]}>
+                                                    <th
+                                                        key={f}
+                                                        scope="col"
+                                                        className={CELL_CLASS[f]}
+                                                    >
                                                         {HISTORY_FIELD_LABEL[f]}
                                                     </th>
                                                 ))}

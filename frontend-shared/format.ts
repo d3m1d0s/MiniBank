@@ -90,6 +90,104 @@ function render(iso: string | null | undefined, format: Intl.DateTimeFormat): st
 }
 
 /**
+ * Where a payment stands against its authorization window: still running, closed, or never given
+ * one at all.
+ *
+ * Three outcomes and there is no fourth. `none` is not a weaker `closed`: a payment released from
+ * a review hold comes back to the customer with the deadline deliberately cleared, because the
+ * five minutes are the customer's time to type a code and not the analyst's time to reach a
+ * queue. An absent instant therefore means there is nothing to run out, not something that
+ * already has.
+ *
+ * A value that is not a date is `none` as well, for the same reason {@link render} prints such a
+ * string as itself: the server owns this field, and a client that cannot read it may not invent a
+ * deadline out of it. It leaves the screen saying no limit was set and the server deciding, which
+ * is the harmless way round.
+ */
+export type AuthWindowState = 'open' | 'closed' | 'none';
+
+/**
+ * Which of the three, read against the instant the caller is drawing at.
+ *
+ * `now` is a parameter and not a call to the clock in here. That is what lets the decision be
+ * tested as a function rather than as a screen, and it is also the honest shape: the screen holds
+ * one instant per render and every part of that render has to agree about it.
+ *
+ * The boundary is the server's, down to which side the deadline itself falls on: the domain
+ * counts a window as expired only strictly after the instant, so a code entered on the second is
+ * still a code entered in time.
+ *
+ * THE TWO CLOCKS ARE NOT THE SAME CLOCK and nothing here pretends otherwise. This screen refuses
+ * earlier or later than the bank by exactly the skew between them, and the customer whose machine
+ * runs fast loses only an attempt the server would have refused anyway. That is also why nothing
+ * that gets a customer OUT of a stuck payment may be gated on this: cancelling stays live whatever
+ * this returns.
+ */
+export function authWindowState(
+    authValidUntil: string | null | undefined,
+    now: Date,
+): AuthWindowState {
+    const at = deadlineAt(authValidUntil);
+    if (at === null) {
+        return 'none';
+    }
+    return now.getTime() > at ? 'closed' : 'open';
+}
+
+/**
+ * How much of the window is left, in words: `4 minutes 37 seconds`, or nothing to say.
+ *
+ * The empty string covers a payment with no window and one whose window has closed, the same way
+ * the glossary's label functions answer a value they have nothing to say about: the sentence that
+ * uses this is chosen by {@link authWindowState} first, and only the open branch asks.
+ *
+ * Rounded up rather than down, because this is a countdown and not an elapsed time. With 400
+ * milliseconds left a floor prints `0 seconds` beside a Confirm button that still works; the
+ * ceiling says `1 second`, which is what a person watching would say. A zero survives only at the
+ * exact instant of the deadline, which is one render at most.
+ *
+ * A whole minute drops the seconds, so `5 minutes` rather than `5 minutes 0 seconds`.
+ */
+export function formatTimeLeft(authValidUntil: string | null | undefined, now: Date): string {
+    const at = deadlineAt(authValidUntil);
+    if (at === null) {
+        return '';
+    }
+
+    const left = Math.ceil((at - now.getTime()) / 1000);
+    if (left < 0) {
+        return '';
+    }
+
+    const minutes = Math.floor(left / 60);
+    const seconds = left % 60;
+    const parts: string[] = [];
+
+    if (minutes > 0) {
+        parts.push(count(minutes, 'minute'));
+    }
+    if (seconds > 0 || minutes === 0) {
+        parts.push(count(seconds, 'second'));
+    }
+
+    return parts.join(' ');
+}
+
+function count(value: number, unit: string): string {
+    return value === 1 ? `${value} ${unit}` : `${value} ${unit}s`;
+}
+
+/** The deadline as a number, or null where there is none this module can read. */
+function deadlineAt(authValidUntil: string | null | undefined): number | null {
+    if (!authValidUntil) {
+        return null;
+    }
+
+    const at = new Date(authValidUntil).getTime();
+    return Number.isNaN(at) ? null : at;
+}
+
+/**
  * The code an alert is known by: `ALERT-2`.
  *
  * The server already builds this string for the queue and sends it as `alertCode`, so prefer the

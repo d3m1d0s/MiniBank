@@ -47,6 +47,18 @@ import type { AlertCounters, AlertFilters, FraudDecision } from './fraud';
 import { SHOW_MORE_BUSY } from './paging';
 
 /**
+ * The clock the authorization window is read against, and the words a moment is printed in.
+ *
+ * The state machine stays in format.ts and only the sentences are written here, which is the same
+ * division every other function in this file keeps: what is true of a value is decided once, and
+ * what a person is told about it is decided once, and neither is decided twice. The alternative
+ * was a screen that read the state itself and then chose between three literals of its own, which
+ * is how the one line this replaces came to say a bare timestamp under a live Confirm button on a
+ * window that had closed eight days earlier.
+ */
+import { authWindowState, formatDateTime, formatTimeLeft } from './format';
+
+/**
  * Who is reading.
  *
  * One status genuinely needs two sentences. `WAITING_AUTH` is `Waiting for your code` to the
@@ -214,6 +226,71 @@ export function dispatchStateLabel(state: string | null | undefined): string {
  */
 export function authorizationNote(required: boolean): string {
     return required ? 'This payment will ask for a one time code.' : '';
+}
+
+/**
+ * What a payment waiting for a code says about the time it has, in one of exactly three
+ * sentences.
+ *
+ * There were none. The screen printed the deadline as a value behind the label `Will be expired
+ * after:`, a fixed timestamp that said nothing about whether the moment had passed, and a payment
+ * whose window had closed a week earlier read the same as one with four minutes on it. A label and
+ * a value are how a fact is stated; whether a control will still work is not a fact of that shape.
+ *
+ * Each sentence answers the question the state actually raises. Open: the moment it ends and how
+ * much of it is left, so the customer can decide whether to fetch their phone. Closed: what has
+ * been lost and the one way out, because Confirm is dead by then and Cancel is the only live
+ * control on the row. None: that there is no limit at all, which is a real state and not a gap,
+ * reached whenever an analyst releases a payment from review.
+ *
+ * NONE OF THE THREE MAY BE THE EMPTY VALUE. That mark is the table's way of saying a cell is
+ * unknown, and it is what this line printed on a payment released from review: a sign meaning
+ * "not known" against a rule the bank knows perfectly well.
+ *
+ * The moment inside the sentence keeps the numeric form every other timestamp in both
+ * applications takes, from formatDateTime and never assembled here.
+ */
+export function authWindowNote(authValidUntil: string | null | undefined, now: Date): string {
+    switch (authWindowState(authValidUntil, now)) {
+        case 'open':
+            return (
+                `The code can be entered until ${formatDateTime(authValidUntil)}, ` +
+                `in ${formatTimeLeft(authValidUntil, now)}.`
+            );
+        case 'closed':
+            return (
+                `The time to confirm this payment ran out at ${formatDateTime(authValidUntil)}, ` +
+                'so the code can no longer be used. Cancel this transfer and create a new payment.'
+            );
+        default:
+            // Both formatters are left unasked here, which is the point of taking the branch this
+            // way round: there is no instant to print, so no call can reach the empty value with
+            // a timestamp's meaning attached to it.
+            return 'No deadline is set on this payment, so it waits for your code with no time limit.';
+    }
+}
+
+/**
+ * How many guesses are left, and at the last one what spending it costs.
+ *
+ * One function for the two places that say it, which used to be one place too few. The count was
+ * printed on the screen as a neutral label and number, `Tries left: 1`, in the same muted grey as
+ * every other hint; the warning existed only inside the message for a code that had ALREADY been
+ * refused, so the sentence naming the consequence arrived one attempt after it would have been
+ * worth reading.
+ *
+ * The zero branch is unreachable from the screen and kept for the error path: the third wrong code
+ * declines the payment inside the same request, so a customer reading this line sees three, two or
+ * one and never a payment with no attempts left still asking for a code.
+ */
+export function attemptsLeftSentence(triesLeft: number): string {
+    if (triesLeft <= 0) {
+        return 'No attempts are left.';
+    }
+    if (triesLeft === 1) {
+        return 'You have 1 attempt left. A wrong code now declines this payment.';
+    }
+    return `You have ${triesLeft} attempts left.`;
 }
 
 /**
@@ -618,6 +695,31 @@ export const DECISION_HINT =
     'box empty simply adds nothing.';
 
 /**
+ * Why Decline is dead while the comment box is empty.
+ *
+ * The server refuses the same press with the catalogue's general validation sentence, which names
+ * no box, so if the screen does not say what is missing then nothing does. That makes this the
+ * load bearing line under the buttons rather than one more piece of guidance.
+ *
+ * It is not a clause added to {@link DECISION_HINT}, and that was considered. Those three
+ * sentences are true of every alert and stand whatever the panel is doing; this one is about the
+ * state the panel is in at this moment and has to appear and disappear with the box, which is a
+ * different thing and needs its own name to be rendered on its own condition.
+ *
+ * HERE BECAUSE IT DRIFTED. Both desks wrote this sentence for themselves, each recording in a
+ * comment that the other was being given the identical string, and the two strings were not
+ * identical: one asked for "the Analyst comment box" and one for "the analyst comment filled
+ * in". One analyst does this job in two windows. Of the two wordings this is the one that names
+ * the box by {@link DECISION_COMMENT_LABEL} rather than by a copy of it in prose, so renaming the
+ * field renames the sentence that points at it, and the pair cannot come apart the way the
+ * sentence itself just did.
+ */
+export const DECLINE_NEEDS_COMMENT =
+    `Decline needs a reason: say in the ${DECISION_COMMENT_LABEL} box why this payment is ` +
+    'refused. That sentence is what the customer is told, so it is the one box a refusal cannot ' +
+    'leave empty.';
+
+/**
  * What the history beside an alert is a history OF.
  *
  * The two desks headed one table with two sentences and neither was true: one said "last 10
@@ -818,3 +920,44 @@ export function describeDeclineReason(reason: string | null | undefined): string
  * just asked, which is what the reader is waiting for.
  */
 export const FAILURE_TITLE = 'Error';
+
+/**
+ * Which clock every instant on every screen is printed against.
+ *
+ * The formatter has always rendered in Europe/Prague, so the values were never wrong; what was
+ * missing is the sentence that tells the reader so. Without it a queue timed 20:52 is read against
+ * whatever zone the device is set to, and two people comparing the same payment over a telephone
+ * are reading two different times from the same row.
+ *
+ * The last clause says device rather than naming any one of them, because the same words are read
+ * at a workstation, on a laptop and on a phone, and a sentence that names the furniture of one of
+ * those cannot be the sentence the others say.
+ *
+ * It was typed into the workstation first, with a comment asking for exactly this move: both desks
+ * show the same queue and owe the same sentence, and so does the screen where a customer waits for
+ * a code.
+ */
+export const TIMES_ZONE_NOTE =
+    'All times here are Prague time (Europe/Prague), the bank\'s own clock, whatever zone this ' +
+    'device is set to.';
+
+/**
+ * What a sign in that is taking its time says while it takes it.
+ *
+ * Checking a password here is deliberately expensive, so a sign in runs for seconds rather than
+ * for the moment a reader expects, and the only thing that changed on screen was the word on a
+ * greyed button. A button that says nothing for eight seconds reads as a button that did not take
+ * the press, and the reasonable thing to do about that is press it again.
+ *
+ * It says what is happening rather than asking for patience, because the reader's question is
+ * whether their press arrived, and an apology does not answer it.
+ */
+export const SIGN_IN_SLOW_NOTE = 'Checking your details with the bank. This takes a few seconds.';
+
+/**
+ * How long a sign in may run before it says so.
+ *
+ * Long enough that a sign in on a warm machine never draws it, short enough to arrive before the
+ * reader reaches for the button a second time.
+ */
+export const SIGN_IN_SLOW_MS = 1500;

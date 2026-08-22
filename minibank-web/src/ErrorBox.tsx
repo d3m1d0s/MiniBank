@@ -20,19 +20,23 @@ import type { ApiFailure } from '@shared/apiErrors';
  * `role="alert"` because the box replaces something the reader was waiting for, and because a
  * customer whose payment was refused should not have to go looking for the reason.
  *
- * The title defaults to the one word the boxes it replaces all carried. A screen that has a better
- * sentence than "Error" for its own failure passes one.
+ * There is no default title, and that is the change rather than the omission. The word Error stood
+ * over every one of these boxes, and under it stood one sentence that already said which thing had
+ * failed and what to do about it: a heading that names the genre of the sentence below it adds a
+ * line of type and no information, in the loudest position in the box. Twenty of the twenty-one
+ * call sites in this application pass nothing and now draw no heading; the one that does pass a
+ * title, the payment form, has a real sentence to put there.
  */
 export default function ErrorBox({
     failure,
-    title = 'Error',
+    title,
 }: {
     failure: ApiFailure;
     title?: string;
 }) {
     return (
         <div className="summary summary--danger" role="alert">
-            <div className="summary-title">{title}</div>
+            {title && <div className="summary-title">{title}</div>}
             <ul>
                 {failure.lines.map((line) => (
                     <li key={line}>{line}</li>

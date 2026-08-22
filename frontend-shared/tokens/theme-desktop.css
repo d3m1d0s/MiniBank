@@ -99,16 +99,24 @@
                                          where it happens to sit today                 */
   --color-focus-ring: #1f5eff;
 
-  /* ---- status. The existing danger triple keeps all three of its values, because the
-   *      box is identified by its tinted fill and its 9.49:1 text and nothing is asked of
-   *      a notice edge. --color-danger-accent is the separate 3:1 red for the field in
-   *      error that does not exist yet.
+  /* ---- status. The danger surface and the danger text keep their values, because the box is
+   *      identified by its tinted fill and its 9.49:1 text. The edge does not, and that is the
+   *      one change in this block.
+   *
+   *      #ffb3b3 was carried over from the stylesheet with a note saying nothing was asked of a
+   *      notice edge. Something is now: the sign-in card refuses a field. Read off the running
+   *      window, the three edges on that card were the refusal box at rgb(255,179,179), a field
+   *      at rest at rgb(128,128,128) and a field this card has refused at rgb(193,18,31), which
+   *      made the box carrying the reason the palest thing on a screen with two louder ones on
+   *      it. It takes the red already declared one line down, the same red the refused field
+   *      wears, so the reason and the box it stands in are one mark: 5.30:1 on the danger
+   *      surface, 5.82:1 on the shell behind the card.
    */
   --color-info-surface: #e4ecff;
   --color-info-border: #5b8cff;
   --color-info-text: #1442c8;
   --color-danger-surface: #ffe7e7;    /* unchanged */
-  --color-danger-border: #ffb3b3;     /* unchanged */
+  --color-danger-border: #c1121f;
   --color-danger-text: #7a0b0b;       /* unchanged */
   --color-danger-accent: #c1121f;
   --color-success-surface: #e6f6ec;
@@ -169,10 +177,28 @@
      grows under the password field. NOT --size-dialog-max, which is the width: standing the
      width in for the height is what put the web dialog 68px above centre.
 
-     No call site yet, and the missing call site is a known defect rather than an absence: this
-     window still jumps 37px when the password is wrong, because fraud.css has no
-     .shell:has(.window--login) anchor. The web side fixed that and this one did not. */
+     The call site exists now, spelled .shell:has(.window--login .form) so that it does not also
+     move the window that says an account has no screens, and it holds: measured again at
+     1440x900, the window top is 269.0 and the password box top 515.3, both at rest and with a
+     refusal standing under the password field. The 37px jump this note used to describe is
+     gone. */
   --size-dialog-nominal: 362px;
+  /* The band held open under the password field so that the Sign in button does not move when a
+     refusal appears.
+
+     On this skin it is the number the card will need rather than one it has: fraud.css holds no
+     such band yet, so the button still drops when a refusal appears, measured at 1440x900 as
+     98.0px at 100 percent text and 194.0px at 200. 5.75rem is 92px and 184px, and it is measured
+     against the tallest refusal this door draws in the ordinary course, the box plus its own two
+     margins: its refusal for an empty press at 86.0 and 182.0, a wrong password at 86.2 and
+     174.4. In rem, so the band grows with the text rather than clipping it.
+
+     The two answers it does not hold are the two the web band does not hold either, the timeout
+     at 110.2 and 222.4 and the sign-in throttle at 134.2 and 366.4. Reserving for those costs an
+     empty band the height of two fields under the password box before anything has gone wrong,
+     which is a decision about the card and not about a token; theme-web.css carries the same
+     note beside the same name, so whichever way it is taken it is taken once for both doors. */
+  --size-login-error-slot: 5.75rem;
   --size-nav-column: 260px;
   --size-label-min: 60px;
   --size-amount-field: 140px;
@@ -201,5 +227,33 @@
 @media (prefers-reduced-motion: reduce) {
   :root {
     --lift-hover: none;
+  }
+}
+
+/* ---- what is left of this palette once the reader has taken it away -------------------
+ *
+ * The same block theme-web.css carries, for the same measured reason and with the same two
+ * values, because the reader's ink is the reader's and not the skin's. A forced colours mode
+ * replaces every colour declared above and stops at images, so the one token that survives it is
+ * the monogram, and the monogram's ink is written inside the data URI: this skin draws it in
+ * #ffffff, which is right on a black palette and gone on a white one, where the whole window is
+ * white already.
+ *
+ * Measured in both emulated palettes rather than argued: stroke='CanvasText' inside the data URI
+ * resolves to black in BOTH of them, and currentColor with it, because an SVG loaded as an image
+ * is its own document and cannot see the reader's palette. Two declarations and let the browser
+ * pick, which it does through prefers-color-scheme, reported for the forced theme's own ground.
+ *
+ * prefers-contrast is untouched, here and everywhere in the product.
+ */
+@media (forced-colors: active) and (prefers-color-scheme: dark) {
+  :root {
+    --brand-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M5 19V5l7 8 7-8v14' fill='none' stroke='%23ffffff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+
+@media (forced-colors: active) and (prefers-color-scheme: light) {
+  :root {
+    --brand-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M5 19V5l7 8 7-8v14' fill='none' stroke='%23000000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   }
 }
