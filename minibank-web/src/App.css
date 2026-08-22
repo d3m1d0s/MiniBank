@@ -569,10 +569,20 @@ tr[role="button"]:focus-visible {
  * edge of a table a thousand pixels past the right edge of the block under it. There is one
  * ceiling now and it is on .form-panel above.
  */
+/*
+ * One right edge for the whole form, and it is the column's.
+ *
+ * Without this the rows end wherever their own contents run out: the account row stops at the
+ * balance beside it, the address row runs on, and a form of four rows reads as four unrelated
+ * widths. The measure the fields reach for is the reading column itself, which is already held to
+ * --size-content-max on the panel, so a field ends where every other block on the screen ends
+ * rather than at a width invented for forms.
+ */
 .form {
   display: flex;
   flex-direction: column;
   gap: var(--gap-form);
+  width: 100%;
 }
 
 /*
@@ -920,15 +930,19 @@ tr[role="button"]:focus-visible {
 }
 
 /*
- * Held to a measure, and held there by the column rather than by the box itself: the character
- * counter under it is aligned to the end of the column, so constraining only the box would leave
- * the counter behind at the old edge.
+ * The column a prose box and its counter share, and it takes the width the form takes.
  *
- * The note is optional and the amount beside it is not, so a box that runs the whole width of the
- * panel while the amount sits in a corner puts the weight on the wrong one.
+ * It was held to a measure of its own, back when the note was the largest object on a form of
+ * short fields and had to be cut down to size. The fields around it have since been let out to
+ * the reading column, so a cap here would leave one short box under a row of long ones. The
+ * counter is aligned to the end of this column, which is why the width belongs on the column and
+ * not on the box: constraining only the box would leave the counter behind at the old edge.
  */
 .field-column:has(> .textarea) {
-  max-width: var(--size-note-max);
+  width: 100%;
+  /* The prose measure the plain column carries is for text being read, and this column holds a
+     box being typed into. It ends where the fields above it end. */
+  max-width: none;
 }
 
 .textarea {
@@ -1536,6 +1550,16 @@ tr[role="button"]:focus-visible {
   margin: 0;
   font-size: var(--text-2);
   color: var(--color-text-muted);
+}
+
+/*
+ * A second fact on a metadata line, marked off by the same middot the identity band uses between
+ * a name and a role. It carries the separator rather than sitting between two, so a line with
+ * nothing after it never ends in a dangling mark.
+ */
+.meta-sep::before {
+  content: "·";
+  margin: 0 var(--space-3);
 }
 
 /* ====== Details card and OTP input ====== */

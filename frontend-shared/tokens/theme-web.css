@@ -236,9 +236,6 @@
      digits measure 124px, plus the padding and the two hairlines, plus a little slack past the
      longest content the bank writes. */
   --size-amount-field-lead: 10rem;
-  /* A short optional note, not a document. Held to a measure so that the least important field
-     on the payment form stops being the largest object on it. In ch, so it tracks the text. */
-  --size-note-max: 47ch;
   /* Ten digits, which is what the box accepts, measure 108px; the placeholder Enter OTP
      measures 92px. */
   --size-otp-field: 7rem;

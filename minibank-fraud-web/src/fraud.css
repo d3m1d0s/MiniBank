@@ -125,6 +125,20 @@ textarea:focus-visible {
      */
     width: 100%;
     height: calc(100vh - var(--space-7) * 2);
+    /*
+     * The containing block for what is positioned inside it, and that is what stops the page
+     * growing a scrollbar over empty ground.
+     *
+     * The screen reader labels this desk writes are the standard hidden box, which is
+     * position: absolute. With nothing positioned above them their containing block was the root,
+     * and an absolutely positioned box reports its overflow to its containing block rather than to
+     * whatever clips in between: the overflow: hidden here never saw them. Every hidden label that
+     * sat below the fold inside the scrolling panes, and the case notes carry one per row, pushed
+     * the root scroller down instead. Opening an alert on a wide screen therefore grew a page
+     * scrollbar leading to a couple of hundred pixels of nothing, while the window itself had not
+     * moved. Naming this the containing block puts them back inside the box that clips.
+     */
+    position: relative;
     background: var(--color-surface-shell);
     border: var(--border-width-hairline) solid var(--color-border-container);
     border-radius: var(--radius-shell);
@@ -389,6 +403,20 @@ h2.panel-title {
 }
 
 .row--2 { grid-template-columns: var(--size-row-label) 1fr; }
+
+/*
+ * How much of a box has been used, under the box and at its end. It is a third child of a two
+ * column row, so it is placed rather than flowed: left to itself it would land in the label
+ * column of the next line. The customer application says the same thing in the same place under
+ * its own boxes.
+ */
+.field-counter {
+    grid-column: 2;
+    justify-self: end;
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+    color: var(--color-text-muted);
+}
 .row--3 { grid-template-columns: var(--size-row-label) 1fr 1fr; }
 
 /*
@@ -1256,9 +1284,17 @@ h2.panel-title {
  */
 .panel-foot .row + .row { margin-top: var(--gap-form); }
 
-/* A comment and a note are short. The cell can be wide; the field has no business being. */
+/*
+ * The field takes the cell.
+ *
+ * It was capped at 32rem on the argument that a comment and a note are short, and the argument was
+ * about the text rather than about the box: a short sentence in a box half the width of its row
+ * leaves a band of panel beside every field with nothing in it, and the counter under the box then
+ * sits in the middle of the row rather than at its end. What keeps these two honest is the count
+ * under them, not a ceiling on the box.
+ */
 .panel-foot .row input,
-.panel-foot .row textarea { max-width: 32rem; }
+.panel-foot .row textarea { max-width: none; }
 
 /*
  * Both boxes of the footer, which are now two drafts and neither of them a copy of what is stored.

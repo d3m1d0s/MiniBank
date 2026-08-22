@@ -919,11 +919,32 @@ export const FAILURE_TITLE = 'Error';
  * whatever zone the device is set to, and two people comparing the same payment over a telephone
  * are reading two different times from the same row.
  *
- * A label rather than a sentence. It stands under a table of times as the unit those numbers are
+ * A label rather than a sentence. It stands beside a table of times as the unit those numbers are
  * in, which is the whole of what a reader needs from it; the fuller wording it replaces went on to
  * explain that this is the bank's clock and not the device's, which is what naming a zone means.
+ *
+ * It says time zone and not times, because it rides the same line as the count of rows on screen
+ * and "Showing 2 · Times ..." puts two different senses of the same word a few characters apart.
+ * Naming the thing it actually is costs one word and reads as a caption rather than as a variable.
  */
-export const TIMES_ZONE_NOTE = 'Times: Europe/Prague';
+export const TIMES_ZONE_NOTE = 'Time zone: Europe/Prague';
+
+/**
+ * How long the comment on a decision may run, and how long a journal entry may.
+ *
+ * The server caps neither: both columns are TEXT. These are the screens' own measures and they
+ * differ because what happens to the two afterwards differs. The comment on a decline is appended
+ * to the alert's reason, and the reason is drawn whole inside a queue row, so one analyst writing
+ * a paragraph reformats the queue for everybody; a sentence of justification fits in 280 and a
+ * paragraph does not. An entry in the journal is read one alert at a time, where length costs
+ * nobody anything but the writer.
+ *
+ * Declared here so both desks count against the same number. A counter under a box is a promise
+ * about what the box will take, and two platforms promising different things about the same field
+ * is the drift this file exists to stop.
+ */
+export const MAX_DECISION_COMMENT = 280;
+export const MAX_DECISION_NOTE = 1000;
 
 /**
  * What a sign in that is taking its time says while it takes it.

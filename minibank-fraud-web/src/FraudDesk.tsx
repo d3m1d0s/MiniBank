@@ -98,6 +98,8 @@ import {
     emptyQueueNote,
     hiddenAlertsNote,
     noteAuthorLabel,
+    MAX_DECISION_COMMENT,
+    MAX_DECISION_NOTE,
     queueCounterCells,
     queueCounterTotal,
     roleLabel,
@@ -1980,10 +1982,14 @@ export default function FraudDesk(props: {
                                              * their cap.
                                              */
                                             rows={2}
+                                            maxLength={MAX_DECISION_COMMENT}
                                             value={decisionComment}
                                             onChange={(e) => setDecisionComment(e.target.value)}
                                             placeholder={DECISION_COMMENT_PLACEHOLDER}
                                         />
+                                        <div className="field-counter">
+                                            {decisionComment.length}/{MAX_DECISION_COMMENT}
+                                        </div>
                                     </div>
                                     {/*
                                       ONE ENTRY, and an empty box beside the journal rather than a
@@ -2007,10 +2013,14 @@ export default function FraudDesk(props: {
                                         <textarea
                                             id="decision-note"
                                             rows={3}
+                                            maxLength={MAX_DECISION_NOTE}
                                             value={noteText}
                                             onChange={(e) => setNoteText(e.target.value)}
                                             placeholder={DECISION_NOTE_PLACEHOLDER}
                                         />
+                                        <div className="field-counter">
+                                            {noteText.length}/{MAX_DECISION_NOTE}
+                                        </div>
                                     </div>
 
                                     {/* The buttons mirror the domain guards exactly, so

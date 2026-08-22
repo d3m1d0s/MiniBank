@@ -720,16 +720,16 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                             {loadingMore ? SHOW_MORE_BUSY : SHOW_MORE}
                                         </button>
                                     )}
+                                    {/* The zone rides the same line as the count, both being facts
+                                        about the table rather than about any row in it. The
+                                        deadline in the panel below is the sharpest of the times a
+                                        customer reads here: against their own zone they can
+                                        believe they have an hour they do not. */}
                                     <span className="list-count">
                                         {showingLine(items.length, last?.total ?? 0)}
+                                        <span className="meta-sep">{TIMES_ZONE_NOTE}</span>
                                     </span>
                                 </div>
-
-                                {/* Which clock every time on this screen is told by, said once at
-                                    the foot rather than on every row. The deadline in the panel
-                                    below is the sharpest of them: a customer reading it against
-                                    their own zone can believe they have an hour they do not. */}
-                                <p className="helper-text">{TIMES_ZONE_NOTE}</p>
 
                                 {/* The page that did not arrive, under the rows that did. It is
                                     about the request rather than about the list, which is why it

@@ -66,6 +66,8 @@ import {
     emptyQueueNote,
     hiddenAlertsNote,
     noteAuthorLabel,
+    MAX_DECISION_COMMENT,
+    MAX_DECISION_NOTE,
     queueCountersSentence,
     TIMES_ZONE_NOTE,
     transferStatusLabel,
@@ -1274,14 +1276,15 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                   side made a reader compare numbers that answer different
                                   questions.
                                 */}
+                                {/* The zone rides the same line, because both are facts about the
+                                    table below and neither is worth a row of its own above a queue
+                                    where rows are what the analyst came for. Same rung, one
+                                    separator, so it reads as one line of metadata rather than as
+                                    two statements competing. */}
                                 <p className="list-count gap-above-sm">
                                     {showingLine(alerts.length, lastPage?.total ?? 0)}
+                                    <span className="meta-sep">{TIMES_ZONE_NOTE}</span>
                                 </p>
-
-                                {/* The same sentence the workstation says under the same queue.
-                                    This desk is read aloud to colleagues, and a time with no zone
-                                    on it is a number two people can read two ways. */}
-                                <p className="helper-text">{TIMES_ZONE_NOTE}</p>
 
                                 {/*
                                   Headers and cells both spread from the shared field set, in its
@@ -2007,6 +2010,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                 id="decision-comment"
                                                 className="textarea"
                                                 rows={3}
+                                                maxLength={MAX_DECISION_COMMENT}
                                                 value={decisionComment}
                                                 onChange={(e) =>
                                                     setDecisionComment(
@@ -2015,6 +2019,9 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                 }
                                                 placeholder={DECISION_COMMENT_PLACEHOLDER}
                                             />
+                                            <div className="message-counter">
+                                                {decisionComment.length}/{MAX_DECISION_COMMENT}
+                                            </div>
                                         </div>
 
                                         {/* One entry to add, and it starts empty on every alert
@@ -2036,6 +2043,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                 id="decision-note"
                                                 className="textarea"
                                                 rows={3}
+                                                maxLength={MAX_DECISION_NOTE}
                                                 value={decisionNote}
                                                 onChange={(e) =>
                                                     setDecisionNote(
@@ -2044,6 +2052,9 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                 }
                                                 placeholder={DECISION_NOTE_PLACEHOLDER}
                                             />
+                                            <div className="message-counter">
+                                                {decisionNote.length}/{MAX_DECISION_NOTE}
+                                            </div>
                                         </div>
 
                                         {/* The buttons mirror the domain guards exactly, so a

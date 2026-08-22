@@ -214,10 +214,6 @@
      at the body rung because its control furniture is 12px wider, and that furniture does not
      grow with the rung. No call site yet: the payment form lives in the customer quadrant. */
   --size-amount-field-lead: 172px;
-  /* A short optional note, not a document, held to a measure so the least important field on a
-     payment form stops being the largest object on it. In ch for the same reason as the prose
-     measure above, and the same number as the web's because it measures text and not idiom. */
-  --size-note-max: 47ch;
   --size-otp-field: 180px;
   --size-textarea-min: 80px;
   --size-textarea-max: 200px;
