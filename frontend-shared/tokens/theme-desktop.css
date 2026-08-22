@@ -223,6 +223,20 @@
   --size-queue-min: 320px;
   --size-queue-max: 420px;
   --size-detail-min: 360px;
+  /* The plate that folds the decision block away, hung on the hairline above it.
+
+     In pixels, and this is the one measurement on that pane where pixels are the right unit: it is
+     window furniture on a line of fixed weight rather than text, so it does not grow with the text
+     and must not. The rem-sized version of the same plate, photographed at 1440x900 with 200
+     percent text, had grown tall enough to stand on top of the Approve button. 24 by 88 clears the
+     24 by 24 a pointer target owes at every text size, and the caret drawn inside it is sized from
+     the height rather than from the type scale for the same reason.
+
+     Declared here rather than in scale.css because the control exists on this platform only: the
+     customer desk is one scrolling column and has no line to fold anything away from. If the web
+     ever grows one, the pair belongs in the contract and in both themes. */
+  --size-fold-handle-width: 88px;
+  --size-fold-handle-height: 24px;
 }
 
 /* The durations are zeroed in scale.css, which is loaded first. --lift-hover is declared

@@ -1259,30 +1259,123 @@ h2.panel-title {
 }
 
 /*
- * The verdict is the reason this screen exists, so it does not scroll. It is the panel's
- * footer: the evidence above it moves, the three buttons never do, and a repeated action is
- * faster when its target stays put. The 50% ceiling is for 200 percent text, where the block
- * alone is half the panel: past that it scrolls inside itself rather than eat the evidence.
+ * THE FOOT OF THE PANE: a plate on the line, a region that folds, and a tail that does neither.
+ *
+ * The verdict is the reason this screen exists, so it does not scroll with the evidence: it is the
+ * panel's footer, and what is above it moves past it. What used to be written here was that the
+ * three buttons never move. They did, and the note was the only thing saying otherwise: measured
+ * on the running window at 1440x900 with 200 percent text, the block wants 594px, the 50% ceiling
+ * clips it to 373, and the 221px that falls off the bottom is the button row and the line under it.
+ * The one thing pinned here was the one thing not drawn.
+ *
+ * So the block is three things. The plate straddles the hairline and is the whole of the control.
+ * The region under it holds the title and the two boxes: it is what gives, it is the only part
+ * that scrolls, and it is what the plate puts away. Everything after it is the tail, fixed and
+ * drawn in both states: the three buttons, the line saying why one of them is dead, the line about
+ * a payment already sent, and the two boxes that answer a press. A press can be made from the
+ * folded state, and folding its answer would let an analyst release a payment and be told nothing.
+ *
+ * Folded the block is 73px at every ordinary size against 292 unfolded, and 199px at 200 percent
+ * text, which is under the ceiling and needs no scrollbar at all.
+ *
+ * overflow is visible here rather than auto, and has to be: the plate hangs half above this box
+ * and a block that clips its own overflow would cut it in two. The scrolling moves down to the
+ * region, which is the only child that should ever have had it.
+ *
+ * The 50% ceiling stays exactly as it was and for what it was written for. Past it the region
+ * scrolls, so what an analyst scrolls for is the comment box rather than the buttons.
  */
 .panel-foot {
     flex: 0 0 auto;
     margin-top: var(--space-5);
-    padding-top: var(--space-5);
+    /*
+     * One rung above the rest of the pane, and bought rather than chosen: the plate hangs half its
+     * own height below the line, so this is what its lower edge lands on. Two pixels.
+     */
+    padding-top: var(--space-6);
     border-top: var(--border-width-hairline) solid var(--color-border-container);
     max-width: var(--size-shell-max);
     max-height: 50%;
+    /* The containing block for the plate, which is hung from the top edge of this one. */
+    position: relative;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The tail does not give. What shrinks against the ceiling is the region, and only the region. */
+.panel-foot > * { flex: 0 0 auto; }
+
+.panel-foot > .decision-fold {
+    flex: 0 1 auto;
+    /* A flex item takes its min-content size as an automatic minimum. */
+    min-height: 0;
     overflow: auto;
 }
 
 /*
- * Air between one row and the next, and nowhere else.
- *
- * The footer is a plain block and a row carries no margin of its own, so the comment box and the
- * note box under it met edge to edge: two fields with no seam read as one control, and choosing
- * either drew a ring that touched the other. The same two rungs the sign in form keeps, for the
- * same reason, and only between rows so the title above and the buttons below keep their own.
+ * Stated rather than left to the UA, because this is a flex child and the rule that lays flex
+ * children out is written a few lines above: any display of ours declared on this region would
+ * outweigh the UA's own [hidden] rule and draw a block that is meant to be away.
  */
-.panel-foot .row + .row { margin-top: var(--gap-form); }
+.decision-fold[hidden] { display: none; }
+
+/*
+ * THE PLATE ON THE LINE. A button, and deliberately not a .btn.
+ *
+ * .btn is the grammar of a control standing in a row of controls: a 34px floor that grows with the
+ * text, the field padding, the neutral fill and the operable border. This is none of those things.
+ * It is window furniture on a fixed hairline, and it is sized in pixels for that reason: a plate
+ * built in rem, photographed at 1440x900 with 200 percent text, had grown tall enough to stand on
+ * the Approve button under it. 24 by 88 clears the 24 by 24 a pointer target owes at every text
+ * size, and the caret inside is sized from the plate rather than from the type scale, so it is a
+ * caret on a plate at 100 percent and at 200.
+ *
+ * Half above the line and half below it, which is what says the plate belongs to the seam and not
+ * to the block under it. Centred on the block rather than on the pane: at 1920 the foot is capped
+ * at --size-shell-max inside a wider pane, and it is this block's line that is being folded.
+ *
+ * The accent fill, because it is the one control in this half of the pane and an analyst who has
+ * folded the block has to be able to find what unfolds it. The border carries the same colour as
+ * the fill and is not decoration: under a forced palette every fill this file declares is replaced
+ * by the reader's, and an edge is what keeps the plate a plate there.
+ *
+ * No transition on the fold itself. The block changes height by a quarter of the pane, and an
+ * animated pane is a pane an analyst waits for; the plate's own colour keeps the ordinary rung.
+ * The keyboard ring is the one the stylesheet already draws on every button.
+ */
+.fold-handle {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    inline-size: var(--size-fold-handle-width);
+    block-size: var(--size-fold-handle-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: var(--border-width-hairline) solid var(--color-border-accent);
+    border-radius: var(--radius-control);
+    background: var(--color-accent);
+    color: var(--color-text-on-accent);
+    font-size: calc(var(--size-fold-handle-height) / 2);
+    line-height: var(--leading-tight);
+    cursor: pointer;
+    transition: background-color var(--motion-fast) var(--ease);
+}
+
+.fold-handle:hover { background-color: var(--color-accent-hover); }
+.fold-handle:active { background-color: var(--color-accent-active); }
+
+/*
+ * No rung between one row and the next, because there is already one.
+ *
+ * The seam these two boxes needed is the count under each of them: a line of its own, set small
+ * and quiet at the end of the box it measures, which is exactly the gap a margin was added to
+ * make. With both, the footer spent twice for one separation and the block grew by the difference
+ * on a screen where its height is the thing in short supply.
+ */
 
 /*
  * The field takes the cell.

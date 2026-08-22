@@ -128,6 +128,22 @@ const WITHDRAWN = 'DECLINED';
  */
 const QUEUE_ERROR_ID = 'queue-error';
 
+/**
+ * The two words on the plate that folds the middle of the decision block away, and the name of
+ * the region it folds.
+ *
+ * Here and not in frontend-shared/glossary.ts, which is where every word both applications say is
+ * kept. This control exists on the workstation only: the customer desk is one scrolling column
+ * with nothing pinned under a hairline, so it has no such plate and there is no second wording of
+ * these strings anywhere for this one to drift from.
+ *
+ * Each names the press rather than the state, because that is what a button is asked; the state
+ * is carried beside them by aria-expanded, and by the caret the plate draws.
+ */
+const DECISION_FOLD_LABEL = 'Hide the decision boxes';
+const DECISION_UNFOLD_LABEL = 'Show the decision boxes';
+const DECISION_FOLD_ID = 'decision-fold';
+
 /*
  * Why Decline is dead while the comment box is empty: DECLINE_NEEDS_COMMENT, now in
  * frontend-shared/glossary.ts. It was written here and again on the customer desk, in two
@@ -596,6 +612,23 @@ export default function FraudDesk(props: {
      * back, and an empty box is simply a press that adds no entry.
      */
     const [noteText, setNoteText] = useState('');
+
+    /**
+     * Whether the middle of the decision block is folded away, and it outlives the selection.
+     *
+     * Neither openDetail nor closeDetail touches it, unlike the two boxes above, and the reason is
+     * what each of them is. What is typed in those boxes is filed against one customer, so it is
+     * cleared with the case; the fold is a posture, and a control that undoes itself on every card
+     * in a page of twenty-five is not a control. The cost, an analyst forgetting they folded it, is
+     * answered by what stays drawn either way: the plate is the only blue object in that half of the
+     * pane, Decline is still dead while the comment is empty, and the line that says why is still
+     * printed under the buttons.
+     *
+     * Held here rather than in the address, because it is a habit of the desk and not a place in
+     * the bank. The panel does not unmount when the selection moves, so it simply persists; a
+     * reload signs the analyst out, which settles the other half of the question.
+     */
+    const [decisionFolded, setDecisionFolded] = useState(false);
 
     /*
      * The history that belongs to the alert on screen, and nothing else.
@@ -1948,78 +1981,124 @@ export default function FraudDesk(props: {
                             */}
                             {detail && !busyDetail && (
                                 <div className="panel-foot">
-                                    <div className="box-title">{DECISION_TITLE}</div>
                                     {/*
-                                      The caption is the shared one, and it says "this decision"
-                                      rather than "the reason": the comment rides with all three
-                                      presses, so a word about declining would tell an analyst
-                                      clearing an alert that what they wrote belongs to a refusal
-                                      they are not making. The other desk carries the same string.
+                                      THE PLATE ON THE LINE, and it is the first child because it
+                                      sits on the hairline rather than in the column under it: it
+                                      is taken out of flow and hung over the top edge of this
+                                      block, half above the line and half below.
 
-                                      A textarea and not a single line box. On a decline this text
-                                      becomes the sentence the customer is shown for why their
-                                      payment was stopped, so it is prose, and a field that shows
-                                      forty characters of it invites forty characters. The
-                                      placeholder is an example of what to write rather than the
-                                      word `optional`: what happens to an empty box is said once,
-                                      in the hint under the buttons, where it covers both boxes.
+                                      What it folds is the middle of the block, the title and the
+                                      two boxes. What it can never fold is what follows the region:
+                                      the three buttons, the line that says why one of them is
+                                      dead, and the answer to a press. A verdict taken from the
+                                      folded state has to be able to say what it did.
+
+                                      Not a .btn. That class carries the furniture of a control in
+                                      a row of controls, a 34px floor among them, and this is
+                                      window furniture: a fixed plate on a fixed line, sized in
+                                      pixels so that it stays a plate at any text size.
+
+                                      The word is the accessible name and the caret is the picture:
+                                      the caret points the way the press moves the block, up to put
+                                      it away and down to bring it back.
                                     */}
-                                    <div className="row row--2">
-                                        <label htmlFor="decision-comment">
-                                            {DECISION_COMMENT_LABEL}<span aria-hidden="true"> *</span>
-                                        </label>
-                                        <textarea
-                                            id="decision-comment"
-                                            /*
-                                             * Two lines and not the other box's three, which is a
-                                             * height and not a kind: both are prose boxes and the
-                                             * customer application makes both three. This block is
-                                             * pinned as the panel's footer rather than scrolling
-                                             * with the page, so every line it grows is a line taken
-                                             * off the evidence above it, and the comment is one
-                                             * sentence to a customer where an entry is a paragraph
-                                             * for a colleague. Both grow on drag and scroll past
-                                             * their cap.
-                                             */
-                                            rows={2}
-                                            maxLength={MAX_DECISION_COMMENT}
-                                            value={decisionComment}
-                                            onChange={(e) => setDecisionComment(e.target.value)}
-                                            placeholder={DECISION_COMMENT_PLACEHOLDER}
-                                        />
-                                        <div className="field-counter">
-                                            {decisionComment.length}/{MAX_DECISION_COMMENT}
+                                    <button
+                                        type="button"
+                                        className="fold-handle"
+                                        aria-expanded={!decisionFolded}
+                                        aria-controls={DECISION_FOLD_ID}
+                                        onClick={() => setDecisionFolded(folded => !folded)}
+                                    >
+                                        <span aria-hidden="true">{decisionFolded ? '▾' : '▴'}</span>
+                                        <span className="visually-hidden">
+                                            {decisionFolded ? DECISION_UNFOLD_LABEL : DECISION_FOLD_LABEL}
+                                        </span>
+                                    </button>
+
+                                    {/*
+                                      WHAT FOLDS, and it is hidden rather than unmounted.
+
+                                      `hidden` and not `{!decisionFolded && ...}`. The comment box
+                                      holds the sentence a declined customer is shown, and an
+                                      analyst who folds the block halfway through writing one must
+                                      find it there when they unfold it: taking the region out of
+                                      the tree would throw that text away, silently, at the press
+                                      of a plate whose whole promise is that nothing is lost.
+                                    */}
+                                    <div className="decision-fold" id={DECISION_FOLD_ID} hidden={decisionFolded}>
+                                        <div className="box-title">{DECISION_TITLE}</div>
+                                        {/*
+                                          The caption is the shared one, and it says "this decision"
+                                          rather than "the reason": the comment rides with all three
+                                          presses, so a word about declining would tell an analyst
+                                          clearing an alert that what they wrote belongs to a refusal
+                                          they are not making. The other desk carries the same string.
+
+                                          A textarea and not a single line box. On a decline this text
+                                          becomes the sentence the customer is shown for why their
+                                          payment was stopped, so it is prose, and a field that shows
+                                          forty characters of it invites forty characters. The
+                                          placeholder is an example of what to write rather than the
+                                          word `optional`: what happens to an empty box is said once,
+                                          in the hint under the buttons, where it covers both boxes.
+                                        */}
+                                        <div className="row row--2">
+                                            <label htmlFor="decision-comment">
+                                                {DECISION_COMMENT_LABEL}<span aria-hidden="true"> *</span>
+                                            </label>
+                                            <textarea
+                                                id="decision-comment"
+                                                /*
+                                                 * Two lines and not the other box's three, which is a
+                                                 * height and not a kind: both are prose boxes and the
+                                                 * customer application makes both three. This block is
+                                                 * pinned as the panel's footer rather than scrolling
+                                                 * with the page, so every line it grows is a line taken
+                                                 * off the evidence above it, and the comment is one
+                                                 * sentence to a customer where an entry is a paragraph
+                                                 * for a colleague. Both grow on drag and scroll past
+                                                 * their cap.
+                                                 */
+                                                rows={2}
+                                                maxLength={MAX_DECISION_COMMENT}
+                                                value={decisionComment}
+                                                onChange={(e) => setDecisionComment(e.target.value)}
+                                                placeholder={DECISION_COMMENT_PLACEHOLDER}
+                                            />
+                                            <div className="field-counter">
+                                                {decisionComment.length}/{MAX_DECISION_COMMENT}
+                                            </div>
                                         </div>
-                                    </div>
-                                    {/*
-                                      ONE ENTRY, and an empty box beside the journal rather than a
-                                      copy of it.
+                                        {/*
+                                          ONE ENTRY, and an empty box beside the journal rather than a
+                                          copy of it.
 
-                                      It used to open holding the whole of the alert's notes, which
-                                      is what made it dangerous: whatever was left in it was filed
-                                      over what a colleague had written, an emptied box included.
-                                      What is stored is read as a record a few lines above, and
-                                      what is typed here is added to the end of it under this
-                                      analyst's name.
+                                          It used to open holding the whole of the alert's notes, which
+                                          is what made it dangerous: whatever was left in it was filed
+                                          over what a colleague had written, an emptied box included.
+                                          What is stored is read as a record a few lines above, and
+                                          what is typed here is added to the end of it under this
+                                          analyst's name.
 
-                                      The caption is a verb for that reason, the only one in this
-                                      footer. It also still says who reads it, which is the
-                                      difference between this box and the one above: the comment
-                                      rides with the verdict and its substance reaches the customer
-                                      on a refusal, and an entry reaches colleagues and nobody else.
-                                    */}
-                                    <div className="row row--2">
-                                        <label htmlFor="decision-note">{DECISION_NOTE_LABEL}</label>
-                                        <textarea
-                                            id="decision-note"
-                                            rows={3}
-                                            maxLength={MAX_DECISION_NOTE}
-                                            value={noteText}
-                                            onChange={(e) => setNoteText(e.target.value)}
-                                            placeholder={DECISION_NOTE_PLACEHOLDER}
-                                        />
-                                        <div className="field-counter">
-                                            {noteText.length}/{MAX_DECISION_NOTE}
+                                          The caption is a verb for that reason, the only one in this
+                                          footer. It also still says who reads it, which is the
+                                          difference between this box and the one above: the comment
+                                          rides with the verdict and its substance reaches the customer
+                                          on a refusal, and an entry reaches colleagues and nobody else.
+                                        */}
+                                        <div className="row row--2">
+                                            <label htmlFor="decision-note">{DECISION_NOTE_LABEL}</label>
+                                            <textarea
+                                                id="decision-note"
+                                                rows={3}
+                                                maxLength={MAX_DECISION_NOTE}
+                                                value={noteText}
+                                                onChange={(e) => setNoteText(e.target.value)}
+                                                placeholder={DECISION_NOTE_PLACEHOLDER}
+                                            />
+                                            <div className="field-counter">
+                                                {noteText.length}/{MAX_DECISION_NOTE}
+                                            </div>
                                         </div>
                                     </div>
 

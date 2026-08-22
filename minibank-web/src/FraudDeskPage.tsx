@@ -2032,7 +2032,11 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                             caption is a verb now, because what the box does is
                                             what changed: the record itself is the table above,
                                             where it can be read and not touched. */}
-                                        <div className="field-column gap-above-sm">
+                                        {/* No rung above it: the count under the box before it is
+                                            already a line of its own, set small and quiet at the
+                                            end of that box, and it is the seam a margin here was
+                                            added to make. */}
+                                        <div className="field-column">
                                             <label
                                                 className="field-label"
                                                 htmlFor="decision-note"
