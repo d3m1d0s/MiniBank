@@ -2088,6 +2088,16 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                             has been typed in it. Only the pressed one changes its
                                             word: three buttons reading Applying… would say three
                                             decisions were being taken. */}
+                                        {/* Why Decline is dead while the box above it is empty,
+                                            standing over the buttons rather than under them so it
+                                            is read on the way to a press rather than after one.
+                                            The star on the box's own label says which box. The
+                                            workstation says the same sentence in the same place,
+                                            for the same reason. */}
+                                        <p className="helper-text">
+                                            * {DECLINE_NEEDS_COMMENT}
+                                        </p>
+
                                         <div className="actions gap-above-lg">
                                             <button
                                                 type="button"
@@ -2145,17 +2155,6 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                     : decisionActionLabel('ANNOTATE')}
                                             </button>
                                         </div>
-
-                                        {/* Above the standing hint rather than inside it: this
-                                            one is about the state the panel is in right now and
-                                            goes away when the box is written in, while the hint
-                                            below is true of every alert. Drawn only where it is
-                                            the reason: on a SUSPICIOUS alert Decline is dead for
-                                            a different one, and naming the comment box there
-                                            would send the analyst to fix what is not broken. */}
-                                        <p className="helper-text">
-                                            * {DECLINE_NEEDS_COMMENT}
-                                        </p>
 
                                         {/* Only against a payment that has already gone, which
                                             is the one case the buttons cannot show themselves. */}

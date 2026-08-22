@@ -1982,25 +1982,34 @@ export default function FraudDesk(props: {
                             {detail && !busyDetail && (
                                 <div className="panel-foot">
                                     {/*
-                                      THE PLATE ON THE LINE, and it is the first child because it
+                                      THE GRIP ON THE LINE, and it is the first child because it
                                       sits on the hairline rather than in the column under it: it
                                       is taken out of flow and hung over the top edge of this
                                       block, half above the line and half below.
 
-                                      What it folds is the middle of the block, the title and the
-                                      two boxes. What it can never fold is what follows the region:
-                                      the three buttons, the line that says why one of them is
-                                      dead, and the answer to a press. A verdict taken from the
-                                      folded state has to be able to say what it did.
+                                      What it folds is the middle of the block, the title, the two
+                                      boxes and the rule about the comment. What it can never fold
+                                      is what follows the region: the three buttons and the answer
+                                      to a press. A verdict taken from the folded state has to be
+                                      able to say what it did.
 
                                       Not a .btn. That class carries the furniture of a control in
                                       a row of controls, a 34px floor among them, and this is
-                                      window furniture: a fixed plate on a fixed line, sized in
-                                      pixels so that it stays a plate at any text size.
+                                      window furniture, sized in pixels so that it keeps its shape
+                                      at any text size.
 
-                                      The word is the accessible name and the caret is the picture:
-                                      the caret points the way the press moves the block, up to put
-                                      it away and down to bring it back.
+                                      An arrow and no plate around it. A pill the width of a word
+                                      read as a fourth button on a screen whose whole lower half is
+                                      buttons; the caret alone reads as what it is, a grip on the
+                                      seam between two parts of a pane.
+
+                                      The word is the accessible name and the caret is the picture,
+                                      and the caret points where the LINE will travel, not where
+                                      the content goes: folded, the seam is low and a press lifts
+                                      it, so it points up. Open, the seam is high and a press
+                                      brings it down. Pointing it the other way, at the content
+                                      rather than at the line it is sitting on, is what made it
+                                      read backwards.
                                     */}
                                     <button
                                         type="button"
@@ -2009,7 +2018,7 @@ export default function FraudDesk(props: {
                                         aria-controls={DECISION_FOLD_ID}
                                         onClick={() => setDecisionFolded(folded => !folded)}
                                     >
-                                        <span aria-hidden="true">{decisionFolded ? '▾' : '▴'}</span>
+                                        <span aria-hidden="true">{decisionFolded ? '▲' : '▼'}</span>
                                         <span className="visually-hidden">
                                             {decisionFolded ? DECISION_UNFOLD_LABEL : DECISION_FOLD_LABEL}
                                         </span>
@@ -2100,6 +2109,19 @@ export default function FraudDesk(props: {
                                                 {noteText.length}/{MAX_DECISION_NOTE}
                                             </div>
                                         </div>
+
+                                        {/*
+                                          Why Decline is dead while the box above it is empty.
+
+                                          Inside the folding region and last in it, so it stands
+                                          over the buttons rather than under them and is read on
+                                          the way to a press rather than after one. It folds away
+                                          with the box it is about, which is the point: the rule
+                                          is a condition on something to type, and with nothing on
+                                          screen to type into there is nothing for it to explain.
+                                          The star on the box's own label says which box.
+                                        */}
+                                        <div className="hint">* {DECLINE_NEEDS_COMMENT}</div>
                                     </div>
 
                                     {/* The buttons mirror the domain guards exactly, so
@@ -2166,22 +2188,6 @@ export default function FraudDesk(props: {
                                                 : decisionActionLabel('ANNOTATE')}
                                         </button>
                                     </div>
-
-                                    {/*
-                                      Why one of those three is dead, under the row it is in and
-                                      over the hint that is always there.
-
-                                      It comes and goes with the box that governs it, which is
-                                      what separates it from the three sentences below: those are
-                                      true whatever is typed, and this one is a condition standing
-                                      between the analyst and a press they have already reached
-                                      for. Above the buttons it would be read before there was
-                                      anything to explain.
-                                    */}
-                                    {/* The star on the box's own label says which box; this says
-                                        the rule, once, under the whole block rather than between
-                                        two fields. */}
-                                    <div className="hint">* {DECLINE_NEEDS_COMMENT}</div>
 
                                     {/* Only against a payment that has already gone, which is
                                         the one case the buttons cannot show for themselves. */}

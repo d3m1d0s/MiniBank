@@ -1344,29 +1344,43 @@ h2.panel-title {
  * animated pane is a pane an analyst waits for; the plate's own colour keeps the ordinary rung.
  * The keyboard ring is the one the stylesheet already draws on every button.
  */
+/*
+ * A caret sitting on the seam, and no plate behind it.
+ *
+ * It was a pill the width of a word, and on a pane whose whole lower half is buttons that read as
+ * a fourth one. What is wanted here is a grip, so the arrow is the control: it takes the accent
+ * the primary button takes, at a size that can be aimed at without being a shape of its own.
+ *
+ * The background is the panel's own surface rather than nothing, and that is the whole reason the
+ * seam looks cut rather than crossed: the hairline runs under this box, and a transparent grip
+ * would have the line drawn straight through the middle of the arrow. The inline padding is what
+ * decides how much of the line it interrupts.
+ *
+ * block-size is the pointer target and stays at 24px whatever the text does, which clears the
+ * minimum on its own; the glyph inside it is set by --size-fold-caret. Both in pixels, for the
+ * reason the comment on the button gives: this is window furniture and not text.
+ */
 .fold-handle {
     position: absolute;
     top: 0;
     left: 50%;
     transform: translate(-50%, -50%);
-    inline-size: var(--size-fold-handle-width);
     block-size: var(--size-fold-handle-height);
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0;
-    border: var(--border-width-hairline) solid var(--color-border-accent);
-    border-radius: var(--radius-control);
-    background: var(--color-accent);
-    color: var(--color-text-on-accent);
-    font-size: calc(var(--size-fold-handle-height) / 2);
-    line-height: var(--leading-tight);
+    padding: 0 var(--space-3);
+    border: none;
+    background: var(--color-surface-raised);
+    color: var(--color-accent);
+    font-size: var(--size-fold-caret);
+    line-height: 1;
     cursor: pointer;
-    transition: background-color var(--motion-fast) var(--ease);
+    transition: color var(--motion-fast) var(--ease);
 }
 
-.fold-handle:hover { background-color: var(--color-accent-hover); }
-.fold-handle:active { background-color: var(--color-accent-active); }
+.fold-handle:hover { color: var(--color-accent-hover); }
+.fold-handle:active { color: var(--color-accent-active); }
 
 /*
  * No rung between one row and the next, because there is already one.

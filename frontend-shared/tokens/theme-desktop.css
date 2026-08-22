@@ -235,8 +235,12 @@
      Declared here rather than in scale.css because the control exists on this platform only: the
      customer desk is one scrolling column and has no line to fold anything away from. If the web
      ever grows one, the pair belongs in the contract and in both themes. */
-  --size-fold-handle-width: 88px;
   --size-fold-handle-height: 24px;
+  /* The caret itself, which is the whole of the control now that the plate around it is gone.
+     Large enough to be aimed at and read as an arrow, small enough not to become a shape beside
+     the buttons under it. The box it sits in stays 24px tall, so the pointer target does not
+     depend on this. */
+  --size-fold-caret: 20px;
 }
 
 /* The durations are zeroed in scale.css, which is loaded first. --lift-hover is declared
