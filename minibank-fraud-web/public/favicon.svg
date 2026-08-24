@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <!--
+    The tab icon: the lockup the sign-in card and the header band already draw, flattened into one
+    document. The tile is the accent fill and the rounded square of .brand-mark in App.css, the
+    letter is the path the theme files hold as the brand mark, and both keep the coordinates they
+    have there, so the letter sits inside the tile in the proportion a reader knows from the header.
+
+    Drawn rather than fetched, and one mark for both applications: a tab icon that is a binary is a
+    binary in a repository people read, and two icons would be two marks the moment one is edited.
+    One blue rather than each skin's own, because a tab strip is the browser's furniture and carries
+    no theme of ours.
+  -->
+  <rect width="24" height="24" rx="6" ry="6" fill="#2563eb"/>
+  <path d="M5 19V5l7 8 7-8v14" fill="none" stroke="#f9fafb" stroke-width="2.5"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,5 +1,5 @@
 // src/Nav.tsx
-import { NAV_ENTRIES } from '@shared/navigation';
+import { NAV_ENTRIES, NAV_LANDMARK, NAV_TITLE } from '@shared/navigation';
 import type { NavRole, NavView } from '@shared/navigation';
 
 /**
@@ -19,11 +19,11 @@ export function Nav({ role, current, onNavigate }: NavProps) {
     const entries = NAV_ENTRIES[role];
 
     return (
-        <nav className="nav" aria-label="Primary">
-            <div className="nav-title">Navigation</div>
+        <nav className="nav" aria-label={NAV_LANDMARK}>
+            <div className="nav-title">{NAV_TITLE}</div>
             <ul>
                 {entries.map((entry) => (
-                    <li key={entry.id} className="nav-row">
+                    <li key={entry.id}>
                         {entry.kind === 'screen' ? (
                             <button
                                 type="button"

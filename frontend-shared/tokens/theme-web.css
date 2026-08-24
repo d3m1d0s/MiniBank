@@ -7,8 +7,12 @@
  * per channel, so nothing on screen moves. Alpha survives in exactly one place, the selection
  * tint, because that one has to let a hover show through it, and both composites are measured.
  *
- * The name list and its order match theme-desktop.css exactly. A diff of the two files shows
- * values and comments and nothing else.
+ * The name list and its order match theme-desktop.css, with two named exceptions and no others:
+ * --size-fold-handle-height and --size-fold-caret are declared there and not here, because the
+ * control they measure exists on that platform only and this one has no line to fold anything away
+ * from. Both say so where they stand. Everything else is the same name in the same place, so a
+ * diff of the two files shows values and comments and nothing else, and a name that appears on one
+ * side alone without a note beside it saying why is a name one skin has quietly gone without.
  */
 :root {
   color-scheme: dark;
@@ -31,7 +35,18 @@
   --gap-field-row: var(--space-6);
   --gap-nav: var(--space-3);
 
+  /* The two halves of one pair, and they are a pair: a control that answers the pointer has to
+     answer the press as well, and a skin that says one of them says both. Web floats on hover and
+     sinks on press, both by half a step and a step.
+
+     The press is a name here so that the override at the foot of this file can reach it, and that
+     is the whole of what the name is for. A rule that writes translateY(1px) into a stylesheet
+     still moves under a reader who has asked for no movement, because the override reaches tokens
+     and cannot reach a literal. Such a rule usually sits directly beside a hover that took
+     var(--lift-hover) and stopped moving, which is the shape to look for: not an untidy value, but
+     half a control answering the setting and half of it ignoring it. */
   --lift-hover: translateY(-0.5px);
+  --lift-active: translateY(1px);
 
   /* ---- surfaces, ordered by elevation ------------------------------------
    * The ladder goes UP from the shell, not down. The whole luminance budget
@@ -130,11 +145,55 @@
   --color-danger-text: #fa8072;
   --color-danger-accent: #f87171;     /* the 3:1 red for a field in error       */
   --color-success-surface: #14392b;
-  --color-success-border: #34d399;
+  /* Quieter than the danger edge, and that ordering is the requirement rather than the number.
+     The two edges are read side by side over a working week, never together, so the one that
+     says an irreversible action was refused cannot be the fainter of the two.
+     Measured on the ground the box is actually painted on, --color-surface-raised #1b2742,
+     which is what the running page reports and not what the declared fill implies: the old
+     #34d399 gave 7.72 against the danger salmon's 5.93, so calm was 1.30 times louder than
+     alarm. #2ea87c gives 4.95, which puts the pair the right way round at 1.20 and still
+     clears the 3:1 an edge owes, on the raised surface and on the box's own fill alike (4.25).
+     The green moved rather than the red because the red cannot: matching mint from the salmon
+     side means a pink pale enough to stop being red, and the salmon is a measured, live value
+     carrying the error box today. --color-success-text is untouched; it is ink, not an edge,
+     and it is also --color-tone-open, whose 4.5:1 was measured on four grounds. */
+  --color-success-border: #2ea87c;
   --color-success-text: #6ee7b7;
   --color-warning-surface: #453410;
   --color-warning-border: #fbbf24;
   --color-warning-text: #fcd34d;
+
+  /* ---- outcome. The box that answers what the reader just did.
+   *
+   * Three answers and no more: it happened, it did not happen, this is for information. They are
+   * roles of their own rather than call sites writing the status ladders directly, borrowed the
+   * way --color-tone-open borrows the success green below and for the same reason, and the
+   * borrowing is not theoretical here: the success edge one screen up has just been retuned for
+   * this box's sake, and a status ladder that carries a dozen quiet things must be able to move
+   * again without dragging the answer to an irreversible decision with it.
+   *
+   * The three are ordered by loudness, measured on --color-surface-raised, which is the ground
+   * the box is painted on: refused 5.93, done 4.95, for information 2.11. A notice that shouts
+   * as loudly as a refusal is how a reader learns to stop reading either of them. The lowest of
+   * the three is an edge around a notice and owes no threshold; the other two are edges around
+   * outcomes and clear 3:1.
+   *
+   * The edges are measured against the surface around the box; the inks against the fill inside
+   * it, which is a different ground for two of the three. All three clear the 4.5:1 an ink owes:
+   * 8.35, 5.64 and 8.23.
+   *
+   * The notice fill is the value --color-surface-raised already resolves to, so a box that
+   * takes this slot instead of the raised surface does not move a pixel.
+   */
+  --color-outcome-done-surface: var(--color-success-surface);
+  --color-outcome-done-border: var(--color-success-border);
+  --color-outcome-done-text: var(--color-success-text);
+  --color-outcome-failed-surface: var(--color-danger-surface);
+  --color-outcome-failed-border: var(--color-danger-border);
+  --color-outcome-failed-text: var(--color-danger-text);
+  --color-outcome-notice-surface: var(--color-info-surface);
+  --color-outcome-notice-border: var(--color-info-border);
+  --color-outcome-notice-text: var(--color-info-text);
 
   /* The refused tone, and the one of the three that needed a value of its own.
    *
@@ -176,8 +235,8 @@
           0 0 0 1px rgb(15 23 42 / 0.6);
 
   /* ---- named fixed dimensions. Not on any scale. Named so the desktop customer
-   *      screens reuse them rather than invent a second set. --size-shell-max,
-   *      --size-form-max and the last seven have no call site in this application; they are
+   *      screens reuse them rather than invent a second set. Seven have no call site in this
+   *      application, --size-shell-max and --size-form-max and the last five, and they are
    *      declared because the two theme files carry identical name lists.
    */
   /* The shell no longer has a ceiling: the working screens take the window, so this is left
@@ -241,19 +300,22 @@
   --size-otp-field: 7rem;
   --size-textarea-min: 80px;
   --size-textarea-max: 200px;
-  --size-window-height: 820px;
   --size-titlebar: 44px;
-  --size-row-label: 90px;
+  /* The label column of the desktop filter panel and of its fact grids. Read by that skin only,
+     declared here because the two files carry identical name lists. 5.625rem is the 90px it has
+     always been at the default text size; in rem because it holds words. */
+  --size-row-label: 5.625rem;
   --size-queue-min: 320px;
   --size-queue-max: 420px;
   --size-detail-min: 360px;
 }
 
-/* The durations are zeroed in scale.css, which is loaded first. --lift-hover is declared
-   here, so its override has to be here too, or the declaration above would win. */
+/* The durations are zeroed in scale.css, which is loaded first. The lift pair is declared
+   here, so its override has to be here too, or the declarations above would win. */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --lift-hover: none;
+    --lift-active: none;
   }
 }
 

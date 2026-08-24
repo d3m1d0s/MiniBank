@@ -22,6 +22,7 @@ import { authorizationNote, transferStatusLabel, transferStatusTone } from '@sha
 import { ACCOUNT_LABEL, QUOTE_FIELDS, QUOTE_LABEL } from '@shared/fields';
 import { formatIban, formatTransferId } from '@shared/format';
 import Nav from './Nav';
+import { PLANNED_TITLE } from '@shared/navigation';
 import type { NavRole, NavView } from '@shared/navigation';
 
 const MAX_MESSAGE_LENGTH = 140;
@@ -912,7 +913,12 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                 )}
 
                                 {info.type === 'success' && (
-                                    <div className="summary" role="status">
+                                    /* The payment exists, in all three of the branches below: the
+                                       bank took it, and what is left to happen to it is what the
+                                       words inside say. That is the one thing this edge claims,
+                                       and it is the edge every other answered press on these
+                                       screens takes when the answer is yes. */
+                                    <div className="summary summary--success" role="status">
                                         <div className="summary-title">
                                             {isUnderReview(info.result.status)
                                                 ? 'The bank is reviewing this payment'
@@ -1094,15 +1100,22 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                           one: dashed rather than filled, and inert. The pointer is
                                           told what it is, and the form is spared a sentence
                                           explaining what is not there.
+
+                                          A span, not a disabled button, for the reason the
+                                          navigation column gives at Nav.tsx:41: a button with no
+                                          handler was the eleventh and last stop of the form's
+                                          keyboard walk, so somebody working the form by keys
+                                          ended on the one control that answers nothing. Drawn
+                                          with the same two classes, so the dashed pill is
+                                          unchanged; what goes is the tab stop and the
+                                          aria-disabled that promised the press would come back.
                                         */}
-                                        <button
-                                            type="button"
+                                        <span
                                             className="btn-secondary planned-item"
-                                            aria-disabled="true"
-                                            title="Planned - not part of this showcase"
+                                            title={PLANNED_TITLE}
                                         >
                                             Save as draft
-                                        </button>
+                                        </span>
                                     </div>
                                 )}
                             </form>

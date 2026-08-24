@@ -1,5 +1,5 @@
 /**
- * What each role can reach, as data.
+ * What each role can reach, as data, and which roles count as roles at all.
  *
  * It is shared for the same reason the fraud DTOs are: it was written more than once and the
  * copies disagreed. The customer navigation existed three times in hand written markup, once per
@@ -23,6 +23,33 @@
 
 /** The roles these clients have screens for. The server's UserRole has four values; two get a UI. */
 export type NavRole = 'CUSTOMER' | 'FRAUD_ANALYST';
+
+/**
+ * The same two as values, because a type cannot be asked at run time what it admits.
+ *
+ * The wire is NOT narrowed to match. SessionRole in http.ts keeps all four names the server can
+ * sign somebody in as, since an endpoint that can answer OPERATIONS is not made honest by a type
+ * saying it cannot. The narrowing is a fact about these clients rather than about the bank, so it
+ * happens here, once, on the way from what arrived to what a shell knows how to draw.
+ */
+export const SERVED_ROLES: readonly NavRole[] = ['CUSTOMER', 'FRAUD_ANALYST'];
+
+/**
+ * The role when the clients have screens for it, null when they do not.
+ *
+ * The argument is a plain string, and that is the point: both the sign-in response and the record
+ * a tab kept for itself are cast rather than validated, so typing this as the two served roles
+ * would let a third walk through every comparison that looks exhaustive. An unknown role is
+ * answered here with the null that both shells turn into a panel saying so, instead of reaching a
+ * payment form and failing there on a 403.
+ *
+ * Both shells carried this function and the list above word for word, one copy each, which is two
+ * answers to a question that has one. Neither copy was wrong; that is what made it worth moving,
+ * since a pair that agrees today is a pair that will be edited on one side tomorrow.
+ */
+export function servedRole(role: string): NavRole | null {
+    return (SERVED_ROLES as readonly string[]).includes(role) ? (role as NavRole) : null;
+}
 
 /** The screens that exist. A view here is a screen a person can actually be standing on. */
 export type NavView = 'new-payment' | 'history' | 'waiting-auth' | 'fraud-desk';
@@ -48,6 +75,18 @@ export type NavEntry =
  * sentence per entry: varying the wording would suggest the reasons differ, and they do not.
  */
 export const PLANNED_TITLE = 'Planned - not part of this showcase';
+
+/**
+ * What the column calls itself, and what it is called in the list of landmarks.
+ *
+ * Two words for two readers and neither is decoration. The heading is what a person reads above
+ * the entries; `Primary` is what a screen reader announces, where `Navigation` would be said
+ * twice over because the element already names its own kind. Both were typed into the web markup,
+ * which was safe while one application had a column and stopped being safe the moment a second
+ * one draws the same three entries.
+ */
+export const NAV_TITLE = 'Navigation';
+export const NAV_LANDMARK = 'Primary';
 
 /**
  * Both lists are in product order, the built and the unbuilt interleaved.

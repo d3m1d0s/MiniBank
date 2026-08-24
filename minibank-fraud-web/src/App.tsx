@@ -15,6 +15,7 @@ import {
     SIGNED_OUT_WITH_LOSS,
     SIGN_IN_AS_SOMEONE_ELSE,
     noScreensNote,
+    servedRole,
     type NavRole,
 } from '@shared/navigation';
 import {
@@ -59,25 +60,6 @@ const ACTIVITY_EVENTS = ['keydown', 'pointerdown', 'wheel'] as const;
  * extending a session somebody is using and polling to stay signed in forever.
  */
 const ACTIVITY_REFRESH_MS = 5 * 60 * 1000;
-
-/**
- * The roles MiniBank has screens for. The server's UserRole has four values and two of them
- * have nothing to show on either platform, so those two are named nowhere in this application:
- * they arrive as a string and leave as the absence below. NavRole already declares exactly this
- * pair, so it is not declared a second time.
- */
-const SERVED_ROLES: readonly NavRole[] = ['CUSTOMER', 'FRAUD_ANALYST'];
-
-/**
- * The role when MiniBank has screens for it, null when it does not.
- *
- * The argument is a plain string, and that is the point: the sign-in response is cast rather
- * than validated, so typing it as the two roles above would let a third walk through every
- * comparison that looks exhaustive to the reader.
- */
-function servedRole(role: string): NavRole | null {
-    return (SERVED_ROLES as readonly string[]).includes(role) ? (role as NavRole) : null;
-}
 
 interface AuthState {
     username: string;
@@ -305,11 +287,20 @@ export default function App() {
         return (
             <div className="shell">
                 <div className="window window--login">
-                    <div className="titlebar">
-                        <div className="title">MiniBank</div>
-                    </div>
+                    {/*
+                      * The same two parts the working window is built from, and named the same
+                      * way: the band the bank is printed on, and the one region the window is
+                      * for. This screen carried the name as bare text inside a plain div, so of
+                      * the three windows this application draws it was the one where a reader
+                      * who cannot see it was given a sentence with nothing above it. The class
+                      * on the name is the one the door and the working window already use, so
+                      * nothing about the type moves.
+                      */}
+                    <header className="titlebar">
+                        <div className="title"><h1 className="brand-name">MiniBank</h1></div>
+                    </header>
                     <div className="content">
-                        <div className="panel">
+                        <main className="panel">
                             {/*
                               * The second branch is both applications' sentence and is read from
                               * the shared module. The first is this window's alone: a signed in
@@ -341,7 +332,7 @@ export default function App() {
                                     {SIGN_IN_AS_SOMEONE_ELSE}
                                 </button>
                             </div>
-                        </div>
+                        </main>
                     </div>
                 </div>
             </div>

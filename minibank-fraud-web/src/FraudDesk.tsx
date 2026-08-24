@@ -32,6 +32,7 @@ import { goTo, replaceRoute, routeFor } from '@shared/route';
 import { describeApiError, describeApiFailure } from '@shared/apiErrors';
 import type { ApiFailure } from '@shared/apiErrors';
 import ErrorBox from './ErrorBox';
+import NavRail from './NavRail';
 import {
     ALERT_NOTE_FIELDS,
     ALERT_NOTE_LABEL,
@@ -73,10 +74,10 @@ import {
     DECLINE_NEEDS_COMMENT,
     DECISION_NOTE_LABEL,
     DECISION_NOTE_PLACEHOLDER,
+    DECISION_RESULT_TITLE,
     DECISION_TITLE,
     NO_ALERT_NOTES,
     NO_HISTORY,
-    QUEUE_COUNTERS_BASIS_NARROW,
     QUEUE_LOADING,
     REFRESH,
     REFRESH_BUSY,
@@ -100,6 +101,7 @@ import {
     noteAuthorLabel,
     MAX_DECISION_COMMENT,
     MAX_DECISION_NOTE,
+    QUEUE_COUNTERS_BASIS_NARROW,
     queueCounterCells,
     queueCounterTotal,
     roleLabel,
@@ -143,6 +145,14 @@ const QUEUE_ERROR_ID = 'queue-error';
 const DECISION_FOLD_LABEL = 'Hide the decision boxes';
 const DECISION_UNFOLD_LABEL = 'Show the decision boxes';
 const DECISION_FOLD_ID = 'decision-fold';
+
+/*
+ * What names the queue region, and it is the id of the queue's own heading rather than a second
+ * copy of the words: the region and the title it is announced by cannot come apart if there is
+ * only one of them. The case pane next to it needs none, because a window has one main region and
+ * the tag is the whole of what says so.
+ */
+const QUEUE_TITLE_ID = 'queue-title';
 
 /*
  * Why Decline is dead while the comment box is empty: DECLINE_NEEDS_COMMENT, now in
@@ -630,6 +640,14 @@ export default function FraudDesk(props: {
      */
     const [decisionFolded, setDecisionFolded] = useState(false);
 
+    /**
+     * Whether the navigation rail is folded to its handle, and it outlives the selection for the
+     * same reason the decision fold does: it is a posture the analyst takes towards the window,
+     * not a property of the case in front of them. An analyst who has shut the rail to widen the
+     * queue has not asked for it back on the next alert.
+     */
+    const [navFolded, setNavFolded] = useState(false);
+
     /*
      * The history that belongs to the alert on screen, and nothing else.
      *
@@ -1110,13 +1128,45 @@ export default function FraudDesk(props: {
     return (
         <div className="shell">
             <div className="window">
-                <div className="titlebar">
+                {/*
+                  * THE FOUR PARTS OF THE WINDOW, NAMED IN THE MARKUP AS WELL AS IN INK.
+                  *
+                  * This window printed six block names and had no heading and no landmark of any
+                  * kind: every one of them was a div in bold, and a person reading the screen with
+                  * anything other than their eyes was handed one undivided sheet. The parts are the
+                  * ones a person sees, and there are four: the window's own band, the rail of
+                  * screens, the queue of cases, and the case under review. The band and the rail are
+                  * furniture around the work, the case is the work, and the queue is how it is
+                  * chosen, which is why it is a named region beside the main one rather than inside
+                  * it.
+                  *
+                  * The outline under them runs h1 for the bank at the top of the window, h2 for each
+                  * of the two panels, h3 for each box inside the case. No level is skipped and no
+                  * level is invented: it is the same shape the customer application's fraud desk
+                  * carries, so one analyst reading one product hears one document.
+                  */}
+                <header className="titlebar">
                     {/*
                       * One product name, qualified by the screen and not by the role: this
                       * window carries the customer screens too once they exist, and the same
                       * screen is named the same way in the customer application.
+                      *
+                      * The mark stands in front of the name here for the reason it stands in
+                      * front of it at this window's own door and in the customer application's
+                      * band: one lockup on three surfaces or on none of them. The working
+                      * window was the one surface that printed the name as bare text, so the
+                      * bank a person had just been shown at the sign-in card disappeared the
+                      * moment they were let in.
                       */}
-                    <div className="title">MiniBank · Fraud Desk</div>
+                    <div className="title">
+                        <span className="brand">
+                            <span className="brand-mark" aria-hidden="true" />
+                            {/* The name of the bank is the top of the outline, which is what the
+                                customer application's band already makes it. */}
+                            <h1 className="brand-name">MiniBank</h1>
+                        </span>
+                        <span className="title-screen">Fraud Desk</span>
+                    </div>
                     <div className="titlebar-right" title={SESSION_IDLE_NOTE}>
                         {/*
                           * Who is at the desk and what they are, which is what the customer
@@ -1134,13 +1184,31 @@ export default function FraudDesk(props: {
                         {/* The action paired with "Sign in" is "Sign out". One product, one verb. */}
                         <button className="btn" onClick={props.onLogout}>Sign out</button>
                     </div>
-                </div>
+                </header>
 
                 <div className="content content--split">
+                    {/*
+                      * A third surface, and deliberately not a fourth use of the queue. The panel
+                      * beside it is where the cases are; this is where the screens are, and the
+                      * window had neither a place that said so nor any landmark at all. The role
+                      * comes from the shell, which is what decided this window was the right one
+                      * for it, and the screen names itself rather than being worked out from the
+                      * address: this window serves one.
+                      */}
+                    <NavRail
+                        role={props.role}
+                        current="fraud-desk"
+                        folded={navFolded}
+                        onToggle={() => setNavFolded(folded => !folded)}
+                    />
+
                     {/* LEFT: queue */}
-                    <div className="left">
+                    {/* A region and not the main one: this is how a case is chosen, and the case
+                        itself is next door. It is named by its own heading rather than by a
+                        string written here, so the two can never come apart. */}
+                    <section className="left" aria-labelledby={QUEUE_TITLE_ID}>
                         <div className="panel">
-                            <div className="panel-title">{ALERTS_QUEUE_TITLE}</div>
+                            <h2 className="panel-title" id={QUEUE_TITLE_ID}>{ALERTS_QUEUE_TITLE}</h2>
 
                             {/*
                               EVERY CONTROL IN HERE CARRIES ITS OWN NAME.
@@ -1298,7 +1366,27 @@ export default function FraudDesk(props: {
                                                 <span>{cells.transferCode} · {cells.amount}</span>
                                                 <span>{cells.riskScore}</span>
                                             </div>
-                                            <div className="li-bot">{cells.shortReason}</div>
+                                            {/*
+                                              WHY THE ALERT WAS RAISED, IN AS MUCH ROOM AS A CARD HAS.
+
+                                              The reason is whatever was written into it, and
+                                              nothing shortens it on the way here: the column is
+                                              TEXT and the server hands it over whole. A long one
+                                              took six lines of a card and pushed the two cards
+                                              under it out of the tray, so a queue of twenty-five
+                                              became a queue of two, and the card that ate the tray
+                                              was not even the one being looked for. Two lines
+                                              here, the whole of it under the pointer, and the
+                                              whole of it again in the case pane, which is where a
+                                              reason is read rather than scanned.
+                                            */}
+                                            {/* The title takes the field off the record rather
+                                                than the cell built from it: a cell is whatever
+                                                node the card draws, and an attribute is a
+                                                string. Here the two are the same words. */}
+                                            <div className="li-bot" title={a.shortReason}>
+                                                {cells.shortReason}
+                                            </div>
                                             <div className="li-foot">{cells.createdAt} · {cells.assignee}</div>
                                         </button>
                                     );
@@ -1353,11 +1441,11 @@ export default function FraudDesk(props: {
 
                               What is on screen, and the way to ask again. The count says how much
                               of the FILTERED list the tray is holding, so it stands directly under
-                              the tray and no longer as the fifth cell of the strip below, where it
-                              was the one number on a different basis from the other four and
-                              nothing said so. It takes the shared string verbatim, capital S and
-                              no full stop, so it reads like the same line at the foot of the
-                              customer application's lists.
+                              the tray rather than as a fifth cell of the strip below, where it was
+                              the one number on a different basis from the other four and nothing
+                              said so. It takes the shared string verbatim, capital S and no full
+                              stop, so it reads like the same line at the foot of the customer
+                              application's lists.
 
                               It is not printed over an empty tray: the sentence in the tray has
                               just said the same thing in words, and "Showing: 0" under it is that
@@ -1372,6 +1460,17 @@ export default function FraudDesk(props: {
                               counters because they go stale together.
                             */}
                             <div className="queue-line">
+                                {lastPage && alerts.length > 0 && (
+                                    <div className="hint">
+                                        {showingLine(alerts.length, lastPage.total)}
+                                        {/* Which clock every time on this screen is told by, on
+                                            the line that already carries what is on screen, as it
+                                            is on the customer application's lists. It was a line
+                                            of its own under the strip, which spent a whole row on
+                                            a fact that never changes. */}
+                                        <span className="meta-sep">{TIMES_ZONE_NOTE}</span>
+                                    </div>
+                                )}
                                 <button
                                     type="button"
                                     className="btn"
@@ -1384,6 +1483,16 @@ export default function FraudDesk(props: {
                             </div>
 
                             {/*
+                              The three numbers count the WHOLE queue, not the list above them,
+                              and the server means it that way: it counts before applying any
+                              filter. New 7 sitting over a list of three reads as a contradiction
+                              until the line says what it is counting.
+
+                              Counting the visible list instead would be worse: the desk opens
+                              filtered to new alerts, so two of the three states would be
+                              permanently zero, and watching confirmed fraud rise as you work is
+                              the whole point of having them.
+
                               These four count the WHOLE queue, not the list above them, and
                               the server means it that way: it counts before applying any
                               filter. That is the right design and the numbers were never
@@ -1404,16 +1513,6 @@ export default function FraudDesk(props: {
                                     {queueCounterCells(counters).map(cell => (
                                         <div key={cell.state}>{cell.label}: {cell.count}</div>
                                     ))}
-                                    {/*
-                                      How much of the FILTERED list is on screen, which is the one
-                                      number in this strip that is not the whole queue. It reads as
-                                      a fifth cell because it is one, and standing on its own line
-                                      above the strip it read as a heading for the four counts
-                                      underneath, which are on a different basis entirely.
-                                    */}
-                                    {lastPage && alerts.length > 0 && (
-                                        <div>{showingLine(alerts.length, lastPage.total)}</div>
-                                    )}
                                 </div>
                             )}
 
@@ -1433,27 +1532,20 @@ export default function FraudDesk(props: {
                                 <div className="hint queue-note">{hiddenAlertsNote(hiddenCount)}</div>
                             )}
                             {hiddenErr && <div className="hint queue-note">{hiddenErr}</div>}
-
-                            {/*
-                              Which clock every time on this screen is told by, under the tray that
-                              tabulates most of them. Always drawn, unlike the two lines above it:
-                              those explain a difference that is sometimes there, and this one is
-                              true of every row, every date in the detail beside it and every line
-                              of the customer's history under that.
-                            */}
-                            <div className="hint queue-note">{TIMES_ZONE_NOTE}</div>
                         </div>
-                    </div>
+                    </section>
 
                     {/* RIGHT: detail */}
-                    <div className="right">
+                    {/* The case under review is what this window is for, so it is the main region
+                        and everything else on the screen is around it. */}
+                    <main className="right">
                         <div className="panel">
                             {/*
                               A name and not a slogan. This title used to tell an analyst who had
                               opened the fraud desk what the fraud desk is for, in the largest type
                               on this half of the screen, on every alert they read.
                             */}
-                            <div className="panel-title">{ALERT_DETAILS_TITLE}</div>
+                            <h2 className="panel-title">{ALERT_DETAILS_TITLE}</h2>
 
                             <div className="panel-scroll">
 
@@ -1489,11 +1581,11 @@ export default function FraudDesk(props: {
                                                 {formatAlertId(detail.alert.id)} · {detail.transfer.code}
                                             </div>
                                             <div className="figures">
-                                                <div className="figure">
+                                                <div>
                                                     <div className="figure-label">{FIELD_LABEL.amount}</div>
                                                     <div className="figure-value">{formatMoney(detail.transfer.amount)}</div>
                                                 </div>
-                                                <div className="figure">
+                                                <div>
                                                     <div className="figure-label">{FIELD_LABEL.riskScore}</div>
                                                     <div className="figure-value">
                                                         {detail.alert.riskScore ?? NOT_RECORDED}
@@ -1513,8 +1605,8 @@ export default function FraudDesk(props: {
                                             </div>
                                         </div>
 
-                                        <div className="box box--facts">
-                                            <div className="box-title">Facts</div>
+                                        <div className="box">
+                                            <h3 className="box-title">Facts</h3>
                                             {/*
                                               Two definition lists and not one, split by subject:
                                               the payment on the left, the case on the right. One
@@ -1780,7 +1872,7 @@ export default function FraudDesk(props: {
                                           another customer's facts.
                                         */}
                                         <div className="box box--history">
-                                            <div className="box-title">{CUSTOMER_HISTORY_TITLE}</div>
+                                            <h3 className="box-title">{CUSTOMER_HISTORY_TITLE}</h3>
                                             {shownHistoryErr && <ErrorBox failure={shownHistoryErr} />}
                                             {busyHistory && <div className="hint">Loading payments…</div>}
                                             {shownHistory && (shownHistory.rows.length === 0 ? (
@@ -1924,7 +2016,7 @@ export default function FraudDesk(props: {
                                           to ask for.
                                         */}
                                         <div className="box box--notes">
-                                            <div className="box-title">{ALERT_NOTES_TITLE}</div>
+                                            <h3 className="box-title">{ALERT_NOTES_TITLE}</h3>
                                             {detail.notes.length === 0 ? (
                                                 <div className="hint">{NO_ALERT_NOTES}</div>
                                             ) : (
@@ -2035,7 +2127,7 @@ export default function FraudDesk(props: {
                                       of a plate whose whole promise is that nothing is lost.
                                     */}
                                     <div className="decision-fold" id={DECISION_FOLD_ID} hidden={decisionFolded}>
-                                        <div className="box-title">{DECISION_TITLE}</div>
+                                        <h3 className="box-title">{DECISION_TITLE}</h3>
                                         {/*
                                           The caption is the shared one, and it says "this decision"
                                           rather than "the reason": the comment rides with all three
@@ -2208,14 +2300,14 @@ export default function FraudDesk(props: {
                                     {decisionErr && <ErrorBox failure={decisionErr} />}
                                     {decisionMsg && (
                                         <div className="result">
-                                            <div className="result-title">Result</div>
+                                            <div className="result-title">{DECISION_RESULT_TITLE}</div>
                                             {decisionMsg}
                                         </div>
                                     )}
                                 </div>
                             )}
                         </div>
-                    </div>
+                    </main>
 
                 </div>
             </div>

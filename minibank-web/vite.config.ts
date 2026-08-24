@@ -20,6 +20,14 @@ export default defineConfig({
   server: {
     port: 5173,
     /*
+     * Fail rather than move. Without this vite answers a busy 5173 by taking the next free port
+     * and printing it, so a second copy of this application starts happily on 5174, which is the
+     * workstation's port and its proxy, and the two front ends then look identical in the address
+     * bar while talking past each other. The port is part of what the harness and the proxy were
+     * written against, so a run that cannot have it should stop and say so.
+     */
+    strictPort: true,
+    /*
      * The dev server refuses to serve a file outside the project root. A module
      * already in the graph slips through, but a stylesheet imported for the first
      * time from ../frontend-shared answers 403, so that directory has to be named.

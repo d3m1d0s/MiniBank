@@ -35,7 +35,17 @@
   --gap-field-row: var(--space-4);
   --gap-nav: var(--space-2);
 
-  --lift-hover: none;                 /* a desktop control does not float on hover */
+  /* The two halves of one pair. This skin answers them differently on purpose: a desktop control
+     does not float under the pointer, and it does sink under the press, which is what the window
+     idiom has always done.
+
+     The point of the name is that the answer is the skin's to give, and that the override at the
+     foot of this file can reach it. It cannot reach a literal: a rule that writes translateY(1px)
+     of its own still moves under a reader who has asked for no movement, whatever this pair says,
+     and it usually does so directly beside a hover that took var(--lift-hover) and stopped. That
+     is the shape to look for. Same obligation, same wording, in theme-web.css. */
+  --lift-hover: none;
+  --lift-active: translateY(1px);
 
   /* ---- surfaces ---- */
   --color-canvas-image: none;         /* the desktop idiom paints a flat ground */
@@ -127,11 +137,41 @@
   --color-danger-text: #7a0b0b;       /* unchanged */
   --color-danger-accent: #c1121f;
   --color-success-surface: #e6f6ec;
-  --color-success-border: #166534;
+  /* Quieter than the danger edge, and the ordering is the requirement rather than the number:
+     the edge around a refused decision cannot be the fainter of the two, and it was.
+     Measured against the ground the box is actually painted on, which is the .panel at
+     rgb(255,255,255) read off the running window rather than the fill this file declares:
+     #166534 gave 7.13 against the danger red's 6.22, calm 1.15 times louder than alarm.
+     #1a7a3f gives 5.39, which turns the pair round at 1.15 and still clears 3:1 both on the
+     panel and on the box's own fill (4.81). The green moved rather than the red, so the same
+     decision is made the same way in both skins; --color-success-text is untouched, being ink
+     and not an edge. */
+  --color-success-border: #1a7a3f;
   --color-success-text: #14532d;
   --color-warning-surface: #fff0d4;
   --color-warning-border: #8a5300;
   --color-warning-text: #6b3f00;
+
+  /* ---- outcome. The same three answers the dark theme carries, for the reason it gives there,
+   *      in this palette. It happened, it did not happen, this is for information.
+   *
+   *      Ordered by loudness the same way and measured on the same ground, the white panel the
+   *      window actually paints behind the decision block: refused 6.22, done 5.39, for
+   *      information 3.16. The window has drawn the first two of these for a while under names
+   *      of its own; what is new is that they are named by role, so the two skins can be asked
+   *      whether they say the same thing and answered without opening either stylesheet.
+   *
+   *      All three inks clear 4.5:1 on their own fills: 9.49, 8.14 and 6.71.
+   */
+  --color-outcome-done-surface: var(--color-success-surface);
+  --color-outcome-done-border: var(--color-success-border);
+  --color-outcome-done-text: var(--color-success-text);
+  --color-outcome-failed-surface: var(--color-danger-surface);
+  --color-outcome-failed-border: var(--color-danger-border);
+  --color-outcome-failed-text: var(--color-danger-text);
+  --color-outcome-notice-surface: var(--color-info-surface);
+  --color-outcome-notice-border: var(--color-info-border);
+  --color-outcome-notice-text: var(--color-info-text);
 
   /* The one of the three tone treatments that needs a colour of its own rather than borrowing
      a status colour. It borrows one here, and deliberately: on this light ground the danger
@@ -162,10 +202,10 @@
   --shadow-shell: 0 10px 35px rgb(0 0 0 / 0.15);
 
   /* ---- named fixed dimensions. Not on any scale. Named so the desktop customer
-   *      screens reuse them rather than invent a second set. The form, prose and field
-   *      names have no call site in this application yet, and each of them is what the
-   *      desktop customer quadrant will need; they are declared because the two theme
-   *      files carry identical name lists.
+   *      screens reuse them rather than invent a second set. The content, form, prose,
+   *      navigation and field names have no call site in this application yet, and each of them
+   *      is what the desktop customer quadrant will need; they are declared because the two
+   *      theme files carry identical name lists.
    */
   --size-shell-max: 1280px;
   /* The web's number, and by the argument the two names below already use rather than by
@@ -207,19 +247,36 @@
      note beside the same name, so whichever way it is taken it is taken once for both doors. */
   --size-login-error-slot: 5.75rem;
   --size-nav-column: 260px;
-  --size-label-min: 60px;
-  --size-amount-field: 140px;
+  /* The four names from here to --size-otp-field hold TEXT, so all four are in rem, exactly as
+     the web theme holds them. They were in pixels, which is the same defect --size-row-label
+     showed with the lights on: at 200 percent text that column stopped growing while the words
+     in it kept going, and the last letter of the longest label ended up against the field it
+     names. These four have no call site in this window yet and so the defect is still latent,
+     which is the only reason it is being fixed rather than photographed. The numbers below are
+     what they were, converted, except the last one, which had no derivation to keep. */
+  --size-label-min: 3.75rem;
+  --size-amount-field: 8.75rem;
   /* The same amount at the lead rung of the type scale, where a payment form sets it. The web
      pair is 128px and 160px, so the lead rung costs 32px of digits; this skin's field is 140px
      at the body rung because its control furniture is 12px wider, and that furniture does not
      grow with the rung. No call site yet: the payment form lives in the customer quadrant. */
-  --size-amount-field-lead: 172px;
-  --size-otp-field: 180px;
+  --size-amount-field-lead: 10.75rem;
+  /* Ten digits, which is what the box accepts, and the placeholder Enter OTP. The web theme
+     measures those at 108px and 92px and holds them in 7rem; this skin adds the 12px of control
+     furniture the amount field above already records, so the same content wants 120px here.
+     The 180px this name used to carry was the one number in the group that no comment anywhere
+     derived, and it is 60px of field past anything the box can hold: in a growing unit it would
+     have handed the customer quadrant a box two thirds empty at every text size. */
+  --size-otp-field: 7.5rem;
   --size-textarea-min: 80px;
   --size-textarea-max: 200px;
-  --size-window-height: 820px;
   --size-titlebar: 44px;
-  --size-row-label: 90px;
+  /* The label column of the filter panel and of the fact grids, and the one name in this group
+     whose defect was visible rather than latent: at 200 percent text Assignee asked 94.5px of
+     ink from a 90px column and finished against the border of the select it names, while Alert
+     state broke over two lines. 5.625rem is that same 90px at the default size, and it now grows
+     with the words in it. A column of labels is a measure of text and never of the window. */
+  --size-row-label: 5.625rem;
   --size-queue-min: 320px;
   --size-queue-max: 420px;
   --size-detail-min: 360px;
@@ -241,13 +298,27 @@
      the buttons under it. The box it sits in stays 24px tall, so the pointer target does not
      depend on this. */
   --size-fold-caret: 20px;
+  /* The handle that folds the navigation rail, and the rail drawn inside it.
+
+     Square, and 24px on a side because that is what a pointer target owes at every text size and
+     because the rail folded to it is then a strip one width wide rather than a button standing in
+     a column of another. The icon is two rungs under the box so the frame it draws has room to be
+     read as a frame; sized in px alongside the box for the reason the fold handle above is, that
+     both are measurements of one control rather than of the text in it.
+
+     Declared here rather than in scale.css because the control exists on this platform only: the
+     customer column stands beside a page and has nothing to fold into. If the web ever grows one,
+     the pair belongs in the contract and in both themes. */
+  --size-nav-toggle: 24px;
+  --size-nav-toggle-icon: 18px;
 }
 
-/* The durations are zeroed in scale.css, which is loaded first. --lift-hover is declared
-   here, so its override has to be here too, or the declaration above would win. */
+/* The durations are zeroed in scale.css, which is loaded first. The lift pair is declared
+   here, so its override has to be here too, or the declarations above would win. */
 @media (prefers-reduced-motion: reduce) {
   :root {
     --lift-hover: none;
+    --lift-active: none;
   }
 }
 

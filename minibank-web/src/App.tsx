@@ -16,6 +16,7 @@ import {
     SESSION_IDLE_NOTE,
     SIGN_IN_AS_SOMEONE_ELSE,
     noScreensNote,
+    servedRole,
     SIGNED_OUT_WITH_LOSS,
 } from '@shared/navigation';
 import {
@@ -32,26 +33,6 @@ import HistoryPage from './HistoryPage';
 import { WaitingAuthorizationsPage } from './WaitingAuthorizationsPage';
 import FraudDeskPage from './FraudDeskPage';
 import LoginDialog from './LoginDialog.tsx';
-
-/**
- * The roles this client has screens for. The server's UserRole has four values; two of them
- * have nothing to show here, so they are named nowhere in this file except as the absence
- * below. NavRole already declares exactly these two, so they are not declared a second time.
- */
-const SERVED_ROLES: readonly NavRole[] = ['CUSTOMER', 'FRAUD_ANALYST'];
-
-
-/**
- * The role when this client has screens for it, null when it does not.
- *
- * The argument is a plain string, and that is the point: the sign-in response is cast rather
- * than validated, so typing it as the two served roles would let a third walk through every
- * comparison that looks exhaustive. An unknown role is parsed here and answered with a screen
- * instead of reaching a customer form and failing there on a 403.
- */
-function servedRole(role: string): NavRole | null {
-    return (SERVED_ROLES as readonly string[]).includes(role) ? (role as NavRole) : null;
-}
 
 interface AuthState {
     username: string;

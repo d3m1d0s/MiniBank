@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24">
+  <!--
+    The tab icon: the lockup the sign-in card and the header band already draw, flattened into one
+    document. The tile is the accent colour and the letter is the mark path, and the source of both
+    is the theme files in frontend-shared/tokens/, which is what the two applications share. Naming
+    a stylesheet here would be wrong for one of them: the customer application draws this lockup
+    from App.css and the workstation from fraud.css, so only the token names are true on both
+    sides. They are spelled color-accent and brand-mark, each carrying the two leading dashes a
+    custom property has, and that pair of dashes is the reason they are written without it here:
+    two dashes in a row close an XML comment, and a browser answers the broken document with a
+    parse error page where the icon should be.
+
+    Drawn rather than fetched, and one mark for both applications: a tab icon that is a binary is a
+    binary in a repository people read, and two icons would be two marks the moment one is edited.
+    One blue rather than each skin's own, because a tab strip is the browser's furniture and carries
+    no theme of ours. The copy under minibank-fraud-web/public/ is this file byte for byte, and cmp
+    is what proves it; an edit here is an edit there in the same breath.
+  -->
+  <rect width="24" height="24" rx="6" ry="6" fill="#2563eb"/>
+  <path d="M5 19V5l7 8 7-8v14" fill="none" stroke="#f9fafb" stroke-width="2.5"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

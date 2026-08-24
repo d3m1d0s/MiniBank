@@ -26,9 +26,13 @@ export const EMPTY_VALUE = '—';
  *
  * A definition list is read as sentences, and `Auth method: —` there reads as a redaction: as
  * though something is known and withheld. Nothing is withheld, the payment simply has not been
- * authorized yet. Two words for one fact because the two shapes are read differently, and both
- * spelled here so that neither is typed out at a call site and drifts into `n/a` on one screen
- * and `unknown` on the next.
+ * authorized yet. Two words for one fact, and both spelled here so that neither is typed out at a
+ * call site and drifts into `n/a` on one screen and `unknown` on the next.
+ *
+ * Which of the two a value takes is decided by the value, not by the shape it lands in. Where the
+ * absence is itself a fact about the payment, the word follows the field into a table column as
+ * well: a dash in the Auth column of a queue of unauthorized payments says the row failed to load
+ * when nothing failed. The dash is for the column whose value should be there and is not.
  */
 export const NOT_RECORDED = 'not recorded';
 

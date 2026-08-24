@@ -189,7 +189,10 @@ export default function LoginDialog({ onLoggedIn, notice }: Props) {
                 </header>
                 <div className="card-body">
                     {notice && !error && (
-                        <div className="summary gap-below-sm">
+                        /* Nothing was pressed and nothing succeeded or failed: the sentence here
+                           tells the reader why they are looking at this box again. The neutral
+                           edge is the one the three answers reserve for exactly that. */
+                        <div className="summary summary--neutral gap-below-sm">
                             <ul><li>{notice}</li></ul>
                         </div>
                     )}

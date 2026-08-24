@@ -48,7 +48,6 @@
   --space-8: 20px;
   --space-9: 24px;
   --space-10: 32px;
-  --space-11: 40px;
 
   /* 34px at the default root size. In rem rather than px so a control grows with the text
      instead of clipping its own label at 200% zoom. */
@@ -98,11 +97,66 @@
      is against that surface and never against a button fill or a selection tint. */
   --focus-offset: 2px;
 
+  /* THE EDGE THAT HAS SOMETHING BEHIND IT SAYS SO.
+   *
+   * Four background layers and no script. The two rules are attached to the box, so they stand on
+   * its top and bottom edges wherever the content happens to be; the two covers are attached to
+   * the content, so they travel with it and hide the rule at the end they are at. At rest both
+   * ends are covered and nothing is drawn. Scrolled, the cover at that end has moved away and the
+   * rule shows: a line at the edge the content continues past, which is otherwise what a row cut
+   * through the middle of its letters is left to say on its own.
+   *
+   * The mechanism was written twice in one stylesheet before it was written here, and the second
+   * copy is how it came to be a mechanism rather than a rule: it is here so that the next box that
+   * can cut its contents takes the finished thing, on either platform, and so that the mark means
+   * the same on both. The geometry is the same in a dark page and a light window, which is what
+   * puts it in this file; the two colours are named and not valued, and each resolves in whichever
+   * skin is loaded.
+   *
+   * The rules are one token because their colour and weight must be identical everywhere: a mark
+   * that means "this is cut" cannot be a different line on two boxes of the same window. The
+   * covers are two tokens holding only their geometry, and the call site writes the colour into
+   * them, because the cover has to be the ground THAT box paints and no shared layer knows it:
+   *
+   *     background:
+   *         linear-gradient(var(--color-surface-canvas) 0 100%) var(--scroll-edge-cover-top),
+   *         linear-gradient(var(--color-surface-canvas) 0 100%) var(--scroll-edge-cover-bottom),
+   *         var(--scroll-edge-rules),
+   *         var(--color-surface-canvas);
+   *
+   * The covers stand before the rules because the first layer of a background is the one on top.
+   *
+   * It is written in three tokens rather than one whole background because one whole background
+   * cannot be made to work, and that was measured rather than assumed. A custom property is
+   * substituted where it is DECLARED, not where it is used, so a single --scroll-edge holding a
+   * var(--scroll-edge-fill) resolves that fill once against :root and every call site gets the
+   * root's colour whatever it sets on itself. Read off the running page, a box that set the fill
+   * to the canvas still painted covers of the raised surface. Nothing reports this: the background
+   * is valid, the token is non-empty, and the only symptom is a rule that never hides.
+   *
+   * The limit, and it is a real one. This mark is drawn in the scroller's OWN background, so it
+   * only reaches an edge the scroller's ground reaches. A scroller whose children are opaque
+   * blocks paints those blocks over it, and what is left of the rule is a stub in the scrollbar
+   * gutter, which reads as a misdraw and is worse than nothing. That shape of scroller needs an
+   * overlay drawn above its children rather than a background under them, and an overlay is
+   * structure and not a value, so it is not here. There is no token for it and there should not be
+   * one until a skin has built one and measured it.
+   */
+  --scroll-edge-cover-top: local top / 100% var(--space-6) no-repeat;
+  --scroll-edge-cover-bottom: local bottom / 100% var(--space-6) no-repeat;
+  --scroll-edge-rules:
+          linear-gradient(var(--color-border-strong) 0 100%)
+                  scroll top / 100% var(--border-width-marker) no-repeat,
+          linear-gradient(var(--color-border-strong) 0 100%)
+                  scroll bottom / 100% var(--border-width-marker) no-repeat;
+
   --motion-instant: 0.05s;   /* transform */
   --motion-fast: 0.15s;      /* background-color, border-color, color */
   --ease: ease;
 
-  /* No call sites yet. Declared so the first dialog does not invent a number. */
+  /* No call sites yet, and that is the point: declared so the first dialog does not invent a
+     number. Reserved rather than dead. An inventory that lists uncalled names will find all
+     five of them, and the answer is this note, not a removal. */
   --z-base: 0;
   --z-sticky: 100;
   --z-overlay: 800;
@@ -123,6 +177,13 @@
  * A theme file declares every name below. Nothing checks this, so it is a checklist rather
  * than a guarantee: a missing name inherits nothing and fails silently.
  *
+ * A name on this list may have no call site in either application today. That is what the
+ * contract is for: the second skin is written against the whole vocabulary, not against the
+ * half the first skin happened to need, and a role that is declared once is a role the next
+ * quadrant cannot invent a second time. An inventory of uncalled names will therefore find
+ * some of these, and the answer is this paragraph rather than a removal. The reverse is not
+ * true: a name that neither this list nor a note beside it holds is simply dead.
+ *
  * color-scheme is a real declaration, not a custom property, and belongs in the theme too.
  *
  * surfaces        --color-canvas-image --color-surface-canvas --color-surface-sunken
@@ -142,6 +203,41 @@
  *                 --color-danger-accent
  *                 --color-success-surface --color-success-border --color-success-text
  *                 --color-warning-surface --color-warning-border --color-warning-text
+ * outcome         --color-outcome-done-surface --color-outcome-done-border
+ *                 --color-outcome-done-text
+ *                 --color-outcome-failed-surface --color-outcome-failed-border
+ *                 --color-outcome-failed-text
+ *                 --color-outcome-notice-surface --color-outcome-notice-border
+ *                 --color-outcome-notice-text
+ *                 The box that answers an action the reader has just taken. Three answers and
+ *                 no more: it happened, it did not happen, this is for information. A skin owes
+ *                 all three as full triples, fill and edge and ink, because the answer has to
+ *                 read before the sentence in it does and one part of three cannot carry that.
+ *                 The two skins paint one answer with the same structure and the same meaning
+ *                 of colour, in their own palettes, which is the whole of the arrangement.
+ *
+ *                 Declaring the triple was not enough, so here is the other half of it, which
+ *                 belongs to the call site and not to the theme.
+ *
+ *                 A box that answers a decision takes ONE triple WHOLE: the fill, the edge and
+ *                 the ink of the same outcome, all three, in that box's rule. Not the edge alone.
+ *                 An edge over the ordinary raised fill is a box with a coloured hairline, and a
+ *                 reader who has just pressed something irreversible reads the shape of the block
+ *                 before any part of its outline; a recorded decision and a refused one that
+ *                 differ only in the colour of a 1px line differ in the one channel the reader is
+ *                 least likely to be using.
+ *
+ *                 And it takes the outcome names, never the ladder they borrow from. Painting a
+ *                 recorded decision out of --color-success-* is not equivalent to painting it out
+ *                 of --color-outcome-done-*, even while the two resolve to the same value: the
+ *                 status ladder carries a dozen quiet words in tables and has already been retuned
+ *                 for this box's sake once, and the next time it moves it must not drag the answer
+ *                 to an irreversible decision with it.
+ *
+ *                 Both halves are how one answer came to be a green hairline over the ordinary
+ *                 fill on one skin and a green block with green ink on the other. Neither a diff
+ *                 of the two stylesheets nor any build step can see that; only a reader looking at
+ *                 the two screens can, which is why the rule is written down here.
  * state tones     --color-tone-open --color-tone-blocked
  * meaning marks   --color-route-boundary
  * radius roles    --radius-control --radius-field --radius-inset --radius-surface
@@ -153,10 +249,20 @@
  *                 --size-nav-column
  *                 --size-label-min --size-amount-field --size-amount-field-lead
  *                 --size-otp-field --size-textarea-min
- *                 --size-textarea-max --size-window-height --size-titlebar --size-row-label
+ *                 --size-textarea-max --size-titlebar --size-row-label
  *                 --size-queue-min --size-queue-max --size-detail-min
+ *                 The ones that hold text, and that is most of them, are in rem on both skins:
+ *                 a column sized in pixels clips its own label at the first reader who raises
+ *                 the text. Window furniture that does not grow with the text, the title bar
+ *                 and the fold handle, is the exception and says so where it is declared.
+ *                 There is deliberately no name for the height of the desktop window. Both
+ *                 skins used to declare one and neither ever read it, and the window that
+ *                 exists says why: it takes the viewport less the shell inset, which is the
+ *                 owner's decision that the frame is set by the screen and not by what is in
+ *                 it. A fixed height would be a second answer to a question already settled.
  * elevation       --shadow-shell
- * motion          --lift-hover, together with its own prefers-reduced-motion override.
+ * motion          --lift-hover and --lift-active, together with their own
+ *                 prefers-reduced-motion override.
  *                 The durations above are zeroed here because they are declared here; a
  *                 theme file is loaded after this one, so an override written here would
  *                 lose the cascade to the theme's own declaration.

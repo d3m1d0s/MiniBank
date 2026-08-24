@@ -357,7 +357,7 @@ tr[role="button"]:focus-visible {
 
 .identity-exit:active {
   background-color: var(--color-surface-chrome-hover, var(--color-border-container));
-  transform: translateY(1px);
+  transform: var(--lift-active);
 }
 
 /* ====== Main layout: left navigation, right content ====== */
@@ -446,7 +446,7 @@ tr[role="button"]:focus-visible {
 
 .nav-item:active:not(.nav-item--current, .nav-item--planned) {
   background-color: var(--color-surface-hover);
-  transform: translateY(1px);
+  transform: var(--lift-active);
 }
 
 /*
@@ -490,6 +490,132 @@ tr[role="button"]:focus-visible {
    * read is bounded.
    */
   max-width: var(--size-content-max);
+  /*
+   * And the panel is what its own contents are measured against. A screen asks how much room it
+   * has, not how wide the window is: the same panel is 1080px in a 1440 window, about 920 when
+   * the reader has doubled their text, and 326 on a phone, and the answers differ in all three.
+   * inline-size only, so the panel is still sized by the flex row it sits in and only its width
+   * is held away from its contents.
+   */
+  container: panel / inline-size;
+}
+
+/*
+ * ====== ONE WORKING CYCLE, NOT THREE SCREENS ======
+ *
+ * The two screens where something is chosen from a list and then acted on are one cycle: choose,
+ * read, decide. Stacked in a single reading column those three steps stand in three different
+ * screenfuls of scrolling. Measured on the fraud desk at 1440x900 with an alert open, the page is
+ * 2544px, the decision box starts at 1939 and the three buttons that are the point of the screen
+ * are below the second fold; a press on a queue row answers with nothing a reader can see,
+ * because the answer is off screen. The waiting list has the same shape in a milder form.
+ *
+ * Two panels are the answer where two panels fit, and it is the same change that answers the
+ * other complaint about these screens: a reading column of 1080px in a 2560px window leaves about
+ * 1150px of nothing to its right and about 700 under it, spending width and height at once. Side
+ * by side, the list and what is chosen each get a column, each under its own reading ceiling, and
+ * choosing a row now moves something the reader is looking at.
+ *
+ * 1600px is where, and the number is measured rather than picked. The widest thing the chosen
+ * side has to hold is the customer's payment history, five columns of which the last is two full
+ * IBANs: it needs about 790px, and under that the dates break over three lines, the sums break
+ * over two and the two account numbers of a row stop standing under each other. This panel sits
+ * 360px in from the window's edges and the split gives the detail eight twelfths, so 790px of
+ * detail wants a 1600px window. Below it the split is worse than no split at all, and that is a
+ * frame rather than an opinion: at 1440 the detail is 611px, the history table doubles in height
+ * and the page ends up exactly as long as the single column it replaced.
+ *
+ * A media query and not a container query, because on this skin the shell IS the window: owner
+ * decision 2.
+ *
+ * 4 and 8 of twelve rather than an even split, and the queue is the side that gives. A queue row
+ * is a code, a state, a sum and one short reason, all of them short and all read down rather than
+ * across; the chosen alert carries two tables and a page of facts. At the width this starts at
+ * the queue column is 403px, which is what the workstation's own queue rail is capped at, and it
+ * is a coincidence worth stating rather than a target: two skins measuring the same row arrived
+ * at the same width for it.
+ *
+ * The panel's ceiling doubles rather than lifting. Two reading columns is what is being drawn,
+ * so two is what it is allowed to be; and it applies only to a panel that holds a split, so the
+ * payment form keeps the one column its prose and its fields are measured for.
+ */
+.work-list {
+  margin-bottom: var(--space-9);
+}
+
+/*
+ * The chosen side, and the second track of the split. min-width: 0 for the reason the panel above
+ * has it and the tracks below say in one word: a grid item takes its min-content size as an
+ * automatic minimum, so the customer's payment history inside would set this column's floor from
+ * two IBANs rather than scrolling inside its own frame.
+ */
+.work-detail {
+  min-width: 0;
+}
+
+@media (min-width: 1600px) {
+  .form-panel:has(> .work-split:not(.work-split--list-led)) {
+    max-width: calc(var(--size-content-max) * 2);
+  }
+
+  /* minmax(0, ...) on both tracks, because a grid item takes its min-content size as an automatic
+     minimum and a wide table would otherwise push its own track past its share. */
+  .work-split:not(.work-split--list-led) {
+    display: grid;
+    grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
+    column-gap: var(--space-10);
+    align-items: start;
+  }
+
+  /* Stacked, the gap under the list is the gap between two blocks of the page. Side by side there
+     is nothing under it to be apart from. */
+  .work-split:not(.work-split--list-led) > .work-list {
+    margin-bottom: 0;
+  }
+}
+
+/*
+ * ====== THE OTHER SCREEN'S SPLIT, WHICH IS THE SAME CYCLE WITH THE SIDES REVERSED ======
+ *
+ * The block above is measured on the fraud desk, where the chosen alert carries two tables and the
+ * queue row is a code, a state, a sum and a short reason. The authorization screen is that shape
+ * turned around, and giving it the desk's proportions cost it both halves of what the split is for.
+ *
+ * Measured at 2560 with a payment open, before this rule: the panel ran from 324 to 2484, so the
+ * width was there. The chosen payment took eight twelfths of it, 1419px, to draw nine short facts,
+ * a paragraph and one button, none of which is allowed past the reading measure: the ink stopped
+ * near 1520 and about a thousand pixels of the window were bare. The queue took the other four,
+ * 709px, and 709px is 44em, which is under the 64em where the table below gives up its columns.
+ * So the window was wide enough for a table and drew the phone's record form instead, beside a
+ * column of empty canvas. Each half of that is the other half's fault.
+ *
+ * Eight twelfths to the list here, and the queue is not the side that gives. What the chosen
+ * payment holds is prose and facts, and prose has a measure it may not exceed whatever it is
+ * given; what the queue holds is six columns of which one is a full IBAN, and columns spend every
+ * pixel they are given.
+ *
+ * 1960px is where, and it is the width at which this arrangement first pays. The panel is the
+ * window less 368px of furniture, capped at twice the reading column; the list is eight twelfths
+ * of what is left after the gap. Solved for the 64em the table needs, that is a 1936px window, and
+ * the extra 24px are the scrollbar a real window has and a screenshot does not. Below it the split
+ * would hand the queue a width where it stops being a table, which is what this rule exists to
+ * prevent, so below it the screen stays one column and the table keeps the whole of it.
+ */
+@media (min-width: 1960px) {
+  .form-panel:has(> .work-split--list-led) {
+    max-width: calc(var(--size-content-max) * 2);
+  }
+
+  .work-split--list-led {
+    display: grid;
+    grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
+    column-gap: var(--space-10);
+    align-items: start;
+  }
+
+  .work-split--list-led > .work-list {
+    margin-bottom: 0;
+  }
 }
 
 /*
@@ -882,6 +1008,39 @@ tr[role="button"]:focus-visible {
   accent-color: var(--color-accent);
 }
 
+/*
+ * The filters when the panel has run out of room for them, which is a phone and, more often, a
+ * reader who has doubled their text: at 200 percent in a 1280 window the four fields and the
+ * checkbox took 330px of a 800px screen and pushed the queue itself under the fold, which is the
+ * illness the comment above says was cured. It was cured at 100 percent only.
+ *
+ * The label steps down beside its control instead of standing over it, which is a line of type per
+ * field. Nothing is hidden and nothing is folded away: a filter a reader cannot see is a filter
+ * they do not know is set, and these four decide what the queue below is showing.
+ *
+ * 42em against the panel, not the window. At the default text the panel is 1080px, which is 67.5em
+ * and nowhere near it; the same panel at 200 percent text is about 29em, because the em grew and
+ * the panel did not.
+ */
+@container panel (max-width: 42em) {
+  .filter-field {
+    flex-direction: row;
+    align-items: baseline;
+    column-gap: var(--space-5);
+  }
+
+  /*
+   * The label keeps its own length and does not take the floor a form row's label column has. The
+   * floor was tried and cost a whole line: at 200 percent text it is 176px, which pushed the four
+   * fields past two rows into three, and three uneven rows of filters is what this block exists to
+   * avoid. What it buys instead, four controls starting on one vertical line, is worth less than
+   * the row of the queue that the third filter row pushes off the screen.
+   */
+  .filter-field > .field-label {
+    flex: 0 0 auto;
+  }
+}
+
 .field-side {
   white-space: nowrap;
   font-size: var(--text-3);
@@ -972,6 +1131,55 @@ tr[role="button"]:focus-visible {
   color: var(--color-text-muted);
 }
 
+/*
+ * A status line about a list, which is a fact rather than something to read through.
+ *
+ * The reading measure above is for prose, and under a list it buys nothing: the note saying an
+ * alert is hidden is one sentence of about a hundred characters, and capped at the measure it
+ * broke onto a second line with the whole width of the queue standing empty beside it. Declared
+ * after .helper-text so that a line carrying both takes this.
+ */
+.queue-note {
+  max-width: none;
+}
+
+/*
+ * Why the controls under it are not there, stated as a fact about the payment.
+ *
+ * Not .helper-text, and above rather than below. The sentence saying that the time to confirm
+ * had run out stood underneath the row it explained, in the quietest type the screen owns: the
+ * reason arrived after the effect and weighed less than it. Here it carries what every other
+ * fact on the screen carries, the primary ink at the size of the facts panel, and the reading
+ * measure it needs as prose.
+ */
+.state-note {
+  max-width: var(--size-prose-max);
+  margin: 0 0 var(--space-6);
+  font-size: var(--text-3);
+  color: var(--color-text-primary);
+}
+
+/*
+ * The way out of a payment, on a line of its own with the sentence that names it as one.
+ *
+ * It used to ride the row that finishes the payment, thrown to the far end of it: at 1440 that
+ * left 733 pixels of empty page around the only warm shape in the lower half, at 2560 it grew
+ * to 944, and the eye reached the control that refuses a payment before the pair that completes
+ * it. The gap was meant to say "not one of these two" and said "look here" instead. Its own
+ * line says the first without the second, and the caption beside the button keeps it from being
+ * the widest thing on the line as well as the loneliest.
+ */
+.exit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-inline);
+}
+
+.exit-row .helper-text {
+  margin: 0;
+}
+
 /* ====== Summary box (confirmation / error) ====== */
 
 .summary {
@@ -984,20 +1192,40 @@ tr[role="button"]:focus-visible {
 }
 
 /*
- * Variants of the box, edge only. The fill and the text stay put: what the box is
- * saying is carried by its border and by its own words, and seven of the eight
- * places this replaces set nothing but a border colour.
+ * Variants of the box. The three are the three answers a reader has to tell apart without
+ * reading: it worked, it did not, this is for your information. They take the outcome slots
+ * rather than the status ladders those slots borrow from, because a status is a quiet word in a
+ * table and an outcome is the reply to a press that cannot be taken back, and the two have to be
+ * free to move apart. Every box on these screens carries one of the three now, so the bare edge
+ * above is left as the fallback of a box that claims nothing.
+ *
+ * Each takes its triple WHOLE, fill and edge and ink together, which is the call site half of the
+ * contract in scale.css and is what this rule got wrong for a whole wave. It set the border alone,
+ * so a recorded decision here was a green hairline around the ordinary raised fill while the same
+ * answer on the workstation was a green block with green ink: one meaning, two shapes, and the
+ * difference sitting in the 1px channel a reader who has just pressed something irreversible is
+ * least likely to be reading. The inks are measured against the fills inside the boxes rather than
+ * against the raised surface, and the theme files carry those numbers.
+ *
+ * The notice fill resolves to the raised surface the box already had, so a neutral box does not
+ * move a pixel.
  */
 .summary--danger {
-  border-color: var(--color-danger-border);
+  border-color: var(--color-outcome-failed-border);
+  background: var(--color-outcome-failed-surface);
+  color: var(--color-outcome-failed-text);
 }
 
 .summary--success {
-  border-color: var(--color-success-border);
+  border-color: var(--color-outcome-done-border);
+  background: var(--color-outcome-done-surface);
+  color: var(--color-outcome-done-text);
 }
 
 .summary--neutral {
-  border-color: var(--color-border-container);
+  border-color: var(--color-outcome-notice-border);
+  background: var(--color-outcome-notice-surface);
+  color: var(--color-outcome-notice-text);
 }
 
 .summary-title {
@@ -1095,7 +1323,7 @@ tr[role="button"]:focus-visible {
 
 .btn-primary:active:not(:disabled, [aria-busy="true"], .planned-item) {
   background-color: var(--color-accent-active);
-  transform: translateY(1px);
+  transform: var(--lift-active);
 }
 
 .btn-secondary {
@@ -1111,7 +1339,7 @@ tr[role="button"]:focus-visible {
 
 .btn-secondary:active:not(:disabled, [aria-busy="true"], .planned-item) {
   background-color: var(--color-surface-hover);
-  transform: translateY(1px);
+  transform: var(--lift-active);
 }
 
 /*
@@ -1139,7 +1367,7 @@ tr[role="button"]:focus-visible {
 
 .btn-secondary--danger:active:not(:disabled, [aria-busy="true"], .planned-item) {
   background-color: var(--color-danger-surface);
-  transform: translateY(1px);
+  transform: var(--lift-active);
 }
 
 /*
@@ -1165,7 +1393,7 @@ tr[role="button"]:focus-visible {
 
 .btn-quiet:active:not(:disabled, [aria-busy="true"], .planned-item) {
   background-color: var(--color-surface-hover);
-  transform: translateY(1px);
+  transform: var(--lift-active);
 }
 
 /* ====== Unavailable controls: disabled, busy, planned ====== */
@@ -1210,25 +1438,47 @@ tr[role="button"]:focus-visible {
 }
 
 /*
- * Busy keeps every rest colour, which is what tells it apart from disabled: a busy
- * control is still the live control, a disabled one recedes. No component writes
- * aria-busy yet, so this rule is inert until they do.
+ * The intent is that busy keeps every rest colour, so that a control waiting on its own
+ * request still reads as the live control while a disabled one recedes. That is not what
+ * the screens show today, and the reason is in the markup rather than here.
+ *
+ * Eleven controls write the attribute: the two that refresh a list, the four that ask for
+ * another page of one, the pair that takes and releases an alert, and the three that decide
+ * one. All eleven write it beside `disabled`, and none of them can be busy without being
+ * disabled, so the rules above answer first: a bare `[aria-busy="true"]` weighs (0,1,0)
+ * against (0,2,0) for `.btn-primary:disabled` and for the shared unavailable rule. Measured
+ * on the running client, a busy primary comes out at the disabled fill, the disabled label
+ * and cursor not-allowed, channel for channel the same as one that is only disabled, and
+ * the progress cursor below never reaches a pointer.
+ *
+ * The eight hover and active exclusions above name the attribute for the same reason and
+ * cut nothing beyond the `:not(:disabled)` standing beside them, since every element the
+ * busy half would exclude the disabled half has excluded already.
+ *
+ * Both stay: the pairing is what would have to change, and a control that keeps taking
+ * presses while its own press is in flight is the worse of the two bargains.
  */
 [aria-busy="true"] {
   cursor: progress;
 }
 
 /*
- * A button that sketches the product around this showcase but is not built. A dashed edge
- * rather than a dimmed one, so it reads without colour and stops looking like a control
- * that is merely unavailable for now. Pointer events stay on so the title can explain why
- * on hover; the hover and active rules above already stand back from this class.
+ * A part of the product sketched around this showcase but not built. A dashed edge rather
+ * than a dimmed one, so it reads without colour and stops looking like a control that is
+ * merely unavailable for now. Pointer events stay on so the title can explain why on hover;
+ * the hover and active rules above already stand back from this class.
  *
- * Buttons only. The navigation column does not use it: an outline there gave four entries
- * that go nowhere the shape of a target while the entry that worked had none, so a dead
- * entry in that column is muted text and nothing else.
+ * The class alone, without the aria-disabled it used to be paired with. What wears it is a
+ * span drawn in the shape of a button (NewPaymentPage.tsx, beside Review payment), and a span
+ * is not a control that could become pressable later, which is the only thing aria-disabled
+ * would have said. Keeping the attribute in the selector would have meant writing it back
+ * onto an element where it means nothing, purely so that a stylesheet could find it.
+ *
+ * Button shapes only. The navigation column does not use it: an outline there gave four
+ * entries that go nowhere the shape of a target while the entry that worked had none, so a
+ * dead entry in that column is muted text and nothing else.
  */
-.planned-item[aria-disabled="true"] {
+.planned-item {
   background-color: transparent;
   border: var(--border-width-hairline) var(--border-style-planned) var(--color-border-strong);
   color: var(--color-text-planned);
@@ -1238,15 +1488,74 @@ tr[role="button"]:focus-visible {
 /* ====== Table for WaitingAuthorizationsPage / FraudDeskPage ====== */
 
 /*
+ * The box a table stands in, and inside it the box that scrolls. Two elements where there was
+ * one, and the mark on the edge is what asks for the second: anything positioned inside a scroll
+ * container is laid out against the content and scrolls away with it, so the band that says
+ * `there is more this way` has to hang on something that does not move. The frame carries the
+ * edge, the ground and the corners; the box inside it carries the overflow and nothing else.
+ *
  * overflow-x rather than hidden: a table too wide for the panel has to be reachable.
  * It was hidden, which could not clip either, because the panel it sits in refused to
  * shrink - so the table simply broke out of the card.
+ *
+ * The frame is also what a row is measured against. Whether six facts are a row of a table or a
+ * record of several lines is decided by the width THIS box has and not by the width of the
+ * window: one table stands in a phone, in the left half of a split panel and in a full reading
+ * column, and only this element knows which of the three it is in.
  */
-.table-wrapper {
+.table-frame {
+  position: relative;
+  container: table-frame / inline-size;
   border-radius: var(--radius-surface);
   border: var(--border-width-hairline) solid var(--color-border-container);
-  overflow-x: auto;
   background: var(--color-surface-raised);
+}
+
+.table-wrapper {
+  overflow-x: auto;
+  border-radius: inherit;
+}
+
+/*
+ * The edge that says the table carries on past it.
+ *
+ * A clip with nothing on it reads as a fault rather than as a boundary: at 390 the last column of
+ * the waiting list was one letter of its heading and a ladder of one-letter lines, and at 200
+ * percent text the fraud queue cut `Assignee` mid word and left `Created` out of the document
+ * entirely, with no line, no shadow and no fade at the cut. TableFrame.tsx measures which side is
+ * hiding something and writes it here; what is decided here is only what the mark looks like.
+ *
+ * A band of the canvas fading out over 32px rather than a flat colour or a line. The head of a
+ * table and its rows stand on two different grounds, so a band that matched one of them would be
+ * a stripe over the other; a shade darkens both the same way. It is drawn only while there is
+ * something behind it, on the side that has it, which is why this is an attribute and not a class.
+ */
+.table-frame[data-edges~="start"]::before,
+.table-frame[data-edges~="end"]::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inline-size: var(--space-10);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.table-frame[data-edges~="start"]::before {
+  inset-inline-start: 0;
+  background: linear-gradient(
+          to right,
+          color-mix(in srgb, var(--color-surface-canvas) 60%, transparent),
+          transparent
+  );
+}
+
+.table-frame[data-edges~="end"]::after {
+  inset-inline-end: 0;
+  background: linear-gradient(
+          to left,
+          color-mix(in srgb, var(--color-surface-canvas) 60%, transparent),
+          transparent
+  );
 }
 
 .table {
@@ -1306,6 +1615,30 @@ tr[role="button"]:focus-visible {
  */
 .table .cell--prose {
   width: 100%;
+}
+
+/*
+ * Why an alert was raised, in a queue row, and the one value on that row with no length of its
+ * own. The rules join their reasons with a plus, so a payment that tripped four of them writes a
+ * sentence: at 282 characters the column stacked about thirty lines and pushed the eight other
+ * facts of that row off the bottom of the screen, in a table read by scanning down one column at
+ * a time.
+ *
+ * Two lines, and the rest is a keystroke away rather than gone: the whole sentence rides the cell
+ * as its title, and the panel under the queue prints it in full under `Why this alert was raised`
+ * the moment the row is chosen. Two rather than one because the first line of a reason is usually
+ * the first rule only, and two rules is what a scan is looking for.
+ *
+ * The clamp is on a box inside the cell and not on the cell. A td that took display: -webkit-box
+ * would stop being a cell of the table, and the column it stands in is one the table's own layout
+ * sizes; the clamp changes what is drawn, never what the column measures.
+ */
+.table .reason-short {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 
 /*
@@ -1536,6 +1869,140 @@ tr[role="button"]:focus-visible {
 }
 
 /*
+ * ====== WHERE A ROW STOPS BEING A ROW ======
+ *
+ * A table is a grid of columns, and a column needs enough width to hold what it heads. The two
+ * lists a reader chooses from have six and nine of them, and below a certain width the columns
+ * stop being readable at all: on a 390 phone the waiting list showed one letter of the word
+ * Status in its heading and broke `Waiting for your code` into a vertical ladder of one and two
+ * letter lines, and the fraud queue showed five of its nine columns with the other four past the
+ * edge. Scrolling sideways is not an answer for a list whose whole question is `which of these
+ * is mine and what is happening to it`: the answer was in the column that had gone.
+ *
+ * So the same facts are laid out as a record of several lines, each fact on its own line beside
+ * its own name, and the names come from the headings the table already carries. The three that
+ * open the record are the three a reader picks a row by: what it is called, how much money, and
+ * what state it is in. What the record costs is height, which is the axis a phone has.
+ *
+ * A container query and not a media query, because what decides is the width of THIS box. The
+ * same table stands in a full reading column, in the left half of a split panel about 570px wide
+ * and on a phone, and one window width can hold all three at once.
+ *
+ * 64em is where, and it is measured in em on purpose. The reading column this application caps
+ * itself at is 1080px, which is 67.5em at the default text size, so the table shape survives
+ * exactly where it has always stood, at the full column, and gives way everywhere narrower. In em
+ * rather than px because a reader who doubles their text has doubled every column's contents
+ * without widening the box: at 200 percent text 64em is 2048px and a 920px panel is well under
+ * it, which is the fraud queue that used to cut `Assignee` in half.
+ */
+@container table-frame (max-width: 64em) {
+  /*
+   * The headings are the labels now, one per fact, so the row of them has nothing left to head.
+   * Hidden from the eye and kept for anyone listening: these are still cells of a table and the
+   * headings are still what names them. The same six declarations as .visually-hidden, written
+   * out because a utility class on the element would hide the head at every width.
+   */
+  .table--record thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .table--record,
+  .table--record tbody {
+    display: block;
+  }
+
+  /*
+   * One record. The two tracks are declared here rather than inside the cell so that every label
+   * in the record stands on one line: a cell laying out its own label column would set that
+   * column from its own label alone, and a record of nine facts would have nine left edges.
+   */
+  .table--record tr {
+    display: grid;
+    grid-template-columns: minmax(var(--size-label-min), max-content) minmax(0, 1fr);
+    column-gap: var(--space-6);
+    row-gap: var(--space-2);
+    padding: var(--space-6);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-divider);
+  }
+
+  .table--record tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  /* Each cell spans the record and borrows its two tracks for its own name and value. */
+  .table--record td {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .table--record td::before {
+    content: attr(data-label);
+    color: var(--color-text-muted);
+  }
+
+  /*
+   * The first line of the record: what it is called, and what it is worth. Neither takes a name,
+   * because a payment code and a sum of money say what they are, and because this line is what
+   * the eye lands on. The amount keeps the right alignment and the tabular figures it has in the
+   * column, so a list of records can still be read down for the money.
+   */
+  .table--record td.cell--lead {
+    display: block;
+    grid-column: 1;
+    order: -3;
+    font-weight: var(--weight-medium);
+  }
+
+  .table--record td.cell--lead::before {
+    content: none;
+  }
+
+  .table--record td.cell--amount {
+    display: block;
+    grid-column: 2;
+    order: -2;
+  }
+
+  .table--record td.cell--amount::before {
+    content: none;
+  }
+
+  /*
+   * The state comes straight after, and keeps its name. A queue row carries two of them, the
+   * alert's and the payment's, and two coloured words with no names on them would be two words
+   * the reader has to tell apart by hue.
+   */
+  .table--record td.cell--state {
+    order: -1;
+  }
+
+  /*
+   * The selection moves from the cells to the record. On a table the tint has to be painted per
+   * cell, because a row under border-collapse cannot be relied on to draw one; a record row is an
+   * ordinary grid box and paints its own, which is what keeps the gaps between its lines tinted
+   * along with the lines.
+   */
+  .table--record .table-row--selected > td,
+  .table--record .table-row--selected > td:first-child {
+    box-shadow: none;
+  }
+
+  .table--record .table-row--selected {
+    box-shadow:
+            inset var(--border-width-marker) 0 0 0 var(--color-selected-marker),
+            inset 0 0 0 9999px var(--color-selected-surface);
+  }
+}
+
+/*
  * How much of a list is on screen, at its foot beside the Show more button.
  *
  * The sentence is built in paging.ts so that the two platforms say it in the same words; what is
@@ -1575,6 +2042,22 @@ tr[role="button"]:focus-visible {
 
 .details-card p {
   margin: var(--space-1) 0;
+}
+
+/*
+ * The name of one details card. All four under Alert details wear it, and they are headings.
+ *
+ * Two of the four used to open with a name and two with their first fact, so half of them asked
+ * the reader to work out the subject from the data, and neither of the two names was a heading:
+ * the section had no rung below it at all. It stays at the size of the facts it stands over and
+ * is told from them by weight alone, because the rule that took the old bold labels down holds
+ * here too. A name may not outweigh what it names.
+ */
+.details-title {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-3);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
 }
 
 /*
@@ -1860,6 +2343,26 @@ tr[role="button"]:focus-visible {
   .table th,
   .table td {
     border: var(--border-width-hairline) solid CanvasText;
+  }
+
+  /*
+   * The clipped edge, whose fade is a gradient and says nothing once the palette is the system's.
+   * A rule of the mode's own ink instead, on the side that is hiding something: the mark has to
+   * survive here more than anywhere, because the reader who turned this mode on is the one least
+   * likely to see a shade.
+   */
+  .table-frame[data-edges~="start"]::before,
+  .table-frame[data-edges~="end"]::after {
+    background: none;
+    inline-size: var(--border-width-marker);
+  }
+
+  .table-frame[data-edges~="start"]::before {
+    border-inline-start: var(--border-width-marker) solid CanvasText;
+  }
+
+  .table-frame[data-edges~="end"]::after {
+    border-inline-end: var(--border-width-marker) solid CanvasText;
   }
 
   /*

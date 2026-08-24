@@ -36,6 +36,7 @@ import {
     showingLine,
 } from '@shared/paging';
 import Nav from './Nav';
+import TableFrame from './TableFrame';
 import type { NavRole, NavView } from '@shared/navigation';
 
 /**
@@ -311,7 +312,7 @@ export default function HistoryPage({ role, brand, identity, onNavigate }: Props
                                       hover rule paints every table it has, so without this a
                                       dead row lights up under the pointer and reads as a control.
                                     */}
-                                    <div className="table-wrapper gap-above-sm">
+                                    <TableFrame label="All payments" className="gap-above-sm">
                                         <table className="table table--static">
                                             <thead>
                                             <tr>
@@ -364,7 +365,7 @@ export default function HistoryPage({ role, brand, identity, onNavigate }: Props
                                                 );
                                             })}
                                         </table>
-                                    </div>
+                                    </TableFrame>
 
                                     {error && <ErrorBox failure={error} />}
 

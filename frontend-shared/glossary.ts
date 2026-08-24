@@ -56,7 +56,7 @@ import { SHOW_MORE_BUSY } from './paging';
  * is how the one line this replaces came to say a bare timestamp under a live Confirm button on a
  * window that had closed eight days earlier.
  */
-import { authWindowState, formatDateTime, formatTimeLeft } from './format';
+import { NOT_RECORDED, authWindowState, formatDateTime, formatTimeLeft } from './format';
 
 /**
  * Who is reading.
@@ -196,6 +196,25 @@ export function roleLabel(role: string | null | undefined): string {
 /** The sentence for the way a payment was authorized. */
 export function authMethodLabel(method: string | null | undefined): string {
     return label(AUTH_METHOD, method);
+}
+
+/**
+ * The same answer for a screen that has to print something, whether the field is a column or a
+ * line of a detail panel.
+ *
+ * A payment waiting for its code has no auth method yet, and that is a fact about the payment
+ * rather than a value the screen failed to fetch. {@link authMethodLabel} answers the empty string
+ * there, which every call site then had to finish for itself, and they finished it differently:
+ * the detail panels said `not recorded` while the queue column beside them fell back to the data
+ * table's dash. The dash is the right default for a column of amounts or dates, where a gap reads
+ * as a load that failed, and it is the wrong one here, where it reads as a method that exists and
+ * is being withheld from a customer who is about to authorize the payment.
+ *
+ * So the choice is made once, for the field rather than for the shape it is drawn in, and no
+ * screen decides it again.
+ */
+export function authMethodText(method: string | null | undefined): string {
+    return authMethodLabel(method) || NOT_RECORDED;
 }
 
 /**
@@ -385,9 +404,10 @@ export const ALERT_REASON_LABEL = 'Why this alert was raised';
  * and not a field: the only name that can be written is the analyst's own, so there is nobody to
  * type and no colleague to hand an alert to, and the queue is read either as mine or as all of it.
  *
- * `unassigned` is a word and not the table's dash, and only in the panel that lists facts one to a
- * line. Both desks had already reached for it there, where a dash reads as a value withheld; the
- * queue column keeps the dash, which is what every other unfilled cell in it shows.
+ * `unassigned` is a word and not a dash, in the panel that lists facts one to a line and in the
+ * queue column alike. Both desks had already reached for it in the panel, and the column now
+ * decides the same way for the reason {@link NOTE_AUTHOR_UNKNOWN} gives: an empty cell under a
+ * heading of names reads as a name somebody withheld, and nothing is being withheld.
  */
 export const TAKE_ALERT = 'Take this alert';
 export const RELEASE_ALERT = 'Release';
@@ -529,7 +549,7 @@ export const QUEUE_COUNTERS_BASIS = 'Whole queue, before any filter';
  */
 export const QUEUE_COUNTERS_BASIS_NARROW = 'Whole queue';
 
-/** One state of the strip: the word for it, and how many alerts are in it. */
+/** One state of the line: the word for it, and how many alerts are in it. */
 export interface QueueCounterCell {
     /** The server's own value, so a skin can key a list or a style off it. */
     state: string;
@@ -546,9 +566,11 @@ export interface QueueCounterCell {
  * words typed into a sentence, and the typed one said `confirmed fraud` and `cleared` where the
  * rows below it said `Confirmed fraud` and `Cleared`.
  *
- * Cells rather than a finished line, because the layout is the one thing the two are allowed to
- * disagree about: the workstation reads them as a strip of figures and the customer application as
- * a caption. What each cell says is decided here; where it sits is not.
+ * Cells rather than a finished line because {@link queueCountersSentence} is built out of them,
+ * and exported beside it so a test can name one count without parsing the sentence back apart.
+ * Nothing on either desk prints a cell on its own: a strip of separate figures and a sentence are
+ * two different claims about the same three numbers, and the analyst who moves between the two
+ * applications reads them as two different measurements.
  */
 export function queueCounterCells(counters: AlertCounters): readonly QueueCounterCell[] {
     return [
@@ -572,7 +594,22 @@ export function queueCounterTotal(counters: AlertCounters): number {
     return counters.newCount + counters.suspiciousCount + counters.okCount;
 }
 
-/** The same strip as one line, for a skin that draws it as a caption rather than as figures. */
+/**
+ * The three numbers as one sentence, which is how both desks say them.
+ *
+ * There used to be two shapes: a caption on the customer application and a stack of labelled
+ * figures at the foot of the workstation's queue panel, with a second, shorter wording of the
+ * qualifier written for the narrower column. Two shapes of one fact is one fact stated twice, and
+ * the short wording dropped the half that matters, that the counts are taken before any filter.
+ * The stack also read as a heading over the rows beneath it, which are on a different basis.
+ *
+ * One sentence answers both: it wraps in a 420px column instead of breaking into a ragged column
+ * of counts, and it carries its own qualifier and its own full stop wherever it is put. Where the
+ * line sits and what it is set in stays the skin's business; what it says stops here.
+ *
+ * How much of the filtered list is on screen is not in it. That number comes from the page rather
+ * than from the counters, and it belongs on its own line beside the rows it is about.
+ */
 export function queueCountersSentence(counters: AlertCounters): string {
     const cells = queueCounterCells(counters)
         .map((c) => `${c.label} ${c.count}`)
@@ -708,6 +745,28 @@ export const DECLINE_ALREADY_SENT =
  * at ninety one and a hundred and sixty three characters. One analyst does this job in two windows.
  */
 export const DECLINE_NEEDS_COMMENT = 'Required to decline. The customer is shown it.';
+
+/**
+ * The names of the first two cards under {@link ALERT_DETAILS_TITLE}.
+ *
+ * Four cards stand under that one heading and they are four different subjects: the alert, the
+ * payment it was raised on, everything else the customer has paid, and what the desk has written
+ * down. Two of the four said which they were and two opened straight into their first fact, so
+ * `Alert: ALERT-2 (New)` and `Transfer: TR-9` were doing double duty as the name of the box and as
+ * the first thing inside it. An analyst comes to this screen for one of the four and reads down
+ * the others to find it.
+ *
+ * Both carry a determiner, which the two names below and at {@link ALERT_NOTES_TITLE} do not
+ * need: `Alert` over a line reading `Alert:` names nothing twice over, while `This alert` reads as
+ * the box rather than as the field. `The alerted payment` and not `Payment`, because the card is
+ * about the one payment the alert was raised on and the card under it is full of others.
+ *
+ * Here rather than in the client that drew them first, which is the whole of why the other two
+ * names are here: a box named locally is named again on the second platform, by somebody else, in
+ * their own words, and then one desk is read by an analyst who works in both.
+ */
+export const ALERT_CARD_TITLE = 'This alert';
+export const PAYMENT_CARD_TITLE = 'The alerted payment';
 
 /**
  * What the history beside an alert is a history OF.

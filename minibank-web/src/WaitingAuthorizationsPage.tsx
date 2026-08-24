@@ -20,7 +20,7 @@ import {
     REFRESH_BUSY,
     TIMES_ZONE_NOTE,
     attemptsLeftSentence,
-    authMethodLabel,
+    authMethodText,
     authWindowNote,
     bankBoundaryLabel,
     describeDeclineReason,
@@ -33,7 +33,6 @@ import {
     formatDateTime,
     formatIban,
     formatTransferId,
-    NOT_RECORDED,
 } from '@shared/format';
 import {
     TRANSFER_DETAIL_FIELDS,
@@ -51,7 +50,26 @@ import {
     showingLine,
 } from '@shared/paging';
 import Nav from './Nav';
+import TableFrame from './TableFrame';
+import { revealChoice } from './reveal';
 import type { NavRole, NavView } from '@shared/navigation';
+
+/**
+ * The six headings of the waiting list, named once because each of them is now written twice.
+ *
+ * A heading heads a column while the list is a table; below the width where the columns stop
+ * fitting the same list is drawn as a record per payment, and there the heading is the name
+ * standing beside its own value. Two spellings of one heading would be a table that says `Auth`
+ * and a record that says `Authorization`, on the same screen at two window widths.
+ */
+const WAITING_COLUMN = {
+    id: 'ID',
+    toIban: 'Beneficiary IBAN',
+    amount: 'Amount',
+    createdAt: 'Created',
+    authMethod: 'Auth',
+    status: 'Status',
+} as const;
 
 /**
  * How many waiting payments arrive at a time.
@@ -63,10 +81,9 @@ import type { NavRole, NavView } from '@shared/navigation';
 const PAGE_SIZE = 25;
 
 /**
- * The one sentence a customer whose payment is held needs. It is rendered under the disabled
- * Confirm button rather than only as an error, because the button they would have to press to
- * see the error is the one that is disabled - so as an error alone it would be copy nobody ever
- * reads.
+ * The one sentence a customer whose payment is held needs. It is rendered where the code box
+ * would be rather than only as an error, because the press that would produce the error is the
+ * one the screen is refusing - so as an error alone it would be copy nobody ever reads.
  *
  * Word for word the TRANSFER_UNDER_REVIEW entry of the shared error table, which is where the
  * same sentence is written for the case where the server does refuse a confirmation. It cannot
@@ -76,6 +93,21 @@ const PAGE_SIZE = 25;
 const UNDER_REVIEW_TEXT =
     'The bank is reviewing this payment. You will be able to confirm it once the review is ' +
     'finished, or you can cancel it.';
+
+/**
+ * What a press on Confirm with an empty box is answered with.
+ *
+ * The button used to be dead until a character was typed, and dead is exactly what it must not be
+ * here: with no code entered the only control on the lower half of this screen wearing a colour
+ * was the one that refuses the payment, so the eye landed on the way out of a screen whose whole
+ * purpose is the way through. A control that carries the screen's one accent has to answer a
+ * press, and this sentence is the answer.
+ *
+ * It says what to do rather than what went wrong, because nothing has gone wrong: the customer
+ * pressed the right button one step early. Nothing is sent, so no attempt is spent, which is why
+ * this is a note beside the box and not the refusal box at the foot of the panel.
+ */
+const CODE_MISSING_NOTE = 'Enter the one-time code for this payment, then press Confirm.';
 
 /**
  * The last thing the bank did to the open payment, together with which press asked for it.
@@ -131,7 +163,7 @@ const DETAIL_VALUE_CLASS: Partial<Record<TransferDetailField, string>> = {
  * total cell type obliges this panel to take rather than an omission it can drift into: there is
  * no settlement instant on a payment that has not settled, no onward leg on one credited inside
  * this bank, and no reference where the customer typed none. A dash in their place would read as a
- * value withheld, which is the reading NOT_RECORDED exists to avoid one line further down.
+ * value withheld, which is the reading authMethodText avoids one line further down.
  */
 function detailCells(d: TransferDetails): TransferDetailCells<ReactNode | null> {
     return {
@@ -156,7 +188,7 @@ function detailCells(d: TransferDetails): TransferDetailCells<ReactNode | null> 
         // settled, and every row written before the column existed. None of the three may be
         // drawn as "the money stayed here", which is what the To line above answers instead.
         dispatchState: dispatchStateLabel(d.dispatchState) || null,
-        authMethod: authMethodLabel(d.authMethod) || NOT_RECORDED,
+        authMethod: authMethodText(d.authMethod),
         message: d.message || null,
         // Why the payment was stopped, in the customer's own words for it. The analyst has been
         // able to read this string in the alert history of this very payment all along.
@@ -203,6 +235,15 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
      */
     const selectedRef = useRef<number | null>(null);
 
+    /**
+     * The panel a choice fills in, so that a choice can be answered where the reader is looking.
+     *
+     * Stacked, this panel stands below the whole list and everything under it; on a phone the pair
+     * of it and the row of controls below is the second screenful. See revealChoice: on the split
+     * layout the panel never leaves the window and the ref is read and nothing happens.
+     */
+    const detailPanelRef = useRef<HTMLElement | null>(null);
+
     /*
      * Three failures, three places on the screen, because they are three different statements.
      * The list's own failure stands where the list would be; the detail's stands in the panel that
@@ -213,6 +254,16 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
     const [listError, setListError] = useState<ApiFailure | null>(null);
     const [detailError, setDetailError] = useState<ApiFailure | null>(null);
     const [confirmError, setConfirmError] = useState<ApiFailure | null>(null);
+
+    /**
+     * Whether Confirm has been pressed with nothing in the box.
+     *
+     * Its own flag rather than a confirmError, because nothing was refused and nothing was sent:
+     * the three failures above are answers from the bank, and this is the screen answering for
+     * itself. It is cleared by the first character typed and by opening another payment, so the
+     * sentence never outlives the state it describes.
+     */
+    const [codeMissing, setCodeMissing] = useState(false);
 
     const [loading, setLoading] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
@@ -306,6 +357,32 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
     // Built once per render rather than once per field: the panel below walks the field list, and
     // calling the builder inside that walk would rebuild all twelve facts twelve times.
     const detailFacts = details ? detailCells(details) : null;
+
+    /**
+     * Whether the open payment can still be given a code.
+     *
+     * The code box and Confirm are drawn on this and on nothing else, so the two states that
+     * refuse a code do not leave a dead pair standing on the screen. That pair was what cost the
+     * screen its rank: with the box and the button greyed out, the only live control left in the
+     * lower half was the one that refuses the payment.
+     *
+     * A payment with no window at all is not one of the two. Released from review, it waits for
+     * its code with no time limit, which is a state that takes codes.
+     */
+    const codeStillTaken = !windowClosed && !selectedUnderReview;
+
+    /**
+     * The one sentence saying why no code can be given, or nothing while one can.
+     *
+     * The closed window is asked first and answers alone. It is the terminal state of the two, and
+     * the review sentence promises that confirming becomes possible again once the review ends,
+     * which is a promise nobody can keep about a payment whose window has already run out.
+     */
+    const blockingNote = windowClosed
+        ? authWindowNote(authDeadline, now)
+        : selectedUnderReview
+            ? UNDER_REVIEW_TEXT
+            : null;
 
     /**
      * Whether the payment in the panel is the payment the buttons would act on.
@@ -458,13 +535,26 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
         setOutcome(null);
         setConfirmError(null);
         setOtp('');
+        setCodeMissing(false);
         // Asked about the payment that was open, and the customer has just opened another one.
         setConfirmingCancel(false);
         await loadDetails(id);
+        // After the payment has landed and not before it. The panel is what the press is answered
+        // with, and until the answer is in it the page is not tall enough to be scrolled to it.
+        revealChoice(detailPanelRef.current);
     }
 
     async function handleConfirm() {
-        if (!selectedId || !otp) return;
+        if (!selectedId) return;
+
+        // The one guard that answers instead of doing nothing. Confirm stays live while a code can
+        // still be taken, so this is a reachable press and a silent return would read as a button
+        // that does not work.
+        if (!otp) {
+            setCodeMissing(true);
+            return;
+        }
+        setCodeMissing(false);
 
         try {
             setLoading(true);
@@ -573,6 +663,20 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                     <main className="form-panel">
                         <h2>Authorize Payment</h2>
 
+                        {/*
+                          Choose, read, act: one cycle, and on a wide window one cycle laid out
+                          across two columns rather than down three screenfuls. See the block in
+                          App.css for what the two wrappers do and at what width they do it.
+
+                          The modifier is which side is the wide one. Here the list is: the queue
+                          is six columns with a full IBAN among them and the chosen payment is
+                          facts and a paragraph, both of which stop at the reading measure. The
+                          fraud desk is the same cycle the other way round and takes the plain
+                          class.
+                        */}
+                        <div className="work-split work-split--list-led">
+                        <div className="work-list">
+
                         {/* Section: list of waiting transfers */}
                         <section className="section">
                             <h2 className="section-title">Waiting transfers</h2>
@@ -617,19 +721,21 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                 <p className="helper-text">No waiting transfers.</p>
                             ) : (
                                 <>
-                                <div className="table-wrapper">
-                                    <table className="table">
+                                <TableFrame label="Waiting transfers">
+                                    <table className="table table--record">
                                         {/* scope on every heading. A six column table read out
                                             cell by cell says nothing about which column a value
                                             is in unless each heading claims one. */}
                                         <thead>
                                         <tr>
-                                            <th scope="col">ID</th>
-                                            <th scope="col">Beneficiary IBAN</th>
-                                            <th scope="col" className="cell--amount">Amount</th>
-                                            <th scope="col">Created</th>
-                                            <th scope="col">Auth</th>
-                                            <th scope="col">Status</th>
+                                            <th scope="col">{WAITING_COLUMN.id}</th>
+                                            <th scope="col">{WAITING_COLUMN.toIban}</th>
+                                            <th scope="col" className="cell--amount">
+                                                {WAITING_COLUMN.amount}
+                                            </th>
+                                            <th scope="col">{WAITING_COLUMN.createdAt}</th>
+                                            <th scope="col">{WAITING_COLUMN.authMethod}</th>
+                                            <th scope="col">{WAITING_COLUMN.status}</th>
                                         </tr>
                                         </thead>
                                         <tbody>
@@ -670,13 +776,43 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                                     selectedId === it.id ? 'table-row--selected' : ''
                                                 }
                                             >
-                                                <td>{formatTransferId(it.id)}</td>
-                                                <td>{formatIban(it.toIban)}</td>
-                                                <td className="cell--amount">
+                                                {/* Every cell carries the name of its own column,
+                                                    for the width at which the columns give way and
+                                                    the row is drawn as a record. Three of the six
+                                                    are also marked for what they do there: the
+                                                    payment and its amount open the record on one
+                                                    line, and the state follows them, because those
+                                                    are the three a customer picks a payment by. */}
+                                                <td
+                                                    data-label={WAITING_COLUMN.id}
+                                                    className="cell--lead"
+                                                >
+                                                    {formatTransferId(it.id)}
+                                                </td>
+                                                <td data-label={WAITING_COLUMN.toIban}>
+                                                    {formatIban(it.toIban)}
+                                                </td>
+                                                <td
+                                                    data-label={WAITING_COLUMN.amount}
+                                                    className="cell--amount"
+                                                >
                                                     {formatMoney(it.amount)}
                                                 </td>
-                                                <td>{formatDateTime(it.createdAt)}</td>
-                                                <td>{authMethodLabel(it.authMethod)}</td>
+                                                <td data-label={WAITING_COLUMN.createdAt}>
+                                                    {formatDateTime(it.createdAt)}
+                                                </td>
+                                                {/* The words and not the dash, and the choice is
+                                                    not made here any more. A payment waiting for
+                                                    its code has no auth method yet, which is a
+                                                    fact about the payment rather than a value
+                                                    this table failed to fetch; the dash belongs
+                                                    to a column whose value should be there and is
+                                                    not. The shared helper answers for the field
+                                                    wherever it is drawn, so this cell and the
+                                                    panel below it cannot part again. */}
+                                                <td data-label={WAITING_COLUMN.authMethod}>
+                                                    {authMethodText(it.authMethod)}
+                                                </td>
                                                 {/* The two sentences this column used to write
                                                     itself are the glossary's now, and they are
                                                     the wording it was built out from. The
@@ -684,7 +820,10 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                                     is holding and one waiting for a code are two
                                                     different things to a customer looking for
                                                     what to do next. */}
-                                                <td>
+                                                <td
+                                                    data-label={WAITING_COLUMN.status}
+                                                    className="cell--state"
+                                                >
                                                     <span
                                                         className={`tone-${transferStatusTone(
                                                             it.status,
@@ -700,7 +839,7 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                                         ))}
                                         </tbody>
                                     </table>
-                                </div>
+                                </TableFrame>
 
                                 {/*
                                   Paging decides nothing, so the control carries no shape of its
@@ -739,8 +878,11 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                             )}
                         </section>
 
+                        </div>
+                        <div className="work-detail">
+
                         {/* Section: details of selected transfer */}
-                        <section className="section">
+                        <section className="section" ref={detailPanelRef}>
                             <h2 className="section-title">Selected transfer details</h2>
                             <div className="section-block">
                                 {/*
@@ -797,116 +939,177 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                             </div>
                         </section>
 
-                        {/* Section: OTP confirmation + result */}
+                        {/* Section: what can be done with the open payment, and what came back */}
                         <section className="section">
-                            <h2 className="section-title">Confirm authorization</h2>
-                            <div className="section-block inline">
+                            {/*
+                              The heading names the question rather than one of the two answers.
+                              It read "Confirm authorization" over a row where confirming is
+                              exactly what can no longer be done, on a payment whose window has
+                              closed or whose review has not finished: the section was named after
+                              the half of itself that dies.
+                            */}
+                            <h2 className="section-title">What you can do now</h2>
+
+                            <div className="section-block">
                                 {/*
-                                  Every control in this row is dead until the payment it would act
-                                  on is the payment on screen. It was keyed to the selection, which
-                                  is set the instant a row is clicked: for the whole of the request
-                                  after that the box took a code and Confirm would send it against
-                                  a payment the customer had not read yet.
+                                  Why the code box is not on the screen, above the place it is
+                                  missing from and in the weight of a fact.
 
-                                  The closed window is the third thing that kills the pair, and it
-                                  is the only one of the three the customer can walk into while
-                                  sitting still. The code they are typing cannot be accepted any
-                                  more, and sending it does not fail politely: the server declines
-                                  the payment for the attempt.
+                                  Both sentences used to stand UNDER the row they explain, in the
+                                  quietest style the screen owns, which put the reason after the
+                                  effect and below it. The closed window is the one of the two a
+                                  customer can walk into while sitting still, with nothing having
+                                  arrived and nothing having been pressed, so it is the one that
+                                  most needs to be read before the controls are looked for.
                                 */}
-                                <input
-                                    className="otp-input"
-                                    type="text"
-                                    value={selectedUnderReview ? '' : otp}
-                                    onChange={(e) => setOtp(e.target.value)}
-                                    placeholder="Enter OTP"
-                                    maxLength={10}
-                                    disabled={!detailReady || selectedUnderReview || windowClosed}
-                                />
+                                {blockingNote && <p className="state-note">{blockingNote}</p>}
+
+                                {/*
+                                  The pair is drawn while a code can still be taken, and not drawn
+                                  otherwise. Disabling it was the older answer and it cost the
+                                  screen its rank: a dead box and a dead Confirm left the one live
+                                  control on the row to be the one that refuses the payment, which
+                                  is how the eye came to reach the exit first. The list above
+                                  removes its own Show more for the same reason rather than greying
+                                  it, and the sentence above says why the pair is gone.
+
+                                  What is left of the guard is the payment itself: every control
+                                  here is dead until the payment it would act on is the payment on
+                                  screen. It was keyed to the selection, which is set the instant a
+                                  row is clicked, so for the whole of the request after that the
+                                  box took a code and Confirm would send it against a payment the
+                                  customer had not read yet.
+                                */}
+                                {codeStillTaken && (
+                                    <>
+                                        <div className="inline">
+                                            <input
+                                                className="otp-input"
+                                                type="text"
+                                                value={otp}
+                                                onChange={(e) => {
+                                                    setOtp(e.target.value);
+                                                    setCodeMissing(false);
+                                                }}
+                                                placeholder="Enter OTP"
+                                                maxLength={10}
+                                                aria-invalid={codeMissing || undefined}
+                                                disabled={!detailReady}
+                                            />
+                                            {/*
+                                              Live on an empty box, and that is the point rather
+                                              than an oversight. An empty box is exactly the state
+                                              this screen opens in, and while Confirm was dead in
+                                              it the only control below the facts wearing a colour
+                                              was Cancel transfer: measured on the page, a 3603px2
+                                              grey button one step off the ground beside a 5495px2
+                                              salmon one. The reader was being shown the way out of
+                                              the screen first. What the press answers with when
+                                              nothing has been typed is the note below.
+
+                                              Still dead until the payment is on screen, and while
+                                              a confirmation is in flight. Those two are about the
+                                              payment rather than about the code.
+                                            */}
+                                            <button
+                                                type="button"
+                                                className="btn-primary"
+                                                onClick={handleConfirm}
+                                                disabled={!detailReady || loading}
+                                            >
+                                                {loading ? 'Confirming…' : 'Confirm'}
+                                            </button>
+                                        </div>
+
+                                        {/* Under the pair it belongs to, and only after the press
+                                            that earns it: a screen that says what is missing
+                                            before anything has been asked of it is a screen that
+                                            opens with a complaint. */}
+                                        {codeMissing && (
+                                            <p
+                                                className="state-note gap-above-sm"
+                                                role="alert"
+                                            >
+                                                {CODE_MISSING_NOTE}
+                                            </p>
+                                        )}
+
+                                        {/*
+                                          What this payment has left, in sentences rather than in
+                                          labels and values. Both facts belong to a transfer that
+                                          is asking for a code and the server sends them as null on
+                                          one that is not, so the block is drawn only where there
+                                          is something to say: a held payment used to report three
+                                          attempts beside a Confirm button it will not take.
+
+                                          Under the pair and quiet, which is where a countdown
+                                          belongs: while the code can be entered these two sentences
+                                          are help, and it is only the sentence that says the row is
+                                          dead that may not be.
+                                        */}
+                                        {(details?.triesLeft != null || authDeadline != null) && (
+                                            <div className="helper-text gap-above-sm">
+                                                {/* The last attempt changes tone, in the amber
+                                                    this screen already paints a stalled payment in
+                                                    rather than in a new colour. Not the red of a
+                                                    refusal: nothing has been refused while a live
+                                                    attempt remains, and a customer who reads red
+                                                    here would read it as the payment already
+                                                    lost. */}
+                                                {details?.triesLeft != null && (
+                                                    <p
+                                                        className={
+                                                            details.triesLeft === 1
+                                                                ? 'tone-pending'
+                                                                : undefined
+                                                        }
+                                                    >
+                                                        {attemptsLeftSentence(details.triesLeft)}
+                                                    </p>
+                                                )}
+
+                                                {/* One sentence, chosen by the state of the window
+                                                    and written in the glossary with the other two.
+                                                    It used to be a label and a fixed timestamp,
+                                                    which could say that a moment eight days gone
+                                                    was when this payment would expire. */}
+                                                <p>{authWindowNote(authDeadline, now)}</p>
+                                            </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
+
+                            {/* The way out, on a line of its own.
+
+                                Never disabled by the review: a held payment has no expiry of its
+                                own, so this is the customer's only way out of the queue if nobody
+                                works it. It IS disabled until the payment is on screen: cancelling
+                                the payment you are not reading is the worst of the three ways this
+                                went wrong.
+
+                                Destructive, and drawn as one: an edge and a label, never a fill.
+                                It used to be pushed to the far end of the row above instead, and
+                                the gap meant to say "not one of the pair" said "look here" first.
+                                The line and the sentence beside it say the first without the
+                                second, and when the pair is gone this control is the way forward
+                                rather than the way out, which is what the sentence above it says.
+
+                                It no longer cancels anything: it asks, and the answer is the panel
+                                below. Dead while that panel stands, because the panel carries a
+                                control that does the same thing and two live controls for one
+                                irreversible act is how a customer ends up pressing the one they
+                                did not read. */}
+                            <div className="section-block exit-row">
                                 <button
                                     type="button"
-                                    className="btn-primary"
-                                    onClick={handleConfirm}
-                                    disabled={
-                                        !detailReady ||
-                                        !otp ||
-                                        loading ||
-                                        selectedUnderReview ||
-                                        windowClosed
-                                    }
-                                >
-                                    {loading ? 'Confirming…' : 'Confirm'}
-                                </button>
-
-                                {/* Never disabled by the review: a held payment has no expiry
-                                    of its own, so this is the customer's only way out of the
-                                    queue if nobody works it. It IS disabled until the payment is
-                                    on screen, for the reason above: cancelling the payment you are
-                                    not reading is the worst of the three ways this went wrong.
-
-                                    Destructive, and drawn as one: an edge and a label, never a
-                                    fill. It is also pushed to the far end of the row, so the gap
-                                    itself says it is not one of the pair that finishes the
-                                    payment.
-
-                                    It no longer cancels anything: it asks, and the answer is the
-                                    panel below. Dead while that panel stands, because the panel
-                                    carries a control that does the same thing and two live
-                                    controls for one irreversible act is how a customer ends up
-                                    pressing the one they did not read. */}
-                                <button
-                                    type="button"
-                                    className="btn-secondary btn-secondary--danger push-end"
+                                    className="btn-secondary btn-secondary--danger"
                                     onClick={() => setConfirmingCancel(true)}
                                     disabled={!detailReady || loading || confirmingCancel}
                                 >
                                     Cancel transfer
                                 </button>
                             </div>
-
-                            {selectedUnderReview && (
-                                <p className="helper-text">{UNDER_REVIEW_TEXT}</p>
-                            )}
-
-                            {/*
-                              What this payment has left, in sentences rather than in labels and
-                              values. Both facts belong to a transfer that is asking for a code and
-                              the server sends them as null on one that is not, so the block is
-                              drawn only where there is something to say: a held payment used to
-                              report three attempts beside a Confirm button it will not take.
-                            */}
-                            {(details?.triesLeft != null || authDeadline != null) && (
-                                <div className="helper-text">
-                                    {/* Silent once the window has closed, which is the half of
-                                        this pair that had stopped being true. A count of three
-                                        attempts standing under a Confirm button that will not
-                                        take any of them reads as an invitation, and it is the
-                                        first line the customer's eye lands on: what is left to
-                                        say about that payment is said in the sentence below, and
-                                        it is not about attempts.
-
-                                        The last attempt changes tone, in the amber this screen
-                                        already paints a stalled payment in rather than in a new
-                                        colour. Not the red of a refusal: nothing has been refused
-                                        while a live attempt remains, and a customer who reads red
-                                        here would read it as the payment already lost. */}
-                                    {!windowClosed && details?.triesLeft != null && (
-                                        <p
-                                            className={
-                                                details.triesLeft === 1 ? 'tone-pending' : undefined
-                                            }
-                                        >
-                                            {attemptsLeftSentence(details.triesLeft)}
-                                        </p>
-                                    )}
-
-                                    {/* One sentence, chosen by the state of the window and written
-                                        in the glossary with the other two. It used to be a label
-                                        and a fixed timestamp, which could say that a moment eight
-                                        days gone was when this payment would expire. */}
-                                    <p>{authWindowNote(authDeadline, now)}</p>
-                                </div>
-                            )}
 
                             {/*
                               The second step, and it is inline rather than modal per owner
@@ -970,7 +1173,11 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                               about a payment the customer withdrew themselves.
                             */}
                             {outcome?.asked === 'cancellation' && (
-                                <div className="summary gap-above-md">
+                                /* To the customer's knowledge and not a success: nothing was sent,
+                                   nothing was taken, and the payment they asked to be rid of is
+                                   gone. The edge that says a thing worked belongs to the two
+                                   presses that move money. */
+                                <div className="summary summary--neutral gap-above-md">
                                     <div className="summary-title">Payment cancelled</div>
                                     <ul>
                                         <li>
@@ -988,7 +1195,19 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                             )}
 
                             {outcome?.asked === 'authorization' && (
-                                <div className="summary gap-above-md">
+                                /* The edge follows the answer and not the request. The same box
+                                   reports a payment on its way and a payment the bank refused for
+                                   a code that did not match, and the second is a failure that
+                                   arrives as a perfectly good answer, so the error box never sees
+                                   it. A reader has to be able to tell those two apart before they
+                                   have read a word. */
+                                <div
+                                    className={`summary ${
+                                        outcome.result.status === 'SENT'
+                                            ? 'summary--success'
+                                            : 'summary--danger'
+                                    } gap-above-md`}
+                                >
                                     <div className="summary-title">
                                         {outcome.result.status === 'SENT'
                                             ? 'Payment authorized'
@@ -1043,6 +1262,9 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
                             )}
 
                         </section>
+
+                        </div>
+                        </div>
                     </main>
                 </div>
             </div>

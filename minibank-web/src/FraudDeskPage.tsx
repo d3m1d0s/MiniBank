@@ -27,6 +27,7 @@ import ErrorBox from './ErrorBox';
 import { describeApiError, describeApiFailure, type ApiFailure } from '@shared/apiErrors';
 import {
     ALERTS_QUEUE_TITLE,
+    ALERT_CARD_TITLE,
     ALERT_DETAILS_TITLE,
     ALERT_DETAIL_LOADING,
     ALERT_NOTES_TITLE,
@@ -41,9 +42,11 @@ import {
     DECLINE_NEEDS_COMMENT,
     DECISION_NOTE_LABEL,
     DECISION_NOTE_PLACEHOLDER,
+    DECISION_RESULT_TITLE,
     DECISION_TITLE,
     NO_ALERT_NOTES,
     NO_HISTORY,
+    PAYMENT_CARD_TITLE,
     QUEUE_LOADING,
     REFRESH,
     REFRESH_BUSY,
@@ -55,7 +58,7 @@ import {
     UNASSIGNED,
     alertStateLabel,
     alertStateTone,
-    authMethodLabel,
+    authMethodText,
     bankBoundaryMark,
     bankBoundaryLabel,
     decisionActionLabel,
@@ -110,6 +113,8 @@ import {
     showingLine,
 } from '@shared/paging';
 import Nav from './Nav';
+import TableFrame from './TableFrame';
+import { revealChoice } from './reveal';
 import type { NavRole, NavView } from '@shared/navigation';
 
 /** The transfer status a withdrawn payment ends in. */
@@ -187,6 +192,12 @@ const HISTORY_PAGE_SIZE = 10;
  */
 const QUEUE_CELL_CLASS: Partial<Record<AlertQueueField, string>> = {
     amount: 'cell--amount',
+    // The three that open a record at the width where the nine columns give way and each row is
+    // drawn as one. They are what an analyst picks an alert by: which alert, how much money, and
+    // what state the two things are in. The classes do nothing while the queue is a table.
+    alertCode: 'cell--lead',
+    state: 'cell--state',
+    transferStatus: 'cell--state',
 };
 
 const HISTORY_CELL_CLASS: Partial<Record<HistoryField, string>> = {
@@ -214,9 +225,15 @@ const NOTE_CELL_CLASS: Partial<Record<AlertNoteField, string>> = {
  * entry down a card and this one reads it across a table, so each builds its own cells and only
  * the field set and the words are shared.
  *
- * Two cells differ from the workstation's on purpose. A column has a heading, so an absent risk
- * score or assignee is the data table's dash here, where the card, having no headings, has to say
- * `Risk 80` and `unassigned` in words. format.ts blesses exactly that split.
+ * One cell differs from the workstation's on purpose, and one that used to differ no longer does.
+ * A column has a heading, so a risk score the rules never wrote is the data table's dash here,
+ * where the card, having no headings, has to say `Risk 80` in words.
+ *
+ * The assignee is not that case. `null` there is not a value the record is missing, it is the
+ * state of an alert nobody has taken, and it has a word. The dash was saying "nothing to report"
+ * about a fact worth reporting, and it said it 153 pixels above the panel below, which named the
+ * same field of the same alert `Assignee: unassigned` in the same first screen. The journal beside
+ * it already spells an author it never learned rather than leaving that column blank.
  */
 function queueCells(a: AlertQueueItem): QueueRowCells<ReactNode> {
     return {
@@ -231,9 +248,16 @@ function queueCells(a: AlertQueueItem): QueueRowCells<ReactNode> {
             </span>
         ),
         amount: formatMoney(a.amount),
-        shortReason: a.shortReason,
+        // The rules join what they found with a plus, so an alert that tripped four of them writes
+        // a sentence into a column sized for a phrase. Two lines here and the whole of it on the
+        // cell, which is also what the panel below prints in full the moment the row is chosen.
+        shortReason: (
+            <span className="reason-short" title={a.shortReason}>
+                {a.shortReason}
+            </span>
+        ),
         riskScore: a.riskScore ?? EMPTY_VALUE,
-        assignee: a.assignee || EMPTY_VALUE,
+        assignee: a.assignee || UNASSIGNED,
         createdAt: formatDateTime(a.createdAt),
     };
 }
@@ -366,6 +390,16 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
      * answer names no alert of its own.
      */
     const selectedRef = useRef<number | null>(null);
+
+    /**
+     * The panel a choice fills in, so that a choice can be answered where the analyst is looking.
+     *
+     * Stacked in one column this panel begins below the filters, the counters and the whole queue,
+     * and the decision box below it begins at 1939px of a 2544px page: a press on a row moved
+     * nothing that was on screen. See revealChoice, which leaves the page alone on the layouts
+     * where the panel is already in the window.
+     */
+    const detailPanelRef = useRef<HTMLElement | null>(null);
 
     /**
      * The desk hides withdrawn payments by default; the endpoint hides nothing by default.
@@ -725,6 +759,9 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
         setDecisionNote('');
 
         await loadDetail(id);
+        // After the alert has landed and not before it. The panel is what the press is answered
+        // with, and until the answer is in it the page is not tall enough to be scrolled to it.
+        revealChoice(detailPanelRef.current);
     }
 
     /**
@@ -968,9 +1005,9 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
      * voice: the two are alternatives, never both, because the second is why the first is absent.
      */
     const hiddenNote = hiddenError ? (
-        <p className="helper-text gap-above-sm">{hiddenError}</p>
+        <p className="helper-text queue-note gap-above-sm">{hiddenError}</p>
     ) : hiddenTotal > 0 ? (
-        <p className="helper-text gap-above-sm">{hiddenAlertsNote(hiddenTotal)}</p>
+        <p className="helper-text queue-note gap-above-sm">{hiddenAlertsNote(hiddenTotal)}</p>
     ) : null;
 
     /**
@@ -1009,6 +1046,14 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                         */}
                         <h2>Fraud desk</h2>
 
+                        {/*
+                          Choose, read, decide: one cycle, and on a wide window one cycle laid out
+                          across two columns rather than down three screenfuls. See the block in
+                          App.css for what the two wrappers do and at what width they do it.
+                        */}
+                        <div className="work-split">
+                        <div className="work-list">
+
                         {/* Alerts queue */}
                         <section className="section">
                             <h2 className="section-title">{ALERTS_QUEUE_TITLE}</h2>
@@ -1038,8 +1083,9 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                               Confirmed fraud. The sentence itself is the shared one: the three
                               words were typed here in lower case beside rows that capitalise
                               them, and the line did not say what it counted, which is the whole
-                              point of it. What this skin still decides is that the strip is a
-                              caption; the workstation draws the same three cells as figures.
+                              point of it. One sentence from the shared layer, on both desks:
+                              what this skin still decides is where the line sits and what it is
+                              set in, and here it is a caption under the heading.
                             */}
                             {counters && (
                                 <p className="section-caption">
@@ -1294,7 +1340,19 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                   `Alert state`. Neither desk can now leave a field out: the row
                                   is a total mapped type and a missing key does not build.
                                 */}
-                                <div className="table-wrapper gap-above-sm">
+                                <TableFrame
+                                    label={ALERTS_QUEUE_TITLE}
+                                    className="gap-above-sm"
+                                >
+                                    {/*
+                                      A table at every width, and it stays one. Folded into a
+                                      record per alert it printed the name of all nine columns
+                                      against every row, so nine headings became nine times as many
+                                      words and the queue stopped being something an eye can run
+                                      down. A queue is read by comparing one column across rows,
+                                      which is the one thing a stack of records cannot be read for;
+                                      too narrow for nine columns, the frame around it scrolls.
+                                    */}
                                     <table className="table">
                                         <thead>
                                         <tr>
@@ -1356,9 +1414,16 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                         open ? 'table-row--selected' : ''
                                                     }
                                                 >
+                                                    {/* Every cell carries the name of its own
+                                                        column. At the width where the nine
+                                                        columns give way, that name is what stands
+                                                        beside the value in the record the row
+                                                        becomes, so the headings do the same job
+                                                        in both shapes and are written once. */}
                                                     {ALERT_QUEUE_FIELDS.map((f) => (
                                                         <td
                                                             key={f}
+                                                            data-label={FIELD_LABEL[f]}
                                                             className={QUEUE_CELL_CLASS[f]}
                                                         >
                                                             {cells[f]}
@@ -1369,7 +1434,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                         })}
                                         </tbody>
                                     </table>
-                                </div>
+                                </TableFrame>
 
                                 {/*
                                   The way to see more of the list, at the end of the rows where the
@@ -1400,8 +1465,11 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                             )}
                         </section>
 
+                        </div>
+                        <div className="work-detail">
+
                         {/* Details of the selected alert */}
-                        <section className="section">
+                        <section className="section" ref={detailPanelRef}>
                             <h2 className="section-title">{ALERT_DETAILS_TITLE}</h2>
 
                             {/* The same rule as the queue: what is on its way, then why nothing
@@ -1430,6 +1498,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                       "Alert: 2 (NEW)" eight lines under a row saying ALERT-2.
                                     */}
                                     <div className="details-card">
+                                        <h3 className="details-title">{ALERT_CARD_TITLE}</h3>
                                         <p>
                                             <span className="fact-label">Alert:</span>{' '}
                                             <span className="fact-value">
@@ -1615,6 +1684,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                     </div>
 
                                     <div className="details-card gap-above-lg">
+                                        <h3 className="details-title">{PAYMENT_CARD_TITLE}</h3>
                                         <p>
                                             <span className="fact-label">Transfer:</span>{' '}
                                             <span className="fact-value">
@@ -1706,8 +1776,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                         <p>
                                             <span className="fact-label">Auth method:</span>{' '}
                                             <span className="fact-value">
-                                                {authMethodLabel(detail.transfer.authMethod) ||
-                                                    NOT_RECORDED}
+                                                {authMethodText(detail.transfer.authMethod)}
                                             </span>
                                         </p>
                                         {/*
@@ -1747,9 +1816,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                             sentence that said so, and now holds the customer's.
                                             Without the wording, the marked account below is
                                             marked for a reason nothing on screen states. */}
-                                        <p>
-                                            <strong>{CUSTOMER_HISTORY_TITLE}</strong>
-                                        </p>
+                                        <h3 className="details-title">{CUSTOMER_HISTORY_TITLE}</h3>
                                         {/* "No history" is a statement about the customer and is
                                             made only once the route that answers it has answered.
                                             The rows arrive after the panel around them now, so an
@@ -1760,7 +1827,10 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                 <p className="helper-text">{NO_HISTORY}</p>
                                             )
                                         ) : (
-                                            <div className="table-wrapper gap-above-sm">
+                                            <TableFrame
+                                                label={CUSTOMER_HISTORY_TITLE}
+                                                className="gap-above-sm"
+                                            >
                                                 {/* Five columns from the shared field set, and the
                                                     two fields that open none: the decline reason
                                                     under the row it explains, the fee on the second
@@ -1835,7 +1905,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                         );
                                                     })}
                                                 </table>
-                                            </div>
+                                            </TableFrame>
                                         )}
 
                                         {/*
@@ -1911,9 +1981,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                       screen, so is the whole journal.
                                     */}
                                     <div className="details-card gap-above-lg">
-                                        <p>
-                                            <strong>{ALERT_NOTES_TITLE}</strong>
-                                        </p>
+                                        <h3 className="details-title">{ALERT_NOTES_TITLE}</h3>
                                         {detail.notes.length === 0 ? (
                                             /* Said plainly, and it invites nobody to write: the
                                                box that does that is in the panel below with a
@@ -1921,7 +1989,10 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                be the screen asking twice. */
                                             <p className="helper-text">{NO_ALERT_NOTES}</p>
                                         ) : (
-                                            <div className="table-wrapper gap-above-sm">
+                                            <TableFrame
+                                                label={ALERT_NOTES_TITLE}
+                                                className="gap-above-sm"
+                                            >
                                                 {/* table--static: these rows open nothing, and
                                                     the application's hover fill paints every
                                                     table it has. */}
@@ -1969,7 +2040,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                     })}
                                                     </tbody>
                                                 </table>
-                                            </div>
+                                            </TableFrame>
                                         )}
                                     </div>
                                 </div>
@@ -2166,9 +2237,19 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                     {decisionError && <ErrorBox failure={decisionError} />}
 
                                     {decisionMessage && (
-                                        <div className="summary gap-above-sm">
+                                        /* An irreversible decision that reached the database, and
+                                           the edge says so whichever of the three was pressed:
+                                           what worked is the recording, not the verdict. A cleared
+                                           alert and a confirmed fraud are both the desk's own
+                                           answer written down, and neither is a failure to tell
+                                           the analyst about.
+
+                                           The word over it is the shared one. Both desks had
+                                           reached it independently and both typed it, which is the
+                                           cheapest kind of agreement to lose. */
+                                        <div className="summary summary--success gap-above-sm">
                                             <div className="summary-title">
-                                                Result
+                                                {DECISION_RESULT_TITLE}
                                             </div>
                                             <ul>
                                                 <li>{decisionMessage}</li>
@@ -2178,6 +2259,9 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                 </>
                             )}
                         </section>
+
+                        </div>
+                        </div>
                     </main>
                 </div>
             </div>
