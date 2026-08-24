@@ -101,10 +101,16 @@
    *
    * Four background layers and no script. The two rules are attached to the box, so they stand on
    * its top and bottom edges wherever the content happens to be; the two covers are attached to
-   * the content, so they travel with it and hide the rule at the end they are at. At rest both
+   * the content, so they travel with it and hide the shade at the end they are at. At rest both
    * ends are covered and nothing is drawn. Scrolled, the cover at that end has moved away and the
-   * rule shows: a line at the edge the content continues past, which is otherwise what a row cut
-   * through the middle of its letters is left to say on its own.
+   * shade shows: the ground darkening towards the edge the content continues past, which is
+   * otherwise what a row cut through the middle of its letters is left to say on its own.
+   *
+   * A shade and not a line, and that was tried the other way first. A hairline reads as a border,
+   * and a border is a thing the eye returns to: drawn at the weight a focus ring is drawn at, it
+   * took more attention than anything it was standing next to, on a box whose whole message is
+   * "there is more of this". The mark has to be legible without being looked at, so it is a few
+   * pixels of the ground getting darker, and it fades rather than ends.
    *
    * The mechanism was written twice in one stylesheet before it was written here, and the second
    * copy is how it came to be a mechanism rather than a rule: it is here so that the next box that
@@ -113,18 +119,19 @@
    * puts it in this file; the two colours are named and not valued, and each resolves in whichever
    * skin is loaded.
    *
-   * The rules are one token because their colour and weight must be identical everywhere: a mark
-   * that means "this is cut" cannot be a different line on two boxes of the same window. The
-   * covers are two tokens holding only their geometry, and the call site writes the colour into
-   * them, because the cover has to be the ground THAT box paints and no shared layer knows it:
+   * The shade is one token because its colour and depth must be identical everywhere: a mark that
+   * means "this is cut" cannot be one thing on two boxes of the same window. The covers are two
+   * tokens holding only their geometry, and the call site writes the colour into them, because the
+   * cover has to be the ground THAT box paints and no shared layer knows it:
    *
    *     background:
    *         linear-gradient(var(--color-surface-canvas) 0 100%) var(--scroll-edge-cover-top),
    *         linear-gradient(var(--color-surface-canvas) 0 100%) var(--scroll-edge-cover-bottom),
-   *         var(--scroll-edge-rules),
+   *         var(--scroll-edge-shade),
    *         var(--color-surface-canvas);
    *
-   * The covers stand before the rules because the first layer of a background is the one on top.
+   * The covers stand before the shade because the first layer of a background is the one on top,
+   * and they are the same height as it, so at rest it is hidden exactly and not approximately.
    *
    * It is written in three tokens rather than one whole background because one whole background
    * cannot be made to work, and that was measured rather than assumed. A custom property is
@@ -132,11 +139,11 @@
    * var(--scroll-edge-fill) resolves that fill once against :root and every call site gets the
    * root's colour whatever it sets on itself. Read off the running page, a box that set the fill
    * to the canvas still painted covers of the raised surface. Nothing reports this: the background
-   * is valid, the token is non-empty, and the only symptom is a rule that never hides.
+   * is valid, the token is non-empty, and the only symptom is a shade that never hides.
    *
    * The limit, and it is a real one. This mark is drawn in the scroller's OWN background, so it
    * only reaches an edge the scroller's ground reaches. A scroller whose children are opaque
-   * blocks paints those blocks over it, and what is left of the rule is a stub in the scrollbar
+   * blocks paints those blocks over it, and what is left of the shade is a stub in the scrollbar
    * gutter, which reads as a misdraw and is worse than nothing. That shape of scroller needs an
    * overlay drawn above its children rather than a background under them, and an overlay is
    * structure and not a value, so it is not here. There is no token for it and there should not be
@@ -144,11 +151,11 @@
    */
   --scroll-edge-cover-top: local top / 100% var(--space-6) no-repeat;
   --scroll-edge-cover-bottom: local bottom / 100% var(--space-6) no-repeat;
-  --scroll-edge-rules:
-          linear-gradient(var(--color-border-strong) 0 100%)
-                  scroll top / 100% var(--border-width-marker) no-repeat,
-          linear-gradient(var(--color-border-strong) 0 100%)
-                  scroll bottom / 100% var(--border-width-marker) no-repeat;
+  --scroll-edge-shade:
+          linear-gradient(to bottom, var(--color-scroll-edge), transparent)
+                  scroll top / 100% var(--space-6) no-repeat,
+          linear-gradient(to top, var(--color-scroll-edge), transparent)
+                  scroll bottom / 100% var(--space-6) no-repeat;
 
   --motion-instant: 0.05s;   /* transform */
   --motion-fast: 0.15s;      /* background-color, border-color, color */

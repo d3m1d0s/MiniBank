@@ -1,7 +1,6 @@
 // src/NavRail.tsx
 import {
     NAV_ENTRIES,
-    NAV_LANDMARK,
     NAV_TITLE,
     type NavRole,
     type NavView,
@@ -11,6 +10,15 @@ import {
  * The region the handle folds, named so the handle can point at it.
  */
 const NAV_FOLD_ID = 'nav-fold';
+
+/**
+ * The rail's heading, named so the rail can be called by it.
+ *
+ * The landmark used to carry a word of its own, which meant one region under two names: the
+ * reader saw Navigation printed over the entries and heard Primary announced when they arrived.
+ * A region is named by its heading here, the way the two panels beside it are.
+ */
+const NAV_TITLE_ID = 'nav-title';
 
 /**
  * The two words on the handle, for a reader who is not looking at the icon.
@@ -28,7 +36,7 @@ const NAV_UNFOLD_LABEL = 'Show the navigation';
  * The list is the shared one and nothing here adds to it, drops from it or reorders it: the two
  * applications owe the same role the same destinations in the same order, and a column that keeps
  * entries of its own is how the customer screens came to show three different columns for one
- * person. Every word on this surface is read from the shared module, the two the surface calls
+ * person. Every word on this surface is read from the shared module, the one the surface calls
  * itself by included, because a heading typed here is a heading that has to be found again the day
  * the other one is renamed.
  *
@@ -60,14 +68,14 @@ export function NavRail({
     const entries = NAV_ENTRIES[role];
 
     return (
-        <nav className={folded ? 'nav nav--folded' : 'nav'} aria-label={NAV_LANDMARK}>
+        <nav className={folded ? 'nav nav--folded' : 'nav'} aria-labelledby={NAV_TITLE_ID}>
             {/*
               THE HANDLE STANDS STILL.
 
               It is the first thing in the rail and it keeps its place whether the rail is open or
               shut, because a control that moves when it is pressed asks to be found again for the
-              press that undoes it. Folded, the heading and the entries go and this is all that is
-              left, with the rail's own edge closing up behind it.
+              press that undoes it. Folded, the entries go and the heading stops being drawn, so
+              this is all that is left, with the rail's own edge closing up behind it.
             */}
             <div className="nav-head">
                 <button
@@ -101,7 +109,28 @@ export function NavRail({
                         {folded ? NAV_UNFOLD_LABEL : NAV_FOLD_LABEL}
                     </span>
                 </button>
-                <div className="nav-title" hidden={folded}>{NAV_TITLE}</div>
+                {/*
+                  A HEADING, AT THE RUNG THE TWO PANELS BESIDE IT ARE AT.
+
+                  The rail is the third region on this screen and it was the one thing on it that
+                  named itself with a word rather than with a heading: a reader moving by headings
+                  went MiniBank, Alerts queue, Alert details and never passed through the
+                  navigation at all. The outline now reads Navigation, Alerts queue, Alert details,
+                  which is the screen as it is drawn, left to right.
+
+                  Taken away by the stylesheet when the rail is folded rather than by `hidden`, and
+                  the difference is the whole reason this is not a one word change. The name of the
+                  region is this element, and a region named by an element that is hidden has no
+                  name at all: folded, the rail would have been an unnamed landmark in the middle
+                  of a screen with three of them. What folding takes away is the column of entries,
+                  which is a posture of the window; what the rail IS does not change with it.
+                */}
+                <h2
+                    className={folded ? 'nav-title visually-hidden' : 'nav-title'}
+                    id={NAV_TITLE_ID}
+                >
+                    {NAV_TITLE}
+                </h2>
             </div>
 
             {/*

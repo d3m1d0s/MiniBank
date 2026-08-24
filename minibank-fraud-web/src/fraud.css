@@ -544,10 +544,9 @@ textarea:focus-visible {
      * misdrawn control rather than as a row that continues above the edge.
      */
     background:
-        linear-gradient(var(--color-surface-raised) 0 100%) local top / 100% var(--space-6) no-repeat,
-        linear-gradient(var(--color-surface-raised) 0 100%) local bottom / 100% var(--space-6) no-repeat,
-        linear-gradient(var(--color-border-strong) 0 100%) scroll top / 100% var(--border-width-marker) no-repeat,
-        linear-gradient(var(--color-border-strong) 0 100%) scroll bottom / 100% var(--border-width-marker) no-repeat;
+        linear-gradient(var(--color-surface-raised) 0 100%) var(--scroll-edge-cover-top),
+        linear-gradient(var(--color-surface-raised) 0 100%) var(--scroll-edge-cover-bottom),
+        var(--scroll-edge-shade);
 }
 
 .row {
@@ -719,10 +718,9 @@ textarea:focus-visible {
      * a card cut through the middle of its letters was being left to say on its own.
      */
     background:
-        linear-gradient(var(--color-surface-canvas) 0 100%) local top / 100% var(--space-6) no-repeat,
-        linear-gradient(var(--color-surface-canvas) 0 100%) local bottom / 100% var(--space-6) no-repeat,
-        linear-gradient(var(--color-border-strong) 0 100%) scroll top / 100% var(--border-width-marker) no-repeat,
-        linear-gradient(var(--color-border-strong) 0 100%) scroll bottom / 100% var(--border-width-marker) no-repeat,
+        linear-gradient(var(--color-surface-canvas) 0 100%) var(--scroll-edge-cover-top),
+        linear-gradient(var(--color-surface-canvas) 0 100%) var(--scroll-edge-cover-bottom),
+        var(--scroll-edge-shade),
         var(--color-surface-canvas);
 }
 
@@ -1847,21 +1845,32 @@ textarea:focus-visible {
        the scrollport whose edge is doing the cutting. */
     position: sticky;
     z-index: var(--z-sticky);
-    block-size: var(--border-width-marker);
-    background: var(--color-border-strong);
+    /*
+     * A shade and not a line. This was a hairline at the weight of a focus ring, in the strong
+     * border colour, and on a pane whose whole message is "there is more of this" it took more
+     * attention than the case it was standing over. The mark has to be legible without being
+     * looked at, so it is a few pixels of the ground getting darker, and it fades rather than
+     * ends. Same depth and same colour as the trays in the queue column, which take theirs from
+     * --scroll-edge-shade in the shared scale.
+     */
+    block-size: var(--space-6);
     opacity: 0;
 }
 
 .panel-scroll::before,
 .decision-fold::before {
     inset-block-start: 0;
-    margin-block-end: calc(-1 * var(--border-width-marker));
+    /* Pulled back by its own height, so the mark lies over the first rows rather than pushing
+       them down: it is a reading of the edge and not a band in the layout. */
+    margin-block-end: calc(-1 * var(--space-6));
+    background: linear-gradient(to bottom, var(--color-scroll-edge), transparent);
 }
 
 .panel-scroll::after,
 .decision-fold::after {
     inset-block-end: 0;
-    margin-block-start: calc(-1 * var(--border-width-marker));
+    margin-block-start: calc(-1 * var(--space-6));
+    background: linear-gradient(to top, var(--color-scroll-edge), transparent);
 }
 
 @container scroll-state(scrollable: top) {

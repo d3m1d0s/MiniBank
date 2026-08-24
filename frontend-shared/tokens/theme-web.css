@@ -93,6 +93,10 @@
   --color-border-strong: #94a3b8;     /* emphasis, and the planned dashed edge        */
   --color-border-disabled: #414c68;
   --color-border-accent: #3b82f6;     /* the edge of a filled primary button          */
+  /* The scroll edge, and it is not a border: it is the ground of a dark page going darker
+     towards a cut, read at a glance and never looked at. Black rather than a named surface
+     because it has to sit over whichever of them the scroller paints.                    */
+  --color-scroll-edge: rgba(0, 0, 0, 0.55);
 
   /* ---- text ---- */
   --color-text-primary: #f9fafb;

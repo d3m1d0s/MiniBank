@@ -78,6 +78,10 @@
   --color-border-strong: #5f5f5f;     /* emphasis, and the planned dashed edge         */
   --color-border-disabled: #c9c9c9;
   --color-border-accent: #1f5eff;
+  /* The scroll edge, and it is not a border: it is the ground of a light window going darker
+     towards a cut. Shallower than the dark skin needs, because the same alpha that reads as a
+     hint on near black reads as a bruise on near white.                                    */
+  --color-scroll-edge: rgba(0, 0, 0, 0.16);
 
   /* ---- text. Four opacity values become four real colours, and three of them are the
    *      exact composite the opacity produces on white, so nothing moves on a white
@@ -277,8 +281,14 @@
      state broke over two lines. 5.625rem is that same 90px at the default size, and it now grows
      with the words in it. A column of labels is a measure of text and never of the window. */
   --size-row-label: 5.625rem;
+  /* The tray of alerts, and its ceiling is set by what a card in it has to say rather than by what
+     the window has left over. Measured on the running desk at 1440: the widest filter row asks
+     168px, an alert card asks 123px, and the queue was standing at 420px, so better than half of
+     it was ground. A work list that wide reads as the main column of the screen, which it is not:
+     the case beside it is. 340px keeps the code, the state and the amount on the lines they were
+     already on and gives the case the 80px back. */
   --size-queue-min: 320px;
-  --size-queue-max: 420px;
+  --size-queue-max: 340px;
   --size-detail-min: 360px;
   /* The plate that folds the decision block away, hung on the hairline above it.
 
