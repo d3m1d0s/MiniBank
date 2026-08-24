@@ -1613,7 +1613,12 @@ textarea:focus-visible {
     min-height: 0;
     overflow: auto;
     padding-right: var(--space-2);
-    max-width: var(--size-shell-max);
+    /*
+     * No ceiling here any more, and the reading measure has moved onto the boxes that hold prose.
+     * What this pane holds is mostly tables, and a table spends every pixel it is given: the
+     * customer's payments and the case notes read better wide and give up columns when they are
+     * cramped. Bounding the pane bounded them with it.
+     */
     /* The body gains and loses its scrollbar as the detail changes; the gutter keeps the
        evidence from shifting sideways under the eye when it does. */
     scrollbar-gutter: stable;
@@ -1809,6 +1814,20 @@ textarea:focus-visible {
 }
 
 /*
+ * Four pixels off the note box, and they come out of its padding rather than its height.
+ *
+ * The box is three rows, and its height is derived from them: three lines of text plus the field
+ * padding above and below, 82px at the base size. Taking the four off the height instead would
+ * leave the padding untouched and the box one line shorter than the rows it advertises, so a note
+ * of three lines - the length the box invites - would scroll where it does not today. Taken off
+ * the padding, the frame closes by exactly four and the room for text is the same three lines it
+ * was, which is why this is the only place the field padding of the row is overridden.
+ */
+.panel-foot .row textarea#decision-note {
+    padding-block: var(--space-1);
+}
+
+/*
  * THE CUT EDGE ON THE TWO SCROLLERS WHOSE CHILDREN ARE OPAQUE, and the one place in this window
  * where the mark is an overlay rather than a background.
  *
@@ -1884,55 +1903,21 @@ textarea:focus-visible {
 }
 
 /*
- * Above this width the single column stops being the right answer: the ceiling that keeps a
- * column of text readable turns into a permanent band of white beside it. A container query
- * and not a media query, because what decides is the width of this pane and not of the
- * screen. The literal is here rather than in a token because a container query condition
- * cannot read a custom property; if it ever earns a name, the name belongs in the desktop
- * theme and not in the shared scale.
- *
- * 1600 is where, and the number comes from the band: the readable column is capped at 1280,
- * so a pane narrower than that has no band to reclaim and a pane at 1425, which is what 1920
- * gives, has 145px of it. Splitting there costs more than it buys, because two columns of
- * short evidence end higher up the panel and put the emptiness in the middle of the panel
- * instead of at its right edge. At 1600 the band is 320px and from there it only grows.
+ * The pane stays one column at every width, and the width goes to the boxes that can use it.
+ * It was split into two columns above 1600, which put the customer history and the case notes
+ * beside the facts rather than under them, so the same pane read one way at 1590 and another at
+ * 1610 and an analyst had to look for the evidence in a different place depending on the window.
+ * What belongs under a thing stays under it; what wants width gets it from the pane itself.
  */
 .right { container-type: inline-size; }
 
-@container (min-width: 1600px) {
-    .panel-scroll {
-        max-width: none;
-        display: grid;
-        grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
-        column-gap: var(--space-6);
-        align-content: start;
-    }
-
-    .panel-scroll > .hint,
-    .panel-scroll > .error { grid-column: 1 / -1; }
-
-    /*
-     * The two cut marks are children here like everything else, so they are given the full width
-     * rather than left to be auto placed into the first free cell of a column. The first of them
-     * takes the first row, which is what moves the row the history block is written to.
-     */
-    .panel-scroll::before,
-    .panel-scroll::after { grid-column: 1 / -1; }
-
-    /* History is the one block that wants width: five columns and two IBANs in the last. It
-       starts under the mark rather than beside it. */
-    .box--history { grid-column: 2; grid-row: 2 / span 2; }
-
-    /*
-     * The journal follows it down the same column, for the same reason and one more: it is the
-     * second table on the pane and its widest column is prose, so it wants the wide track too, and
-     * the split then reads as the subject and its facts on the left against the evidence and the
-     * record of it on the right. Left to place itself it would drop under the facts into a track
-     * five twelfths of the pane wide.
-     */
-    .box--notes { grid-column: 2; }
-
-    .panel-foot { max-width: none; }
+/*
+ * The reading measure, keyed on carrying a table rather than on a box name, so it reaches whatever
+ * boxes this pane grows next. A box of facts is read down a column of labels and gains nothing from
+ * a wide window; the two that hold tables lose columns when they are cramped, so they keep the pane.
+ */
+.panel-scroll > .box:not(:has(table)) {
+    max-width: var(--size-shell-max);
 }
 
 /*

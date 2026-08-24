@@ -553,25 +553,41 @@ tr[role="button"]:focus-visible {
   min-width: 0;
 }
 
-@media (min-width: 1600px) {
-  .form-panel:has(> .work-split:not(.work-split--list-led)) {
-    max-width: calc(var(--size-content-max) * 2);
-  }
+/*
+ * ====== ONE COLUMN, AND THE TABLE SPENDS THE WIDTH ======
+ *
+ * Both of these screens were briefly split into two columns on a wide window, the list on one side
+ * and the chosen record on the other. That is not what the width is for here, and it broke a rule
+ * that holds on every size: what belongs under a table stays under it. Read at a wide window, the
+ * facts of the chosen payment and the sentence about what can be done with it had climbed up beside
+ * the list they were chosen from, so the same screen said one thing at 1900px and another at 2000,
+ * and the reader had to find the detail in a different place depending on the window.
+ *
+ * So the screens stay one column at every width, and the width goes to the thing that can use it.
+ * A table spends every pixel it is given: six columns of which one is a full IBAN read better wide
+ * and give up columns when they are cramped. Prose does not: a sentence set to 2500px is unreadable
+ * however much room is going spare. The ceiling therefore moves off the panel and onto the blocks
+ * that hold prose, which is the whole of the change.
+ */
+/*
+ * The rule is about tables and not about screens, so it is keyed on carrying one. Every screen that
+ * draws a table gives the panel the whole of the window, and the reading measure moves down onto
+ * the sections that hold no table: the facts of a chosen payment, the sentence about what can be
+ * done with it, the empty states. A section that does hold a table keeps the width, and that is the
+ * point, because six columns of which one is a full IBAN read better wide and give up columns when
+ * they are cramped.
+ *
+ * Keyed on the table rather than on a layout class so that it reaches every table in the
+ * application at once: the waiting list, the alert queue, the customer history inside a chosen
+ * alert, the case notes and the customer's own history screen. The payment form carries no table
+ * and is left at the measure, which is where a form belongs.
+ */
+.form-panel:has(.table-frame) {
+  max-width: none;
+}
 
-  /* minmax(0, ...) on both tracks, because a grid item takes its min-content size as an automatic
-     minimum and a wide table would otherwise push its own track past its share. */
-  .work-split:not(.work-split--list-led) {
-    display: grid;
-    grid-template-columns: minmax(0, 4fr) minmax(0, 8fr);
-    column-gap: var(--space-10);
-    align-items: start;
-  }
-
-  /* Stacked, the gap under the list is the gap between two blocks of the page. Side by side there
-     is nothing under it to be apart from. */
-  .work-split:not(.work-split--list-led) > .work-list {
-    margin-bottom: 0;
-  }
+.form-panel:has(.table-frame) .section:not(:has(.table-frame)) {
+  max-width: var(--size-content-max);
 }
 
 /*
@@ -601,22 +617,6 @@ tr[role="button"]:focus-visible {
  * would hand the queue a width where it stops being a table, which is what this rule exists to
  * prevent, so below it the screen stays one column and the table keeps the whole of it.
  */
-@media (min-width: 1960px) {
-  .form-panel:has(> .work-split--list-led) {
-    max-width: calc(var(--size-content-max) * 2);
-  }
-
-  .work-split--list-led {
-    display: grid;
-    grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
-    column-gap: var(--space-10);
-    align-items: start;
-  }
-
-  .work-split--list-led > .work-list {
-    margin-bottom: 0;
-  }
-}
 
 /*
  * The name of the screen, and the top rung: it is the one place on a working screen where
