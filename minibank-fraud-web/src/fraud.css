@@ -301,9 +301,22 @@ textarea:focus-visible {
     margin-bottom: var(--space-5);
 }
 
-/* The heading carries its own space in the row rather than under it. */
+/*
+ * The heading carries no space of its own in this row, above it or below it.
+ *
+ * Only the space under it was being cancelled, and the space over it is not this stylesheet's:
+ * it is the browser's own margin on an h2, 0.83em, which at this heading's 12px is 9.96px. In a
+ * row that centres its items, that margin is centred with the text rather than ignored, so the
+ * word sat five pixels below the handle beside it and the row stood 26px tall to hold a 24px
+ * button. Zeroing it aligns the two and takes two pixels of ground back rather than adding any.
+ *
+ * It is also what makes the handle keep the promise the rail makes about it. Folded, the heading
+ * is taken out of flow and the row collapses to the button, so the margin was shifting the handle
+ * by a pixel every time it was pressed: the one control that is supposed to stand still moved
+ * under the finger that moved it.
+ */
 .nav-head .nav-title {
-    margin-bottom: 0;
+    margin: 0;
 }
 
 /*
@@ -480,7 +493,16 @@ textarea:focus-visible {
     flex: none;
     inline-size: 1.5em;
     block-size: 1.5em;
-    border-radius: var(--radius-control);
+    /*
+     * A share of the mark rather than one of the radius roles, and the customer application
+     * states the same rule for the same reason. The mark is drawn at two sizes here as well:
+     * 33px on the sign-in window, where .brand sets its own type size, and 24px in the title
+     * bar, where it inherits the window's. A role token is a fixed count of pixels, so the 8px
+     * that reads as a rounded square on the entrance is a third of the corner in the band, and
+     * the two marks were different shapes on two screens of one application. A share keeps one
+     * shape at every size, and it is the shape the web wears.
+     */
+    border-radius: 25%;
     background-color: var(--color-accent);
     background-image: var(--brand-mark);
     background-repeat: no-repeat;
