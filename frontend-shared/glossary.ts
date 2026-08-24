@@ -271,11 +271,13 @@ export function authorizationNote(required: boolean): string {
  */
 export function authWindowNote(authValidUntil: string | null | undefined, now: Date): string {
     switch (authWindowState(authValidUntil, now)) {
-        case 'open':
-            return (
-                `The code can be entered until ${formatDateTime(authValidUntil)}, ` +
-                `in ${formatTimeLeft(authValidUntil, now)}.`
-            );
+        case 'open': {
+            // The countdown is added only while there is one to read. It goes quiet past an hour,
+            // and the deadline beside it is then the whole of what this sentence has to say.
+            const left = formatTimeLeft(authValidUntil, now);
+            const deadline = `The code can be entered until ${formatDateTime(authValidUntil)}`;
+            return left ? `${deadline}, in ${left}.` : `${deadline}.`;
+        }
         case 'closed':
             return (
                 `The time to confirm this payment ran out at ${formatDateTime(authValidUntil)}, ` +

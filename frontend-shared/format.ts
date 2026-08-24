@@ -151,7 +151,16 @@ export function authWindowState(
  * exact instant of the deadline, which is one render at most.
  *
  * A whole minute drops the seconds, so `5 minutes` rather than `5 minutes 0 seconds`.
+ *
+ * Above an hour there is nothing to say, and that is a decision rather than a gap. A countdown is
+ * urgency: it earns its place while a person can still act on the number and reads as noise once
+ * they cannot. The product's own window is five minutes and never comes near this, but a seeded
+ * payment carries a long one so that the screen has something to be asked about whenever the
+ * showcase is opened, and counted to the second that window printed `in 43190 minutes 51 seconds`
+ * beside a date that had already said it better.
  */
+const COUNTDOWN_CEILING_SECONDS = 60 * 60;
+
 export function formatTimeLeft(authValidUntil: string | null | undefined, now: Date): string {
     const at = deadlineAt(authValidUntil);
     if (at === null) {
@@ -159,7 +168,7 @@ export function formatTimeLeft(authValidUntil: string | null | undefined, now: D
     }
 
     const left = Math.ceil((at - now.getTime()) / 1000);
-    if (left < 0) {
+    if (left < 0 || left > COUNTDOWN_CEILING_SECONDS) {
         return '';
     }
 

@@ -159,10 +159,27 @@ public class Transfer implements RecordsDomainEvents {
      */
     public Money feeAmount(FeePolicy policy) { return policy.compute(amount); }
 
+    /** How long a customer has to enter the code, for a payment made through the product. */
+    public static final Duration AUTH_WINDOW = Duration.ofMinutes(5);
+
     /**
      * Requests authorization for the transfer and moves it to WAITING_AUTH.
      */
     public void requestAuthorization(Payment method) {
+        requestAuthorization(method, AUTH_WINDOW);
+    }
+
+    /**
+     * The same, with the window named by the caller.
+     *
+     * It is a parameter for exactly one caller, the demo seed, and for a reason the product does
+     * not have: a fixture written once has to still be usable whenever somebody opens the
+     * showcase, and a window of five minutes from the moment the data was written is closed by
+     * the time anybody looks. The five minutes stay the rule for every payment a customer makes;
+     * a seeded row is not one of those, and saying so here is better than leaving the screen that
+     * asks for a code with nothing it can be asked about.
+     */
+    public void requestAuthorization(Payment method, Duration window) {
         if (status != TransferStatus.CREATED)
             throw new InvalidStateTransitionException("Authorization allowed only from CREATED");
 
@@ -172,7 +189,7 @@ public class Transfer implements RecordsDomainEvents {
         this.status = TransferStatus.WAITING_AUTH;
 
         this.authAttempts = 0;
-        this.authValidUntil = Instant.now().plus(Duration.ofMinutes(5));
+        this.authValidUntil = Instant.now().plus(window);
 
         raise(new TransferStatusChanged(this, old, this.status));
     }
