@@ -26,6 +26,19 @@ package cz.vsb.minibank.api.dto;
  * on the way in and stored, and it is often the whole of what the payer said about the payment, so
  * an analyst deciding that very payment was being asked to judge it with the payer's own
  * description hidden from them.
+ *
+ * {@code declineReason} stands immediately after it, and the pair is the rule {@link HistoryItemDto}
+ * already states: the two sentences attached to a payment are the payer's and the bank's, and a
+ * reader should meet them together. This record was the last of the three to be without it. The
+ * shared field list has named it a fact this panel is obliged to carry since the list existed, and
+ * every history row printed underneath this very panel was already printing it, so the one payment
+ * on the desk whose refusal could not be read was the one the alert had been raised about. On the
+ * demonstration data that is not hypothetical: the decided alert hangs off a payment declined with
+ * "Withdrawn by the customer while the review was open", which is the sentence that says the case
+ * ended without the bank stopping anything - and it was on the wire nowhere the desk could see it.
+ *
+ * Null while a payment might still go through, which is the same rule the other two records follow
+ * and the reason the panel draws it only where there is text.
  */
 public record TransferInfoDto(
         int id,
@@ -41,6 +54,7 @@ public record TransferInfoDto(
         String createdAt,
         String settledAt,
         String message,
+        String declineReason,
         String authMethod
 ) {
 }

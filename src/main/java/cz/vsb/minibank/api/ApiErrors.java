@@ -149,9 +149,16 @@ final class ApiErrors {
     // Names the amounts, not the debits: the daily limit caps what a customer asks to move
     // and the fees are charged on top of it, so a day that ends exactly on the limit has
     // taken slightly more than the limit out of the account.
+    //
+    // It names the customer because the ceiling does. This sentence said "on the selected
+    // account above its daily limit" while the limit still lived on Account, and it outlived
+    // the move: a caller reading it would take the refusal for a fact about one account and
+    // send the rest from another, which is the same day and the same number. The two desks
+    // stopped saying it first, in apiErrors.ts, so the wire was the last place it was wrong -
+    // and the last place anybody would look, since no screen prints this text.
     static final ApiError DAILY_LIMIT_EXCEEDED = new ApiError(
             "DAILY_LIMIT_EXCEEDED",
-            "This payment would take the day's payments on the selected account above its daily limit.");
+            "This payment would take the day's payments across the customer's accounts above their daily limit.");
 
     static final ApiError INVALID_OTP = new ApiError(
             "INVALID_OTP",

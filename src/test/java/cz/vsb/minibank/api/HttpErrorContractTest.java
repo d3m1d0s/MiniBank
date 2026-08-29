@@ -115,7 +115,7 @@ class HttpErrorContractTest {
     private static final String BODY_SELF_TRANSFER =
             "{\"code\":\"SELF_TRANSFER\",\"message\":\"The destination is the account the payment is sent from. Choose a different account.\"}";
     private static final String BODY_DAILY_LIMIT_EXCEEDED =
-            "{\"code\":\"DAILY_LIMIT_EXCEEDED\",\"message\":\"This payment would take the day's payments on the selected account above its daily limit.\"}";
+            "{\"code\":\"DAILY_LIMIT_EXCEEDED\",\"message\":\"This payment would take the day's payments across the customer's accounts above their daily limit.\"}";
     private static final String BODY_VALIDATION_ERROR =
             "{\"code\":\"VALIDATION_ERROR\",\"message\":\"The request contains invalid or missing values.\"}";
     private static final String BODY_METHOD_NOT_ALLOWED =

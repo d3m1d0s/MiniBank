@@ -1698,10 +1698,10 @@ export default function FraudDesk(props: {
                                                       counts it against its limit and the bank
                                                       stores it, and the analyst reviewing that
                                                       very payment read every fact about it except
-                                                      the payer's own account of it. It is the last
-                                                      row of this column because it is the only
-                                                      prose in it, which is the order the shared
-                                                      field list reads the payment in.
+                                                      the payer's own account of it. It is the first
+                                                      of the two rows of prose this column ends on,
+                                                      which is the order the shared field list reads
+                                                      the payment in.
 
                                                       Drawn only where there is text. Null means
                                                       the box was left alone, and a row reading
@@ -1712,6 +1712,45 @@ export default function FraudDesk(props: {
                                                         <>
                                                             <dt>{TRANSFER_DETAIL_LABEL.message}</dt>
                                                             <dd>{detail.transfer.message}</dd>
+                                                        </>
+                                                    )}
+                                                    {/*
+                                                      WHY THE BANK STOPPED IT, under the payer's
+                                                      own words, because that is the order the two
+                                                      sentences happened in and the bank's is the
+                                                      last word on a payment.
+
+                                                      This pane could not show it at all: the field
+                                                      reached the wire on the customer's record and
+                                                      on every history row, including the rows drawn
+                                                      a few hundred lines below this one, and not on
+                                                      the alerted payment. So an analyst could read
+                                                      why any earlier payment had been refused and
+                                                      not why the one they were deciding about was.
+                                                      On the demonstration data the decided alert
+                                                      hangs off a payment the customer withdrew, and
+                                                      that sentence is the whole reason the case
+                                                      closed without the bank stopping anything.
+
+                                                      Read through the shared sentence rather than
+                                                      printed raw, which is what the history rows do
+                                                      with the same field, so one string does not
+                                                      read two ways on one screen. It is the guard
+                                                      as well: the helper answers the empty string
+                                                      for a payment that has not been refused, so
+                                                      nothing is drawn where there is nothing to
+                                                      say.
+
+                                                      Captioned Decline reason and never as the
+                                                      reason for a decision. This is the bank's
+                                                      sentence about the payment; what a person
+                                                      concluded is the comment further down, and
+                                                      the two were one field once already.
+                                                    */}
+                                                    {describeDeclineReason(detail.transfer.declineReason) && (
+                                                        <>
+                                                            <dt>{TRANSFER_DETAIL_LABEL.declineReason}</dt>
+                                                            <dd>{describeDeclineReason(detail.transfer.declineReason)}</dd>
                                                         </>
                                                     )}
                                                 </dl>

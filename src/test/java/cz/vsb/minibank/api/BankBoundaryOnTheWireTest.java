@@ -149,9 +149,16 @@ class BankBoundaryOnTheWireTest {
     // dispatchState is listed for the reason it is listed on the detail below: what these tests
     // reach for is the ONE component not accounted for, so leaving it off would offer it as a
     // second candidate for the route. It is not the route and must never be read as one.
+    //
+    // declineReason joined the same way and is listed for the same reason. It is the sentence the
+    // bank wrote about the payment, which the other two records already carried and this one did
+    // not, so the analyst deciding an alert could not read why the payment under review had been
+    // refused. Adding it made this class fail twice with "grew more than one field", which is the
+    // list above doing its job: it cannot tell a new fact from the route by looking, so it refuses
+    // to guess. Naming it here is the whole of the fix.
     private static final Set<String> TRANSFER_INFO_FIELDS = Set.of(
             "id", "code", "status", "fromIban", "fromBalance", "toIban", "dispatchState", "amount",
-            "feeAmount", "createdAt", "settledAt", "message", "authMethod");
+            "feeAmount", "createdAt", "settledAt", "message", "declineReason", "authMethod");
 
     // dispatchState is the second component this record has grown for a reason of its own, and it
     // is listed here for the reason fee is listed above: what these tests reach for is the ONE

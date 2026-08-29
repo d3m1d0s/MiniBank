@@ -93,8 +93,17 @@ public final class DemoScenario {
      * The hour is subtracted as well as the days, so the history does not print the same clock
      * time on every line. Shifting back by less than a day can only move a payment later within
      * its own day, never onto the day before, so no two rows here can land on one date.
+     *
+     * {@code message} is the payer's own reference, null on a payment they wrote none for, and
+     * the null is as much of the fixture as the text is. Every screen that prints this field
+     * prints it only where there is something to print, so a dataset where all eleven rows carry
+     * one exercises exactly one half of that rule and leaves the other half - the row that draws
+     * nothing extra - untested by eye on the only data anybody opens the showcase with. It is
+     * also what the field means: a box on the payment form that nobody is obliged to fill in.
+     * Seven of the eleven have one.
      */
-    private record PastPayment(int daysAgo, int hoursAgo, Money amount, Payer from, Payee to) {
+    private record PastPayment(int daysAgo, int hoursAgo, Money amount, Payer from, Payee to,
+                               String message) {
 
         Instant at(Instant seededAt) {
             return seededAt.minus(Duration.ofDays(daysAgo)).minus(Duration.ofHours(hoursAgo));
@@ -118,19 +127,27 @@ public final class DemoScenario {
      * customer's daily ceiling, and together they leave the current account comfortably above the
      * payment that is waiting for a code, which is the one a reader is meant to be able to
      * confirm.
+     *
+     * Which four are silent is chosen rather than left to fall out. The two payments to the
+     * untrusted payee are one with a reference and one without, because that pair is what an
+     * analyst reads: the same payee, the same customer, and the only difference is whether the
+     * payer said what the money was for. Both directions of the leg between the customer's own
+     * two accounts carry one, so the internal pair reads as a round trip and not as two
+     * unrelated amounts. The rest are ordinary and half of them say nothing, which is how a real
+     * fortnight looks.
      */
     private static final List<PastPayment> HISTORY = List.of(
-            new PastPayment(13, 2, Money.czk(1_500), Payer.CURRENT, Payee.RISKY),
-            new PastPayment(12, 7, Money.czk(650), Payer.CURRENT, Payee.TRUSTED),
-            new PastPayment(10, 5, Money.czk(150.50), Payer.CURRENT, Payee.TRUSTED),
-            new PastPayment(8, 1, Money.czk(1_400), Payer.CURRENT, Payee.SAVINGS),
-            new PastPayment(7, 9, Money.czk(890), Payer.CURRENT, Payee.TRUSTED),
-            new PastPayment(6, 8, Money.czk(420), Payer.SAVINGS, Payee.TRUSTED),
-            new PastPayment(5, 3, Money.czk(1_200), Payer.CURRENT, Payee.TRUSTED),
-            new PastPayment(4, 10, Money.czk(2_500), Payer.SAVINGS, Payee.CURRENT),
-            new PastPayment(3, 6, Money.czk(300), Payer.CURRENT, Payee.SAVINGS),
-            new PastPayment(2, 11, Money.czk(980), Payer.CURRENT, Payee.RISKY),
-            new PastPayment(1, 4, Money.czk(50), Payer.CURRENT, Payee.TRUSTED));
+            new PastPayment(13, 2, Money.czk(1_500), Payer.CURRENT, Payee.RISKY, null),
+            new PastPayment(12, 7, Money.czk(650), Payer.CURRENT, Payee.TRUSTED, "Share of the rent"),
+            new PastPayment(10, 5, Money.czk(150.50), Payer.CURRENT, Payee.TRUSTED, "Concert ticket"),
+            new PastPayment(8, 1, Money.czk(1_400), Payer.CURRENT, Payee.SAVINGS, "Putting aside for the deposit"),
+            new PastPayment(7, 9, Money.czk(890), Payer.CURRENT, Payee.TRUSTED, null),
+            new PastPayment(6, 8, Money.czk(420), Payer.SAVINGS, Payee.TRUSTED, "Dentist, second visit"),
+            new PastPayment(5, 3, Money.czk(1_200), Payer.CURRENT, Payee.TRUSTED, null),
+            new PastPayment(4, 10, Money.czk(2_500), Payer.SAVINGS, Payee.CURRENT, "Back to the current account for the rent"),
+            new PastPayment(3, 6, Money.czk(300), Payer.CURRENT, Payee.SAVINGS, null),
+            new PastPayment(2, 11, Money.czk(980), Payer.CURRENT, Payee.RISKY, "Deposit for the workshop"),
+            new PastPayment(1, 4, Money.czk(50), Payer.CURRENT, Payee.TRUSTED, "Coffee"));
 
     /** Above the fraud-alert threshold, so it waits for authorization and raises an alert. */
     private static final Money FLAGGED_AMOUNT = Money.czk(12_000);
@@ -255,7 +272,7 @@ public final class DemoScenario {
                 case SAVINGS -> toSavings;
                 case CURRENT -> toCurrent;
             };
-            settleTransfer(source, target, past.amount(), past.at(seededAt));
+            settleTransfer(source, target, past.amount(), past.at(seededAt), past.message());
         }
 
         // The three payments that are not history. These carry the states a screen can act on, so
@@ -285,8 +302,16 @@ public final class DemoScenario {
      * A completed payment, so the demo opens with a non-empty history and a
      * balance that reflects the current fee policy.
      */
-    private void settleTransfer(Account source, Beneficiary target, Money amount, Instant at) {
+    private void settleTransfer(Account source, Beneficiary target, Money amount, Instant at,
+                                String message) {
         Transfer transfer = newTransfer(source, target, amount, at);
+        // Attached before the payment settles, which is the order it happens in for real: the
+        // reference is typed on the form and travels with the payment. Null is passed straight
+        // through rather than guarded, because attaching nothing and never attaching leave the
+        // same record, and a guard here would suggest they differ. The 140-character rule is
+        // TransferApplicationService's and does not run on this path, so the sentences in
+        // HISTORY are short by hand.
+        transfer.attachMessage(message);
         // The seed asks the same question the services ask instead of hard-coding null. The two
         // accounts above are created in this very unit of work and have no rows yet, which is
         // why inBankByIban consults the identity map before the store. One payee is now the

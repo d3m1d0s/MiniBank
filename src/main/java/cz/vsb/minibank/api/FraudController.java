@@ -578,6 +578,10 @@ public class FraudController {
                 // until now readable everywhere on this API except on the one panel that shows the
                 // payment an analyst is deciding about.
                 t.message(),
+                // Why the bank stopped it, or null while it might still go through. Read off the
+                // same transfer the history rows below this panel are read off, so the alerted
+                // payment and the payments under it now answer this question in one voice.
+                t.declineReason(),
                 authMethod
         );
     }

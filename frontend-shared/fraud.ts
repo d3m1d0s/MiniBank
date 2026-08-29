@@ -168,6 +168,22 @@ export interface TransferInfo {
      * typed, so a panel prints it only when there is text in it.
      */
     message: string | null;
+    /**
+     * Why the bank stopped this payment, or null while it might still go through.
+     *
+     * Beside `message` because the two are the sentences attached to a payment, the payer's and
+     * the bank's, and a reader meets them together; that is the same order {@link HistoryItem}
+     * puts them in and the same order the shared field list reads them in.
+     *
+     * The panel that shows the alerted payment was the last reader of a transfer without it, while
+     * every history row drawn beneath that panel had been printing it all along. So the desk could
+     * read why any earlier payment was refused and not why the one under review was.
+     *
+     * Prose, printed only where there is text, and never captioned as the reason for a decision:
+     * this is the bank's sentence about the payment, and what a person concluded lives in
+     * {@link AlertInfo.decisionComment} or in the journal.
+     */
+    declineReason: string | null;
     authMethod: string | null;
 }
 
