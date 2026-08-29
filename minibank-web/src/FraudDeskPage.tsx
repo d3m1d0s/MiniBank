@@ -1755,6 +1755,40 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                             </span>
                                         </p>
                                         {/*
+                                          The end this payment came to, under the moment it was
+                                          asked for. A payment settles or it is stopped, never
+                                          both, so one line carries whichever happened and the
+                                          label names which - the panel has room for a word per
+                                          line, unlike the table, where the two share a cell under
+                                          one heading.
+
+                                          Both instants reached this panel's record and neither
+                                          was ever drawn on it. So the desk could say a payment
+                                          had been declined and not when, which is the same hole
+                                          the customer's own history had, on the screen where the
+                                          question is asked most often.
+
+                                          Nothing is drawn while a payment is still going on,
+                                          which is most of what an open queue holds.
+                                        */}
+                                        {(detail.transfer.settledAt ||
+                                            detail.transfer.declinedAt) && (
+                                            <p>
+                                                <span className="fact-label">
+                                                    {detail.transfer.settledAt
+                                                        ? TRANSFER_DETAIL_LABEL.settledAt
+                                                        : TRANSFER_DETAIL_LABEL.declinedAt}
+                                                    :
+                                                </span>{' '}
+                                                <span className="fact-value">
+                                                    {formatDateTime(
+                                                        detail.transfer.settledAt ??
+                                                            detail.transfer.declinedAt,
+                                                    )}
+                                                </span>
+                                            </p>
+                                        )}
+                                        {/*
                                           What is still to happen to money that has left the
                                           account, on the line the shared field order gives it:
                                           after what the payment cost, before how it was
@@ -1814,6 +1848,42 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                 </span>{' '}
                                                 <span className="fact-value">
                                                     {detail.transfer.message}
+                                                </span>
+                                            </p>
+                                        )}
+                                        {/*
+                                          WHY THE BANK STOPPED IT, under the payer's own words,
+                                          because that is the order the two sentences happened in
+                                          and the bank's is the last word on a payment.
+
+                                          This platform was the one that did not have it. The
+                                          workstation gained the line and this panel did not, so
+                                          the same alert read differently depending on which of
+                                          the two applications an analyst opened - and the fact
+                                          missing here is the one that says how the case ended.
+                                          The two desks carry one role and must carry it whole.
+
+                                          Read through the shared sentence rather than printed
+                                          raw, which is what the history rows below do with the
+                                          same field, and it is the guard as well: the helper
+                                          answers the empty string for a payment that has not been
+                                          refused, so nothing is drawn where there is nothing to
+                                          say.
+
+                                          Captioned Decline reason and never as the reason for a
+                                          decision. This is the bank's sentence about the payment;
+                                          what a person concluded is the analyst's comment further
+                                          down, and the two were one field once already.
+                                        */}
+                                        {describeDeclineReason(detail.transfer.declineReason) && (
+                                            <p>
+                                                <span className="fact-label">
+                                                    {TRANSFER_DETAIL_LABEL.declineReason}:
+                                                </span>{' '}
+                                                <span className="fact-value">
+                                                    {describeDeclineReason(
+                                                        detail.transfer.declineReason,
+                                                    )}
                                                 </span>
                                             </p>
                                         )}

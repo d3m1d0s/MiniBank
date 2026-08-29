@@ -1769,6 +1769,38 @@ export default function FraudDesk(props: {
                                                 <dl className="facts">
                                                     <dt>Payment created</dt>
                                                     <dd>{formatDateTime(detail.transfer.createdAt)}</dd>
+                                                    {/*
+                                                      The end this payment came to, under the
+                                                      moment it was asked for and above the moment
+                                                      the alert was raised, which is the order the
+                                                      three happened in.
+
+                                                      A payment settles or it is stopped, never
+                                                      both, so one line carries whichever of the
+                                                      two this payment has and the word names it.
+                                                      Both instants were on this panel's record
+                                                      and neither was drawn: the desk could say a
+                                                      payment was declined and not when.
+
+                                                      Nothing is drawn while a payment is still
+                                                      going on, which is most of an open queue.
+                                                    */}
+                                                    {(detail.transfer.settledAt
+                                                        || detail.transfer.declinedAt) && (
+                                                        <>
+                                                            <dt>
+                                                                {detail.transfer.settledAt
+                                                                    ? TRANSFER_DETAIL_LABEL.settledAt
+                                                                    : TRANSFER_DETAIL_LABEL.declinedAt}
+                                                            </dt>
+                                                            <dd>
+                                                                {formatDateTime(
+                                                                    detail.transfer.settledAt
+                                                                        ?? detail.transfer.declinedAt,
+                                                                )}
+                                                            </dd>
+                                                        </>
+                                                    )}
                                                     <dt>Alert raised</dt>
                                                     <dd>{formatDateTime(detail.alert.createdAt)}</dd>
                                                     <dt>{FIELD_LABEL.assignee}</dt>
