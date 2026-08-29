@@ -20,7 +20,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -119,7 +121,8 @@ public class TransferApplicationService {
      * @throws NotFoundException when this caller has no such account or no such beneficiary,
      *         whether because none exists or because it is somebody else's
      * @throws DailyLimitExceededException when this amount would take today's outflow past the
-     *         source account's daily ceiling
+     *         caller's daily ceiling, which is theirs and not the source account's - see
+     *         {@link #sentOnTheDayOf}
      */
     public PaymentOutcome submitPaymentByBeneficiary(int callerCustomerId, int sourceAccountId, int beneficiaryId, double amountCzk, String message) {
         // Validated before the unit of work opens: rejected input is caller input, not a
@@ -164,7 +167,8 @@ public class TransferApplicationService {
      * @throws NotFoundException when this caller has no such account, whether because none
      *         exists or because it is somebody else's
      * @throws DailyLimitExceededException when this amount would take today's outflow past the
-     *         source account's daily ceiling
+     *         caller's daily ceiling, which is theirs and not the source account's - see
+     *         {@link #sentOnTheDayOf}
      */
     public PaymentOutcome submitPaymentToIban(int callerCustomerId, int sourceAccountId, String targetIban, double amountCzk, String message) {
         // Validated before the unit of work opens: rejected input is caller input, not a
@@ -179,11 +183,12 @@ public class TransferApplicationService {
 
         try (UowScope scope = new UowScope(uowFactory.begin())) {
             var caller = guard.requireCaller(callerCustomerId);
-            // The daily limits and the day's running total that decide this payment are read
-            // off an account the caller owns, so a victim's limits cannot settle an attacker's
-            // payment and a victim's history cannot pay for it either. The payee total the alert
-            // rule works from now spans this caller's other accounts as well, and stops there:
-            // it is still only their own history, resolved from their own customer row.
+            // The two limits that decide this payment are read off the caller's own customer
+            // row, and both day totals off the accounts that row holds, so a victim's limits
+            // cannot settle an attacker's payment and a victim's history cannot pay for it
+            // either. The scope widened from one account to one person when the limits moved,
+            // and stops there: it is still only the caller's own history, and the caller is
+            // resolved from the session rather than from anything the request names.
             var account = guard.requireOwnedAccount(caller, sourceAccountId);
             requireDifferentAccount(account, iban);
 
@@ -220,15 +225,15 @@ public class TransferApplicationService {
      * same account, over an operation that moved no money. Anything a future branch here does
      * change on the account has to save it; nothing on these two does.
      *
-     * Takes the caller as well as the account because the two totals it computes have two
-     * scopes: the ceiling and the soft tier are measured over this account alone, being columns
-     * on it, and the payee total over every account this customer holds. {@link RiskService}
-     * states that seam in full. The caller is the aggregate {@link OwnershipGuard} already
-     * resolved and the account is one it has already proved belongs to that caller, so widening
-     * the total reaches nothing new.
+     * Takes the caller as well as the account, and the two are now needed for different things
+     * rather than for two scopes of the same thing. Everything the risk rules read is the
+     * customer's: both limits off their row, both day totals over every account they hold.
+     * The account is what the money is debited from and what the funds check is asked of. That
+     * used to be a seam {@link RiskService} spelled out - the ceiling measured over one account
+     * because it was a column on one - and it closed when the limits moved to {@link Customer}.
      *
      * @throws DailyLimitExceededException when the day's outflow plus this amount would pass
-     *         the account's ceiling
+     *         the customer's ceiling
      */
     private void routeTransferCreation(Customer caller, Account account, Transfer t,
                                        boolean beneficiaryTrusted) {
@@ -249,10 +254,10 @@ public class TransferApplicationService {
         RiskDecision decision = riskService.evaluate(
                 beneficiaryTrusted,
                 t.amount(),
-                sentOnTheDayOf(account.id(), t.createdAt()),
+                sentOnTheDayOf(caller, t.createdAt()),
                 sentToPayeeOnTheDayOf(caller.accountIds(), t.targetIbanSnapshot(), t.createdAt()),
-                account.dailyLimit(),
-                account.softDailyThreshold());
+                caller.dailyLimit(),
+                caller.softDailyThreshold());
 
         if (!decision.requireAuthorization() && !decision.createFraudAlert()) {
             transfers.add(t);
@@ -353,8 +358,22 @@ public class TransferApplicationService {
     }
 
     /**
-     * What has already settled out of this account on the banking day that contains
-     * {@code when}, fees excluded.
+     * What has already settled out of this CUSTOMER on the banking day that contains
+     * {@code when}, fees excluded: out of any account they hold, less what only moved to
+     * another account of their own.
+     *
+     * One person and not one account, because that is what the ceiling bounds now - see
+     * {@link Customer#dailyLimit}. Summing their accounts is not by itself the right total
+     * either: a payment from one of their accounts to another has left the customer nothing,
+     * and counting it would let a day's allowance be spent by shuffling money in place. That is
+     * what the second collection is for, and why it is their own IBANs rather than "stayed in
+     * this bank" - a payee who banks here has still been paid.
+     *
+     * BOTH COLLECTIONS COME OFF ONE LOOKUP, and it is the account repository rather than the
+     * caller aggregate because {@link Customer#accounts} is attached by the JSON mapper alone
+     * and answers empty on SQL, where the caller can supply ids but never the IBANs behind
+     * them. Reading ids and IBANs off the same list also means the accounts totalled and the
+     * destinations excluded cannot come to describe different sets.
      *
      * Keyed on settled_at, which is the day the money actually left. Before that column existed
      * a transfer carried only its createdAt, so a settled payment was filed under the day it was
@@ -367,7 +386,7 @@ public class TransferApplicationService {
      * afterwards.
      *
      * With settled_at the drift is gone and the invariant is the stronger one: for every day D,
-     * the transfers that settled on D sum to at most the account's limit. Both check sites pass
+     * the transfers that settled on D sum to at most the customer's limit. Both check sites pass
      * the instant that will be, or already is, the settlement instant - creation passes
      * t.createdAt(), which is the same clock reading it settles with on the immediate path, and
      * authorization passes the now it is about to stamp. One instant decides the window and the
@@ -376,34 +395,74 @@ public class TransferApplicationService {
      *
      * A row with no settled_at - anything written before this column - falls back to its
      * created_at in both backends, so no historical total moves. See
-     * SqlTransferRepository.sumSentWithConnection and JsonTransferRepository.sentTotalBetween.
+     * SqlTransferRepository.sumLeavingCustomerWithConnection and
+     * JsonTransferRepository.sentTotalLeavingCustomerBetween, which are also where the two
+     * backends drop the payments that landed on another account of this same customer.
      *
      * atStartOfDay on a LocalDate in the zone is DST-correct in both directions; truncating an
      * instant to UTC days is not.
      */
-    private Money sentOnTheDayOf(int accountId, Instant when) {
+    private Money sentOnTheDayOf(Customer caller, Instant when) {
+        List<Account> owned = accounts.byCustomerId(caller.id());
+        List<Integer> ownedIds = new ArrayList<>(owned.size());
+        List<String> ownIbans = new ArrayList<>(owned.size());
+        for (Account a : owned) {
+            ownedIds.add(a.id());
+            ownIbans.add(a.iban().value());
+        }
+
         ZoneId zone = clock.getZone();
         LocalDate day = LocalDate.ofInstant(when, zone);
-        return transfers.sentTotalBetween(
-                accountId,
+        return transfers.sentTotalLeavingCustomerBetween(
+                ownedIds,
+                ownIbans,
                 day.atStartOfDay(zone).toInstant(),
                 day.plusDays(1).atStartOfDay(zone).toInstant());
     }
 
     /**
-     * The same day window, narrowed to one payee and widened to every account the customer
-     * holds. Feeds the alert rule and nothing else.
+     * The same total for the banking day this call falls in: what has left this customer today.
      *
-     * The asymmetry with {@link #sentOnTheDayOf} is deliberate, and {@link RiskService#evaluate}
-     * states it where a reader meets both totals at once: the ceiling and the soft tier are
-     * columns on one account and have to be measured over that account's rows, while the payee
-     * total is a fact about a customer and was defeated outright by anyone splitting a payment
-     * across two accounts of their own.
+     * The read behind a screen that shows a customer how much of their day is left. It answers
+     * the total alone, because the ceiling it is measured against is on the customer row a
+     * caller has already resolved - {@link Customer#dailyLimit} - and a second copy of that
+     * number travelling beside the total is a second place for it to be wrong.
+     *
+     * Opens its own unit of work, like every other public method here: the JSON store's lock is
+     * taken by begin(), so this is a call to make instead of a surrounding transaction, not
+     * inside one.
+     *
+     * Fees are excluded, exactly as they are in the check, so what the screen shows and what
+     * refuses the next payment are one number. The amount of a payment still waiting for its
+     * code is not in it either: nothing has settled, and the ceiling is a rule about money that
+     * has moved.
+     *
+     * @param callerCustomerId the customer whose day this is, from the session and never from
+     *                         the request; there is no id here for a caller to substitute
+     * @throws cz.vsb.minibank.domain.exceptions.DataIntegrityException when the session names a
+     *         customer the store no longer holds
+     */
+    public Money sentOutTodayBy(int callerCustomerId) {
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
+            var caller = guard.requireCaller(callerCustomerId);
+            return sentOnTheDayOf(caller, clock.instant());
+        }
+    }
+
+    /**
+     * The same day window over the same accounts, narrowed to one payee. Feeds the alert rule
+     * and nothing else.
+     *
+     * Both totals span the customer now, so what is left between this one and
+     * {@link #sentOnTheDayOf} is the question each asks of the destination: this one keeps a
+     * single named payee, that one drops the customer's own accounts. They answer two different
+     * rules - how much a person may move out in a day, and whether one payment has been split
+     * into several to one new payee - which is why they are two aggregates and not one with a
+     * flag.
      *
      * The ids are the caller's own, off the {@link Customer} that {@link OwnershipGuard} already
-     * resolved. Reading them from there rather than querying accounts by customer is what keeps
-     * this to no extra lookup and to exactly the scope ownership is decided by everywhere else
-     * in this class.
+     * resolved. This total needs no IBANs, so it needs no account lookup either, and the ids on
+     * that row are the scope ownership is decided by everywhere else in this class.
      */
     private Money sentToPayeeOnTheDayOf(Collection<Integer> accountIds, String targetIban,
                                         Instant when) {
@@ -495,7 +554,7 @@ public class TransferApplicationService {
      * @throws ConflictException when the transfer is not waiting for authorization
      * @throws InsufficientFundsException when the balance no longer covers amount and fee
      * @throws DailyLimitExceededException when settling this payment now would pass the
-     *         account's daily ceiling for today - the day it is about to settle on, not the day
+     *         customer's daily ceiling for today - the day it is about to settle on, not the day
      *         it was created on. The transfer is left WAITING_AUTH with its attempts intact: the
      *         customer can cancel it, or let the authorization window expire it, or come back
      *         tomorrow, which is a way out the old rule did not have
@@ -584,8 +643,13 @@ public class TransferApplicationService {
             // transfer is left exactly as it was found: still WAITING_AUTH, so cancelPayment
             // declines it, and the expiry branch above declines it on the next call once the
             // five minute window has run out.
-            riskService.requireWithinDailyLimit(
-                    t.amount(), sentOnTheDayOf(acc.id(), now), acc.dailyLimit());
+
+            // Read once and used by both rules below. They are asked about the same customer at
+            // the same instant, and nothing between them writes a row, so a second reading could
+            // only ever be the same number bought with a second pair of queries.
+            Money sentOutToday = sentOnTheDayOf(caller, now);
+
+            riskService.requireWithinDailyLimit(t.amount(), sentOutToday, caller.dailyLimit());
 
             // And the alert, asked again for the same reason and with the same shape. A rule
             // that totals what has gone to one payee cannot see at creation what has not
@@ -614,10 +678,10 @@ public class TransferApplicationService {
                 RiskDecision atAuthorization = riskService.evaluate(
                         trustedNow,
                         t.amount(),
-                        sentOnTheDayOf(acc.id(), now),
+                        sentOutToday,
                         sentToPayeeOnTheDayOf(caller.accountIds(), t.targetIbanSnapshot(), now),
-                        acc.dailyLimit(),
-                        acc.softDailyThreshold());
+                        caller.dailyLimit(),
+                        caller.softDailyThreshold());
 
                 if (atAuthorization.createFraudAlert()) {
                     t.holdForReviewOnAuthorization();

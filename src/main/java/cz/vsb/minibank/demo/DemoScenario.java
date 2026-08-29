@@ -41,33 +41,32 @@ public final class DemoScenario {
     private static final String CUSTOMER_NAME = "Alice Demo";
     private static final String CUSTOMER_EMAIL = "alice@example.com";
 
-    private static final Money PRIMARY_OPENING_BALANCE = Money.czk(25_000);
+    /**
+     * Deliberately above {@link #CUSTOMER_DAILY_LIMIT}. The ceiling caps what leaves the customer
+     * in a day, so an opening balance below it would be the thing that refuses a large payment,
+     * for want of funds, and the ceiling would never get to refuse anything: the topmost of the
+     * three outcomes would be unreachable on this dataset and the rule invisible to anyone trying
+     * it. At 50 000, and with the seeded fortnight below taking 4 661,50 of it, a single payment
+     * can still cross 40 000 and be told so, and what is left covers several passes along the
+     * soft tier underneath.
+     */
+    private static final Money PRIMARY_OPENING_BALANCE = Money.czk(50_000);
 
     /**
      * The hard ceiling on one day's outflow, above RuleBasedRiskService's 15 000 soft threshold
      * so the demo can cross that one - which only asks for an authorization the script then
      * supplies - without being refused outright. The peak cumulative attempt across DemoRunner
-     * is 24 700, so this clears it.
-     */
-    private static final Money PRIMARY_DAILY_LIMIT = Money.czk(40_000);
-    private static final Money SECONDARY_OPENING_BALANCE = Money.czk(5_000);
-
-    private static final Money SECONDARY_DAILY_LIMIT = Money.czk(8_000);
-
-    /**
-     * Strictly inside the secondary account's own 8 000 ceiling, so this account really does
-     * have two tiers: a day total up to 3 000 settles on the spot, above it asks the customer to
-     * authorize, and above 8 000 is refused. Against the bank-wide 15 000 it had one tier,
-     * because every total that could have reached 15 000 had already been refused at 8 000 - and
-     * with an opening balance of 5 000 nothing on this account could ever have got near it
-     * anyway. That was the standing demonstration that the soft tier was a bank-wide constant
-     * pretending to be a per-account rule.
+     * is 23 200, so this clears it.
      *
-     * The primary account deliberately gets no override and rides the bank-wide 15 000, which is
-     * the threshold DemoRunner's script is written against. One account on the default and one
-     * with an override is what makes the dataset show both cases.
+     * One allowance for the person rather than one per account: payments out of either account
+     * spend the same 40 000. Split per account it was no ceiling at all, because the customer
+     * could pay their own second account and start again on its allowance.
+     *
+     * No soft-tier override goes with it: the customer rides the bank-wide 15 000, which is the
+     * threshold DemoRunner's script is written against.
      */
-    public static final Money SECONDARY_SOFT_THRESHOLD = Money.czk(3_000);
+    private static final Money CUSTOMER_DAILY_LIMIT = Money.czk(40_000);
+    private static final Money SECONDARY_OPENING_BALANCE = Money.czk(5_000);
 
     /**
      * Which of the payees a past payment went to. The beneficiaries themselves are built inside
@@ -80,10 +79,8 @@ public final class DemoScenario {
      * Which of the customer's two accounts paid.
      *
      * The savings account used to pay for nothing. Every seeded payment left the current account,
-     * so the customer's own history had one source on every line, the heading promising payments
-     * from all of their accounts was promising something the data could not show, and the savings
-     * account's own tier, the one place in this bank where a per-account threshold differs from
-     * the bank-wide one, was never crossed by anything.
+     * so the customer's own history had one source on every line, and the heading promising
+     * payments from all of their accounts was promising something the data could not show.
      */
     private enum Payer { CURRENT, SAVINGS }
 
@@ -117,9 +114,9 @@ public final class DemoScenario {
      * Four of the eleven stay inside the bank and two of those are paid by the savings account, so
      * the credit leg is taken in both directions, the column that says whether the money left the
      * bank has both answers in it, and the customer's history has two sources on it rather than
-     * one. The amounts are small and no account carries more than one payment on a day, so nothing
-     * here comes near either ceiling, and together they leave the current account comfortably above
-     * the payment that is waiting for a code, which is the one a reader is meant to be able to
+     * one. The amounts are small and no two of them share a day, so nothing here comes near the
+     * customer's daily ceiling, and together they leave the current account comfortably above the
+     * payment that is waiting for a code, which is the one a reader is meant to be able to
      * confirm.
      */
     private static final List<PastPayment> HISTORY = List.of(
@@ -216,14 +213,12 @@ public final class DemoScenario {
                 customerId,
                 CUSTOMER_NAME,
                 CUSTOMER_EMAIL,
-                new Address("Hlavni 1", "Ostrava"));
+                new Address("Hlavni 1", "Ostrava"),
+                CUSTOMER_DAILY_LIMIT);
         customers.save(customer);
 
-        // No soft-tier override: the primary rides the bank-wide 15 000, which is what
-        // DemoRunner's first two payments - 6 000 then 12 000 - are written to cross.
-        Account primary = openAccount(customer, PRIMARY_IBAN, PRIMARY_OPENING_BALANCE, PRIMARY_DAILY_LIMIT);
-        Account savings = openAccount(customer, SECONDARY_IBAN, SECONDARY_OPENING_BALANCE,
-                SECONDARY_DAILY_LIMIT, SECONDARY_SOFT_THRESHOLD);
+        Account primary = openAccount(customer, PRIMARY_IBAN, PRIMARY_OPENING_BALANCE);
+        Account savings = openAccount(customer, SECONDARY_IBAN, SECONDARY_OPENING_BALANCE);
         // Not a redundant repeat of the save above. In SQL mode this is what writes
         // accounts.customer_id: SqlAccountRepository leaves the column NULL and only
         // SqlCustomerRepository.upsertCustomer assigns it, from Customer.accountIds(), which
@@ -273,14 +268,8 @@ public final class DemoScenario {
         return customerId;
     }
 
-    /** An account on the bank-wide soft tier. */
-    private Account openAccount(Customer owner, IBAN iban, Money balance, Money dailyLimit) {
-        return openAccount(owner, iban, balance, dailyLimit, null);
-    }
-
-    private Account openAccount(Customer owner, IBAN iban, Money balance, Money dailyLimit,
-                                Money softDailyThreshold) {
-        Account account = new Account(accounts.nextId(), iban, balance, dailyLimit, softDailyThreshold);
+    private Account openAccount(Customer owner, IBAN iban, Money balance) {
+        Account account = new Account(accounts.nextId(), iban, balance);
         accounts.save(account);
         owner.addAccountId(account.id());
         return account;

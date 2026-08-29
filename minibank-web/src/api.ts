@@ -36,13 +36,15 @@ import type { Money } from '@shared/money';
 export type {
     AccountSummary,
     Address,
+    DailyOutflow,
     DispatchState,
     Me,
+    MyAccountsResponse,
     PaymentQuote,
     TransferDetails,
     UserRole,
 } from '@shared/customer';
-import type { AccountSummary, Me, PaymentQuote, TransferDetails } from '@shared/customer';
+import type { Me, MyAccountsResponse, PaymentQuote, TransferDetails } from '@shared/customer';
 
 /**
  * A payment as it is submitted, with exactly one of the two destinations set.
@@ -131,9 +133,20 @@ export async function fetchMe(): Promise<Me> {
     return handle<Me>(res);
 }
 
-export async function getMyAccounts(): Promise<AccountSummary[]> {
+/**
+ * The customer's accounts, and the one day all of them share.
+ *
+ * Not a bare array any more. The route used to answer a list, and a fact about the person had
+ * nowhere to go in it, so the day's ceiling and the day's running total were stamped onto every
+ * account row instead: a customer holding two accounts was shown two allowances, neither of which
+ * was theirs. `today` stands beside the list because there is exactly one of it however many
+ * accounts come back, and it travels with them because the same payment that moves a balance is
+ * what moves the total, and fetched apart the two would be read against each other while one was
+ * older than the other.
+ */
+export async function getMyAccounts(): Promise<MyAccountsResponse> {
     const res = await apiFetch(`${API_BASE}/me/accounts`);
-    return handle<AccountSummary[]>(res);
+    return handle<MyAccountsResponse>(res);
 }
 
 /**

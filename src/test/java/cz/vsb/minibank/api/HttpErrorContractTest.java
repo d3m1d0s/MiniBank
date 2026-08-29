@@ -70,14 +70,17 @@ class HttpErrorContractTest {
     private static final int ACCOUNT_ID = 101;
 
     /**
-     * A second account of the same customer, opened with a balance well above its daily
-     * ceiling. That is the only shape in which DAILY_LIMIT_EXCEEDED is reachable over HTTP: on
-     * ACCOUNT_ID the funds check runs first, so any single amount over its 40 000 ceiling is
-     * also over its 20 000 balance and answers INSUFFICIENT_FUNDS instead.
+     * A second account of the same customer, opened with a balance well above the customer's
+     * daily ceiling. That is the only shape in which DAILY_LIMIT_EXCEEDED is reachable over
+     * HTTP: on ACCOUNT_ID the funds check runs first, so any single amount over the 40 000
+     * ceiling is also over that account's 20 000 balance and answers INSUFFICIENT_FUNDS instead.
+     *
+     * The ceiling is the customer's now and not this account's, so what makes this account the
+     * one to send from is only its balance. Both accounts spend the same 40 000.
      */
     private static final int LIMITED_ACCOUNT_ID = 103;
     private static final String LIMITED_IBAN = "CZ2108000000192000145415";
-    private static final double OVER_THE_LIMITED_CEILING = 12_000.0;
+    private static final double OVER_THE_CEILING = 45_000.0;
 
     /** Above RuleBasedRiskService's 10 000 alert threshold, so it is held for fraud review. */
     private static final double OVER_THE_ALERT_THRESHOLD = 12_000.0;
@@ -263,28 +266,26 @@ class HttpErrorContractTest {
         accounts = infra.accounts;
         transfers = infra.transfers;
 
+        // 40 000 is the hard ceiling, matching the demo, and it is one ceiling across both of
+        // this customer's accounts. The 6 000 payments below are meant to be held for
+        // authorization, not refused, and the 500 000 in
+        // anAmountAboveTheBalanceIs400InsufficientFunds is over both the balance and the
+        // ceiling - it stays INSUFFICIENT_FUNDS because the funds check runs first.
         Customer customer = new Customer(CUSTOMER_ID, "Contract Test", "contract@example.com",
-                new Address("Test Street 1", "Ostrava"));
+                new Address("Test Street 1", "Ostrava"), Money.czk(40_000));
         customer.addAccountId(ACCOUNT_ID);
         customer.addAccountId(LIMITED_ACCOUNT_ID);
         infra.customers.save(customer);
-        // 40 000 is the hard ceiling, matching the demo. The 6 000 payments below are meant to
-        // be held for authorization, not refused, and the 500 000 in
-        // anAmountAboveTheBalanceIs400InsufficientFunds is over both the balance and the
-        // ceiling - it stays INSUFFICIENT_FUNDS because the funds check runs first.
-        accounts.save(new Account(ACCOUNT_ID, new IBAN(CUSTOMER_IBAN),
-                Money.czk(20_000), Money.czk(40_000)));
+        accounts.save(new Account(ACCOUNT_ID, new IBAN(CUSTOMER_IBAN), Money.czk(20_000)));
         // Balance far above the ceiling, so a payment can clear the funds check and still be
         // refused by the limit. See aPaymentOverTheDailyLimitIs400DailyLimitExceeded.
-        accounts.save(new Account(LIMITED_ACCOUNT_ID, new IBAN(LIMITED_IBAN),
-                Money.czk(60_000), Money.czk(10_000)));
+        accounts.save(new Account(LIMITED_ACCOUNT_ID, new IBAN(LIMITED_IBAN), Money.czk(60_000)));
 
         Customer victim = new Customer(VICTIM_CUSTOMER_ID, "Contract Victim", "victim@example.com",
-                new Address("Test Street 2", "Ostrava"));
+                new Address("Test Street 2", "Ostrava"), Money.czk(40_000));
         victim.addAccountId(VICTIM_ACCOUNT_ID);
         infra.customers.save(victim);
-        accounts.save(new Account(VICTIM_ACCOUNT_ID, new IBAN(VICTIM_IBAN),
-                Money.czk(20_000), Money.czk(40_000)));
+        accounts.save(new Account(VICTIM_ACCOUNT_ID, new IBAN(VICTIM_IBAN), Money.czk(20_000)));
 
         uowFactory = new CountingUowFactory(infra.uowFactory);
         BootstrapServices services = new BootstrapServices(
@@ -298,8 +299,8 @@ class HttpErrorContractTest {
         victimSentTransfer = transferService.submitPaymentToIban(
                 VICTIM_CUSTOMER_ID, VICTIM_ACCOUNT_ID, TARGET_IBAN, 100.0, "victim sent").transferId();
 
-        paymentController = new PaymentController(transferService, accounts, services.ownershipGuard,
-                transfers, services.feePolicy, infra.uowFactory);
+        paymentController = new PaymentController(transferService, accounts,
+                services.ownershipGuard, services.feePolicy, infra.uowFactory);
         authorizationController = new AuthorizationController(transferService, accounts, transfers,
                 services.feePolicy, services.ownershipGuard, infra.uowFactory);
         FraudController fraudController = new FraudController(
@@ -358,8 +359,8 @@ class HttpErrorContractTest {
 
     /**
      * Creates a transfer above the fraud-alert threshold, so it lands in HELD_FOR_REVIEW with an
-     * open alert. 12 000 plus its fee is inside this account's 20 000 balance and inside its
-     * 40 000 ceiling, so neither of those refusals fires first.
+     * open alert. 12 000 plus its fee is inside this account's 20 000 balance and inside the
+     * customer's 40 000 ceiling, so neither of those refusals fires first.
      */
     private int heldTransfer() {
         return paymentController.createPayment(new cz.vsb.minibank.api.dto.NewPaymentRequest(
@@ -939,7 +940,7 @@ class HttpErrorContractTest {
         assertResponse(api, post("/api/payments")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"sourceAccountId\":" + LIMITED_ACCOUNT_ID + ",\"targetIban\":\"" + TARGET_IBAN
-                                + "\",\"amountCzk\":" + OVER_THE_LIMITED_CEILING
+                                + "\",\"amountCzk\":" + OVER_THE_CEILING
                                 + ",\"message\":\"x\"}"), 400, BODY_DAILY_LIMIT_EXCEEDED);
 
         assertEquals(Money.czk(60_000), accounts.byId(LIMITED_ACCOUNT_ID).orElseThrow().balance(),

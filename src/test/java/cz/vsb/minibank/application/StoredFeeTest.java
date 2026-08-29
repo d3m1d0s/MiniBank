@@ -61,10 +61,10 @@ class StoredFeeTest {
         infra = new Bootstrap(tempDir.resolve("data.json").toString());
 
         Customer customer = new Customer(CUSTOMER_ID, "Fee Probe", "fee@example.com",
-                new Address("Hlavni 1", "Ostrava"));
+                new Address("Hlavni 1", "Ostrava"), Money.czk(400_000));
         customer.addAccountId(ACCOUNT_ID);
         infra.customers.save(customer);
-        infra.accounts.save(new Account(ACCOUNT_ID, new IBAN(ACCOUNT_IBAN), OPENING, Money.czk(400_000)));
+        infra.accounts.save(new Account(ACCOUNT_ID, new IBAN(ACCOUNT_IBAN), OPENING));
         infra.customers.saveBeneficiary(CUSTOMER_ID, new Beneficiary(
                 TRUSTED_BENEFICIARY_ID, "Trusted payee", new IBAN(TRUSTED_IBAN), true));
     }

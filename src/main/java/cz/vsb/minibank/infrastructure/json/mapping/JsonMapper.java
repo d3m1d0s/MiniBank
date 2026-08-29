@@ -57,6 +57,12 @@ public class JsonMapper {
         j.name = c.name();
         j.email = c.email();
         j.address = toDto(c.address());
+        j.dailyLimit = c.dailyLimit().amount();
+        // Left absent rather than written as 0.00 when the customer has no tier of their own: a
+        // stored zero would mean "authorize every payment", which is a real and different rule.
+        if (c.softDailyThreshold() != null) {
+            j.softDailyThreshold = c.softDailyThreshold().amount();
+        }
         j.accountIds.addAll(c.accountIds());
         for (Beneficiary b : c.beneficiaries()) {
             j.beneficiaries.add(toDto(b));
@@ -83,7 +89,15 @@ public class JsonMapper {
     public static Customer toDomain(JsonCustomer j) {
         Address address = (j.address != null) ? toDomain(j.address) : new Address(null, null);
 
-        Customer c = new Customer(j.id, j.name, j.email, address);
+        // The daily ceiling is required and the soft tier is not, which is the same split the
+        // account's balance and its own tier used to make and for the same reasons: a customer
+        // with no ceiling is a customer nothing bounds, while a customer with no tier of their own
+        // uses the bank-wide one and a stored 0.00 would be the opposite rule.
+        Money soft = (j.softDailyThreshold != null) ? Money.czk(j.softDailyThreshold) : null;
+
+        Customer c = new Customer(j.id, j.name, j.email, address,
+                requiredMoney(j.dailyLimit, "dailyLimit", "customer", j.id),
+                soft);
         if (j.accountIds != null) {
             for (Integer id : j.accountIds) {
                 c.addAccountId(id);
@@ -158,25 +172,14 @@ public class JsonMapper {
         j.id = a.id();
         j.iban = a.iban().value();
         j.balance = a.balance().amount();
-        j.dailyLimit = a.dailyLimit().amount();
-        // Left absent rather than written as 0.00 when the account has no override: a stored
-        // zero would mean "authorize every payment", which is a real and different rule.
-        if (a.softDailyThreshold() != null) {
-            j.softDailyThreshold = a.softDailyThreshold().amount();
-        }
         return j;
     }
 
     public static Account toDomain(JsonAccount j) {
-        // Null is a meaning on this field and not a missing value: an account with no override
-        // uses the bank-wide tier, and a stored 0.00 would be the opposite rule.
-        Money soft = (j.softDailyThreshold != null) ? Money.czk(j.softDailyThreshold) : null;
         // Account.version is deliberately not restored: the JSON backend has no version column
         // and nothing on this side reads one. See JsonAccount.
         return new Account(j.id, new IBAN(j.iban),
-                requiredMoney(j.balance, "balance", "account", j.id),
-                requiredMoney(j.dailyLimit, "dailyLimit", "account", j.id),
-                soft);
+                requiredMoney(j.balance, "balance", "account", j.id));
     }
 
     /**
@@ -195,13 +198,14 @@ public class JsonMapper {
     /**
      * The same, for a field whose currency the row stores beside it rather than implies.
      *
-     * Only a transfer does. An account's money answers to columns named balance_czk and
-     * daily_limit_czk on the other backend, so its currency is in the name and there is nothing
-     * stored to read. A transfer's is a stored value, and it is read back here rather than forced
-     * to crowns so that a row written in anything else arrives at {@code Transfer}'s constructor
-     * as what it claims to be and is refused there. Forcing it is how this backend used to load a
-     * foreign row as real crowns while the SQL one rebuilt it faithfully - one row answering
-     * differently depending on which adapter read it.
+     * Only a transfer does. An account's balance and a customer's two limits answer to columns
+     * named balance_czk, daily_limit_czk and soft_daily_threshold_czk on the other backend, so
+     * their currency is in the name and there is nothing stored to read. A transfer's is a stored
+     * value, and it is read back here rather than forced to crowns so that a row written in
+     * anything else arrives at {@code Transfer}'s constructor as what it claims to be and is
+     * refused there. Forcing it is how this backend used to load a foreign row as real crowns
+     * while the SQL one rebuilt it faithfully - one row answering differently depending on which
+     * adapter read it.
      */
     private static Money requiredMoney(BigDecimal stored, String currency,
                                        String field, String kind, int id) {

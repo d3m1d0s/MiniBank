@@ -1,6 +1,6 @@
 /**
- * Which fields a list of alerts, a list of payments, one payment read in full, one account and one
- * entry of an alert's journal carry, and what each one is called.
+ * Which fields a list of alerts, a list of payments, one payment read in full, one account, the
+ * customer's day and one entry of an alert's journal carry, and what each one is called.
  *
  * The two fraud desks had drifted apart without anybody noticing. The analyst's workstation
  * showed four of a payment's six history fields and nine of a queue entry's nine minus three,
@@ -134,18 +134,24 @@ export type TransferDetailField =
 export type AlertNoteField = 'writtenAt' | 'author' | 'text';
 
 /**
- * One account of the customer, as the payment form has to describe it.
+ * One account of the customer, as the payment form has to describe it: which account, and what is
+ * on it.
  *
- * The three below the balance are what decides whether a payment is refused and whether it is
- * asked for a code, and they are useless one without another: a ceiling with no running total
- * against it is a number nobody can act on. They are named as one set for that reason.
+ * It used to name three more, the day's ceiling and the day's running total and the tier that asks
+ * for a code, all of them per account. They are not properties of an account, and the two that
+ * survive have moved to {@link DailyOutflowField}, which names them once for the person.
  */
-export type AccountField =
-    | 'iban'
-    | 'balance'
-    | 'dailyLimit'
-    | 'softDailyThreshold'
-    | 'spentToday';
+export type AccountField = 'iban' | 'balance';
+
+/**
+ * The customer's day, which is one reading and therefore one field set.
+ *
+ * The two are useless one without the other: a ceiling with no running total against it is a
+ * number nobody can act on, and a running total with no ceiling is a number that means nothing.
+ * That is the same argument the account fields used to make, made in the right place, about the
+ * person rather than about each account they hold.
+ */
+export type DailyOutflowField = 'sentOut' | 'limit';
 
 /** What the bank quotes for a payment before it is sent: what it moves, what it costs, and the sum. */
 export type QuoteField = 'amount' | 'fee' | 'total';
@@ -220,13 +226,16 @@ export const TRANSFER_DETAIL_FIELDS: readonly TransferDetailField[] = [
  */
 export const ALERT_NOTE_FIELDS: readonly AlertNoteField[] = ['writtenAt', 'author', 'text'];
 
-export const ACCOUNT_FIELDS: readonly AccountField[] = [
-    'iban',
-    'balance',
-    'dailyLimit',
-    'softDailyThreshold',
-    'spentToday',
-];
+export const ACCOUNT_FIELDS: readonly AccountField[] = ['iban', 'balance'];
+
+/**
+ * Reading order for the day: what has gone, then what may go.
+ *
+ * The total first, because it is the fact that changes. The ceiling is the same figure every time
+ * the screen is opened and is there to give the total a scale, so it reads as the second half of
+ * one sentence rather than as a number of its own.
+ */
+export const DAILY_OUTFLOW_FIELDS: readonly DailyOutflowField[] = ['sentOut', 'limit'];
 
 export const QUOTE_FIELDS: readonly QuoteField[] = ['amount', 'fee', 'total'];
 
@@ -474,11 +483,7 @@ export const ALERT_NOTE_LABEL: Record<AlertNoteField, string> = {
 };
 
 /**
- * What the three numbers under an account balance are called.
- *
- * `softDailyThreshold` is named by what it does to the customer and not by what the rules call it.
- * `Soft daily threshold` is the tier's name inside the bank and says nothing on a form; the figure
- * means the point above which this account will be asked for a code, so that is the word.
+ * What an account is called, and what the number under it is called.
  *
  * There is deliberately no cells type beside this one. An account is chosen from a control on a
  * form rather than laid out as a row, so there is no table for a mapped type to oblige, and the
@@ -487,9 +492,24 @@ export const ALERT_NOTE_LABEL: Record<AlertNoteField, string> = {
 export const ACCOUNT_LABEL: Record<AccountField, string> = {
     iban: 'Account',
     balance: 'Balance',
-    dailyLimit: 'Daily limit',
-    softDailyThreshold: 'Code required above',
-    spentToday: 'Spent today',
+};
+
+/**
+ * What the customer's day is called on a screen.
+ *
+ * `Sent today` and not `Spent today`, which is what the per-account figure used to say. The total
+ * counts what left the customer and leaves the bank's fees out of it, so what they have spent
+ * today is a slightly larger number than this one; and a payment that only moved money to another
+ * of their own accounts is not in it either, which is money nobody would call spent.
+ *
+ * `Daily limit` keeps the words the ceiling already had. It is the customer's ceiling now rather
+ * than an account's, and the label deliberately does not say so: the figure appears once, on a
+ * screen that has just named whose accounts these are, and `Your daily limit` beside `Sent today`
+ * would be one possessive on one half of a pair.
+ */
+export const DAILY_OUTFLOW_LABEL: Record<DailyOutflowField, string> = {
+    sentOut: 'Sent today',
+    limit: 'Daily limit',
 };
 
 /**

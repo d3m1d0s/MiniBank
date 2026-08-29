@@ -9,6 +9,7 @@ import {
     fetchPaymentQuote,
     type AccountSummary,
     type Beneficiary,
+    type DailyOutflow,
     type NewPaymentRequest,
     type NewPaymentResult,
     type PaymentQuote,
@@ -19,7 +20,7 @@ import { parseAmount } from '@shared/money';
 import ErrorBox from './ErrorBox';
 import { describeApiFailure, type ApiFailure } from '@shared/apiErrors';
 import { authorizationNote, transferStatusLabel, transferStatusTone } from '@shared/glossary';
-import { ACCOUNT_LABEL, QUOTE_FIELDS, QUOTE_LABEL } from '@shared/fields';
+import { ACCOUNT_LABEL, DAILY_OUTFLOW_LABEL, QUOTE_FIELDS, QUOTE_LABEL } from '@shared/fields';
 import { formatIban, formatTransferId } from '@shared/format';
 import Nav from './Nav';
 import { PLANNED_TITLE } from '@shared/navigation';
@@ -95,6 +96,16 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
     const [accounts, setAccounts] = useState<AccountSummary[]>([]);
     const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null);
 
+    /**
+     * The customer's day, which is one day and not one per account.
+     *
+     * Held beside the accounts and never inside them. It arrives on the same answer, so it is as
+     * fresh as the balances drawn from that answer and goes stale with them; a payment moves both
+     * at once. Null only until the first read lands or after one has failed, which is the same
+     * moment the form itself has no accounts to offer.
+     */
+    const [today, setToday] = useState<DailyOutflow | null>(null);
+
     const [targetIban, setTargetIban] = useState('');
     const [amount, setAmount] = useState('');
     const [message, setMessage] = useState('');
@@ -160,7 +171,7 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
      * Quoted rather than computed here. The tariff has a step in it, free below a threshold and
      * charged above, so a customer met the fee for the first time on the receipt; a copy of the
      * step in this file would be a second tariff that goes on quoting last month's price. The
-     * refusal is worth showing for the same reason: an amount past the account's daily ceiling is
+     * refusal is worth showing for the same reason: an amount past the customer's daily ceiling is
      * refused by the quote in the same words the submit would use, before the money moves.
      */
     const [quote, setQuote] = useState<PaymentQuote | null>(null);
@@ -200,9 +211,10 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
             setAccountsError(null);
             const data = await getMyAccounts();
             if (!alive.current) return;
-            setAccounts(data);
-            if (data.length > 0) {
-                setSelectedAccountId(data[0].id);
+            setAccounts(data.accounts);
+            setToday(data.today);
+            if (data.accounts.length > 0) {
+                setSelectedAccountId(data.accounts[0].id);
             }
         } catch (e) {
             if (!alive.current) return;
@@ -471,9 +483,14 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
             forgetQuote();
 
             // The payment may have moved money, so the balances fetched on mount
-            // are stale next to the confirmation's new one.
+            // are stale next to the confirmation's new one. The day's total is stale for the
+            // same reason and by the same amount, and it is refreshed in the same breath: a
+            // payment that has just settled is in it, and a payment still waiting for its code
+            // is not.
             try {
-                setAccounts(await getMyAccounts());
+                const refreshed = await getMyAccounts();
+                setAccounts(refreshed.accounts);
+                setToday(refreshed.today);
             } catch {
                 // The payment itself succeeded; if this refresh fails, the
                 // confirmation still shows the authoritative new balance.
@@ -527,6 +544,63 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                             <p className="helper-text">No accounts available.</p>
                         ) : null}
 
+                        {/*
+                          The customer's day, above the form and outside it.
+
+                          One pair of figures for the person, drawn once. They used to be drawn
+                          under whichever account was selected, and moving the selector moved them:
+                          a customer holding two accounts was shown two running totals and two
+                          ceilings, and read literally that said a payment too large for the day
+                          could be halved across two of their own accounts and go. It could not,
+                          and now the screen cannot be read as saying it could - switching the
+                          account below leaves these two numbers exactly where they are, which is
+                          the whole of the change stated in one place.
+
+                          Why they are here rather than in the form: they are not about any field
+                          in it. Sat under the account row they were indented to that control and
+                          took its meaning; above the form and flush with the heading they are
+                          about the customer the heading has just named.
+
+                          The second line is worth its width. The total leaves out money that only
+                          moved between accounts of the customer's own, and that is not something
+                          anybody guesses: told it, they use their own second account without
+                          wondering what it costs them; left to guess, the careful ones assume it
+                          counts and stop short of what they are allowed, and the incautious ones
+                          spend a payment finding out.
+
+                          WHAT IS NOT PRINTED is the smaller total above which the bank stops
+                          settling at once and asks for a one time code. It is a fence, and a
+                          published fence is a fence with a gate in it. The question a form has is
+                          about the payment in front of it, and the quote below answers exactly
+                          that, per payment, before anything is sent.
+                        */}
+                        {today && accounts.length > 0 && (
+                            <>
+                                <div className="fact-line">
+                                    <span>
+                                        <span className="fact-label">
+                                            {DAILY_OUTFLOW_LABEL.sentOut}:
+                                        </span>{' '}
+                                        <span className="fact-value">
+                                            {formatMoney(today.sentOut)}
+                                        </span>
+                                    </span>
+                                    <span>
+                                        <span className="fact-label">
+                                            {DAILY_OUTFLOW_LABEL.limit}:
+                                        </span>{' '}
+                                        <span className="fact-value">
+                                            {formatMoney(today.limit)}
+                                        </span>
+                                    </span>
+                                </div>
+                                <p className="helper-text">
+                                    Counted across every account you hold. Money moved between two
+                                    of your own accounts is not in it.
+                                </p>
+                            </>
+                        )}
+
                         {accounts.length > 0 && (
                             <form className="form" onSubmit={handleSubmit}>
                                 {/* From account */}
@@ -548,9 +622,13 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                             const chosen = Number(e.target.value);
                                             setSelectedAccountId(chosen);
                                             clearFieldError('source');
-                                            // Each account has its own ceiling and its own day
-                                            // total, so the price and the answer about a code
-                                            // belong to the account, not to the amount alone.
+                                            // Asked again with the account the payment will
+                                            // actually be sent from. The ceiling behind the answer
+                                            // is the customer's now and does not move with this
+                                            // control, but the quote is the bank's answer about a
+                                            // whole payment rather than about an amount, and a
+                                            // quote standing under a payload it was not asked
+                                            // about is a wrong number rather than a stale one.
                                             void askForQuote(chosen, beneficiaryId, amount);
                                         }}
                                     >
@@ -583,55 +661,6 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                         </p>
                                     )}
                                 </div>
-
-                                {/*
-                                  The three numbers that decide what may leave this account, under
-                                  the account they belong to.
-
-                                  They were invisible, and the behaviour they produce therefore
-                                  looked arbitrary: the same amount settled at once in the morning
-                                  and asked for a one time code in the afternoon, with nothing on
-                                  this form saying that the difference was the day's running total.
-                                  Spent today is what the other two are measured against, so it is
-                                  printed beside them rather than left to be worked out.
-
-                                  The threshold line is absent when the account has none of its
-                                  own. The bank-wide default is not printed in its place: stated
-                                  on this row it would look like a property of this account, and
-                                  it moves when the bank moves it.
-                                */}
-                                {selectedAccount && (
-                                    <div className="fact-line under-field">
-                                        <span>
-                                            <span className="fact-label">
-                                                {ACCOUNT_LABEL.spentToday}:
-                                            </span>{' '}
-                                            <span className="fact-value">
-                                                {formatMoney(selectedAccount.spentToday)}
-                                            </span>
-                                        </span>
-                                        <span>
-                                            <span className="fact-label">
-                                                {ACCOUNT_LABEL.dailyLimit}:
-                                            </span>{' '}
-                                            <span className="fact-value">
-                                                {formatMoney(selectedAccount.dailyLimit)}
-                                            </span>
-                                        </span>
-                                        {selectedAccount.softDailyThreshold && (
-                                            <span>
-                                                <span className="fact-label">
-                                                    {ACCOUNT_LABEL.softDailyThreshold}:
-                                                </span>{' '}
-                                                <span className="fact-value">
-                                                    {formatMoney(
-                                                        selectedAccount.softDailyThreshold,
-                                                    )}
-                                                </span>
-                                            </span>
-                                        )}
-                                    </div>
-                                )}
 
                                 {/*
                                   The saved payees, above the field they fill in, so cause sits
@@ -850,7 +879,7 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
                                 {/*
                                   The quote refusing is worth saying. It prices a payment and does
                                   not accept one, so nothing here is about the balance; what it
-                                  does refuse is an amount past the account's daily ceiling, in
+                                  does refuse is an amount past the customer's daily ceiling, in
                                   the same words the submit would use and before the money moves.
                                 */}
                                 {/*

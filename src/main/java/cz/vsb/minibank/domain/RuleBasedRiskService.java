@@ -5,7 +5,7 @@ import cz.vsb.minibank.domain.value.Money;
 
 /**
  * Rule based implementation of RiskService, using thresholds on the single amount for untrusted
- * beneficiaries and thresholds on the day's running total for the account's own limits.
+ * beneficiaries and thresholds on the day's running total for the customer's own limits.
  */
 public class RuleBasedRiskService implements RiskService {
 
@@ -16,9 +16,9 @@ public class RuleBasedRiskService implements RiskService {
      * The bank-wide soft threshold on the day's total outflow: crossing it does not refuse the
      * payment, it makes the customer authorize it, exactly as the untrusted-and-high rule does.
      *
-     * A default now, not a constant. It applies to any account with no soft_daily_threshold_czk
-     * of its own. The paragraph that used to sit here arguing that a per-account value would
-     * mean editing db/init/schema.sql is gone: that is this change.
+     * A default now, not a constant. It applies to any customer with no soft_daily_threshold_czk
+     * of its own. The paragraph that used to sit here arguing that a per-row value would mean
+     * editing db/init/schema.sql is gone: that is this change.
      *
      * Strictly above, whatever the source: a day total of exactly the threshold still settles.
      * Same convention as AUTH_THRESHOLD_FOR_UNTRUSTED, whose strictness CreditLegTest.SETTLES_NOW
@@ -27,21 +27,20 @@ public class RuleBasedRiskService implements RiskService {
     static final Money DEFAULT_SOFT_DAILY_THRESHOLD = Money.czk(15_000.00);
 
     /**
-     * @param softDailyThreshold the account's own soft tier, or null to use
-     *        {@link #DEFAULT_SOFT_DAILY_THRESHOLD}. An account whose ceiling is below the tier
-     *        that applies to it has one tier and not two: every total that would reach the soft
-     *        threshold has already been refused by requireWithinDailyLimit. That is now a
-     *        fixture question with a fixture answer - see DemoScenario.SECONDARY_SOFT_THRESHOLD -
-     *        rather than something no dataset could avoid.
+     * @param softDailyThreshold the customer's own soft tier, or null to use
+     *        {@link #DEFAULT_SOFT_DAILY_THRESHOLD}. A customer whose ceiling is below the tier
+     *        that applies to them has one tier and not two: every total that would reach the soft
+     *        threshold has already been refused by requireWithinDailyLimit. That is a fixture
+     *        question with a fixture answer rather than something no dataset could avoid.
      */
     @Override
-    public RiskDecision evaluate(boolean beneficiaryTrusted, Money amount, Money sentSoFar,
+    public RiskDecision evaluate(boolean beneficiaryTrusted, Money amount, Money sentOutSoFar,
                                  Money sentToPayeeSoFar, Money dailyLimit,
                                  Money softDailyThreshold) {
-        requireWithinDailyLimit(amount, sentSoFar, dailyLimit);
+        requireWithinDailyLimit(amount, sentOutSoFar, dailyLimit);
 
         Money softTier = (softDailyThreshold != null) ? softDailyThreshold : DEFAULT_SOFT_DAILY_THRESHOLD;
-        boolean overDayAuthThreshold = sentSoFar.plus(amount).gt(softTier);
+        boolean overDayAuthThreshold = sentOutSoFar.plus(amount).gt(softTier);
         boolean untrustedAndHigh = !beneficiaryTrusted && amount.gt(AUTH_THRESHOLD_FOR_UNTRUSTED);
 
         boolean requireAuth = overDayAuthThreshold || untrustedAndHigh;
@@ -62,9 +61,8 @@ public class RuleBasedRiskService implements RiskService {
         // was simply the day total's, taken because that is what the mechanism beside it used.
         // It cost the same defect one size up: 13 000 split as 6 500 from each of two of the
         // customer's own accounts defeated the cumulative rule as completely as two payments
-        // once defeated the single-amount one. sentSoFar keeps the account scope, because it is
-        // measured against dailyLimit and softDailyThreshold and those are columns on one
-        // account - see RiskService.evaluate for the seam that leaves in the model.
+        // once defeated the single-amount one. The day total has since been widened the same
+        // way and for the same reason, so the two now agree on whose day they measure.
         //
         // What it costs, stated rather than discovered: once 10 000 has gone to one untrusted
         // payee in a day, every later payment to THAT payee is held, however small and out of
@@ -89,11 +87,11 @@ public class RuleBasedRiskService implements RiskService {
      * refusal starts one heller past it.
      */
     @Override
-    public void requireWithinDailyLimit(Money amount, Money sentSoFar, Money dailyLimit) {
-        Money dayTotal = sentSoFar.plus(amount);
+    public void requireWithinDailyLimit(Money amount, Money sentOutSoFar, Money dailyLimit) {
+        Money dayTotal = sentOutSoFar.plus(amount);
         if (dayTotal.gt(dailyLimit)) {
             throw new DailyLimitExceededException("Daily limit " + dailyLimit + " exceeded: "
-                    + sentSoFar + " already sent that day plus " + amount + " requested");
+                    + sentOutSoFar + " already sent that day plus " + amount + " requested");
         }
     }
 }

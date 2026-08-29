@@ -4,6 +4,14 @@
 
 ------------------------------------------------------------
 -- CUSTOMERS
+-- domain model: Customer(id, name, email, Address address, Money dailyLimit,
+--                        Money softDailyThreshold)
+-- relation to accounts and beneficiaries: those tables carry customer_id
+--
+-- The two limits sit here and not on the account, which is where they used to sit. A ceiling per
+-- account is a ceiling a customer with two accounts does not have: they pay half out of each and
+-- spend the sum of two allowances, and can fund the second half by first moving money between
+-- their own accounts. See db/migrate/2026-08-24-daily-limit-on-the-customer.sql for the move.
 ------------------------------------------------------------
 
 CREATE TABLE customers (
@@ -11,7 +19,23 @@ CREATE TABLE customers (
                            name    VARCHAR(255) NOT NULL,
                            email   VARCHAR(255) NOT NULL,
                            street  VARCHAR(255) NOT NULL,
-                           city    VARCHAR(255) NOT NULL
+                           city    VARCHAR(255) NOT NULL,
+
+                           -- The hard ceiling on what may leave this customer in one day, fees
+                           -- excluded. What counts against it is everything sent out of any
+                           -- account they hold, less what only landed on another account of
+                           -- theirs: money that moved between their own accounts has not left
+                           -- them, and counting it would let the ceiling be inflated by shuffling
+                           -- money in place. NOT NULL because a customer with no ceiling is a
+                           -- customer nothing bounds, and Customer's constructor refuses one.
+                           daily_limit_czk           NUMERIC(14,2) NOT NULL,
+
+                           -- NULL means "no override": RuleBasedRiskService applies the bank-wide
+                           -- soft tier. A value below daily_limit_czk is what makes the customer
+                           -- genuinely two-tiered; at or above it the soft tier is inert, which is
+                           -- deliberately still representable - a bank may want a customer with
+                           -- one tier. No CHECK relates the two.
+                           soft_daily_threshold_czk  NUMERIC(14,2)
 );
 
 CREATE SEQUENCE customers_id_seq;
@@ -41,8 +65,12 @@ ALTER SEQUENCE users_id_seq OWNED BY users.id;
 
 ------------------------------------------------------------
 -- ACCOUNTS
--- domain model: Account(id, iban, balance, dailyLimit, softDailyThreshold)
+-- domain model: Account(id, iban, balance)
 -- relation to Customer: via customer_id (persistence detail)
+--
+-- The daily ceiling and the soft authorization tier were columns here until they moved to
+-- customers, where one ceiling covers everything the owner holds. An account is now what it
+-- says: an IBAN and a balance.
 --
 -- The old comment here listed transferIds as a column of this table. It never was one:
 -- the SQL backend has always discarded that list, only the JSON backend held it, and the
@@ -57,13 +85,6 @@ CREATE TABLE accounts (
                           id                        INTEGER PRIMARY KEY,
                           iban                      VARCHAR(34) NOT NULL UNIQUE,
                           balance_czk               NUMERIC(14,2) NOT NULL,
-                          daily_limit_czk           NUMERIC(14,2) NOT NULL,
-                          -- NULL means "no override": RuleBasedRiskService applies the
-                          -- bank-wide soft tier. A value below daily_limit_czk is what makes
-                          -- the account genuinely two-tiered; at or above it the soft tier is
-                          -- inert, which is deliberately still representable - a bank may want
-                          -- an account with one tier. No CHECK relates the two.
-                          soft_daily_threshold_czk  NUMERIC(14,2),
                           -- Bumped by every guarded write. A writer that read version N and
                           -- finds N+1 is refused instead of overwriting.
                           version                   INTEGER NOT NULL DEFAULT 0,
@@ -126,7 +147,14 @@ CREATE INDEX idx_beneficiaries_customer_id ON beneficiaries(customer_id);
 --
 -- settled_at is when the money moved; created_at is when the order was placed. The daily
 -- total is keyed on settled_at, falling back to created_at for rows written before this
--- column existed - see SqlTransferRepository.sumSentWithConnection.
+-- column existed - see SqlTransferRepository.sumLeavingCustomerWithConnection.
+--
+-- That total is now the owner's rather than one account's, and target_iban_snapshot is what
+-- decides which rows belong in it: a row counts when its destination is not one of the
+-- customer's own accounts. Money moved between two accounts of the same owner never left
+-- them, and counting it would let the daily ceiling be consumed, or inflated, by shuffling
+-- money in place. The snapshot rather than beneficiaries.iban, because the snapshot is what
+-- the payment was actually addressed to and it survives the payee being edited or deleted.
 --
 -- dispatch_state is what a settled payment still owes the payment network, and it is on this
 -- row rather than in an outbox table of its own for one reason: the row a separate table would

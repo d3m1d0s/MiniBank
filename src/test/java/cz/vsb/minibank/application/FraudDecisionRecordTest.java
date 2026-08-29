@@ -65,11 +65,10 @@ class FraudDecisionRecordTest {
         infra = new Bootstrap(tempDir.resolve("data.json").toString());
 
         Customer customer = new Customer(CUSTOMER_ID, "Fraud Probe", "fraud@example.com",
-                new Address("Hlavni 1", "Ostrava"));
+                new Address("Hlavni 1", "Ostrava"), Money.czk(400_000));
         customer.addAccountId(ACCOUNT_ID);
         infra.customers.save(customer);
-        infra.accounts.save(new Account(ACCOUNT_ID, new IBAN(ACCOUNT_IBAN),
-                Money.czk(500_000), Money.czk(400_000)));
+        infra.accounts.save(new Account(ACCOUNT_ID, new IBAN(ACCOUNT_IBAN), Money.czk(500_000)));
 
         services = new BootstrapServices(
                 infra.customers, infra.accounts, infra.transfers, infra.alerts,

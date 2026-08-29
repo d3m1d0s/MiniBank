@@ -292,7 +292,9 @@ public class JsonTransferRepository implements TransferRepository {
     }
 
     @Override
-    public Money sentTotalBetween(int accountId, Instant fromInclusive, Instant toExclusive) {
+    public Money sentTotalLeavingCustomerBetween(Collection<Integer> accountIds,
+                                                 Collection<String> ownIbans,
+                                                 Instant fromInclusive, Instant toExclusive) {
         // Summed off the DTOs. bySourceAccount would build a Transfer and two LazyRef closures
         // per row to read one number off each, and would substitute identity-map instances
         // whose in-memory status can already differ from the stored one. Each row is wrapped in
@@ -312,13 +314,32 @@ public class JsonTransferRepository implements TransferRepository {
         // Only this backend can reach any of it. On SQL the CHECK constraints on amount and
         // currency make such a row unrepresentable and the sum runs in the database.
         //
+        // The account test is a membership test over the ids the caller passed and the ids are not
+        // copied into a Set, for the reason sentTotalToIbanBetween gives: a customer's handful of
+        // accounts, once per stored row, under a lock already held.
+        //
+        // The destination test is the exclusion, and it is what a per-account ceiling could not
+        // express: a payment that lands on another account of the same customer has left this
+        // account without leaving the customer, so counting it would let the day's allowance be
+        // spent by moving money in place. A row whose snapshot is missing matches no exclusion and
+        // is therefore counted - the column is NOT NULL on the other backend only, and a row this
+        // bank cannot say the destination of is not one it may call an internal move.
+        //
         // store.read holds the store lock, which a JsonUnitOfWork on this thread already holds,
         // so the re-acquisition is reentrant and costs nothing.
+        if (accountIds.isEmpty()) {
+            return Money.czk(0.0);
+        }
+
+        Set<String> excluded = normalizedIbans(ownIbans);
+
         return store.read(bundle -> {
             Money total = Money.czk(0.0);
             for (JsonTransfer dto : bundle.transfers) {
-                if (dto.sourceAccountId != accountId) continue;
+                if (!accountIds.contains(dto.sourceAccountId)) continue;
                 if (!TransferStatus.SENT.name().equals(dto.status)) continue;
+                String destination = IBAN.normalize(dto.targetIbanSnapshot);
+                if (destination != null && excluded.contains(destination)) continue;
                 Instant countedOn = dayKeyOf(dto);
                 if (countedOn == null) continue;
                 if (countedOn.isBefore(fromInclusive) || !countedOn.isBefore(toExclusive)) continue;
@@ -326,6 +347,22 @@ public class JsonTransferRepository implements TransferRepository {
             }
             return total;
         });
+    }
+
+    /**
+     * The destinations that do not count as leaving, normalized once rather than per stored row.
+     *
+     * A Set rather than the caller's collection, unlike the account ids beside it: this is
+     * normalized, so it has to be built anyway, and building it as a list would mean a scan per
+     * row over values that are already in hand. A null survives {@code IBAN.normalize} as a null
+     * and is dropped, which keeps this collection saying exactly what the other backend's bound
+     * array says.
+     */
+    private static Set<String> normalizedIbans(Collection<String> ibans) {
+        return ibans.stream()
+                .map(IBAN::normalize)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
     }
 
     /**

@@ -71,8 +71,7 @@ class FraudQueueCountersTest {
         // One alert in each state, so a filter on any one of them hides the other two.
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             int accountId = infra.accounts.nextId();
-            infra.accounts.save(new Account(accountId, PAYER_IBAN,
-                    Money.czk(5_000_000), Money.czk(4_000_000), null));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, Money.czk(5_000_000)));
 
             firstTransferId = alertedTransfer(accountId, null);
             alertedTransfer(accountId, alert -> alert.approve("anna.analyst", Instant.now()));

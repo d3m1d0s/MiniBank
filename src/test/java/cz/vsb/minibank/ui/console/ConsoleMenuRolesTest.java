@@ -38,7 +38,8 @@ class ConsoleMenuRolesTest {
                 customerId,
                 "Test User",
                 "test@example.com",
-                new Address("Street 1", "City")
+                new Address("Street 1", "City"),
+                Money.czk(5000)
         );
         infra.customers.save(c);
 
@@ -46,8 +47,7 @@ class ConsoleMenuRolesTest {
         Account a = new Account(
                 accId,
                 new IBAN("CZ6508000000192000145399"),
-                Money.czk(20000),
-                Money.czk(5000)
+                Money.czk(20000)
         );
         infra.accounts.save(a);
         c.addAccountId(accId);

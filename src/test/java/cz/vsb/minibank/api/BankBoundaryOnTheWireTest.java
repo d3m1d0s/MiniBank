@@ -785,24 +785,26 @@ class BankBoundaryOnTheWireTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             payerCustomerId = infra.customers.nextId();
             Customer payer = new Customer(payerCustomerId, "Boundary Probe",
-                    "boundary@example.com", new Address("Hlavni 1", "Ostrava"));
+                    "boundary@example.com", new Address("Hlavni 1", "Ostrava"),
+                    Money.czk(4_000_000));
             infra.customers.save(payer);
 
             int payerAccountId = infra.accounts.nextId();
             Account payerAccount = new Account(payerAccountId, PAYER_IBAN,
-                    Money.czk(5_000_000), Money.czk(4_000_000));
+                    Money.czk(5_000_000));
             infra.accounts.save(payerAccount);
             payer.addAccountId(payerAccountId);
             infra.customers.save(payer);
 
             int neighbourCustomerId = infra.customers.nextId();
             Customer neighbour = new Customer(neighbourCustomerId, "Neighbour",
-                    "neighbour@example.com", new Address("Hlavni 2", "Ostrava"));
+                    "neighbour@example.com", new Address("Hlavni 2", "Ostrava"),
+                    Money.czk(4_000_000));
             infra.customers.save(neighbour);
 
             int inBankAccountId = infra.accounts.nextId();
             Account inBankAccount = new Account(inBankAccountId, IN_BANK_IBAN,
-                    Money.czk(1_000), Money.czk(4_000_000));
+                    Money.czk(1_000));
             infra.accounts.save(inBankAccount);
             neighbour.addAccountId(inBankAccountId);
             infra.customers.save(neighbour);
@@ -886,12 +888,13 @@ class BankBoundaryOnTheWireTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             int lateCustomerId = infra.customers.nextId();
             Customer late = new Customer(lateCustomerId, "Late Arrival",
-                    "late@example.com", new Address("Hlavni 3", "Ostrava"));
+                    "late@example.com", new Address("Hlavni 3", "Ostrava"),
+                    Money.czk(4_000_000));
             infra.customers.save(late);
 
             int lateAccountId = infra.accounts.nextId();
             infra.accounts.save(new Account(lateAccountId, LATE_ARRIVAL_IBAN,
-                    Money.czk(1_000), Money.czk(4_000_000)));
+                    Money.czk(1_000)));
             late.addAccountId(lateAccountId);
             infra.customers.save(late);
 

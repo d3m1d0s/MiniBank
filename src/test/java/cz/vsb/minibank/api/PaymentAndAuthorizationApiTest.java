@@ -72,7 +72,11 @@ public class PaymentAndAuthorizationApiTest {
                             TEST_CUSTOMER_ID,
                             "Test Customer 2",
                             "test2@example.com",
-                            new Address("Test Street 2", "Ostrava")
+                            new Address("Test Street 2", "Ostrava"),
+                            // The hard daily ceiling, matching the demo. WAITING_TRANSFER_AMOUNT
+                            // is 6 000 and createWaitingTransferForCustomer2 feeds nine tests; at
+                            // 5 000 every one of them is refused outright instead of waiting.
+                            Money.czk(40_000)
                     );
                     customers.save(c);
                     return c;
@@ -86,11 +90,7 @@ public class PaymentAndAuthorizationApiTest {
             Account acc = new Account(
                     TEST_ACCOUNT_ID,
                     new IBAN("CZ6508000000192000145399"),
-                    Money.czk(20_000),
-                    // The hard daily ceiling, matching the demo. WAITING_TRANSFER_AMOUNT is
-                    // 6 000 and createWaitingTransferForCustomer2 feeds nine tests; at the old
-                    // 5 000 every one of them is refused outright instead of waiting.
-                    Money.czk(40_000)
+                    Money.czk(20_000)
             );
             infra.accounts.save(acc);
             customer.addAccountId(TEST_ACCOUNT_ID);
@@ -130,11 +130,12 @@ public class PaymentAndAuthorizationApiTest {
         // A second customer with an account and a beneficiary of their own, plus one pending
         // transfer they created themselves. This is what customer 2 must not be able to touch.
         Customer victim = new Customer(VICTIM_CUSTOMER_ID, "Victim Customer 3",
-                "victim3@example.com", new Address("Test Street 3", "Ostrava"));
+                "victim3@example.com", new Address("Test Street 3", "Ostrava"),
+                Money.czk(40_000));
         victim.addAccountId(VICTIM_ACCOUNT_ID);
         infra.customers.save(victim);
         infra.accounts.save(new Account(VICTIM_ACCOUNT_ID, new IBAN("CZ4308000000192000145407"),
-                Money.czk(20_000), Money.czk(40_000)));
+                Money.czk(20_000)));
         infra.customers.saveBeneficiary(VICTIM_CUSTOMER_ID, new Beneficiary(
                 VICTIM_BENEFICIARY_ID, "Victim's payee",
                 new IBAN("CZ9608000000192000145423"), true));
@@ -144,7 +145,7 @@ public class PaymentAndAuthorizationApiTest {
                 WAITING_TRANSFER_AMOUNT, "victim's own").transferId();
 
         paymentController = new PaymentController(transferService, accounts,
-                services.ownershipGuard, transfers, services.feePolicy, infra.uowFactory);
+                services.ownershipGuard, services.feePolicy, infra.uowFactory);
 
         authorizationController = new AuthorizationController(
                 transferService,
@@ -157,7 +158,7 @@ public class PaymentAndAuthorizationApiTest {
     }
 
     private int createWaitingTransferForCustomer2() {
-        List<AccountSummaryDto> accList = paymentController.listMyAccounts();
+        List<AccountSummaryDto> accList = paymentController.listMyAccounts().accounts();
         assertFalse(accList.isEmpty(), "Customer 2 should have at least one account");
         AccountSummaryDto acc = accList.get(0);
 
@@ -187,11 +188,20 @@ public class PaymentAndAuthorizationApiTest {
 
     @Test
     void listMyAccounts_returnsTheSessionCustomersAccount() {
-        List<AccountSummaryDto> list = paymentController.listMyAccounts();
+        MyAccountsResponseDto response = paymentController.listMyAccounts();
+        List<AccountSummaryDto> list = response.accounts();
         assertFalse(list.isEmpty(), "Expected accounts for customer 2");
         AccountSummaryDto acc = list.get(0);
         assertEquals(TEST_ACCOUNT_ID, acc.id());
         assertTrue(acc.iban().startsWith("CZ"));
+
+        // The day travels with the accounts rather than on a route of its own, and it is one
+        // day for the customer: nothing has settled yet, and the ceiling is the one on their
+        // own row.
+        assertEquals("0.00", response.today().sentOut().amount());
+        assertEquals("CZK", response.today().sentOut().currency());
+        assertEquals("40000.00", response.today().limit().amount());
+        assertEquals("CZK", response.today().limit().currency());
     }
 
     @Test
@@ -462,7 +472,7 @@ public class PaymentAndAuthorizationApiTest {
 
     @Test
     void createPaymentToIban_createsTransferAndReturnsResult() {
-        List<AccountSummaryDto> beforeAccounts = paymentController.listMyAccounts();
+        List<AccountSummaryDto> beforeAccounts = paymentController.listMyAccounts().accounts();
         assertFalse(beforeAccounts.isEmpty(), "Customer 2 should have at least one account");
         AccountSummaryDto accBefore = beforeAccounts.get(0);
 
@@ -664,32 +674,38 @@ public class PaymentAndAuthorizationApiTest {
     // ----------------------------------------------------------------- what the day's ceiling means
 
     /**
-     * The account list carries the two limits and the day's running total they are measured
-     * against.
+     * The ceiling and the total it is measured against travel together, and neither hangs off an
+     * account.
      *
-     * The limits alone are two numbers with nothing to compare them to. The customer sees the same
-     * amount settle in the morning and ask for a code in the afternoon, and the only thing that
-     * changed is a total no screen has ever shown.
+     * The limit alone is a number with nothing to compare it to. The customer sees the same amount
+     * settle in the morning and ask for a code in the afternoon, and the only thing that changed is
+     * a total no screen has ever shown. Both readings come back beside the accounts rather than
+     * inside them, because one person has one day however many accounts they hold.
      */
     @Test
-    void theAccountListCarriesTheCeilingTheTierAndWhatHasGoneToday() {
-        AccountSummaryDto before = paymentController.listMyAccounts().get(0);
+    void theResponseCarriesTheCeilingAndWhatHasGoneTodayAndNoAccountCarriesEither() {
+        MyAccountsResponseDto before = paymentController.listMyAccounts();
 
-        assertEquals("40000.00", before.dailyLimit().amount(),
-                "the hard ceiling on one day's outflow");
-        assertNull(before.softDailyThreshold(),
-                "this account has no tier of its own, and the bank-wide one is not this"
-                        + " account's property to print");
-        assertEquals("0.00", before.spentToday().amount(),
-                "nothing has settled out of it yet today");
+        assertEquals("40000.00", before.today().limit().amount(),
+                "the hard ceiling on one day's outflow, off the customer's own row");
+        assertEquals("0.00", before.today().sentOut().amount(),
+                "nothing has settled out of this customer yet today");
 
         paymentController.createPayment(new NewPaymentRequest(
                 TEST_ACCOUNT_ID, "CZ2001000000000012345678", null, 1_000.0, "counts today"));
 
-        AccountSummaryDto after = paymentController.listMyAccounts().get(0);
+        MyAccountsResponseDto after = paymentController.listMyAccounts();
 
-        assertEquals("1000.00", after.spentToday().amount(),
+        assertEquals("1000.00", after.today().sentOut().amount(),
                 "a payment that settled today counts against today, fees excluded");
+        assertEquals("40000.00", after.today().limit().amount(),
+                "and the ceiling itself does not move when a payment does");
+
+        // The soft tier is deliberately absent from this response: the bank-wide default is not
+        // this application's to print, and the question a screen asks about it is already answered
+        // per payment by the quote's authorizationRequired.
+        assertEquals(3, AccountSummaryDto.class.getRecordComponents().length,
+                "an account summary carries id, iban and balance, and no day of its own");
     }
 
     /**
@@ -703,8 +719,8 @@ public class PaymentAndAuthorizationApiTest {
     void aPaymentWaitingForItsCodeHasNotBeenSpentYet() {
         createWaitingTransferForCustomer2();
 
-        assertEquals("0.00", paymentController.listMyAccounts().get(0).spentToday().amount(),
-                "nothing has left the account, so nothing has been spent");
+        assertEquals("0.00", paymentController.listMyAccounts().today().sentOut().amount(),
+                "nothing has left the customer, so nothing has been spent");
     }
 
     // -------------------------------------------------------------------------- who is signed in

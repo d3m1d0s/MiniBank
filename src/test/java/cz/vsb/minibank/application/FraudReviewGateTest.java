@@ -89,17 +89,16 @@ class FraudReviewGateTest {
         alerts = infra.alerts;
 
         Customer customer = new Customer(CUSTOMER_ID, "Payer", "payer@example.com",
-                new Address("Hlavni 1", "Ostrava"));
+                new Address("Hlavni 1", "Ostrava"), Money.czk(500_000));
         customer.addAccountId(ACCOUNT_ID);
         infra.customers.save(customer);
-        accounts.save(new Account(ACCOUNT_ID, new IBAN(ACCOUNT_IBAN), OPENING, Money.czk(500_000)));
+        accounts.save(new Account(ACCOUNT_ID, new IBAN(ACCOUNT_IBAN), OPENING));
 
         Customer other = new Customer(OTHER_CUSTOMER_ID, "Payee", "payee@example.com",
-                new Address("Hlavni 2", "Ostrava"));
+                new Address("Hlavni 2", "Ostrava"), Money.czk(500_000));
         other.addAccountId(OTHER_ACCOUNT_ID);
         infra.customers.save(other);
-        accounts.save(new Account(OTHER_ACCOUNT_ID, new IBAN(OTHER_IBAN),
-                Money.czk(5_000), Money.czk(500_000)));
+        accounts.save(new Account(OTHER_ACCOUNT_ID, new IBAN(OTHER_IBAN), Money.czk(5_000)));
 
         BootstrapServices services = new BootstrapServices(
                 infra.customers, infra.accounts, infra.transfers, infra.alerts,

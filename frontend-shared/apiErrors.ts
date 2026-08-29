@@ -159,8 +159,11 @@ const GENERAL: Record<ApiErrorCode, readonly string[]> = {
         'The destination is the account the payment is sent from.',
         'Choose a different account.',
     ],
+    // Names the customer and not the account, because the ceiling does. Saying "on the selected
+    // account" told a reader holding two accounts that the other one had a day of its own, and
+    // the payment they then tried from it was refused by the same total.
     DAILY_LIMIT_EXCEEDED: [
-        "This payment would take the day's payments on the selected account above its daily limit.",
+        'This payment would take what you have sent today past your daily limit.',
     ],
     INVALID_OTP: ['That one time code is not valid.', 'Please check it and try again.'],
     INVALID_IBAN: ['The IBAN is not valid.', 'Please check the country code and all digits.'],
@@ -205,9 +208,12 @@ const BY_OPERATION: Record<ApiOperation, Partial<Record<ApiErrorCode, readonly s
         VALIDATION_ERROR: ['That amount could not be priced.', 'Check the amount and try again.'],
         // The one refusal a quote shares with the payment itself, and the advice differs because
         // the moment does: nothing has been offered yet, so there is still a choice to make.
+        // The second line no longer offers a different account. The limit follows the customer,
+        // so the other account is the same day, and sending them to it would have them refused a
+        // second time by the number that refused them here.
         DAILY_LIMIT_EXCEEDED: [
-            "This payment would take the day's payments on the selected account above its daily limit.",
-            'Lower the amount, or send it from a different account.',
+            'This payment would take what you have sent today past your daily limit.',
+            'Lower the amount, or send the rest on another day.',
         ],
         NOT_FOUND: [
             'The selected account or payee is not available.',

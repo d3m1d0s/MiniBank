@@ -2,8 +2,10 @@ package cz.vsb.minibank.api;
 
 import cz.vsb.minibank.api.dto.AccountSummaryDto;
 import cz.vsb.minibank.api.dto.BeneficiaryDto;
+import cz.vsb.minibank.api.dto.DailyOutflowDto;
 import cz.vsb.minibank.api.dto.MeDto;
 import cz.vsb.minibank.api.dto.MoneyDto;
+import cz.vsb.minibank.api.dto.MyAccountsResponseDto;
 import cz.vsb.minibank.api.dto.NewPaymentRequest;
 import cz.vsb.minibank.api.dto.NewPaymentResultDto;
 import cz.vsb.minibank.api.dto.PaymentQuoteDto;
@@ -22,16 +24,12 @@ import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.exceptions.ValidationException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
-import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.Instant;
-import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
 
@@ -49,7 +47,9 @@ public class PaymentController {
     private final AccountRepository accounts;
 
     /**
-     * Resolves the customer whose address book {@link #listMyBeneficiaries} answers with.
+     * Resolves the customer whose address book {@link #listMyBeneficiaries} answers with, and
+     * whose daily ceiling both {@link #listMyAccounts} and {@link #quotePayment} read off the
+     * same row.
      *
      * The guard rather than the customer repository directly, so that "who is this caller" is one
      * decision taken in one place: it is the same call the money-moving paths make, and a second
@@ -58,21 +58,21 @@ public class PaymentController {
     private final OwnershipGuard ownershipGuard;
 
     /**
-     * Answers the day's outflow, for the two reads that state a limit in terms of it.
-     *
-     * It came back after having been removed, and the reason it is here now is not the reason it
-     * was here before: it used to re-read a payment after the service had committed, which is the
-     * stale-balance defect that took it away. Nothing on the write path touches it. What needs it
-     * is the account list, which cannot say what a daily ceiling means without saying how much of
-     * today's has gone, and the quote, which cannot say whether a code will be asked for without
-     * the same number.
+     * The one tariff, so the quote below cannot answer differently from the charge.
      */
-    private final TransferRepository transfers;
-
-    /** The one tariff, so the quote below cannot answer differently from the charge. */
     private final FeePolicy feePolicy;
 
-    /** Scopes the two reads that make more than one repository call to one connection. */
+    /**
+     * Scopes the two reads that make more than one repository call to one connection.
+     *
+     * The transfer repository is gone from beside it, and the absence is the point rather than
+     * tidiness. This controller used to total a day itself, once per account, because the ceiling
+     * those totals were measured against was a column on an account. The ceiling belongs to the
+     * customer now and so does the total, and the total is read through
+     * {@link TransferApplicationService#sentOutTodayBy} - which is the same aggregate, over the
+     * same accounts, with the same exclusion of the customer's own IBANs that the refusal applies.
+     * A second implementation here would have been a second chance to widen one and not the other.
+     */
     private final UnitOfWorkFactory uowFactory;
 
     /**
@@ -94,44 +94,63 @@ public class PaymentController {
     public PaymentController(TransferApplicationService transferService,
                              AccountRepository accounts,
                              OwnershipGuard ownershipGuard,
-                             TransferRepository transfers,
                              FeePolicy feePolicy,
                              UnitOfWorkFactory uowFactory) {
         this.transferService = transferService;
         this.accounts = accounts;
         this.ownershipGuard = ownershipGuard;
-        this.transfers = transfers;
         this.feePolicy = feePolicy;
         this.uowFactory = uowFactory;
     }
 
     /**
-     * Lists accounts for the currently authenticated customer.
+     * The accounts of the currently authenticated customer, and the one day they share.
      *
      * There is no route that takes a customer id. This one reads its subject from the
      * session, so a caller has no way to name somebody else and no ownership check is
      * needed. The twin that took the id in the path was removed rather than guarded:
      * two doors onto the same data are two standing obligations to remember the check.
+     *
+     * THE DAY COMES BACK HERE rather than through a route of its own. A screen reloads balances
+     * because a payment has just moved money, and that same payment moved the day's total; asked
+     * separately, the two would be read against each other across a gap only one of them had
+     * crossed. See {@link MyAccountsResponseDto}, and {@link DailyOutflowDto} for why one customer
+     * with two accounts has one day and not two.
+     *
+     * TWO READS, DELIBERATELY NOT ONE UNIT OF WORK. The accounts and the ceiling are read together
+     * inside the scope below, because they are two lookups answering one question and without a
+     * unit of work each of them opens a JDBC connection of its own; there is no pool. The total is
+     * not: {@link TransferApplicationService#sentOutTodayBy} opens a unit of work of its own, and
+     * the JSON store's lock is taken by begin(), so calling it from inside this scope would
+     * deadlock against a lock this thread already holds. It is called after the scope has closed,
+     * which also makes it the later of the two readings: a payment settling between them is
+     * counted in the total beside balances that predate it, so the day is overstated rather than
+     * understated, and a customer is never shown more room than they have.
      */
     @GetMapping("/me/accounts")
-    public List<AccountSummaryDto> listMyAccounts() {
+    public MyAccountsResponseDto listMyAccounts() {
         int customerId = requireCustomerId();
 
-        // One reading of the clock for the whole list, so two accounts of one customer are never
-        // reported against two different banking days. It matters for one request a year and costs
-        // nothing: a list drawn at 23:59:59.999 would otherwise put the second account's total in
-        // tomorrow.
-        Instant now = Instant.now();
-
-        // The unit of work is what makes the day totals affordable. Without one, every repository
-        // call in this project opens a JDBC connection and tears it down again - there is no pool -
-        // so a customer with two accounts would pay one connection for the account list and one per
-        // account for its total. Inside it they are three statements on one connection.
+        List<AccountSummaryDto> summaries;
+        Money limit;
         try (UowScope scope = new UowScope(uowFactory.begin())) {
-            return accounts.byCustomerId(customerId).stream()
-                    .map(a -> toAccountSummary(a, sentOnTheBankingDayOf(a.id(), now)))
+            summaries = accounts.byCustomerId(customerId).stream()
+                    .map(this::toAccountSummary)
                     .toList();
+
+            // The ceiling off the caller's own customer row, resolved the way every other
+            // ownership decision in this application resolves its subject. Nothing here is being
+            // guarded: the id came from the session, and requireCaller is called for the customer
+            // it loads.
+            limit = ownershipGuard.requireCaller(customerId).dailyLimit();
         }
+
+        Money sentOut = transferService.sentOutTodayBy(customerId);
+
+        return new MyAccountsResponseDto(
+                summaries,
+                new DailyOutflowDto(MoneyDto.of(sentOut), MoneyDto.of(limit))
+        );
     }
 
     /**
@@ -201,7 +220,7 @@ public class PaymentController {
      *                      it and is never trusted, which is what submitPaymentToIban decides at
      *                      creation and what null means here
      * @throws cz.vsb.minibank.domain.exceptions.DailyLimitExceededException when this amount would
-     *         take today's outflow past the source account's ceiling
+     *         take today's outflow past the customer's ceiling
      */
     @GetMapping("/payments/quote")
     public PaymentQuoteDto quotePayment(
@@ -223,60 +242,51 @@ public class PaymentController {
         Money amount = Money.czkPayment(amountCzk);
         Money fee = feePolicy.compute(amount);
 
-        Instant now = Instant.now();
+        boolean trusted;
+        Money dailyLimit;
+        Money softDailyThreshold;
 
         try (UowScope scope = new UowScope(uowFactory.begin())) {
             Customer caller = ownershipGuard.requireCaller(customerId);
-            Account account = ownershipGuard.requireOwnedAccount(caller, sourceAccountId);
 
-            boolean trusted = beneficiaryId != null
+            // The source account no longer decides anything this route answers - both limits and
+            // the day total below belong to the customer - but it is still resolved, and still
+            // against what this caller owns. A quote for somebody else's account is a question
+            // this caller may not ask, whatever the answer would have been.
+            ownershipGuard.requireOwnedAccount(caller, sourceAccountId);
+
+            trusted = beneficiaryId != null
                     && ownershipGuard.requireOwnedBeneficiary(caller, beneficiaryId).trusted();
 
-            // Zero for the payee total, and the zero is safe rather than convenient: that argument
-            // feeds the fraud alert alone, and this route does not report the fraud alert. Telling
-            // the customer that a payment is about to be reviewed would tell whoever is holding
-            // their credentials where the threshold lies, which is the one reading of these rules
-            // that must not reach a screen. The rest of the decision is measured against columns on
-            // the account, and those are read here in full.
-            RiskDecision decision = riskService.evaluate(
-                    trusted,
-                    amount,
-                    sentOnTheBankingDayOf(account.id(), now),
-                    Money.czk(0.00),
-                    account.dailyLimit(),
-                    account.softDailyThreshold());
-
-            return new PaymentQuoteDto(
-                    MoneyDto.of(amount),
-                    MoneyDto.of(fee),
-                    MoneyDto.of(amount.plus(fee)),
-                    decision.requireAuthorization()
-            );
+            dailyLimit = caller.dailyLimit();
+            softDailyThreshold = caller.softDailyThreshold();
         }
-    }
 
-    /**
-     * What has settled out of this account on the banking day that contains {@code when}, fees
-     * excluded.
-     *
-     * The window is the one the refusal itself is measured over, and it has to stay that way or the
-     * form will state a budget the rules do not keep. Both halves are taken from the same place the
-     * rules take them: the day boundary is midnight in {@link TransferApplicationService#BANK_ZONE},
-     * which is a public constant precisely so a second reader cannot pick a different zone, and the
-     * total is the same aggregate the service asks for. Prague is UTC+1 in winter and UTC+2 in
-     * summer, so a UTC day would file every late-evening payment under tomorrow.
-     *
-     * The one thing not shared with the service is the reading of "now": this route reads the wall
-     * clock and the service reads the clock it was built with. They differ only under a test that
-     * fixes one, and nothing in the API does.
-     */
-    private Money sentOnTheBankingDayOf(int accountId, Instant when) {
-        ZoneId zone = TransferApplicationService.BANK_ZONE;
-        LocalDate day = LocalDate.ofInstant(when, zone);
-        return transfers.sentTotalBetween(
-                accountId,
-                day.atStartOfDay(zone).toInstant(),
-                day.plusDays(1).atStartOfDay(zone).toInstant());
+        // Outside the scope above, for the reason listMyAccounts gives: this opens a unit of work
+        // of its own and the JSON store's lock is taken by begin(). After the ownership checks
+        // rather than before them, so a caller naming an account that is not theirs is refused
+        // without a day being totalled for them first.
+        Money sentOutToday = transferService.sentOutTodayBy(customerId);
+
+        // Zero for the payee total, and the zero is safe rather than convenient: that argument
+        // feeds the fraud alert alone, and this route does not report the fraud alert. Telling the
+        // customer that a payment is about to be reviewed would tell whoever is holding their
+        // credentials where the threshold lies, which is the one reading of these rules that must
+        // not reach a screen. The rest of the decision is the customer's own, and is read in full.
+        RiskDecision decision = riskService.evaluate(
+                trusted,
+                amount,
+                sentOutToday,
+                Money.czk(0.00),
+                dailyLimit,
+                softDailyThreshold);
+
+        return new PaymentQuoteDto(
+                MoneyDto.of(amount),
+                MoneyDto.of(fee),
+                MoneyDto.of(amount.plus(fee)),
+                decision.requireAuthorization()
+        );
     }
 
     /**
@@ -368,22 +378,12 @@ public class PaymentController {
 
     /**
      * Maps an account entity to its API summary representation.
-     *
-     * The soft threshold is passed through as it stands, null included. An account with none uses
-     * the bank-wide tier, and resolving that here would print a bank-wide number as if it were a
-     * property of this account - see {@link AccountSummaryDto}, which says what that costs.
-     *
-     * @param spentToday what has settled out of this account today, which is the number the two
-     *                   limits beside it are measured against
      */
-    private AccountSummaryDto toAccountSummary(Account a, Money spentToday) {
+    private AccountSummaryDto toAccountSummary(Account a) {
         return new AccountSummaryDto(
                 a.id(),
                 a.iban().value(),
-                MoneyDto.of(a.balance()),
-                MoneyDto.of(a.dailyLimit()),
-                MoneyDto.of(a.softDailyThreshold()),
-                MoneyDto.of(spentToday)
+                MoneyDto.of(a.balance())
         );
     }
 }

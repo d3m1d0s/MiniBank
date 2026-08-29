@@ -297,12 +297,11 @@ class ReadPathsRunInOneUnitOfWorkTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             int customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Queue Probe", "queue@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), Money.czk(4_000_000), null);
             infra.customers.save(c);
 
             int accountId = infra.accounts.nextId();
-            infra.accounts.save(new Account(accountId, PAYER_IBAN,
-                    Money.czk(5_000_000), Money.czk(4_000_000), null));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, Money.czk(5_000_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
 

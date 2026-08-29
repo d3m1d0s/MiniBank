@@ -300,12 +300,11 @@ class FraudHistoryOrderTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             int customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "History Probe", "history@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), Money.czk(4_000_000), null);
             infra.customers.save(c);
 
             int accountId = infra.accounts.nextId();
-            infra.accounts.save(new Account(accountId, PAYER_IBAN,
-                    Money.czk(5_000_000), Money.czk(4_000_000), null));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, Money.czk(5_000_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
 
@@ -342,17 +341,15 @@ class FraudHistoryOrderTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             int customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Two Account Probe", "two@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), Money.czk(4_000_000), null);
             infra.customers.save(c);
 
             int firstAccountId = infra.accounts.nextId();
-            infra.accounts.save(new Account(firstAccountId, PAYER_IBAN,
-                    Money.czk(5_000_000), Money.czk(4_000_000), null));
+            infra.accounts.save(new Account(firstAccountId, PAYER_IBAN, Money.czk(5_000_000)));
             c.addAccountId(firstAccountId);
 
             int secondAccountId = infra.accounts.nextId();
-            infra.accounts.save(new Account(secondAccountId, SECOND_IBAN,
-                    Money.czk(5_000_000), Money.czk(4_000_000), null));
+            infra.accounts.save(new Account(secondAccountId, SECOND_IBAN, Money.czk(5_000_000)));
             c.addAccountId(secondAccountId);
 
             infra.customers.save(c);

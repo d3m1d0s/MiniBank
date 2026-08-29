@@ -92,19 +92,17 @@ class CreditLegTest {
         feePolicy = policy;
 
         Customer payer = new Customer(PAYER_CUSTOMER_ID, "Payer", "payer@example.com",
-                new Address("Test Street 1", "Ostrava"));
+                new Address("Test Street 1", "Ostrava"), Money.czk(100_000));
         payer.addAccountId(PAYER_ACCOUNT_ID);
         customers.save(payer);
 
         Customer payee = new Customer(PAYEE_CUSTOMER_ID, "Payee", "payee@example.com",
-                new Address("Test Street 2", "Ostrava"));
+                new Address("Test Street 2", "Ostrava"), Money.czk(100_000));
         payee.addAccountId(PAYEE_ACCOUNT_ID);
         customers.save(payee);
 
-        accounts.save(new Account(PAYER_ACCOUNT_ID, new IBAN(PAYER_IBAN),
-                PAYER_OPENING, Money.czk(100_000)));
-        accounts.save(new Account(PAYEE_ACCOUNT_ID, new IBAN(PAYEE_IBAN),
-                PAYEE_OPENING, Money.czk(100_000)));
+        accounts.save(new Account(PAYER_ACCOUNT_ID, new IBAN(PAYER_IBAN), PAYER_OPENING));
+        accounts.save(new Account(PAYEE_ACCOUNT_ID, new IBAN(PAYEE_IBAN), PAYEE_OPENING));
 
         gateway = new FakePaymentNetworkGateway();
         BootstrapServices services = new BootstrapServices(
@@ -315,8 +313,7 @@ class CreditLegTest {
         String freshIban = "CZ2108000000192000145415";
 
         try (UowScope scope = new UowScope(uowFactory.begin())) {
-            Account opened = new Account(300, new IBAN(freshIban),
-                    Money.czk(1_000), Money.czk(10_000));
+            Account opened = new Account(300, new IBAN(freshIban), Money.czk(1_000));
             accounts.save(opened);
 
             Account found = accounts.inBankByIban(freshIban).orElseThrow(
@@ -333,7 +330,7 @@ class CreditLegTest {
      */
     @Test
     void twoJsonAccountsOnOneIbanAreRefusedRatherThanGuessed() {
-        accounts.save(new Account(300, new IBAN(PAYEE_IBAN), Money.czk(1), Money.czk(1)));
+        accounts.save(new Account(300, new IBAN(PAYEE_IBAN), Money.czk(1)));
 
         assertThrows(DataIntegrityException.class, () -> accounts.byIban(new IBAN(PAYEE_IBAN)));
     }

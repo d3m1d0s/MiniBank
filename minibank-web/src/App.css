@@ -2160,8 +2160,8 @@ tr[role="button"]:focus-visible {
  * Facts about one thing, side by side on one wrapping line.
  *
  * The .facts block above puts one fact to a line, which is right for a panel that is read as
- * sentences. These are read against each other instead - what an account has spent today against
- * the ceiling it is spending towards, what a payment costs against what it moves - and stacked
+ * sentences. These are read against each other instead - what a customer has sent today against
+ * the ceiling they are sending towards, what a payment costs against what it moves - and stacked
  * they would push the amount field off the first fold of the form. The words and their weights
  * are .fact-label and .fact-value as everywhere else; only the direction differs.
  */
@@ -2175,9 +2175,14 @@ tr[role="button"]:focus-visible {
 /*
  * A line that belongs to the field above it rather than to the form.
  *
- * Indented to the left edge of the control, not of its label, so the quote reads as part of the
- * amount row and the day's limits as part of the account row. The two measurements are the label
- * track and the gap that follows it, which is exactly what .field-row puts in front of a control.
+ * Indented to the left edge of the control, not of its label, so the quote and the refusal to
+ * price one read as part of the amount row. The two measurements are the label track and the gap
+ * that follows it, which is exactly what .field-row puts in front of a control.
+ *
+ * The customer's day used to be indented like this too, under the account selector, and that is
+ * exactly what was wrong with it: the indent said the two figures belonged to the control above
+ * them. They are one fact about the person, so they stand above the form at the heading's own
+ * left edge and carry no indent at all.
  * On a row narrow enough to have wrapped, the label is above its control and this indent is 5.5rem
  * of nothing; that is the same trade every fixed label column makes here and it is the same
  * breakpoint.

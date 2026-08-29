@@ -10,6 +10,7 @@ import org.junit.jupiter.api.io.TempDir;
 import java.math.BigDecimal;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -32,6 +33,14 @@ import static org.junit.jupiter.api.Assertions.*;
  * These are JSON-only properties. The SQL backend keeps CHECK constraints on amount and currency
  * and a timestamp column that cannot hold a string, so no such row can be written there at all,
  * and the sum runs in the database.
+ *
+ * IT IS ASKED THROUGH sentTotalBetween, and that is now a default on the interface over the
+ * customer-wide aggregate rather than a query of its own - one account, nothing excluded. Nothing
+ * here changed when the ceiling moved to the customer, and the reason to say so is that this class
+ * has become the only place the ROW-LEVEL rules of that aggregate are pinned: which rows count,
+ * which timestamp decides the window, what a malformed row does. The rules the customer-wide form
+ * adds on top of these - which accounts, and which destinations do not count as leaving - are
+ * pinned in OwnAccountTransfersDoNotSpendTheDayTest, where there is a customer to hang them on.
  */
 class JsonTransferSumRefusalTest {
 
@@ -40,6 +49,9 @@ class JsonTransferSumRefusalTest {
 
     private static final int ACCOUNT = 100;
     private static final String PAYEE = "CZ6508000000192000145399";
+
+    /** A second account of the same customer, which is what the exclusion below is given. */
+    private static final String OWN_SECOND_IBAN = "CZ4308000000192000145407";
 
     private static final Instant DAY_START = Instant.parse("2026-03-04T00:00:00Z");
     private static final Instant NEXT_DAY = Instant.parse("2026-03-05T00:00:00Z");
@@ -217,6 +229,101 @@ class JsonTransferSumRefusalTest {
         assertEquals(Money.czk(new BigDecimal("100.00")),
                 transfers.sentTotalBetween(ACCOUNT, DAY_START, NEXT_DAY),
                 "no timestamp at all is no day, not a refusal");
+    }
+
+    // -------------------------------------------------------------------------
+    // The destination: which rows the customer-wide total drops
+    // -------------------------------------------------------------------------
+
+    /**
+     * The exclusion is by IBAN and it is compared normalized, because a Transfer takes its
+     * destination snapshot as a plain String and nothing on the way in puts it in one spelling.
+     *
+     * A stored 'cz43 0800 0000 1920 0014 5407' and a customer's own CZ4308000000192000145407 are
+     * one account written two ways. Compared as they stand they are two, and the customer's own
+     * money moved in place would be counted as having left them - which is precisely the inflation
+     * the exclusion exists to prevent, arriving through a spelling instead of through a rule.
+     */
+    @Test
+    void anOwnIbanStoredInAnyCasingOrSpacingIsStillExcluded() throws Exception {
+        for (String spelling : new String[] {
+                OWN_SECOND_IBAN,
+                OWN_SECOND_IBAN.toLowerCase(java.util.Locale.ROOT),
+                "cz43 0800 0000 1920 0014 5407" }) {
+            JsonTransfer inward = sent(5002, "9000.00");
+            inward.targetIbanSnapshot = spelling;
+
+            JsonTransferRepository transfers = repositoryOver(sent(5001, "1000.00"), inward);
+
+            assertEquals(Money.czk(new BigDecimal("1000.00")),
+                    transfers.sentTotalLeavingCustomerBetween(
+                            List.of(ACCOUNT), List.of(OWN_SECOND_IBAN), DAY_START, NEXT_DAY),
+                    "a row landing on the customer's own account, stored as '" + spelling
+                            + "', has not left them");
+        }
+    }
+
+    /**
+     * The exclusion list is spelled loosely too, and for the same reason: it is built from whatever
+     * the customer's account rows hold, and comparing one normalized side against one raw side is a
+     * predicate that answers correctly only by luck.
+     */
+    @Test
+    void theExclusionListIsNormalizedAsWellAsTheStoredSnapshot() throws Exception {
+        JsonTransfer inward = sent(5002, "9000.00");
+        inward.targetIbanSnapshot = OWN_SECOND_IBAN;
+
+        JsonTransferRepository transfers = repositoryOver(sent(5001, "1000.00"), inward);
+
+        assertEquals(Money.czk(new BigDecimal("1000.00")),
+                transfers.sentTotalLeavingCustomerBetween(
+                        List.of(ACCOUNT), List.of("cz43 0800 0000 1920 0014 5407"),
+                        DAY_START, NEXT_DAY),
+                "however the caller spells its own IBAN, it names the same account");
+    }
+
+    /**
+     * A row this store cannot say the destination of is COUNTED, and that is the safe direction.
+     *
+     * The snapshot is NOT NULL on the SQL backend only, so this row exists here alone. Treating
+     * "no destination" as "no exclusion matched" costs at most a day total that is too high, and
+     * the customer is refused sooner than they need be; treating it as an internal move would let
+     * a row with the field cleared spend nothing at all, which is a way past the ceiling that
+     * needs no more than a text editor.
+     */
+    @Test
+    void aRowWithNoStoredDestinationIsCountedRatherThanTakenForAnInternalMove() throws Exception {
+        JsonTransfer unaddressed = sent(5002, "9000.00");
+        unaddressed.targetIbanSnapshot = null;
+
+        JsonTransferRepository transfers = repositoryOver(sent(5001, "1000.00"), unaddressed);
+
+        assertEquals(Money.czk(new BigDecimal("10000.00")),
+                transfers.sentTotalLeavingCustomerBetween(
+                        List.of(ACCOUNT), List.of(OWN_SECOND_IBAN), DAY_START, NEXT_DAY),
+                "a missing destination matches no exclusion, so the money counts as gone");
+    }
+
+    /**
+     * The two degenerate collections, stated because one of them is what makes
+     * {@code sentTotalBetween} a default over this method rather than a query of its own.
+     */
+    @Test
+    void noAccountsIsZeroAndNoExclusionsDropsNothing() throws Exception {
+        JsonTransfer inward = sent(5002, "9000.00");
+        inward.targetIbanSnapshot = OWN_SECOND_IBAN;
+
+        JsonTransferRepository transfers = repositoryOver(sent(5001, "1000.00"), inward);
+
+        assertEquals(Money.czk(new BigDecimal("0.00")),
+                transfers.sentTotalLeavingCustomerBetween(
+                        List.of(), List.of(OWN_SECOND_IBAN), DAY_START, NEXT_DAY),
+                "a customer holding no account has sent nothing");
+
+        assertEquals(Money.czk(new BigDecimal("10000.00")),
+                transfers.sentTotalLeavingCustomerBetween(
+                        List.of(ACCOUNT), List.of(), DAY_START, NEXT_DAY),
+                "and with nothing to exclude this is the plain per-account total");
     }
 
     // -------------------------------------------------------------------------

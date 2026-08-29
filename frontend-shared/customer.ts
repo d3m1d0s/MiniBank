@@ -1,6 +1,6 @@
 /**
- * The customer's half of the API: the accounts they hold, one payment read back in full, what a
- * payment would cost before it is sent, and who is signed in.
+ * The customer's half of the API: the accounts they hold and the one day those accounts share, one
+ * payment read back in full, what a payment would cost before it is sent, and who is signed in.
  *
  * Shapes, and ONE call. The fraud desk exists twice, so its calls are shared next door in fraud.ts;
  * the customer screens exist once so far, and each application's own api.ts owns the fetching. What
@@ -46,37 +46,62 @@ export type UserRole = LoginResponse['role'];
 export type DispatchState = 'PENDING' | 'DISPATCHED';
 
 /**
- * One account of the signed-in customer, with the three numbers that decide what may leave it.
+ * One account of the signed-in customer: which one it is, and what is on it.
  *
- * The limits used to be invisible, and the two-tier behaviour they produce therefore looked
- * arbitrary from outside: the same amount settled at once in the morning and asked for a one time
- * code in the afternoon, with nothing on any screen saying that the difference was the day's
- * running total.
+ * Three fields, and what it no longer carries is the point. A ceiling and a day's running total
+ * used to ride on every row, and they are facts about the person rather than about the account:
+ * the customer holds ONE day across everything they hold, not one day per account that adds up.
+ * Both moved to {@link DailyOutflow}, where there is exactly one of them. Printed per row they
+ * offered a reader two allowances, neither of which was theirs, and read literally they said a
+ * payment could be halved across two of the reader's own accounts to stay inside both.
  */
 export interface AccountSummary {
     id: number;
     iban: string;
     balance: Money;
-    /** The hard ceiling on what may leave this account in one banking day, fees excluded. */
-    dailyLimit: Money;
-    /**
-     * The day total above which this account asks for a one time code, or null when the account
-     * has no tier of its own and the bank-wide one applies.
-     *
-     * Null is not resolved to that bank-wide number, here or on the server, and a screen must not
-     * resolve it either: printed on a row it would state as a property of this account a figure
-     * that belongs to the bank and moves when the bank moves it.
-     */
-    softDailyThreshold: Money | null;
-    /**
-     * What has actually SETTLED out of this account today, fees excluded, over the bank's own
-     * day in Europe/Prague.
-     *
-     * It is what both limits above are measured against, so without it they are two thresholds and
-     * no reading. A payment waiting for its code has moved nothing and counts nothing, which is
-     * the same rule the refusal itself applies.
-     */
-    spentToday: Money;
+}
+
+/**
+ * The customer's day: how much has already left them, and how much they were allowed.
+ *
+ * One figure per person. `sentOut` is what has actually SETTLED out of every account this customer
+ * holds today, fees excluded, over the bank's own day in Europe/Prague, LESS whatever only moved
+ * between two accounts they hold themselves. That subtraction is what makes the number a day's
+ * spending rather than a day's traffic: money landing on the payer's own second account has not
+ * left them, and counting it would let a ceiling be spent without a crown going anywhere. A
+ * payment still waiting for its code has moved nothing and counts nothing, which is the rule the
+ * refusal itself applies.
+ *
+ * `limit` is the hard ceiling the next payment is refused against. Strictly above refuses: a day
+ * landing exactly on the limit still settles.
+ *
+ * WHAT IS DELIBERATELY NOT HERE is the softer tier, the day total above which the bank stops
+ * settling at once and asks for a one time code. It was on this record's ancestor and read as a
+ * number the customer could steer by, which is the objection to publishing it: it is the height of
+ * a fence, and the other two fences the bank keeps are not published either. The question a form
+ * actually asks is about the payment in front of it, and that is answered exactly, per payment, by
+ * {@link PaymentQuote.authorizationRequired} before it is sent.
+ */
+export interface DailyOutflow {
+    sentOut: Money;
+    limit: Money;
+}
+
+/**
+ * What `GET /api/me/accounts` answers: the accounts, and the one day they share.
+ *
+ * The day travels with the accounts rather than on a route of its own because the two go stale
+ * together. Every screen reloads balances because a payment has just moved money, and that same
+ * payment is what moved the day's total; fetched separately they would be read against each other
+ * while one of them was older than the other.
+ *
+ * The list is under a name now instead of being the body. An array had nowhere to put a fact about
+ * the customer, which is how the day's ceiling came to be stamped onto every account in the first
+ * place.
+ */
+export interface MyAccountsResponse {
+    accounts: AccountSummary[];
+    today: DailyOutflow;
 }
 
 /**

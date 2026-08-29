@@ -119,7 +119,7 @@ class WritePathsAnswerFromTheirOwnTransactionTest {
                 customers, accounts, transfers, alerts, infra.uowFactory);
 
         paymentController = new PaymentController(services.transferService, accounts,
-                services.ownershipGuard, transfers, services.feePolicy, infra.uowFactory);
+                services.ownershipGuard, services.feePolicy, infra.uowFactory);
         authorizationController = new AuthorizationController(services.transferService, accounts,
                 transfers, services.feePolicy, services.ownershipGuard, infra.uowFactory);
 
@@ -179,12 +179,11 @@ class WritePathsAnswerFromTheirOwnTransactionTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             int customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Payer", "payer@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), Money.czk(4_000_000), null);
             infra.customers.save(c);
 
             accountId = infra.accounts.nextId();
-            infra.accounts.save(new Account(accountId, PAYER_IBAN,
-                    Money.czk(5_000_000), Money.czk(4_000_000), null));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, Money.czk(5_000_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
 

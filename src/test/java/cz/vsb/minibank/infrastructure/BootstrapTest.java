@@ -55,7 +55,8 @@ class BootstrapTest {
                     "email" : "demo@example.com",
                     "address" : { "street" : "Hlavni 1", "city" : "Ostrava" },
                     "accountIds" : [ ],
-                    "beneficiaries" : [ ]
+                    "beneficiaries" : [ ],
+                    "dailyLimit" : 40000.00
                   } ],
                   "accounts" : [ ],
                   "transfers" : [ ],

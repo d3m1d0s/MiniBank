@@ -90,7 +90,8 @@ public class MinibankSqlUowTests {
                     customerId,
                     "SQL User",
                     "sql@example.com",
-                    new Address("Street 1", "City")
+                    new Address("Street 1", "City"),
+                    Money.czk(5_000)
             );
             infra.customers.save(c);
 
@@ -99,8 +100,7 @@ public class MinibankSqlUowTests {
             Account a = new Account(
                     accountId,
                     new IBAN("CZ6508000000192000145399"),
-                    Money.czk(20_000),
-                    Money.czk(5_000)
+                    Money.czk(20_000)
             );
             infra.accounts.save(a);
 
@@ -146,7 +146,8 @@ public class MinibankSqlUowTests {
                     customerId,
                     "Lazy SQL User",
                     "lazy-sql@example.com",
-                    new Address("Street 1", "City")
+                    new Address("Street 1", "City"),
+                    Money.czk(5_000)
             );
             infra.customers.save(c);
             uow1.commit();
@@ -221,7 +222,8 @@ public class MinibankSqlUowTests {
                     customerId,
                     "Transfer User",
                     "transfer@example.com",
-                    new Address("Street 1", "City")
+                    new Address("Street 1", "City"),
+                    Money.czk(5_000)
             );
             infra.customers.save(c);
 
@@ -229,8 +231,7 @@ public class MinibankSqlUowTests {
             Account a = new Account(
                     accountId,
                     new IBAN("CZ6508000000192000145399"),
-                    Money.czk(10_000),
-                    Money.czk(5_000)
+                    Money.czk(10_000)
             );
             infra.accounts.save(a);
 
@@ -319,7 +320,8 @@ public class MinibankSqlUowTests {
                     customerId,
                     "Fraud User",
                     "fraud@example.com",
-                    new Address("Street 1", "City")
+                    new Address("Street 1", "City"),
+                    Money.czk(2_000)
             );
             infra.customers.save(c);
 
@@ -327,8 +329,7 @@ public class MinibankSqlUowTests {
             Account a = new Account(
                     accountId,
                     new IBAN("CZ6508000000192000145399"),
-                    Money.czk(5_000),
-                    Money.czk(2_000)
+                    Money.czk(5_000)
             );
             infra.accounts.save(a);
 
@@ -434,7 +435,8 @@ public class MinibankSqlUowTests {
                     customerId,
                     "ByCustomer User",
                     "bycustomer@example.com",
-                    new Address("Street 1", "City")
+                    new Address("Street 1", "City"),
+                    Money.czk(3_000)
             );
             infra.customers.save(c);
 
@@ -442,8 +444,7 @@ public class MinibankSqlUowTests {
             Account a = new Account(
                     accountId,
                     new IBAN("CZ6508000000192000145399"),
-                    Money.czk(15_000),
-                    Money.czk(3_000)
+                    Money.czk(15_000)
             );
             infra.accounts.save(a);
 
@@ -490,7 +491,8 @@ public class MinibankSqlUowTests {
                     customerId,
                     "Rollback User",
                     "rollback@example.com",
-                    new Address("Street 1", "City")
+                    new Address("Street 1", "City"),
+                    Money.czk(2_000)
             );
             infra.customers.save(c);
 
@@ -498,8 +500,7 @@ public class MinibankSqlUowTests {
             Account a = new Account(
                     accountId,
                     new IBAN("CZ6508000000192000145399"),
-                    Money.czk(7_000),
-                    Money.czk(2_000)
+                    Money.czk(7_000)
             );
             infra.accounts.save(a);
 
@@ -548,7 +549,8 @@ public class MinibankSqlUowTests {
                     customerId,
                     "Money User",
                     "money@example.com",
-                    new Address("Street 1", "City")
+                    new Address("Street 1", "City"),
+                    initialLimit
             );
             infra.customers.save(c);
 
@@ -556,8 +558,7 @@ public class MinibankSqlUowTests {
             Account a = new Account(
                     accountId,
                     new IBAN("CZ6508000000192000145399"),
-                    initialBalance,
-                    initialLimit
+                    initialBalance
             );
             infra.accounts.save(a);
 
@@ -579,9 +580,14 @@ public class MinibankSqlUowTests {
                     "Balance must be preserved with cents between domain Money and SQL NUMERIC"
             );
 
+            // The ceiling is on the customer row now, so the second half of this round trip is
+            // asked of the customer. Same property, different table.
+            Customer reloadedOwner = infra.customers.byId(customerId)
+                    .orElseThrow(() -> new AssertionError("Customer must be persisted in DB"));
+
             assertEquals(
                     0,
-                    initialLimit.amount().compareTo(reloaded.dailyLimit().amount()),
+                    initialLimit.amount().compareTo(reloadedOwner.dailyLimit().amount()),
                     "Daily limit must be preserved with cents between domain Money and SQL NUMERIC"
             );
 
@@ -631,12 +637,12 @@ public class MinibankSqlUowTests {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             strangerId = infra.customers.nextId();
             Customer stranger = new Customer(strangerId, "Stranger", "stranger@example.com",
-                    new Address("Elsewhere 1", "Brno"));
+                    new Address("Elsewhere 1", "Brno"), Money.czk(5_000));
             infra.customers.save(stranger);
 
             int strangerAccount = infra.accounts.nextId();
             infra.accounts.save(new Account(strangerAccount, new IBAN("CZ7408000000192000145431"),
-                    Money.czk(20_000), Money.czk(5_000)));
+                    Money.czk(20_000)));
             stranger.addAccountId(strangerAccount);
             infra.customers.save(stranger);
 
@@ -686,20 +692,20 @@ public class MinibankSqlUowTests {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             payerId = infra.customers.nextId();
             Customer payer = new Customer(payerId, "Payer", "payer@example.com",
-                    new Address("Street 1", "City"));
+                    new Address("Street 1", "City"), Money.czk(20_000));
             infra.customers.save(payer);
             payerAccount = infra.accounts.nextId();
-            infra.accounts.save(new Account(payerAccount, payerIban, opening, Money.czk(20_000)));
+            infra.accounts.save(new Account(payerAccount, payerIban, opening));
             payer.addAccountId(payerAccount);
             // The second save is what writes accounts.customer_id; see DemoScenario.create.
             infra.customers.save(payer);
 
             int payeeId = infra.customers.nextId();
             Customer payee = new Customer(payeeId, "Payee", "payee@example.com",
-                    new Address("Street 2", "City"));
+                    new Address("Street 2", "City"), Money.czk(20_000));
             infra.customers.save(payee);
             payeeAccount = infra.accounts.nextId();
-            infra.accounts.save(new Account(payeeAccount, payeeIban, opening, Money.czk(20_000)));
+            infra.accounts.save(new Account(payeeAccount, payeeIban, opening));
             payee.addAccountId(payeeAccount);
             infra.customers.save(payee);
 
@@ -748,7 +754,7 @@ public class MinibankSqlUowTests {
 
             customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Claims Too Much", "claims@example.com",
-                    new Address("Street 1", "City"));
+                    new Address("Street 1", "City"), Money.czk(5_000));
 
             // A genuine id off the accounts sequence that no row is ever written for, which is
             // the shape a stale or simply wrong entry in accountIds has. The first id off that
@@ -798,12 +804,12 @@ public class MinibankSqlUowTests {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Ordinary Owner", "ordinary@example.com",
-                    new Address("Street 1", "City"));
+                    new Address("Street 1", "City"), Money.czk(3_000));
             infra.customers.save(c);
 
             accountId = infra.accounts.nextId();
             infra.accounts.save(new Account(accountId, new IBAN("CZ6508000000192000145399"),
-                    Money.czk(9_000), Money.czk(3_000)));
+                    Money.czk(9_000)));
 
             c.addAccountId(accountId);
             infra.customers.save(c);
@@ -841,12 +847,12 @@ public class MinibankSqlUowTests {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             int customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Ordering User", "ordering@example.com",
-                    new Address("Street 1", "City"));
+                    new Address("Street 1", "City"), Money.czk(50_000));
             infra.customers.save(c);
 
             int accountId = infra.accounts.nextId();
             infra.accounts.save(new Account(accountId, new IBAN("CZ6508000000192000145399"),
-                    Money.czk(50_000), Money.czk(50_000)));
+                    Money.czk(50_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
 
@@ -1035,22 +1041,20 @@ public class MinibankSqlUowTests {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             int payerId = infra.customers.nextId();
             Customer payer = new Customer(payerId, "Dispatch Payer", "dispatch-payer@example.com",
-                    new Address("Street 1", "City"));
+                    new Address("Street 1", "City"), Money.czk(20_000));
             infra.customers.save(payer);
             int payerAccount = infra.accounts.nextId();
-            infra.accounts.save(new Account(payerAccount, payerIban,
-                    Money.czk(50_000), Money.czk(20_000)));
+            infra.accounts.save(new Account(payerAccount, payerIban, Money.czk(50_000)));
             payer.addAccountId(payerAccount);
             // The second save is what writes accounts.customer_id; see DemoScenario.create.
             infra.customers.save(payer);
 
             int payeeId = infra.customers.nextId();
             Customer payee = new Customer(payeeId, "Dispatch Payee", "dispatch-payee@example.com",
-                    new Address("Street 2", "City"));
+                    new Address("Street 2", "City"), Money.czk(20_000));
             infra.customers.save(payee);
             int payeeAccount = infra.accounts.nextId();
-            infra.accounts.save(new Account(payeeAccount, payeeIban,
-                    Money.czk(50_000), Money.czk(20_000)));
+            infra.accounts.save(new Account(payeeAccount, payeeIban, Money.czk(50_000)));
             payee.addAccountId(payeeAccount);
             infra.customers.save(payee);
 

@@ -81,6 +81,9 @@ public class SqlSchemaPassTest {
     private static final IBAN PAYER_IBAN = new IBAN("CZ6508000000192000145399");
     private static final IBAN EXTERNAL_IBAN = new IBAN("CZ2001000000000012345678");
 
+    /** A second account of the payer's own customer, which the day's total must not count. */
+    private static final IBAN OWN_SECOND_IBAN = new IBAN("CZ4308000000192000145407");
+
     @BeforeAll
     static void probeTestDatabase() {
         TestDatabase.requireSeparateFromApplicationDatabase();
@@ -830,24 +833,25 @@ public class SqlSchemaPassTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             UnitOfWork uow = scope.uow();
             customerId = infra.customers.nextId();
+            // A soft tier of its own, below the ceiling, so the customer really has two tiers.
             Customer c = new Customer(customerId, "Schema Probe", "schema@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), Money.czk(400_000), Money.czk(3_000));
             infra.customers.save(c);
 
             accountId = infra.accounts.nextId();
-            // A soft tier of its own, below the ceiling, so the account really has two tiers.
-            infra.accounts.save(new Account(accountId, PAYER_IBAN,
-                    Money.czk(500_000), Money.czk(400_000), Money.czk(3_000)));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, Money.czk(500_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
             uow.commit();
         }
 
-        Account reloaded = infra.accounts.byId(accountId).orElseThrow();
-        assertNotNull(reloaded.softDailyThreshold(), "the per-account soft tier must come back");
+        Customer reloaded = infra.customers.byId(customerId).orElseThrow();
+        assertNotNull(reloaded.softDailyThreshold(), "the customer's soft tier must come back");
         assertEquals(0, Money.czk(3_000).amount().compareTo(reloaded.softDailyThreshold().amount()));
+        assertEquals(0, Money.czk(400_000).amount().compareTo(reloaded.dailyLimit().amount()),
+                "and so must the ceiling beside it");
 
-        // 2 500 is under this account's own 3 000 tier and under every untrusted threshold, so
+        // 2 500 is under this customer's own 3 000 tier and under every untrusted threshold, so
         // it settles at creation and carries a fee and a settlement instant.
         int settled = services.transferService.submitPaymentToIban(
                 customerId, accountId, EXTERNAL_IBAN.value(), 2_500, "invoice 2026/03").transferId();
@@ -861,7 +865,7 @@ public class SqlSchemaPassTest {
         assertEquals("invoice 2026/03", t.message(),
                 "the payment reference must survive the store, not be accepted and dropped");
 
-        // 3 500 crosses this account's own tier, so it waits - and while it waits it has no fee
+        // 3 500 crosses this customer's own tier, so it waits - and while it waits it has no fee
         // and no settlement instant, which must round-trip as null rather than as zero.
         int waiting = services.transferService.submitPaymentToIban(
                 customerId, accountId, EXTERNAL_IBAN.value(), 3_500, null).transferId();
@@ -919,15 +923,14 @@ public class SqlSchemaPassTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             UnitOfWork uow = scope.uow();
             customerId = infra.customers.nextId();
+            // A soft tier far below the ceiling, so an amount can cross the tier without coming
+            // anywhere near the daily limit and no second rule can be what routed the payment.
             Customer c = new Customer(customerId, "Version Probe", "version@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), Money.czk(400_000), Money.czk(3_000));
             infra.customers.save(c);
 
             accountId = infra.accounts.nextId();
-            // A soft tier far below the ceiling, so an amount can cross the tier without coming
-            // anywhere near the daily limit and no second rule can be what routed the payment.
-            infra.accounts.save(new Account(accountId, PAYER_IBAN,
-                    Money.czk(500_000), Money.czk(400_000), Money.czk(3_000)));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, Money.czk(500_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
             uow.commit();
@@ -939,7 +942,7 @@ public class SqlSchemaPassTest {
         int afterSeeding = versionOf(accountId);
         assertEquals(0, afterSeeding, "seeding an account is one insert and no guarded write");
 
-        // 3 500 crosses this account's own 3 000 tier and nothing else: below the untrusted
+        // 3 500 crosses this customer's own 3 000 tier and nothing else: below the untrusted
         // single-amount threshold, below the alert threshold, far below the ceiling.
         int waiting = services.transferService.submitPaymentToIban(
                 customerId, accountId, EXTERNAL_IBAN.value(), 3_500, null).transferId();
@@ -971,20 +974,93 @@ public class SqlSchemaPassTest {
                         + " must not drop the one that persists a balance");
     }
 
+    /**
+     * The day's total drops what only moved to another account of the same customer, and it
+     * decides that on NORMALIZED IBANs on both sides of the comparison.
+     *
+     * This is the one predicate of the customer-wide total that is written in SQL rather than in
+     * Java, and it is written as {@code <> ALL} over an array of normalized snapshots. A plain
+     * {@code =} would be wrong and not merely strict: {@link Transfer} takes its destination as a
+     * plain String and validates only the amount, so a row holding {@code "cz43 0800 ..."} is
+     * reachable through the public constructor and is stored exactly as it was typed. Compared as
+     * it stands it is a different account from the customer's own, the internal move is counted as
+     * having left them, and the day inflates by an amount that never went anywhere.
+     *
+     * Both spellings are inserted behind the domain's back, because that is the only way to put a
+     * denormalized snapshot in the column, and because what is under test is the statement and not
+     * the writer. The row to a genuinely foreign IBAN is there to show the exclusion is a
+     * destination test and not the query answering zero.
+     */
+    @Test
+    void theDayTotalDropsTheCustomersOwnIbanHoweverTheSnapshotIsSpelled() throws Exception {
+        int accountId = seedAccount(Money.czk(500_000), Money.czk(400_000), null);
+
+        Instant when = Instant.now();
+        insertRawSettledTransferTo(accountId, EXTERNAL_IBAN.value(), "1000.00", when);
+        insertRawSettledTransferTo(accountId, OWN_SECOND_IBAN.value(), "4000.00", when);
+        insertRawSettledTransferTo(accountId, "cz43 0800 0000 1920 0014 5407", "5000.00", when);
+
+        Instant from = when.minusSeconds(300);
+        Instant to = when.plusSeconds(300);
+
+        assertEquals(0, Money.czk(10_000).amount().compareTo(
+                        infra.transfers.sentTotalBetween(accountId, from, to).amount()),
+                "the plain per-account total excludes nothing, so all three rows are in it");
+
+        assertEquals(0, Money.czk(1_000).amount().compareTo(
+                        infra.transfers.sentTotalLeavingCustomerBetween(
+                                List.of(accountId), List.of(OWN_SECOND_IBAN.value()), from, to)
+                                .amount()),
+                "both spellings of the customer's own account are dropped, and only the payment"
+                        + " that really left is left standing");
+
+        assertEquals(0, Money.czk(1_000).amount().compareTo(
+                        infra.transfers.sentTotalLeavingCustomerBetween(
+                                List.of(accountId),
+                                List.of("cz43 0800 0000 1920 0014 5407"), from, to)
+                                .amount()),
+                "and the exclusion list is normalized too: the caller builds it from stored"
+                        + " account rows and may spell it either way");
+    }
+
     // ------------------------------------------------------------------
     // fixture and plumbing
     // ------------------------------------------------------------------
+
+    /**
+     * A settled row with a destination of the caller's choosing, written straight into the table.
+     *
+     * The application cannot produce a denormalized snapshot through the API - IBAN normalizes on
+     * construction - so the row the SQL predicate has to survive can only be inserted like this.
+     */
+    private void insertRawSettledTransferTo(int accountId, String targetIban, String amount,
+                                            Instant when) throws SQLException {
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
+             PreparedStatement ps = conn.prepareStatement("""
+                     INSERT INTO transfers
+                         (id, source_account_id, target_iban_snapshot, amount, currency, status,
+                          created_at, settled_at)
+                     VALUES (nextval('transfers_id_seq'), ?, ?, ?::numeric, 'CZK', 'SENT', ?, ?)
+                     """)) {
+            ps.setInt(1, accountId);
+            ps.setString(2, targetIban);
+            ps.setString(3, amount);
+            ps.setTimestamp(4, java.sql.Timestamp.from(when));
+            ps.setTimestamp(5, java.sql.Timestamp.from(when));
+            ps.executeUpdate();
+        }
+    }
 
     private int seedAccount(Money balance, Money dailyLimit, Money softTier) {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             UnitOfWork uow = scope.uow();
             int customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Race Probe", "race@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), dailyLimit, softTier);
             infra.customers.save(c);
 
             int accountId = infra.accounts.nextId();
-            infra.accounts.save(new Account(accountId, PAYER_IBAN, balance, dailyLimit, softTier));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, balance));
             c.addAccountId(accountId);
             infra.customers.save(c);
 
@@ -1029,12 +1105,11 @@ public class SqlSchemaPassTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Alert Probe", "alert@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), Money.czk(400_000), Money.czk(3_000));
             infra.customers.save(c);
 
             accountId = infra.accounts.nextId();
-            infra.accounts.save(new Account(accountId, PAYER_IBAN,
-                    Money.czk(500_000), Money.czk(400_000), Money.czk(3_000)));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, Money.czk(500_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
             scope.uow().commit();
@@ -1054,7 +1129,7 @@ public class SqlSchemaPassTest {
     /**
      * A payment parked at WAITING_AUTH, through the production services.
      *
-     * The account gets a soft tier of 3 000 and the payment is 3 500, so it crosses that tier and
+     * The customer gets a soft tier of 3 000 and the payment is 3 500, so it crosses that tier and
      * waits. Below every other threshold on purpose: nothing else may be what stopped it, or the
      * fixture would be testing the wrong rule.
      */
@@ -1068,12 +1143,11 @@ public class SqlSchemaPassTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Race Probe", "race@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), Money.czk(400_000), Money.czk(3_000));
             infra.customers.save(c);
 
             accountId = infra.accounts.nextId();
-            infra.accounts.save(new Account(accountId, PAYER_IBAN,
-                    Money.czk(500_000), Money.czk(400_000), Money.czk(3_000)));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, Money.czk(500_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
             scope.uow().commit();

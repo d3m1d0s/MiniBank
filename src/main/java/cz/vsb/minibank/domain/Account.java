@@ -8,28 +8,25 @@ import cz.vsb.minibank.domain.value.Money;
 import java.util.Objects;
 
 /**
- * Bank account aggregate with balance, daily ceiling and its own soft authorization tier.
+ * Bank account aggregate: an IBAN and a balance.
  *
  * It no longer carries a list of its outgoing transfers. Nothing in production behaviour read
  * that list - every real "transfers of this account" question is answered by
  * TransferRepository.bySourceAccount, which is indexed - and the SQL backend has always
  * discarded it, so the two backends modelled the same aggregate differently and a JSON-only
  * test asserted an invariant SQL could not hold.
+ *
+ * It no longer carries a daily ceiling or a soft authorization tier either. Both moved to
+ * {@link Customer}, because both are limits on a person and an account-keyed limit is not one: a
+ * customer holding two accounts had two independent daily allowances and could spend the sum of
+ * them by paying half out of each, which is precisely the splitting this application exists to
+ * notice. See Customer.dailyLimit for what the limit now measures.
  */
 public class Account {
 
     private int id;
     private IBAN iban;
     private Money balance;
-    private Money dailyLimit;
-
-    /**
-     * This account's own soft authorization tier, or null to use the bank-wide one.
-     *
-     * Nullable rather than defaulted, because "this account has no opinion" and "this account
-     * asks for authorization above zero" are different rules and a Money cannot say both.
-     */
-    private Money softDailyThreshold;
 
     /**
      * The version the store holds for this row, or 0 for an account no store has seen.
@@ -43,22 +40,10 @@ public class Account {
      */
     private int version;
 
-    public Account(int id, IBAN iban, Money balance, Money dailyLimit) {
-        this(id, iban, balance, dailyLimit, null);
-    }
-
-    /**
-     * @param softDailyThreshold this account's own soft authorization tier, or null to use the
-     *                           bank-wide one. The four-argument constructor is kept because
-     *                           most call sites have no opinion about a soft tier and adding a
-     *                           fifth argument to all of them would be churn that says nothing.
-     */
-    public Account(int id, IBAN iban, Money balance, Money dailyLimit, Money softDailyThreshold) {
+    public Account(int id, IBAN iban, Money balance) {
         this.id = id;
         this.iban = Objects.requireNonNull(iban);
         this.balance = Objects.requireNonNull(balance);
-        this.dailyLimit = Objects.requireNonNull(dailyLimit);
-        this.softDailyThreshold = softDailyThreshold;
     }
 
     /**
@@ -98,7 +83,7 @@ public class Account {
      *
      * No fee argument: the fee is charged to the sender in {@link #debit} and is not taken a
      * second time here. The daily limit is not consulted either, because it caps what leaves
-     * an account, not what arrives.
+     * the customer, not what arrives.
      *
      * @throws InvalidAmountException when the amount is not positive
      */
@@ -132,10 +117,5 @@ public class Account {
     public int id() { return id; }
     public IBAN iban() { return iban; }
     public Money balance() { return balance; }
-    public Money dailyLimit() { return dailyLimit; }
-
-    /** This account's own soft authorization tier, or null when it uses the bank-wide one. */
-    public Money softDailyThreshold() { return softDailyThreshold; }
-
     public int version() { return version; }
 }

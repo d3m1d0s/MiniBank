@@ -698,19 +698,31 @@ public final class SqlTransferRepository implements TransferRepository {
     }
 
     @Override
-    public Money sentTotalBetween(int accountId, Instant fromInclusive, Instant toExclusive) {
+    public Money sentTotalLeavingCustomerBetween(Collection<Integer> accountIds,
+                                                 Collection<String> ownIbans,
+                                                 Instant fromInclusive, Instant toExclusive) {
+        // Answered without a statement and without a connection, like the page query above: a
+        // customer with no accounts has sent nothing, and SUM over no rows is the same zero this
+        // returns.
+        if (accountIds.isEmpty()) {
+            return Money.czk(0.0);
+        }
+
         UnitOfWork uow = UowContext.current();
 
         try {
             if (uow instanceof SqlUnitOfWork sqlUow) {
-                return sumSentWithConnection(sqlUow.connection(), accountId, fromInclusive, toExclusive);
+                return sumLeavingCustomerWithConnection(
+                        sqlUow.connection(), accountIds, ownIbans, fromInclusive, toExclusive);
             } else {
                 try (Connection conn = DriverManager.getConnection(url, user, password)) {
-                    return sumSentWithConnection(conn, accountId, fromInclusive, toExclusive);
+                    return sumLeavingCustomerWithConnection(
+                            conn, accountIds, ownIbans, fromInclusive, toExclusive);
                 }
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Failed to total sent transfers for accountId=" + accountId, e);
+            throw new RuntimeException(
+                    "Failed to total sent transfers for accountIds=" + accountIds, e);
         }
     }
 
@@ -796,7 +808,7 @@ public final class SqlTransferRepository implements TransferRepository {
     }
 
     /**
-     * One aggregate row instead of every transfer the account has ever made, and no identity
+     * One aggregate row instead of every transfer the customer has ever made, and no identity
      * map: the total must be what the store holds, not what this transaction has in memory.
      *
      * The day a payment counts against is the day it settled, which is the day the money
@@ -809,38 +821,85 @@ public final class SqlTransferRepository implements TransferRepository {
      * so; transfers_currency_czk now refuses such a row outright, and this stays because the
      * aggregate reads the column without building a Transfer out of any row it counts.
      *
-     * idx_transfers_daily_total serves every predicate above bar the currency, which is left out
-     * of it deliberately: source_account_id and status lead the index and
-     * COALESCE(settled_at, created_at) is its third key, written there as the same expression
-     * this query writes or the planner would not match it. This paragraph named
-     * idx_transfers_source_account and said the time predicate was never index-served; the
-     * composite index subsumed the one and answered the other, and db/init/schema.sql no longer
-     * creates the index it named.
+     * THE ACCOUNT PREDICATE IS A SET because the ceiling is a limit on a person: see
+     * {@link cz.vsb.minibank.domain.Customer#dailyLimit}. It is {@code = ANY (?)} over one bound
+     * array for the reasons {@link #sumSentToIbanWithConnection} gives in full and does not repeat
+     * here - an IN list would put values in the statement text, generated placeholders would give
+     * the query a different text per number of accounts.
+     *
+     * THE DESTINATION PREDICATE IS THE EXCLUSION, and it is what stops a customer inflating the
+     * day's total by moving money between two accounts they hold: such a payment leaves one of
+     * these accounts and arrives on another, so it has not left the customer, and summing both
+     * accounts without dropping it would count it. {@code <> ALL} over the empty array is true,
+     * which is what makes the single-account default on the interface a call to this method with
+     * nothing to exclude. NULL is filtered out of the array by {@link #normalizedIbans}, and it
+     * has to be: one NULL element makes {@code <> ALL} answer NULL for every row and the total
+     * collapses to zero.
+     *
+     * Both sides are compared NORMALIZED, which is what {@code IBAN.normalize} does in Java and
+     * what the two expressions here do in SQL: {@code Transfer} takes the snapshot as a plain
+     * String and validates only the amount, so a row holding {@code "cz43 0800 ..."} is reachable
+     * through the public constructor. The IS NULL arm counts a row whose destination is missing
+     * rather than excluding it - a row this bank cannot say the destination of is not one it may
+     * treat as an internal move - and it is unreachable on this backend, where
+     * target_iban_snapshot is NOT NULL. It is written anyway so that both backends state one rule.
+     *
+     * idx_transfers_daily_total serves the account membership and the status, and its third key is
+     * COALESCE(settled_at, created_at) written as the same expression this query writes or the
+     * planner would not match it. The currency is deliberately not in it, and neither is the
+     * destination: the planner reads {@code = ANY} on the leading column as the set of index scans
+     * it is, and both are filters applied to whatever rows that leaves.
      */
-    private Money sumSentWithConnection(Connection conn, int accountId,
-                                        Instant fromInclusive, Instant toExclusive) throws SQLException {
+    private Money sumLeavingCustomerWithConnection(Connection conn, Collection<Integer> accountIds,
+                                                   Collection<String> ownIbans,
+                                                   Instant fromInclusive, Instant toExclusive)
+            throws SQLException {
 
         String sql = """
         SELECT COALESCE(SUM(amount), 0)
           FROM transfers
-         WHERE source_account_id = ?
+         WHERE source_account_id = ANY (?)
            AND status = ?
            AND currency = ?
+           AND (target_iban_snapshot IS NULL
+                OR UPPER(REGEXP_REPLACE(target_iban_snapshot, '\\s', '', 'g')) <> ALL (?))
            AND COALESCE(settled_at, created_at) >= ?
            AND COALESCE(settled_at, created_at) <  ?
         """;
 
+        Array sources = conn.createArrayOf("integer", accountIds.toArray(new Integer[0]));
+        Array own = conn.createArrayOf("varchar", normalizedIbans(ownIbans));
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, accountId);
+            ps.setArray(1, sources);
             ps.setString(2, TransferStatus.SENT.name());
             ps.setString(3, "CZK");
-            ps.setTimestamp(4, Timestamp.from(fromInclusive));
-            ps.setTimestamp(5, Timestamp.from(toExclusive));
+            ps.setArray(4, own);
+            ps.setTimestamp(5, Timestamp.from(fromInclusive));
+            ps.setTimestamp(6, Timestamp.from(toExclusive));
             try (ResultSet rs = ps.executeQuery()) {
                 rs.next();
                 return Money.czk(rs.getBigDecimal(1));
             }
+        } finally {
+            sources.free();
+            own.free();
         }
+    }
+
+    /**
+     * The destinations above, in the form the stored snapshots are compared in, with nothing
+     * unusable left in the array.
+     *
+     * A null survives {@code IBAN.normalize} as a null, and one null in the bound array would make
+     * the {@code <> ALL} test answer NULL on every row rather than true, so the aggregate would
+     * total zero for a customer who has spent all day paying. Dropping it excludes one destination
+     * fewer, which is the safe direction: a payment is counted that might not have needed to be.
+     */
+    private static String[] normalizedIbans(Collection<String> ibans) {
+        return ibans.stream()
+                .map(IBAN::normalize)
+                .filter(Objects::nonNull)
+                .toArray(String[]::new);
     }
 
     // -------------------------------------------------------------------------

@@ -54,6 +54,26 @@ class DemoScenarioTest {
                 "One payee must be an account this bank holds");
     }
 
+    /**
+     * One ceiling for the person, and no soft tier of their own.
+     *
+     * The dataset used to give each account a ceiling of its own - 40 000 and 8 000 - which is
+     * two allowances for one customer and 48 000 spendable behind a 40 000 rule. It also gave the
+     * smaller account a 3 000 soft tier, which existed only to justify a column. What is left is
+     * a single ceiling, and a soft tier that is absent so the bank-wide 15 000 applies: the
+     * threshold DemoRunner's script is written against.
+     */
+    @Test
+    void theCustomerCarriesOneCeilingAndNoSoftTierOfTheirOwn() {
+        int customerId = scenario.seed();
+
+        Customer customer = infra.customers.byId(customerId).orElseThrow();
+        assertEquals(Money.czk(40_000), customer.dailyLimit(),
+                "one ceiling, above the 15 000 the script crosses and above its 23 200 peak");
+        assertNull(customer.softDailyThreshold(),
+                "no override: this customer rides the bank-wide soft tier");
+    }
+
     @Test
     void theSettledTransfersDebitTheAccountUsingTheCurrentFeePolicy() {
         scenario.seed();
@@ -73,7 +93,10 @@ class DemoScenarioTest {
         Money received = receivedBy(primary, savings);
         assertTrue(received.gt(Money.czk(0)), "The savings account must pay the current one");
 
-        assertEquals(Money.czk(25_000).minus(charged).plus(received), primary.balance(),
+        // 50 000, which is deliberately above the customer's 40 000 ceiling: an opening balance
+        // below it would refuse a large payment for want of funds and the ceiling would never get
+        // to speak, so the top of the three outcomes would be unreachable on this dataset.
+        assertEquals(Money.czk(50_000).minus(charged).plus(received), primary.balance(),
                 "The opening balance must be reduced by each settled amount plus its computed fee");
     }
 

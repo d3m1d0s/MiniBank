@@ -63,8 +63,7 @@ class JsonStoreGuardTest {
         Path store = tempDir.resolve("data.json");
 
         Bootstrap writer = new Bootstrap(store.toString());
-        writer.accounts.save(new Account(ACCOUNT_ID, new IBAN(ACCOUNT_IBAN),
-                Money.czk(5_000), Money.czk(10_000)));
+        writer.accounts.save(new Account(ACCOUNT_ID, new IBAN(ACCOUNT_IBAN), Money.czk(5_000)));
 
         Bootstrap reader = new Bootstrap(store.toString());
 
