@@ -1,38 +1,23 @@
 package cz.vsb.minibank.uow;
 
-import java.time.Instant;
 import cz.vsb.minibank.domain.Transfer;
-import java.time.Instant;
 import cz.vsb.minibank.domain.TransferObserver;
-import java.time.Instant;
 import cz.vsb.minibank.domain.TransferStatus;
-import java.time.Instant;
 import cz.vsb.minibank.domain.value.Money;
-import java.time.Instant;
 import cz.vsb.minibank.infrastructure.Bootstrap;
-import java.time.Instant;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
-import java.time.Instant;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
-import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
-import java.time.Instant;
 import org.junit.jupiter.api.Test;
-import java.time.Instant;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.time.Instant;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.time.Instant;
 import java.util.List;
 
-import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**

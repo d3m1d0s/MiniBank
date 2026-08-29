@@ -276,8 +276,16 @@ public final class DemoScenario {
         }
 
         // The three payments that are not history. These carry the states a screen can act on, so
-        // they are dated now rather than back in the fortnight: an alert raised a week ago on a
-        // payment still sitting in the queue would say the desk had been unattended for a week.
+        // they are dated at or near now rather than back in the fortnight: an alert raised a week
+        // ago on a payment still sitting in the queue would say the desk had been unattended for
+        // a week.
+        //
+        // Near, because one of the three is not on the instant. The withdrawn payment is made
+        // twenty hours before it is withdrawn, so that the two ends of a payment are visibly two
+        // facts rather than one timestamp printed twice; its alert is raised with the hold, at
+        // the same twenty-hours-ago instant, because that is when the rules would have raised it.
+        // Twenty hours is inside the day this desk is read on, so it says a case was worked
+        // rather than that it was abandoned.
         flagTransfer(primary, risky, seededAt);
         withdrawnTransfer(primary, risky, seededAt);
         awaitTransfer(primary, trusted, seededAt);
@@ -346,7 +354,12 @@ public final class DemoScenario {
                 "New beneficiary + high amount",
                 80,
                 null,
-                null);
+                null,
+                // The instant this payment was held, which here is the instant the seed runs.
+                // Passed rather than left to the constructor's own clock so that both alerts in
+                // this dataset are dated by the one reading the seed took, and the pair of them
+                // is comparable by construction instead of by how long the seeding took.
+                at);
         alerts.add(alert);
 
         // Triage, written before anybody took the alert, which is the state it is seeded in.
@@ -381,8 +394,8 @@ public final class DemoScenario {
         //
         // It also reads like what it is: a payment sits in the review queue for a while, and the
         // customer gives up on it.
-        Transfer transfer = newTransfer(source, target, WITHDRAWN_AMOUNT,
-                at.minus(Duration.ofHours(20)));
+        Instant heldAt = at.minus(Duration.ofHours(20));
+        Transfer transfer = newTransfer(source, target, WITHDRAWN_AMOUNT, heldAt);
         transfer.holdForReview(new CardPayment(transfer.amount(), "****0000"));
         // Refused at the instant the fixture is seeded, which is the instant the alert beside it
         // is resolved at. The seed reads the clock once for the whole dataset, so the two halves
@@ -391,13 +404,18 @@ public final class DemoScenario {
         transfers.add(transfer);
         accounts.save(source);
 
+        // Raised with the hold it explains, which is the moment the payment was made rather than
+        // the moment this seed runs. Without the instant the alert stamped its own clock reading
+        // and the desk showed a payment created twenty hours before the alert about it, then an
+        // alert raised and resolved in the same second - a sequence the product cannot produce.
         FraudAlert alert = new FraudAlert(
                 alerts.nextId(),
                 transfer.id(),
                 "New beneficiary + high amount",
                 65,
                 DEMO_ANALYST,
-                null);
+                null,
+                heldAt);
         alert.approve(
                 "Customer withdrew the payment before we called. Nothing further to chase.",
                 DEMO_ANALYST,

@@ -1,20 +1,14 @@
 package cz.vsb.minibank.domain;
 
-import java.time.Instant;
 import cz.vsb.minibank.domain.value.Money;
-import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
 
-import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertSame;
-import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**

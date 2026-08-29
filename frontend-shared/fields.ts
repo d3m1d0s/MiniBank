@@ -307,12 +307,16 @@ export const HISTORY_UNDER_ROW_FIELDS: readonly HistoryField[] = [
  * The history fields that open no column of their own, and they do not for two different reasons.
  *
  * Two of them are prose. A sentence somebody wrote has no width to be given, so it stands under
- * the row it belongs to; that is the set above. The other two are numbers with widths, and they
- * are still not columns, because each is the second line of the value it belongs to. The fee read
- * as a column of its own would be a second money value about the same payment, and the customer
- * would have to add the two to learn what left the account. The settlement read as a column of its
- * own would be a second timestamp with nothing beside it saying which question it answers, and it
- * is empty on most of a fraud desk's rows, so it would be a column that is mostly dashes.
+ * the row it belongs to; that is the set above. The other three have widths, and they are still
+ * not columns, because each is the second line of the value it belongs to. The fee read as a
+ * column of its own would be a second money value about the same payment, and the customer would
+ * have to add the two to learn what left the account. The settlement read as a column of its own
+ * would be a second timestamp with nothing beside it saying which question it answers, and it is
+ * empty on most of a fraud desk's rows, so it would be a column that is mostly dashes.
+ *
+ * The refusal instant is the third, and it is the one that could least afford a column: it is the
+ * settlement's alternative rather than its companion, so the two would be a pair of columns that
+ * are never filled on the same row and both empty on everything still in flight.
  */
 export const HISTORY_NON_COLUMN_FIELDS: readonly HistoryField[] = [
     HISTORY_FEE_FIELD,

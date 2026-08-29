@@ -105,6 +105,12 @@ public class FraudAlert implements RecordsDomainEvents {
         this(id, transferId, reason, null, null, null);
     }
 
+    /**
+     * Raises an alert now, which is what every path that raises one from a live request wants.
+     *
+     * Delegates rather than duplicating, so there is one place an alert is built and one place
+     * the clock is read on this aggregate.
+     */
     public FraudAlert(
             int id,
             int transferId,
@@ -113,11 +119,43 @@ public class FraudAlert implements RecordsDomainEvents {
             String assignee,
             List<String> tags
     ) {
+        this(id, transferId, reason, riskScore, assignee, tags, Instant.now());
+    }
+
+    /**
+     * Raises an alert at a given instant.
+     *
+     * {@link Transfer} has always taken its creation instant and this aggregate never could, and
+     * the difference showed on the fraud desk. An alert is raised in the same breath as the hold
+     * it explains, so its creation instant is the payment's; with the clock read in here instead,
+     * a fixture that dates a payment in the past got an alert dated now, and the desk printed a
+     * payment created twenty hours before the alert about it. Nothing in the product could
+     * produce that, so a reader could only take it for a rule they had not understood.
+     *
+     * The demonstration seed is the caller that needs this and is not the reason it is right. A
+     * seed reads the clock once for the whole dataset precisely so its rows agree with each
+     * other, and an aggregate that reads its own clock is outside that agreement whoever builds
+     * it: two alerts raised in one transaction already differed by whatever the two constructor
+     * calls cost.
+     *
+     * @param createdAt when the alert was raised. Never null; a caller with no instant of its own
+     *                  wants the constructor above, which says so by reading the clock rather
+     *                  than by passing nothing
+     */
+    public FraudAlert(
+            int id,
+            int transferId,
+            String reason,
+            Integer riskScore,
+            String assignee,
+            List<String> tags,
+            Instant createdAt
+    ) {
         this.id = id;
         this.transferId = transferId;
         this.state = FraudAlertState.NEW;
         this.reason = reason;
-        this.createdAt = Instant.now();
+        this.createdAt = java.util.Objects.requireNonNull(createdAt, "createdAt");
         this.riskScore = riskScore;
         this.assignee = assignee;
         if (tags != null) {
