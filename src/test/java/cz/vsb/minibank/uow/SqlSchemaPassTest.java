@@ -277,9 +277,9 @@ public class SqlSchemaPassTest {
                 // real: the first is what cancelPayment does, the second what the wrong-OTP
                 // branch does, and neither writes an account.
                 if (t.status() == TransferStatus.WAITING_AUTH && !cancelTaken.getAndSet(true)) {
-                    t.decline("Canceled by customer");
+                    t.decline("Canceled by customer", Instant.now());
                 } else {
-                    t.registerFailedOtpAttempt(99);
+                    t.registerFailedOtpAttempt(99, Instant.now());
                 }
                 infra.transfers.save(t);
 
@@ -343,7 +343,7 @@ public class SqlSchemaPassTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             UnitOfWork uow = scope.uow();
             Transfer t = infra.transfers.byId(transferId).orElseThrow();
-            t.decline("Canceled by customer");
+            t.decline("Canceled by customer", Instant.now());
             infra.transfers.save(t);
             uow.commit();
         }

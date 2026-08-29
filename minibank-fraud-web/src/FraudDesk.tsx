@@ -42,6 +42,7 @@ import {
     FIELD_LABEL,
     HISTORY_FIELD_LABEL,
     HISTORY_COLUMN_FIELDS,
+    HISTORY_DECLINED_FIELD,
     HISTORY_SETTLED_FIELD,
     HISTORY_UNDER_ROW_FIELDS,
     TRANSFER_DETAIL_LABEL,
@@ -336,6 +337,14 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
     // one, so an unsettled payment loses a line rather than gaining a gap. Most of a fraud
     // desk's rows are unsettled, and a column of dashes under every timestamp says nothing.
     const settledLine = h.settledAt ? formatDateTime(h.settledAt) : '';
+    const declinedLine = h.declinedAt ? formatDateTime(h.declinedAt) : '';
+
+    // The end this payment came to. A payment settles or it is stopped, so the second line of the
+    // cell holds whichever of the two this row has and the word in front of it says which. The
+    // settlement is preferred where a row somehow carries both, which the domain and the schema
+    // each forbid and only a hand-written row could produce.
+    const endedLine = settledLine || declinedLine;
+    const endedField = settledLine ? HISTORY_SETTLED_FIELD : HISTORY_DECLINED_FIELD;
 
     return {
         id: formatTransferId(h.id),
@@ -350,17 +359,20 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
         createdAt: (
             <>
                 <span className="created-value">{formatDateTime(h.createdAt)}</span>
-                {settledLine && (
+                {endedLine && (
+                    // The class names the second line of this cell, not the fact printed in it,
+                    // which is why a refusal is drawn under it on the same terms.
                     <span className="created-settled">
                         <span className="visually-hidden">
-                            {FIELD_LABEL[HISTORY_SETTLED_FIELD]}:{' '}
+                            {FIELD_LABEL[endedField]}:{' '}
                         </span>
-                        {settledLine}
+                        {endedLine}
                     </span>
                 )}
             </>
         ),
         settledAt: settledLine,
+        declinedAt: declinedLine,
         // The amount the customer sent, and under it what the bank added to it. Two lines of one
         // sum, stacked like the two account numbers next door, so the column can be read down.
         // Every row has the second line: on a payment the desk stopped it is the price rather than

@@ -129,6 +129,14 @@ export interface TransferDetails {
     createdAt: string;
     /** When the money moved. Null on a payment that has not settled. */
     settledAt: string | null;
+    /**
+     * When the payment was refused. Null on one that has not been.
+     *
+     * The other end, and never set together with the one above: a payment settles or it is
+     * stopped. Null also on a refused payment recorded before this instant was kept, which is a
+     * third situation and the same value - it was never written down and is not guessed at.
+     */
+    declinedAt: string | null;
     /** See {@link DispatchState}: null is three different situations and not a state. */
     dispatchState: DispatchState | null;
     /** The customer's own reference. Null on a payment created without one. */

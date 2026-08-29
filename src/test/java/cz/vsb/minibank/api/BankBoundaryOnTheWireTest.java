@@ -143,8 +143,8 @@ class BankBoundaryOnTheWireTest {
      * and fails every test in this class instead of the one it is about.
      */
     private static final Set<String> HISTORY_ITEM_FIELDS = Set.of(
-            "id", "createdAt", "settledAt", "amount", "fee", "status", "fromIban", "toIban",
-            "message", "declineReason");
+            "id", "createdAt", "settledAt", "declinedAt", "amount", "fee", "status", "fromIban",
+            "toIban", "message", "declineReason");
 
     // dispatchState is listed for the reason it is listed on the detail below: what these tests
     // reach for is the ONE component not accounted for, so leaving it off would offer it as a
@@ -158,7 +158,8 @@ class BankBoundaryOnTheWireTest {
     // to guess. Naming it here is the whole of the fix.
     private static final Set<String> TRANSFER_INFO_FIELDS = Set.of(
             "id", "code", "status", "fromIban", "fromBalance", "toIban", "dispatchState", "amount",
-            "feeAmount", "createdAt", "settledAt", "message", "declineReason", "authMethod");
+            "feeAmount", "createdAt", "settledAt", "declinedAt", "message", "declineReason",
+            "authMethod");
 
     // dispatchState is the second component this record has grown for a reason of its own, and it
     // is listed here for the reason fee is listed above: what these tests reach for is the ONE
@@ -168,8 +169,8 @@ class BankBoundaryOnTheWireTest {
     // exists.
     private static final Set<String> TRANSFER_DETAILS_FIELDS = Set.of(
             "id", "fromIban", "fromBalance", "toIban", "amount", "feeAmount", "status",
-            "createdAt", "settledAt", "dispatchState", "message", "declineReason", "authMethod",
-            "triesLeft", "authValidUntil");
+            "createdAt", "settledAt", "declinedAt", "dispatchState", "message", "declineReason",
+            "authMethod", "triesLeft", "authValidUntil");
 
     @TempDir
     Path tempDir;
@@ -862,11 +863,11 @@ class BankBoundaryOnTheWireTest {
             record("heldToOutside", heldToOutside);
 
             Transfer declinedToInside = created(payerAccountId, IN_BANK_IBAN.value(), 7);
-            declinedToInside.decline("Refused by the analyst");
+            declinedToInside.decline("Refused by the analyst", Instant.now());
             record("declinedToInside", declinedToInside);
 
             Transfer declinedToOutside = created(payerAccountId, OUTSIDE_IBAN, 8);
-            declinedToOutside.decline("Refused by the analyst");
+            declinedToOutside.decline("Refused by the analyst", Instant.now());
             record("declinedToOutside", declinedToOutside);
 
             infra.accounts.save(payerAccount);

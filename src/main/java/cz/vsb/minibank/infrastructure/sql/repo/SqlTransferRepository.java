@@ -154,10 +154,11 @@ public final class SqlTransferRepository implements TransferRepository {
                     auth_method,
                     card_number_masked,
                     decline_reason,
+                    declined_at,
                     auth_attempts,
                     auth_valid_until
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO UPDATE SET
                     source_account_id    = EXCLUDED.source_account_id,
                     beneficiary_id       = EXCLUDED.beneficiary_id,
@@ -173,6 +174,7 @@ public final class SqlTransferRepository implements TransferRepository {
                     auth_method          = EXCLUDED.auth_method,
                     card_number_masked   = EXCLUDED.card_number_masked,
                     decline_reason       = EXCLUDED.decline_reason,
+                    declined_at          = EXCLUDED.declined_at,
                     auth_attempts        = EXCLUDED.auth_attempts,
                     auth_valid_until     = EXCLUDED.auth_valid_until,
                     version              = transfers.version + 1
@@ -256,21 +258,31 @@ public final class SqlTransferRepository implements TransferRepository {
                 ps.setNull(15, Types.VARCHAR);
             }
 
+            // Beside the sentence it belongs with, and written on the same terms as settled_at
+            // above: present only where the event happened. NULL covers everything that has not
+            // been refused and every refused row stored before the column existed, which are two
+            // situations and one value - in neither is there an instant to write.
+            if (t.declinedAt() != null) {
+                ps.setTimestamp(16, Timestamp.from(t.declinedAt()));
+            } else {
+                ps.setNull(16, Types.TIMESTAMP_WITH_TIMEZONE);
+            }
+
             // auth_attempts
             if (t.authAttempts() > 0) {
-                ps.setInt(16, t.authAttempts());
+                ps.setInt(17, t.authAttempts());
             } else {
-                ps.setNull(16, Types.INTEGER);
+                ps.setNull(17, Types.INTEGER);
             }
 
             // auth_valid_until
             if (t.authValidUntil() != null) {
-                ps.setTimestamp(17, Timestamp.from(t.authValidUntil()));
+                ps.setTimestamp(18, Timestamp.from(t.authValidUntil()));
             } else {
-                ps.setNull(17, Types.TIMESTAMP_WITH_TIMEZONE);
+                ps.setNull(18, Types.TIMESTAMP_WITH_TIMEZONE);
             }
 
-            ps.setInt(18, t.version());
+            ps.setInt(19, t.version());
 
             // version is absent from the INSERT column list on purpose: a new row takes the
             // column default 0, so no code path ever chooses an insert version.
@@ -329,6 +341,7 @@ public final class SqlTransferRepository implements TransferRepository {
                    auth_method,
                    card_number_masked,
                    decline_reason,
+                   declined_at,
                    auth_attempts,
                    auth_valid_until,
                    version
@@ -399,6 +412,7 @@ public final class SqlTransferRepository implements TransferRepository {
                auth_method,
                card_number_masked,
                decline_reason,
+               declined_at,
                auth_attempts,
                auth_valid_until,
                version
@@ -498,6 +512,7 @@ public final class SqlTransferRepository implements TransferRepository {
                auth_method,
                card_number_masked,
                decline_reason,
+               declined_at,
                auth_attempts,
                auth_valid_until,
                version
@@ -664,6 +679,7 @@ public final class SqlTransferRepository implements TransferRepository {
                auth_method,
                card_number_masked,
                decline_reason,
+               declined_at,
                auth_attempts,
                auth_valid_until,
                version
@@ -963,6 +979,13 @@ public final class SqlTransferRepository implements TransferRepository {
                 feeBd != null ? Money.czk(feeBd) : null,
                 settledTs != null ? settledTs.toInstant() : null);
         t.attachMessage(rs.getString("message"));
+
+        // Read on the same terms as settled_at just above: a timestamp or nothing, and nothing is
+        // the common answer. It is restored through a method of its own rather than as another
+        // argument to hydrateForLoad, which already carries the sentence this instant belongs
+        // beside - see Transfer.hydrateDeclinedAt for why that call is left alone.
+        Timestamp declinedTs = rs.getTimestamp("declined_at");
+        t.hydrateDeclinedAt(declinedTs != null ? declinedTs.toInstant() : null);
 
         // Absent is a real value and the common one - an intra-bank payment owes the network
         // nothing, and neither does any row written before this column existed - so it is read

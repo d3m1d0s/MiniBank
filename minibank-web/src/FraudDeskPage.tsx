@@ -94,6 +94,7 @@ import {
     FIELD_LABEL,
     HISTORY_FIELD_LABEL,
     HISTORY_COLUMN_FIELDS,
+    HISTORY_DECLINED_FIELD,
     HISTORY_SETTLED_FIELD,
     HISTORY_UNDER_ROW_FIELDS,
     TRANSFER_DETAIL_LABEL,
@@ -285,26 +286,34 @@ function historyCells(h: HistoryItem, alertedIban: string | null): HistoryRowCel
     // second line carrying EMPTY_VALUE, which is the one thing this line must never say: it would
     // claim the settlement is known and withheld.
     const settled = h.settledAt ? formatDateTime(h.settledAt) : null;
+    const declined = h.declinedAt ? formatDateTime(h.declinedAt) : null;
+
+    // Whichever end this payment came to; see the customer's own history for why it is written as
+    // a preference rather than an either-or. On a fraud desk the refused end is the one that fills
+    // the table, so this line stops being the exception it was when only settlements could fill it.
+    const ended = settled ?? declined;
+    const endedField = settled ? HISTORY_SETTLED_FIELD : HISTORY_DECLINED_FIELD;
 
     return {
         id: formatTransferId(h.id),
-        // When it was asked for, and under it when the money moved. On this desk the second line
-        // is the exception rather than the rule: an alert is read while its payment is still
-        // held, so a row that carries a settlement is a row where the money has already gone.
+        // When it was asked for, and under it when it ended: the money moved, or the bank stopped
+        // it. Until the second of those could be printed, a stopped payment showed one timestamp
+        // and an analyst comparing it with the rows around it had nothing to compare.
         createdAt: (
             <>
                 <span className="time-asked">{formatDateTime(h.createdAt)}</span>
-                {settled && (
+                {ended && (
                     <span className="time-settled">
                         <span className="visually-hidden">
-                            {FIELD_LABEL[HISTORY_SETTLED_FIELD]}:{' '}
+                            {FIELD_LABEL[endedField]}:{' '}
                         </span>
-                        {settled}
+                        {ended}
                     </span>
                 )}
             </>
         ),
         settledAt: settled,
+        declinedAt: declined,
         // The amount the customer sent, and under it what the bank added to it. Two lines of one
         // sum, stacked like the two account numbers next door, so the column can be read down.
         // Every row has the second line: on a payment the desk stopped it is the price rather than

@@ -202,6 +202,20 @@ CREATE TABLE transfers (
                            auth_method          VARCHAR(32),
                            card_number_masked   VARCHAR(64),
                            decline_reason       TEXT,
+                           -- When the payment was refused, beside the sentence saying why. The
+                           -- pair is one fact read in two halves, and for a long time only the
+                           -- second half was kept: a customer could read why their payment had
+                           -- been stopped and never when. NULL on everything that has not been
+                           -- refused, and on every refused row written before this column, whose
+                           -- instant was never recorded anywhere a query can reach - the status
+                           -- transitions went to a text log that nothing reads back. See
+                           -- db/migrate/2026-08-29-declined-at-on-the-transfer.sql for why
+                           -- created_at was not used to fill those in.
+                           --
+                           -- NOT settled_at, which is here already and nullable already. That
+                           -- column is when the money moved, which is what settlement means in
+                           -- this trade, and a refused payment moved none.
+                           declined_at          TIMESTAMPTZ,
                            auth_attempts        INTEGER,
                            auth_valid_until     TIMESTAMPTZ,
 
@@ -253,7 +267,19 @@ CREATE TABLE transfers (
                            -- a CHECK admits a row whose predicate is unknown, and here unknown is
                            -- the normal case rather than the exception.
                            CONSTRAINT transfers_dispatch_state_known
-                               CHECK (dispatch_state IN ('PENDING', 'DISPATCHED'))
+                               CHECK (dispatch_state IN ('PENDING', 'DISPATCHED')),
+
+                           -- Only a refused payment may carry a refusal instant, held against the
+                           -- same out-of-domain writer the CHECKs above were added for. Transfer
+                           -- assigns the two in one call, so a row that carries the instant under
+                           -- any other status was not written through the domain.
+                           --
+                           -- NULL passes, by the same mechanism as the fee and the dispatch state:
+                           -- a CHECK admits a row whose predicate is unknown. Here that is the
+                           -- common case - every payment that has not been refused - rather than
+                           -- the exception.
+                           CONSTRAINT transfers_declined_at_only_when_declined
+                               CHECK (declined_at IS NULL OR status = 'DECLINED')
 );
 
 CREATE SEQUENCE transfers_id_seq;

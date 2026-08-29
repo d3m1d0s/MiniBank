@@ -77,6 +77,10 @@ export type HistoryField =
     | 'id'
     | 'createdAt'
     | 'settledAt'
+    // The other way a payment ends. Beside the settlement rather than beside the sentence that
+    // explains it, because a payment reaches exactly one end and the two are one question: the
+    // cell that used to hold only a settlement holds whichever of them this row has.
+    | 'declinedAt'
     | 'amount'
     | 'fee'
     | 'status'
@@ -112,6 +116,7 @@ export type TransferDetailField =
     | 'status'
     | 'createdAt'
     | 'settledAt'
+    | 'declinedAt'
     | 'dispatchState'
     | 'authMethod'
     | 'message'
@@ -186,6 +191,7 @@ export const HISTORY_FIELDS: readonly HistoryField[] = [
     'id',
     'createdAt',
     'settledAt',
+    'declinedAt',
     'amount',
     'fee',
     'status',
@@ -210,6 +216,7 @@ export const TRANSFER_DETAIL_FIELDS: readonly TransferDetailField[] = [
     'status',
     'createdAt',
     'settledAt',
+    'declinedAt',
     'dispatchState',
     'authMethod',
     'message',
@@ -261,6 +268,29 @@ export const HISTORY_MESSAGE_FIELD: HistoryField = 'message';
 export const HISTORY_SETTLED_FIELD: HistoryField = 'settledAt';
 
 /**
+ * When the payment was refused, which shares that same cell.
+ *
+ * The two are alternatives and never both: a payment settles or it is refused, so a row prints one
+ * of them or, while it is still going on, neither. That is why this takes no column of its own and
+ * why the heading over the cell names the end rather than either way of reaching it.
+ */
+export const HISTORY_DECLINED_FIELD: HistoryField = 'declinedAt';
+
+/**
+ * The word for the end of a payment, whichever end it came to.
+ *
+ * The heading over that cell used to read `Settled`, which was true of the rows that had settled
+ * and silent about the rest: a refused payment had nothing to print under it, so its row showed
+ * only the moment it was asked for and a reader could not tell when it had been stopped. `Settled`
+ * could not simply be pointed at the refusal instant either - settlement is when the money moved,
+ * and a heading saying so over a payment that moved none is a heading that lies.
+ *
+ * So the heading names the question both instants answer and the `Status` cell beside it says
+ * which of the two this row holds. One word, one cell, and neither of the two facts renamed.
+ */
+export const PAYMENT_END_LABEL = 'Finished';
+
+/**
  * The two fields that stand under the row rather than in it, in the order they are read.
  *
  * The payer's words first and the bank's second, because that is the order they happened in and
@@ -287,6 +317,10 @@ export const HISTORY_UNDER_ROW_FIELDS: readonly HistoryField[] = [
 export const HISTORY_NON_COLUMN_FIELDS: readonly HistoryField[] = [
     HISTORY_FEE_FIELD,
     HISTORY_SETTLED_FIELD,
+    // For the reason the settlement is here, and one more: the two are alternatives, so a column
+    // of its own would be empty on every row the settlement column had a value for and empty
+    // again on everything still in flight. Two mostly blank columns answering one question.
+    HISTORY_DECLINED_FIELD,
     ...HISTORY_UNDER_ROW_FIELDS,
 ];
 
@@ -357,6 +391,10 @@ export const FIELD_LABEL: Record<AlertQueueField | HistoryField, string> = {
 
     id: 'Payment',
     settledAt: 'Settled',
+    // `Declined` and not `Refused`, because the status beside it is DECLINED and a screen that
+    // calls one fact by two words makes a reader look for the difference. The panel prints this
+    // over the instant; the sentence explaining the refusal has its own word further down.
+    declinedAt: 'Declined',
     fee: 'Fee',
     status: 'Status',
     route: 'From / To',
@@ -409,9 +447,14 @@ export const HISTORY_FIELD_LABEL: Record<HistoryField, string> = {
      *
      * The detail panel keeps `Created` and `Settled` apart, because there each stands on its own
      * line with its own label and there is nothing to disambiguate.
+     *
+     * The second half is `Finished` and no longer `Settled`. The cell holds whichever end this
+     * payment came to, and a refused one now prints its own instant there; a heading naming only
+     * settlement would caption a refusal as a settlement. See PAYMENT_END_LABEL.
      */
-    createdAt: `${FIELD_LABEL.createdAt} / ${FIELD_LABEL.settledAt}`,
+    createdAt: `${FIELD_LABEL.createdAt} / ${PAYMENT_END_LABEL}`,
     settledAt: FIELD_LABEL.settledAt,
+    declinedAt: FIELD_LABEL.declinedAt,
     amount: 'Full Amount',
     fee: FIELD_LABEL.fee,
     status: FIELD_LABEL.status,
@@ -453,6 +496,7 @@ export const TRANSFER_DETAIL_LABEL: Record<TransferDetailField, string> = {
     status: FIELD_LABEL.status,
     createdAt: FIELD_LABEL.createdAt,
     settledAt: FIELD_LABEL.settledAt,
+    declinedAt: FIELD_LABEL.declinedAt,
     dispatchState: 'Onward transfer',
     authMethod: 'Auth method',
     message: FIELD_LABEL.message,

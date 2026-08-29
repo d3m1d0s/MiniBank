@@ -158,6 +158,14 @@ export interface TransferInfo {
      */
     settledAt: string | null;
     /**
+     * When this payment was refused, or null on one that has not been.
+     *
+     * The alternative to the instant above rather than a companion to it: a payment reaches one
+     * end. On this desk the refused end is the common one, and the panel could say a payment was
+     * declined without being able to say when.
+     */
+    declinedAt: string | null;
+    /**
      * The payer's own reference, exactly as they typed it into the payment form.
      *
      * The analyst could not read it, which is the gap this closed: the customer types it, the form
@@ -208,6 +216,8 @@ export interface HistoryItem {
      * and the one worth a reader's eye.
      */
     settledAt: string | null;
+    /** When it was refused, or null. The other end, never set alongside the one above. */
+    declinedAt: string | null;
     amount: Money;
     /**
      * What this payment cost: the fee that was taken where it settled, and what the tariff would

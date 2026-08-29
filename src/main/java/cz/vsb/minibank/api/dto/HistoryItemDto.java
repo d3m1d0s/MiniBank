@@ -53,6 +53,17 @@ import java.util.function.Predicate;
  * made of. Null on anything that has not settled, which is the honest answer and the one the shared
  * formatter already prints as a dash.
  *
+ * {@code declinedAt} stands beside {@code settledAt} and not beside the sentence it was written
+ * with, and the split is deliberate. A payment reaches exactly one end: it settles or it is
+ * refused. The two instants are therefore one question - when did this finish - which is why they
+ * are adjacent here and share a single cell on every table that draws them, under a heading that
+ * names the end rather than one of the two ways of reaching it. The sentence explaining the
+ * refusal stays at the foot with the other prose, because that is where a reader meets it.
+ *
+ * Null on everything that has not been refused, and on every refused payment stored before the
+ * column existed. That last group is not backfilled and cannot be: the instant was never recorded
+ * anywhere a query reaches, and {@code createdAt} would be a guess printed as a fact.
+ *
  * {@code message} is the customer's own reference for the payment, and it travels for a reason that
  * is not symmetry: they could write one on the payment form and had nowhere to read it back. Beside
  * {@code declineReason} because the two are the sentences attached to a payment, the payer's and
@@ -62,6 +73,7 @@ public record HistoryItemDto(
         int id,
         String createdAt,
         String settledAt,
+        String declinedAt,
         MoneyDto amount,
         MoneyDto fee,
         String status,

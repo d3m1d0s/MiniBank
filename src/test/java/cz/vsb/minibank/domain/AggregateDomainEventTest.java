@@ -1,13 +1,20 @@
 package cz.vsb.minibank.domain;
 
+import java.time.Instant;
 import cz.vsb.minibank.domain.value.Money;
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.List;
 
+import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -37,7 +44,7 @@ class AggregateDomainEventTest {
     void decliningRecordsTheTransition() {
         Transfer t = aTransfer();
 
-        t.decline("test decline");
+        t.decline("test decline", Instant.now());
 
         List<DomainEvent> recorded = t.drainDomainEvents();
         assertEquals(1, recorded.size());
@@ -51,7 +58,7 @@ class AggregateDomainEventTest {
         Transfer t = aTransfer();
 
         t.requestAuthorization(null);
-        t.decline("changed my mind");
+        t.decline("changed my mind", Instant.now());
 
         List<DomainEvent> recorded = t.drainDomainEvents();
         assertEquals(2, recorded.size());
@@ -64,7 +71,7 @@ class AggregateDomainEventTest {
     @Test
     void drainingEmptiesTheAggregateSoNothingIsPublishedTwice() {
         Transfer t = aTransfer();
-        t.decline("once");
+        t.decline("once", Instant.now());
 
         assertEquals(1, t.drainDomainEvents().size());
         assertTrue(t.drainDomainEvents().isEmpty(),
@@ -75,7 +82,7 @@ class AggregateDomainEventTest {
     @Test
     void aRefusedTransitionRecordsNothing() {
         Transfer t = aTransfer();
-        t.decline("already declined");
+        t.decline("already declined", Instant.now());
         t.drainDomainEvents();
 
         try {

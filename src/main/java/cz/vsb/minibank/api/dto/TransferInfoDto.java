@@ -39,6 +39,12 @@ package cz.vsb.minibank.api.dto;
  *
  * Null while a payment might still go through, which is the same rule the other two records follow
  * and the reason the panel draws it only where there is text.
+ *
+ * {@code declinedAt} is the other half of that sentence and sits with the instants rather than
+ * with it, beside {@code settledAt}: a payment reaches exactly one end, so the two are one
+ * question and the screens read them in one place, while the sentence explaining a refusal is read
+ * somewhere else entirely. Null on everything not refused, and on refused rows stored before the
+ * column existed - the instant was never kept and is not invented here.
  */
 public record TransferInfoDto(
         int id,
@@ -53,6 +59,7 @@ public record TransferInfoDto(
         MoneyDto feeAmount,
         String createdAt,
         String settledAt,
+        String declinedAt,
         String message,
         String declineReason,
         String authMethod

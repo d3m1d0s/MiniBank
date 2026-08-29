@@ -611,7 +611,11 @@ public class TransferApplicationService {
             }
 
             if (t.isAuthExpired()) {
-                t.decline("Authorization window expired");
+                // The same reading the window was judged against, taken at the top of this
+                // method. A second call to the clock here would stamp the refusal a moment after
+                // the instant that decided it, and on the one path where the two are compared -
+                // an expiry - the record would show the payment refused before it expired.
+                t.decline("Authorization window expired", now);
                 transfers.save(t);
                 PaymentOutcome outcome = outcomeOf(t, acc);
                 scope.uow().commit();
@@ -702,7 +706,9 @@ public class TransferApplicationService {
 
             boolean valid = otpValidator.isValid(transferId, otp);
             if (!valid) {
-                t.registerFailedOtpAttempt(MAX_OTP_ATTEMPTS);
+                // The reading taken at the top of this method, so a refusal caused by the last
+                // wrong code carries the instant that code was judged at.
+                t.registerFailedOtpAttempt(MAX_OTP_ATTEMPTS, now);
                 transfers.save(t);
                 boolean attemptsRemain = t.status() == TransferStatus.WAITING_AUTH;
                 PaymentOutcome outcome = outcomeOf(t, acc);
@@ -791,7 +797,10 @@ public class TransferApplicationService {
             }
             // True again on this path: only the owning customer can reach it. The fraud desk
             // writes its own reason through FraudApplicationService and is not covered here.
-            t.decline("Canceled by customer");
+            // Read here rather than at the top of the method, unlike authorizePayment: cancelling
+            // moves no money and bounds no day, so this instant is compared with nothing and is
+            // needed at exactly one line.
+            t.decline("Canceled by customer", clock.instant());
             transfers.save(t);
 
             // The one path that has to load the account rather than already holding it: nothing

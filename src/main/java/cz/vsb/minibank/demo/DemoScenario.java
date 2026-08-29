@@ -371,9 +371,23 @@ public final class DemoScenario {
      * asserting a path through the review that belongs to the service, not to a fixture.
      */
     private void withdrawnTransfer(Account source, Beneficiary target, Instant at) {
-        Transfer transfer = newTransfer(source, target, WITHDRAWN_AMOUNT, at);
+        // Asked for before it was withdrawn, and the gap is the point rather than realism. The
+        // history table draws the moment a payment was made over the moment it ended, and with
+        // one instant for both the two lines printed the same string: a reader could not tell
+        // that the second line is a different fact, and a mapper reading the wrong one of the two
+        // would have looked correct on the only data anybody opens the showcase with. This is the
+        // rule BankBoundaryOnTheWireTest already applies to the settlement instant, which it
+        // pulls three days off the creation for the same reason.
+        //
+        // It also reads like what it is: a payment sits in the review queue for a while, and the
+        // customer gives up on it.
+        Transfer transfer = newTransfer(source, target, WITHDRAWN_AMOUNT,
+                at.minus(Duration.ofHours(20)));
         transfer.holdForReview(new CardPayment(transfer.amount(), "****0000"));
-        transfer.decline("Withdrawn by the customer while the review was open");
+        // Refused at the instant the fixture is seeded, which is the instant the alert beside it
+        // is resolved at. The seed reads the clock once for the whole dataset, so the two halves
+        // of this case file agree by construction rather than by luck.
+        transfer.decline("Withdrawn by the customer while the review was open", at);
         transfers.add(transfer);
         accounts.save(source);
 

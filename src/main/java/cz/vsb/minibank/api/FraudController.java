@@ -573,6 +573,10 @@ public class FraudController {
                 fee,
                 createdAtStr,
                 settledAtStr,
+                // The other end of the payment, beside the one above. The alerted payment is
+                // often the refused one, and this panel could say the money never moved without
+                // being able to say when that was decided.
+                (t.declinedAt() != null ? t.declinedAt().toString() : null),
                 // The customer's own reference for this payment, or null when they gave none.
                 // Accepted on the creation form, counted against 140 characters and stored, and
                 // until now readable everywhere on this API except on the one panel that shows the
@@ -662,6 +666,10 @@ public class FraudController {
                         // beside it is when the payment was asked for, and on a desk full of held
                         // payments those two are days apart.
                         t.settledAt() != null ? t.settledAt().toString() : null,
+                        // The other end. On this desk it is the one that matters more often:
+                        // the queue is made of payments that were stopped, and until now a
+                        // stopped one printed no instant beyond the moment it was asked for.
+                        t.declinedAt() != null ? t.declinedAt().toString() : null,
                         MoneyDto.of(t.amount()),
                         // feeFor and not fee(): what was taken where the payment settled, and what
                         // this tariff would take where it has not. Held and waiting payments fill

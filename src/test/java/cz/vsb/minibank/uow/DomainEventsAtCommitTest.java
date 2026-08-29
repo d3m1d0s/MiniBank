@@ -1,22 +1,38 @@
 package cz.vsb.minibank.uow;
 
+import java.time.Instant;
 import cz.vsb.minibank.domain.Transfer;
+import java.time.Instant;
 import cz.vsb.minibank.domain.TransferObserver;
+import java.time.Instant;
 import cz.vsb.minibank.domain.TransferStatus;
+import java.time.Instant;
 import cz.vsb.minibank.domain.value.Money;
+import java.time.Instant;
 import cz.vsb.minibank.infrastructure.Bootstrap;
+import java.time.Instant;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
+import java.time.Instant;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
+import java.time.Instant;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.time.Instant;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.time.Instant;
 import java.util.List;
 
+import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import java.time.Instant;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -60,7 +76,7 @@ class DomainEventsAtCommitTest {
     void aCommittedTransactionAnnouncesEveryTransitionItPersisted() {
         int id = inATransaction(t -> {
             t.requestAuthorization(null);
-            t.decline("changed my mind");
+            t.decline("changed my mind", Instant.now());
         }, true);
 
         assertEquals(List.of(id + ":CREATED->WAITING_AUTH", id + ":WAITING_AUTH->DECLINED"),
@@ -70,7 +86,7 @@ class DomainEventsAtCommitTest {
 
     @Test
     void aRolledBackTransactionAnnouncesNothing() {
-        inATransaction(t -> t.decline("never persisted"), false);
+        inATransaction(t -> t.decline("never persisted", Instant.now()), false);
 
         assertTrue(observer.heard.isEmpty(),
                 "a transition that was rolled back did not happen, and the audit trail must not"
@@ -83,7 +99,7 @@ class DomainEventsAtCommitTest {
         assertThrows(IllegalStateException.class, () -> {
             try (UowScope __ = new UowScope(uow)) {
                 Transfer t = newTransfer();
-                t.decline("about to fail");
+                t.decline("about to fail", Instant.now());
                 infra.transfers.add(t);
                 throw new IllegalStateException("something later in the use case failed");
             }
@@ -102,7 +118,7 @@ class DomainEventsAtCommitTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             UnitOfWork uow = scope.uow();
             Transfer t = infra.transfers.byId(id).orElseThrow();
-            t.decline("second transaction");
+            t.decline("second transaction", Instant.now());
             infra.transfers.save(t);
             uow.commit();
         }

@@ -368,7 +368,7 @@ class FraudQueueCountersTest {
     private void withdraw(int transferId) {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             Transfer t = infra.transfers.byId(transferId).orElseThrow();
-            t.decline("Canceled by customer");
+            t.decline("Canceled by customer", Instant.now());
             infra.transfers.save(t);
             scope.uow().commit();
         }

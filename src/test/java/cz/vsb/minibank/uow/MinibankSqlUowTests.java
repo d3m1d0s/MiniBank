@@ -890,7 +890,7 @@ public class MinibankSqlUowTests {
             Transfer t = infra.transfers.byId(rewritten)
                     .orElseThrow(() -> new AssertionError("Seeded transfer must exist"));
             t.requestAuthorization(new CardPayment(t.amount(), "**** **** **** 4242"));
-            t.registerFailedOtpAttempt(3);
+            t.registerFailedOtpAttempt(3, Instant.now());
             infra.transfers.save(t);
             scope.uow().commit();
         }

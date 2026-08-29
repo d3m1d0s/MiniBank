@@ -368,12 +368,16 @@ describe('what one row of payment history says', () => {
         expect(Object.keys(FIELD_LABEL)).not.toContain('toIban');
     });
 
-    it('is nine facts, each named once', () => {
-        // Nine facts and five columns: four are drawn somewhere other than a column, two because
-        // they are prose and two because each belongs to the cell above it. Which four, and why,
-        // is the group below. The count is asserted rather than derived so that a field arriving
-        // on the wire has to be placed here before it can be read anywhere.
-        expect(HISTORY_FIELDS).toHaveLength(9);
+    it('is ten facts, each named once', () => {
+        // Ten facts and five columns: five are drawn somewhere other than a column, two because
+        // they are prose and three because each belongs to the cell above it. Which five, and
+        // why, is the group below. The count is asserted rather than derived so that a field
+        // arriving on the wire has to be placed here before it can be read anywhere.
+        //
+        // The tenth is the refusal instant. It shares the cell the settlement instant is drawn
+        // in, because a payment reaches exactly one end, which is why it adds a fact without
+        // adding a column.
+        expect(HISTORY_FIELDS).toHaveLength(10);
         expect(new Set(HISTORY_FIELDS).size).toBe(HISTORY_FIELDS.length);
     });
 

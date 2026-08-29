@@ -250,6 +250,10 @@ public class AuthorizationController {
                 // could only print when the payment was asked for, so one sent three days later
                 // read as a payment of the day it was submitted.
                 t.settledAt() != null ? t.settledAt().toString() : null,
+                // The other way a payment ends. A row carries one of these two or neither, so the
+                // table draws them in one cell: a refused payment had nothing to print here at
+                // all, and its row said only when it was asked for.
+                t.declinedAt() != null ? t.declinedAt().toString() : null,
                 MoneyDto.of(t.amount()),
                 // feeFor and not fee(): the charge where there is one, and this tariff's answer
                 // where the payment has not settled, so that every row carries a fee line. The
@@ -377,6 +381,7 @@ public class AuthorizationController {
                 t.status().name(),
                 t.createdAt().toString(),
                 t.settledAt() != null ? t.settledAt().toString() : null,
+                t.declinedAt() != null ? t.declinedAt().toString() : null,
                 dispatchStateOf(t),
                 t.message(),
                 t.declineReason(),

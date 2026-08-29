@@ -254,6 +254,11 @@ public class JsonMapper {
             }
         }
         j.declineReason = t.declineReason();
+        // Written beside the sentence it belongs with, and left absent where there is no instant,
+        // on the same terms as settledAt above.
+        if (t.declinedAt() != null) {
+            j.declinedAt = t.declinedAt().toString();
+        }
         j.authAttempts = t.authAttempts();
         if (t.authValidUntil() != null) {
             j.authValidUntil = t.authValidUntil().toString();
@@ -310,6 +315,15 @@ public class JsonMapper {
                 j.settledAt, "settlement instant", "transfer", j.id);
         t.hydrateSettlement(fee, settledAt);
         t.attachMessage(j.message);
+
+        // Read through the same helper as the settlement instant, and for the same reason: absent
+        // is a real value here - everything not refused, and every refused row stored before this
+        // field - while a timestamp that is present and will not parse is a row no loader should
+        // accept. Reading a garbled one as null would write the null back over it on the next
+        // save, losing the only record of when a payment was stopped.
+        Instant declinedAt = StoredValue.presentInstantOrNull(
+                j.declinedAt, "refusal instant", "transfer", j.id);
+        t.hydrateDeclinedAt(declinedAt);
 
         // The same split the two instants above make, on an enum: absent is a real value, present
         // and unreadable is not. It is written out here rather than through StoredValue.requiredEnum

@@ -554,7 +554,7 @@ class FraudReviewGateTest {
 
         // No OTP counter runs on a held transfer.
         assertThrows(InvalidStateTransitionException.class,
-                () -> held.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS));
+                () -> held.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS, Instant.now()));
 
         held.releaseForAuthorization();
         assertEquals(TransferStatus.WAITING_AUTH, held.status());
@@ -575,12 +575,12 @@ class FraudReviewGateTest {
         sent.releaseForAuthorization();
         sent.send(sourceAccount(), null, new ZeroFeePolicy(), sent.createdAt());
         assertEquals(TransferStatus.SENT, sent.status());
-        assertThrows(InvalidStateTransitionException.class, () -> sent.decline("too late"));
+        assertThrows(InvalidStateTransitionException.class, () -> sent.decline("too late", Instant.now()));
         assertThrows(InvalidStateTransitionException.class, sent::releaseForAuthorization);
 
         // A held transfer that was declined stays out of reach of the analyst's release.
         Transfer cancelled = heldTransfer();
-        cancelled.decline("Canceled by customer");
+        cancelled.decline("Canceled by customer", Instant.now());
         assertThrows(InvalidStateTransitionException.class, cancelled::releaseForAuthorization,
                 "an approval must not resurrect a payment its owner withdrew");
 
@@ -588,7 +588,7 @@ class FraudReviewGateTest {
         // the record of why this payment stopped, so whoever declines it second rewrites it.
         cancelled.drainDomainEvents();
         assertThrows(InvalidStateTransitionException.class,
-                () -> cancelled.decline("Declined by fraud analyst"));
+                () -> cancelled.decline("Declined by fraud analyst", Instant.now()));
         assertEquals("Canceled by customer", cancelled.declineReason(),
                 "a refused decline must not rewrite the reason that stands");
         assertTrue(cancelled.drainDomainEvents().isEmpty(),
@@ -629,7 +629,7 @@ class FraudReviewGateTest {
                 "money that has left cannot be held back by a review");
 
         Transfer declined = heldTransfer();
-        declined.decline("Canceled by customer");
+        declined.decline("Canceled by customer", Instant.now());
         assertThrows(InvalidStateTransitionException.class,
                 declined::holdForReviewOnAuthorization);
     }
@@ -649,8 +649,8 @@ class FraudReviewGateTest {
     void releasingATransferKeepsTheAttemptsSpentBeforeItWasHeld() {
         Transfer t = createdTransfer();
         t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
-        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS);
-        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS);
+        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS, Instant.now());
+        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS, Instant.now());
         assertEquals(TransferStatus.WAITING_AUTH, t.status(), "two of three leaves one");
         assertEquals(2, t.authAttempts());
 
@@ -663,7 +663,7 @@ class FraudReviewGateTest {
                 "a released transfer keeps what its owner spent; otherwise the three-attempt cap"
                         + " is refillable by getting the payment reviewed");
 
-        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS);
+        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS, Instant.now());
         assertEquals(TransferStatus.DECLINED, t.status(),
                 "the next wrong code is the third and must exhaust it");
 

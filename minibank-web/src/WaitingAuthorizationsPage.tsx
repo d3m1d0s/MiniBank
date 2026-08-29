@@ -183,6 +183,11 @@ function detailCells(d: TransferDetails): TransferDetailCells<ReactNode | null> 
         ),
         createdAt: formatDateTime(d.createdAt),
         settledAt: d.settledAt ? formatDateTime(d.settledAt) : null,
+        // The other end, on its own line here rather than sharing one. A panel reads a payment
+        // fact by fact, so the two never compete for a cell the way they do in a table, and the
+        // one this payment did not reach simply draws nothing - which is what null means on every
+        // other line of this map.
+        declinedAt: d.declinedAt ? formatDateTime(d.declinedAt) : null,
         // The empty string is what the glossary answers for a null, and it is three different
         // situations rather than a state: money credited inside this bank, a payment that has not
         // settled, and every row written before the column existed. None of the three may be

@@ -157,7 +157,9 @@ public class FraudApplicationService {
             // would overwrite the customer's own "Canceled by customer" with the analyst's
             // wording, rewriting the record of why their payment stopped.
             if (t.status() != TransferStatus.SENT && t.status() != TransferStatus.DECLINED) {
-                t.decline(comment);
+                // The instant the alert was marked with, not a second reading: the verdict and the
+                // refusal it caused are one event and a case file should not show them apart.
+                t.decline(comment, decidedAt);
                 transfers.save(t);
             }
             scope.uow().commit();
@@ -288,7 +290,9 @@ public class FraudApplicationService {
                     // The payer and the alert are told the same thing now, which is the analyst's
                     // own sentence and nothing the bank wrote for them.
                     if (t.status() != TransferStatus.SENT && t.status() != TransferStatus.DECLINED) {
-                        t.decline(reason);
+                        // Stamped with the instant the alert above was, for the reason the desk's
+                        // other decline path is: one decision, one moment on both records.
+                        t.decline(reason, decidedAt);
                         transfers.save(t);
                     }
                 }

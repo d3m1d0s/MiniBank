@@ -10,6 +10,12 @@ package cz.vsb.minibank.api.dto;
  * @param feeAmount      what this transfer was charged once it has settled, and a quote from the
  *                       current fee policy until then - see Transfer.feeFor
  * @param settledAt      when the money moved, or null on a transfer that has not settled
+ * @param declinedAt     when the payment was refused, or null on one that has not been. Beside
+ *                       settledAt because a payment reaches exactly one end and the two answer
+ *                       one question between them; the sentence saying WHY it was refused is
+ *                       declineReason below, with the other prose. Null also on a refused payment
+ *                       stored before this was kept, which is a third situation and the same
+ *                       value - the instant was never recorded and cannot be recovered
  * @param dispatchState  what this payment still owes the payment network: PENDING once it has
  *                       settled out of this bank and no gateway has been handed it, DISPATCHED
  *                       once one has, and null when it owes nothing. Null is the common answer
@@ -45,6 +51,7 @@ public record TransferDetailsDto(
         String status,
         String createdAt,
         String settledAt,
+        String declinedAt,
         String dispatchState,
         String message,
         String declineReason,
