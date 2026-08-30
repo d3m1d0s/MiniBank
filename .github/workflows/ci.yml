@@ -1,0 +1,104 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_DB: minibank_test
+          POSTGRES_USER: minibank
+          POSTGRES_PASSWORD: minibank
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U minibank -d minibank_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Initialize test database schema
+        env:
+          PGPASSWORD: minibank
+        run: >-
+          psql --host localhost --username minibank --dbname minibank_test
+          --set ON_ERROR_STOP=1 --file db/init/schema.sql
+
+      - name: Run Maven tests, including PostgreSQL integration tests
+        run: >-
+          mvn -B -ntp test
+          -Dminibank.test.sql.url=jdbc:postgresql://localhost:5432/minibank_test
+          -Dminibank.test.sql.user=minibank
+          -Dminibank.test.sql.password=minibank
+
+  frontend:
+    name: Frontend quality checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: |
+            minibank-web/package-lock.json
+            minibank-fraud-web/package-lock.json
+
+      - name: Install customer application dependencies
+        working-directory: minibank-web
+        run: npm ci
+
+      - name: Install fraud application dependencies
+        working-directory: minibank-fraud-web
+        run: npm ci
+
+      - name: Lint customer application and shared frontend code
+        working-directory: minibank-web
+        run: npm run lint
+
+      - name: Test shared frontend logic
+        working-directory: minibank-web
+        run: npm test
+
+      - name: Build customer application
+        working-directory: minibank-web
+        run: npm run build
+
+      - name: Lint fraud application
+        working-directory: minibank-fraud-web
+        run: npm run lint
+
+      - name: Build fraud application
+        working-directory: minibank-fraud-web
+        run: npm run build

@@ -1,5 +1,5 @@
 // src/WaitingAuthorizationsPage.tsx
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
 import './App.css';
 import {
     fetchWaitingTransfers,
@@ -304,8 +304,12 @@ export function WaitingAuthorizationsPage({ role, brand, identity, onNavigate }:
      */
     const [now, setNow] = useState(() => new Date());
 
-    useEffect(() => {
+    const loadInitialList = useEffectEvent(() => {
         void loadList();
+    });
+
+    useEffect(() => {
+        loadInitialList();
     }, []);
 
     /* The deadline of the payment on screen, which is what the tick below is started for. */

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint . && cd .. && eslint --config minibank-web/eslint.config.js frontend-shared",
+    "lint": "eslint . --max-warnings=0 && cd .. && eslint --config minibank-web/eslint.config.js frontend-shared --max-warnings=0",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"

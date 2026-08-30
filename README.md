@@ -1,15 +1,67 @@
 # MiniBank
 
-A small retail banking application written to show persistence patterns implemented by hand, with
-no ORM anywhere in it: a Unit of Work that defers every write to commit, an Identity Map that makes
-one transaction see one instance of a row, and Lazy Load behind the navigation properties. The
-domain layer has no framework in it at all, and the same domain runs against two different stores.
+[![CI](https://github.com/d3m1d0s/VIS_mini-bank/actions/workflows/ci.yml/badge.svg)](https://github.com/d3m1d0s/VIS_mini-bank/actions/workflows/ci.yml)
 
-What it does: a customer signs in, lists their accounts, sends a payment, confirms it with a one
-time password, or cancels it. A payment that looks risky is held for review, and a fraud analyst
-approves it, records confirmed fraud, or leaves notes.
+MiniBank is a full-stack retail banking application built to demonstrate production-style backend
+design without an ORM. It combines a Java 17 and Spring Boot REST API, PostgreSQL/JDBC persistence,
+and React/TypeScript clients with hand-written Unit of Work, Identity Map and Lazy Loading patterns.
 
-## What is in here
+Customers can review accounts and payment history, create and confirm payments with a one-time
+password, and cancel pending transfers. Risky payments enter a separate fraud-review workflow where
+an analyst can investigate the alert, leave notes and approve or decline the transfer.
+
+**Stack:** Java 17, Spring Boot, REST, PostgreSQL, JDBC, React, TypeScript, Vite, Maven, Docker,
+JUnit 5, Mockito, Vitest and ESLint.
+
+<!-- Add screenshots here: customer dashboard, payment review and fraud analyst desk. -->
+
+## Highlights
+
+- End-to-end payment flow with authentication, OTP authorization, cancellation and history.
+- Rule-based risk checks and a dedicated fraud analyst workflow.
+- Framework-independent domain model with repository and Unit of Work abstractions.
+- JSON and PostgreSQL persistence adapters behind the same application services.
+- Optimistic locking for accounts, transfers and fraud alerts to prevent lost updates.
+- Parameterized JDBC queries, transactional writes and automated backend/frontend tests.
+
+## Architecture
+
+```mermaid
+flowchart TD
+    UI["React + TypeScript clients"] --> API["Spring Boot REST API"]
+    API --> APP["Application services"]
+    APP --> DOMAIN["Framework-free domain model"]
+    APP --> PORTS["Repository + Unit of Work interfaces"]
+    PORTS --> JSON["JSON adapter"]
+    PORTS --> JDBC["JDBC adapter"]
+    JDBC --> DB[(PostgreSQL)]
+```
+
+The domain and application layers do not depend on Spring or a persistence technology. Infrastructure
+adapters implement the repository and Unit of Work interfaces for either a local JSON store or
+PostgreSQL. See [`src/Project_structure.md`](src/Project_structure.md) for the complete package map.
+
+## Quick start
+
+The default demo uses the JSON store, so PostgreSQL and Docker are not required. Run these three
+commands, using a second terminal for the web client:
+
+```bash
+git clone https://github.com/d3m1d0s/VIS_mini-bank.git && cd VIS_mini-bank
+mvn -B spring-boot:run
+```
+
+```bash
+cd VIS_mini-bank/minibank-web && npm ci && npm run dev
+```
+
+Open `http://localhost:5173` and sign in as `alice / alice123` for the customer application or
+`fraud / fraud123` for the analyst desk. The demo one-time password is `0000`.
+
+For PostgreSQL mode, both frontends, console applications and detailed configuration, continue with
+[Running it](#running-it).
+
+## Design notes
 
 - **Two persistence backends behind one set of repository interfaces**: a JSON document store and
   PostgreSQL. The in-memory piece is a `UserRepository` shim that JSON mode is handed in place of
@@ -25,8 +77,6 @@ approves it, records confirmed fraud, or leaves notes.
 - Every JDBC statement that carries a value binds it as a `PreparedStatement` parameter; no value
   is ever concatenated into SQL text. The only plain `Statement`s are the constant-text `nextval`
   queries that allocate ids.
-
-`src/Project_structure.md` maps the tree.
 
 ## Requirements
 
@@ -194,7 +244,7 @@ already in the store.
 An analyst who signs into the customer application is taken straight to the fraud desk and cannot
 reach the customer screens. A customer who signs into the analyst application is refused.
 
-## Tests
+## Tests and quality checks
 
 ```
 mvn -B test
@@ -218,8 +268,21 @@ application database, because they truncate every table.
 The front ends have one test runner between them, in `minibank-web`, and it covers the shared
 module as well:
 
+```bash
+cd minibank-web
+npm ci
+npm run lint
+npm test
+npm run build
 ```
-cd minibank-web && npm test
+
+The standalone fraud application has its own lint and production-build gates:
+
+```bash
+cd minibank-fraud-web
+npm ci
+npm run lint
+npm run build
 ```
 
 Every case in it calls a function from `frontend-shared/` with values and checks what comes back:
