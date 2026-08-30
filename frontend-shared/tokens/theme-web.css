@@ -1,0 +1,361 @@
+/* theme-web.css. Loaded by minibank-web only. Dark palette, web idiom.
+ *
+ * Every surface, border and state colour below is opaque. The values they replace were alpha
+ * over a radial gradient, so the same declared colour resolved to a different pixel at the top
+ * left of the page than at the bottom right, and no ratio measured against them could be
+ * trusted. Where the alpha was doing real compositing work the difference is under one unit
+ * per channel, so nothing on screen moves. Alpha survives in exactly one place, the selection
+ * tint, because that one has to let a hover show through it, and both composites are measured.
+ *
+ * The name list and its order match theme-desktop.css, with two named exceptions and no others:
+ * --size-fold-handle-height and --size-fold-caret are declared there and not here, because the
+ * control they measure exists on that platform only and this one has no line to fold anything away
+ * from. Both say so where they stand. Everything else is the same name in the same place, so a
+ * diff of the two files shows values and comments and nothing else, and a name that appears on one
+ * side alone without a note beside it saying why is a name one skin has quietly gone without.
+ */
+:root {
+  color-scheme: dark;
+
+  /* ---- radius roles: web idiom. Nothing here moves. ---- */
+  --radius-control: 999px;
+  --radius-field: 10px;
+  --radius-inset: 14px;
+  --radius-surface: 16px;
+  --radius-shell: 24px;
+
+  /* ---- gap roles: web idiom. Nothing here moves. ----
+   * .actions, .form and .inline disagree between the two platforms by a few pixels. They are
+   * reconciled by sharing one vocabulary rather than one number: the idiom picks the rung.
+   */
+  --gap-form: var(--space-7);
+  --gap-actions: var(--space-5);
+  --gap-actions-top: var(--space-2);
+  --gap-inline: var(--space-5);
+  --gap-field-row: var(--space-6);
+  --gap-nav: var(--space-3);
+
+  /* The two halves of one pair, and they are a pair: a control that answers the pointer has to
+     answer the press as well, and a skin that says one of them says both. Web floats on hover and
+     sinks on press, both by half a step and a step.
+
+     The press is a name here so that the override at the foot of this file can reach it, and that
+     is the whole of what the name is for. A rule that writes translateY(1px) into a stylesheet
+     still moves under a reader who has asked for no movement, because the override reaches tokens
+     and cannot reach a literal. Such a rule usually sits directly beside a hover that took
+     var(--lift-hover) and stopped moving, which is the shape to look for: not an untidy value, but
+     half a control answering the setting and half of it ignoring it. */
+  --lift-hover: translateY(-0.5px);
+  --lift-active: translateY(1px);
+
+  /* ---- surfaces, ordered by elevation ------------------------------------
+   * The ladder goes UP from the shell, not down. The whole luminance budget
+   * between #0f172a and pure black is 1.176:1 and #020617 already spends 1.12
+   * of it, so there is no room below: a second surface has to be lighter.
+   */
+  --color-canvas-image:
+          radial-gradient(circle at top left, #111827, #020617 55%),
+          radial-gradient(circle at bottom right, #020617, #000000 60%);
+  --color-surface-canvas: #020617;
+  --color-surface-sunken: #020617;    /* the table head, unchanged                  */
+  --color-surface-field: #020617;     /* input, select and textarea wells           */
+  --color-surface-shell: #0f172a;     /* the working page, edge to edge, and the
+                                         sign-in card. Was .card on both.           */
+  --color-surface-raised: #1b2742;    /* .summary .details-card .table-wrapper
+                                         .btn-secondary. All four were #0f172a, so
+                                         the card measured 1.00:1 against them.     */
+  --color-surface-chrome: #253357;    /* the page header bar. The web app has no
+                                         title bar, but once the working screens run
+                                         to the edges of the window their header is
+                                         furniture rather than a block of content,
+                                         and it needs a surface to say so. In dark,
+                                         furniture sits ABOVE content; in light it
+                                         sits below.                                */
+  /* The hover step for the header bar, which is chrome rather than a control surface and so
+     does not take --color-surface-hover below: that value is mixed against the shell, and
+     against the darker chrome it barely moves. */
+  --color-surface-chrome-hover: #384c7c;
+  --color-surface-hover: #22304f;     /* was three near values: #1d2736, #1e293b,
+                                         #172236                                    */
+  --color-surface-disabled: #1e2740;  /* only for controls whose rest fill is an
+                                         accent                                     */
+
+  /* ---- borders. Two neutral families, split by role.
+   *      --color-border is the boundary of something you operate and carries the
+   *      3:1 obligation. --color-border-container holds things and carries no
+   *      threshold, which is why the cards and panels keep their present weight.
+   */
+  --color-border: #6e7c9c;            /* was rgba(55,65,81,0.9), 1.64:1 on the shell */
+  --color-border-container: #333e55;  /* absorbs rgba(148,163,184,0.25) and the
+                                         container half of rgba(55,65,81,0.9)        */
+  --color-border-divider: #2b3856;    /* was rgba(31,41,55,1), which is 1.01:1 on the
+                                         new raised surface, that is, nothing         */
+  --color-border-strong: #94a3b8;     /* emphasis, and the planned dashed edge        */
+  --color-border-disabled: #414c68;
+  --color-border-accent: #3b82f6;     /* the edge of a filled primary button          */
+  /* The scroll edge, and it is not a border: it is the ground of a dark page going darker
+     towards a cut, read at a glance and never looked at. Black rather than a named surface
+     because it has to sit over whichever of them the scroller paints.                    */
+  --color-scroll-edge: rgba(0, 0, 0, 0.55);
+
+  /* ---- text ---- */
+  --color-text-primary: #f9fafb;
+  --color-text-secondary: #e5e7eb;
+  --color-text-muted: #9ca3af;
+  --color-text-planned: #9ca3af;
+  --color-text-disabled: #828b9e;     /* was opacity 0.6 on the whole control */
+  --color-text-on-accent: #f9fafb;
+
+  /* The monogram on the sign-in tile, drawn rather than fetched: a showcase repository should
+     not carry a binary for one letter, and an inline document cannot be missing at run time.
+     The stroke is the on-accent colour because the tile behind it is --color-accent. The
+     viewBox carries its own padding, so background-size: contain still leaves the letter
+     breathing inside the tile. */
+  --brand-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M5 19V5l7 8 7-8v14' fill='none' stroke='%23f9fafb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+
+  /* ---- accent, split by job. --color-accent is the LIGHTEST blue that keeps a
+   *      #f9fafb label at 4.5:1 (measured 4.95:1; #3b82f6 gives only 3.52:1). It
+   *      is therefore too dark to be a 3:1 boundary against the raised surface
+   *      (2.87:1), which is why --color-border-accent exists and why the primary
+   *      button gains a 1px edge. Hover goes DARKER here, which is the opposite
+   *      of what a lines-and-tints rule would say: a lighter fill sinks its own
+   *      label. --color-accent-hover is the value the button already uses, so the
+   *      hover does not change at all.
+   */
+  --color-accent: #2563eb;
+  --color-accent-hover: #1d4ed8;
+  --color-accent-active: #1a43bd;
+  --color-accent-line: #3b82f6;       /* focus ring, focused field edge, primary edge */
+
+  /* ---- selection and focus ---- */
+  --color-selected-surface: rgb(59 130 246 / 0.22);
+  --color-selected-marker: #60a5fa;   /* NOT --color-accent-line: #3b82f6 falls to
+                                         2.60:1 on a hovered selected tint           */
+  --color-focus-ring: #3b82f6;        /* was rgba(59,130,246,0.8); opaque now, so the
+                                         ring stops depending on what is behind it   */
+
+  /* ---- status. The inline `salmon` literals keep salmon's exact sRGB value #fa8072:
+   *      it clears 3:1 as a border and 4.5:1 as text everywhere it is used, so changing
+   *      it would be churn with no requirement behind it. --color-danger-accent is the
+   *      separate 3:1 red for a field in error, which does not exist yet.
+   *      --color-info-border keeps the exact composite the .summary edge resolves to
+   *      today; it is a notice edge, not a control.
+   */
+  --color-info-surface: #1b2742;
+  --color-info-border: #2957a4;       /* was rgba(59,130,246,0.6) over the card */
+  --color-info-text: #93c5fd;
+  --color-danger-surface: #452027;    /* no call site today                     */
+  --color-danger-border: #fa8072;     /* the inline literals, verbatim          */
+  --color-danger-text: #fa8072;
+  --color-danger-accent: #f87171;     /* the 3:1 red for a field in error       */
+  --color-success-surface: #14392b;
+  /* Quieter than the danger edge, and that ordering is the requirement rather than the number.
+     The two edges are read side by side over a working week, never together, so the one that
+     says an irreversible action was refused cannot be the fainter of the two.
+     Measured on the ground the box is actually painted on, --color-surface-raised #1b2742,
+     which is what the running page reports and not what the declared fill implies: the old
+     #34d399 gave 7.72 against the danger salmon's 5.93, so calm was 1.30 times louder than
+     alarm. #2ea87c gives 4.95, which puts the pair the right way round at 1.20 and still
+     clears the 3:1 an edge owes, on the raised surface and on the box's own fill alike (4.25).
+     The green moved rather than the red because the red cannot: matching mint from the salmon
+     side means a pink pale enough to stop being red, and the salmon is a measured, live value
+     carrying the error box today. --color-success-text is untouched; it is ink, not an edge,
+     and it is also --color-tone-open, whose 4.5:1 was measured on four grounds. */
+  --color-success-border: #2ea87c;
+  --color-success-text: #6ee7b7;
+  --color-warning-surface: #453410;
+  --color-warning-border: #fbbf24;
+  --color-warning-text: #fcd34d;
+
+  /* ---- outcome. The box that answers what the reader just did.
+   *
+   * Three answers and no more: it happened, it did not happen, this is for information. They are
+   * roles of their own rather than call sites writing the status ladders directly, borrowed the
+   * way --color-tone-open borrows the success green below and for the same reason, and the
+   * borrowing is not theoretical here: the success edge one screen up has just been retuned for
+   * this box's sake, and a status ladder that carries a dozen quiet things must be able to move
+   * again without dragging the answer to an irreversible decision with it.
+   *
+   * The three are ordered by loudness, measured on --color-surface-raised, which is the ground
+   * the box is painted on: refused 5.93, done 4.95, for information 2.11. A notice that shouts
+   * as loudly as a refusal is how a reader learns to stop reading either of them. The lowest of
+   * the three is an edge around a notice and owes no threshold; the other two are edges around
+   * outcomes and clear 3:1.
+   *
+   * The edges are measured against the surface around the box; the inks against the fill inside
+   * it, which is a different ground for two of the three. All three clear the 4.5:1 an ink owes:
+   * 8.35, 5.64 and 8.23.
+   *
+   * The notice fill is the value --color-surface-raised already resolves to, so a box that
+   * takes this slot instead of the raised surface does not move a pixel.
+   */
+  --color-outcome-done-surface: var(--color-success-surface);
+  --color-outcome-done-border: var(--color-success-border);
+  --color-outcome-done-text: var(--color-success-text);
+  --color-outcome-failed-surface: var(--color-danger-surface);
+  --color-outcome-failed-border: var(--color-danger-border);
+  --color-outcome-failed-text: var(--color-danger-text);
+  --color-outcome-notice-surface: var(--color-info-surface);
+  --color-outcome-notice-border: var(--color-info-border);
+  --color-outcome-notice-text: var(--color-info-text);
+
+  /* The refused tone, and the one of the three that needed a value of its own.
+   *
+   * A status word stands on four grounds here, because a selected queue row paints a tint over
+   * every one of its cells: the raised row #1b2742, its hover #22304f, and each of those again
+   * under the selection. The danger salmon #fa8072 measures 5.9, 5.2, 4.4 and 3.96 across them,
+   * so a Declined row fails 4.5:1 exactly while it is the row being read. This lighter red
+   * measures 7.8, 6.9, 5.9 and 5.2 and clears everywhere. It is the same trap
+   * --color-selected-marker was pulled out of, and for the same reason.
+   *
+   * Not a change to --color-danger-text: that value carries the error box and its edge, where
+   * it sits on the tinted danger surface and is not what fails. One role, one value. */
+  --color-tone-blocked: #fca5a5;
+  /* The open tone, which is the success green rather than a fifth colour: an alert nobody has
+     picked up is not an error and not a warning, and this palette already carries a green that
+     clears 4.5:1 on every surface a status word lands on. */
+  --color-tone-open: var(--color-success-text);
+
+  /* The ink of the word that says a payment left the bank, set after the recipient number in
+     the route stack. The word is glossary.ts's answer to a fact that had no channel left:
+     colour is spent on the four state tones and weight and ink on the alerted account, so the
+     mark is language, and language is bound by 4.5:1 rather than the 3:1 a rule would owe.
+
+     A role of its own rather than a call site writing --color-text-muted directly, borrowed
+     the way --color-tone-open borrows the success green above and for the same reason: the
+     muted ink carries a dozen quiet things, and tuning any of them must not silently move a
+     mark whose contrast was measured. Nothing on screen changes today.
+
+     Measured on the two grounds a history row actually paints, which is what the running page
+     reports rather than what the stylesheet implies: the raised row #1b2742 and its hover
+     #22304f. #9ca3af gives 5.84 and 5.16. It would fall to 4.35 and 3.90 under a selection
+     tint, and that is recorded rather than designed around because no table carrying a route
+     column is selectable; a queue that grows one has to revisit this value, not reuse it. */
+  --color-route-boundary: var(--color-text-muted);
+
+  /* ---- shadow ---- */
+  --shadow-shell:
+          0 28px 80px rgb(0 0 0 / 0.75),
+          0 0 0 1px rgb(15 23 42 / 0.6);
+
+  /* ---- named fixed dimensions. Not on any scale. Named so the desktop customer
+   *      screens reuse them rather than invent a second set. Seven have no call site in this
+   *      application, --size-shell-max and --size-form-max and the last five, and they are
+   *      declared because the two theme files carry identical name lists.
+   */
+  /* The shell no longer has a ceiling: the working screens take the window, so this is left
+     for the desktop side of the contract. */
+  --size-shell-max: 1120px;
+  /* The one reading column. Everything on a working screen is measured against this: the
+     tables, the forms, the notices. Sized for the WIDER of the two things it has to hold,
+     the nine-column alert queue, which wants 924px of content today and needs room for a
+     longer reason or assignee; a line of prose is held to its own measure below instead of
+     being allowed to set this number. It is also what the content panel already measures at
+     1440, so nothing at or below that width moves. */
+  --size-content-max: 1080px;
+  /* No call site here any more. A block used to carry its own ceiling and the tables carried
+     none, which is what put the right edge of a table 1400px away from the right edge of the
+     block under it; the ceiling now sits on the column and the blocks fill it. Declared
+     because the two theme files carry identical name lists. */
+  --size-form-max: 740px;
+  /* A line of running text. In ch, so it tracks the text rather than fighting it: 66 sits
+     inside the band where the eye still finds the start of the next line without help. */
+  --size-prose-max: 66ch;
+  --size-dialog-max: 480px;
+  /* The height the sign-in dialog actually has, which is what the shell offsets it by to
+     hold it still while a message grows under the password field. It is not --size-dialog-max:
+     that is the width, and standing in for the height put the dialog 68px above centre. */
+  --size-dialog-nominal: 344px;
+  /* The band held open under the password field so that the Sign in button does not move when a
+     refusal appears. It belongs beside the height above, for the same reason that one does: the
+     shell subtracts both when it offsets the card, and a band and a height that are kept in two
+     files drift apart on the first measurement either of them is taken again.
+
+     5rem is what the card carries today, and it is the wrong password's number rather than the
+     card's own worst case. Measured at 1440x900, box plus its own margin, at 100 and at 200
+     percent text: the local refusal for an empty press 51 and 156, a wrong password 77 and 158,
+     the validation refusal the same. Against a band of 80 and 160 those hold and the button does
+     not move, which is what the running screen shows. Three answers this same door can draw do
+     not fit it: a bank that cannot be reached at 72 and 198, the timeout at 119 and 242, the
+     sign-in throttle at 119 and 326. On those the button drops by the difference.
+
+     Covering all of them is 10.25rem, an empty band the height of two fields standing under the
+     password box before anything has gone wrong. That trade is the open decision about this card
+     rather than a number this file may pick, so the measurements are here and the value is left
+     where the screen has it. minibank-web/src/App.css declares this same name and this same value
+     on .app-shell:has(.card--narrow), written there before this file owned it; that copy shadows
+     this one for the sign-in card and is the one to delete. */
+  --size-login-error-slot: 5rem;
+  --size-nav-column: 260px;
+  /* The label column of a form row. It is a floor rather than a width, and it was set below
+     the labels that actually stand in it - Assignee is 65px, Username 73px, Withdrawn 80px -
+     so those three rows pushed their own field further right than the rows above them and the
+     column had three left edges. 5.5rem clears the longest of them. */
+  --size-label-min: 5.5rem;
+  /* The largest amount this bank writes, 1 234 567,89 in Czech grouping, measures 112px with
+     the field's border and padding. */
+  --size-amount-field: 8rem;
+  /* The same amount at the lead rung of the type scale, where the payment form sets it: the
+     digits measure 124px, plus the padding and the two hairlines, plus a little slack past the
+     longest content the bank writes. */
+  --size-amount-field-lead: 10rem;
+  /* Ten digits, which is what the box accepts, measure 108px; the placeholder Enter OTP
+     measures 92px. */
+  --size-otp-field: 7rem;
+  --size-textarea-min: 80px;
+  --size-textarea-max: 200px;
+  --size-titlebar: 44px;
+  /* The label column of the desktop filter panel and of its fact grids. Read by that skin only,
+     declared here because the two files carry identical name lists. 5.625rem is the 90px it has
+     always been at the default text size; in rem because it holds words. */
+  --size-row-label: 5.625rem;
+  --size-queue-min: 320px;
+  --size-queue-max: 420px;
+  --size-detail-min: 360px;
+}
+
+/* The durations are zeroed in scale.css, which is loaded first. The lift pair is declared
+   here, so its override has to be here too, or the declarations above would win. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --lift-hover: none;
+    --lift-active: none;
+  }
+}
+
+/* ---- what is left of this palette once the reader has taken it away -------------------
+ *
+ * A forced colours mode replaces every colour a stylesheet declares, whatever the stylesheet
+ * says, so nothing above this line reaches that reader. Two of these tokens are images rather
+ * than colours, and an image is where a forced mode stops. Both were looked at in both emulated
+ * palettes at 1440x900: the canvas gradient is dropped, the shell computing background-image:
+ * none and the page standing on the reader's own ground, which is right; the monogram is painted
+ * exactly as it is written here, ink and all, which is not.
+ *
+ * That is what this block is for. The stroke is inside the data URI, so on the white palette the
+ * sign-in card drew a near white letter on a white ground, a ghost beside the word MiniBank
+ * (defg-gtok-web-forced-light.png). Asking the image for the reader's ink does not work, and this
+ * was measured rather than reasoned: stroke='CanvasText' inside the data URI comes out black in
+ * BOTH palettes, so it is right on the white one and invisible on the black one, and currentColor
+ * does the same. An SVG loaded as an image is its own document, and the reader's palette is not
+ * in it.
+ *
+ * So the mark is declared once per palette and the browser picks, reporting the forced theme's
+ * own ground through prefers-color-scheme. Pure black and pure white rather than this palette's
+ * near neighbours of them: under a forced mode the reader's ink is what it is, and a near white
+ * is a colour with an opinion. A mark baked into an image can do two grounds and no more, which
+ * is the honest limit of drawing the letter here instead of setting it in type.
+ *
+ * prefers-contrast is untouched, here and everywhere in the product.
+ */
+@media (forced-colors: active) and (prefers-color-scheme: dark) {
+  :root {
+    --brand-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M5 19V5l7 8 7-8v14' fill='none' stroke='%23ffffff' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}
+
+@media (forced-colors: active) and (prefers-color-scheme: light) {
+  :root {
+    --brand-mark: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath d='M5 19V5l7 8 7-8v14' fill='none' stroke='%23000000' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  }
+}

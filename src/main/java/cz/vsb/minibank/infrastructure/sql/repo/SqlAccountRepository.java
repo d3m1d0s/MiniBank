@@ -10,7 +10,6 @@ import cz.vsb.minibank.infrastructure.uow.IdentityMapAccounts;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
-import java.math.BigDecimal;
 import java.sql.*;
 import java.util.ArrayList;
 import java.util.List;
@@ -90,7 +89,7 @@ public final class SqlAccountRepository implements AccountRepository {
 
     private Optional<Account> loadByIdWithConnection(Connection conn, int id, UnitOfWork uow) throws SQLException {
         String sql = """
-                SELECT id, iban, balance_czk, daily_limit_czk, soft_daily_threshold_czk, version
+                SELECT id, iban, balance_czk, version
                   FROM accounts
                  WHERE id = ?
                 """;
@@ -122,14 +121,10 @@ public final class SqlAccountRepository implements AccountRepository {
      * would silently refresh the token.
      */
     private static Account mapRowToAccount(ResultSet rs) throws SQLException {
-        BigDecimal softThreshold = rs.getBigDecimal("soft_daily_threshold_czk");
-
         Account acc = new Account(
                 rs.getInt("id"),
                 new IBAN(rs.getString("iban")),
-                Money.czk(rs.getBigDecimal("balance_czk")),
-                Money.czk(rs.getBigDecimal("daily_limit_czk")),
-                softThreshold != null ? Money.czk(softThreshold) : null
+                Money.czk(rs.getBigDecimal("balance_czk"))
         );
         acc.hydrateVersion(rs.getInt("version"));
         return acc;
@@ -161,7 +156,7 @@ public final class SqlAccountRepository implements AccountRepository {
 
     private Optional<Account> loadByIbanWithConnection(Connection conn, IBAN iban, UnitOfWork uow) throws SQLException {
         String sql = """
-                SELECT id, iban, balance_czk, daily_limit_czk, soft_daily_threshold_czk, version
+                SELECT id, iban, balance_czk, version
                   FROM accounts
                  WHERE iban = ?
                 """;
@@ -256,15 +251,12 @@ public final class SqlAccountRepository implements AccountRepository {
      */
     private void upsertAccount(Connection conn, Account account) throws SQLException {
         String sql = """
-            INSERT INTO accounts (id, iban, balance_czk, daily_limit_czk,
-                                  soft_daily_threshold_czk, customer_id)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO accounts (id, iban, balance_czk, customer_id)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT (id) DO UPDATE
-              SET iban                     = EXCLUDED.iban,
-                  balance_czk              = EXCLUDED.balance_czk,
-                  daily_limit_czk          = EXCLUDED.daily_limit_czk,
-                  soft_daily_threshold_czk = EXCLUDED.soft_daily_threshold_czk,
-                  version                  = accounts.version + 1
+              SET iban        = EXCLUDED.iban,
+                  balance_czk = EXCLUDED.balance_czk,
+                  version     = accounts.version + 1
               WHERE accounts.version = ?
             RETURNING version
             """;
@@ -273,18 +265,12 @@ public final class SqlAccountRepository implements AccountRepository {
             ps.setInt(1, account.id());
             ps.setString(2, account.iban().value());
             ps.setBigDecimal(3, account.balance().amount());
-            ps.setBigDecimal(4, account.dailyLimit().amount());
-            if (account.softDailyThreshold() != null) {
-                ps.setBigDecimal(5, account.softDailyThreshold().amount());
-            } else {
-                ps.setNull(5, java.sql.Types.NUMERIC);
-            }
 
             // At insert time we do not know the owner yet; keep it NULL.
             // SqlCustomerRepository will later assign customer_id via UPDATE.
-            ps.setNull(6, java.sql.Types.INTEGER);
+            ps.setNull(4, java.sql.Types.INTEGER);
 
-            ps.setInt(7, account.version());
+            ps.setInt(5, account.version());
 
             // version is absent from the INSERT column list on purpose: a new row takes the
             // column default 0, so no code path ever chooses an insert version.
@@ -318,7 +304,7 @@ public final class SqlAccountRepository implements AccountRepository {
 
     private List<Account> loadByCustomerIdWithConnection(Connection conn, int customerId, UnitOfWork uow) throws SQLException {
         String sql = """
-                SELECT id, iban, balance_czk, daily_limit_czk, soft_daily_threshold_czk, version
+                SELECT id, iban, balance_czk, version
                   FROM accounts
                  WHERE customer_id = ?
                 """;

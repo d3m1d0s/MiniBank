@@ -222,6 +222,16 @@ module as well:
 cd minibank-web && npm test
 ```
 
+Every case in it calls a function from `frontend-shared/` with values and checks what comes back:
+parsing the amount a customer types, printing money and dates, the error contract, the queue
+filters, the wording the two desks share. **Nothing renders a component**, and neither `jsdom` nor
+a testing library is installed. That is deliberate: the logic worth pinning down was moved out of
+the screens and into that module, where a plain call reaches it, and a render test would mostly
+pin down markup that is still moving. One observation reverses it, a defect a person can see on a
+screen while every function behind it still passes. That is the wiring between a component and the
+module, which no function test can reach, and the first defect of that kind is what buys `jsdom`
+and the render tests that follow it.
+
 ## The database
 
 ```

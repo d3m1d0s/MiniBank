@@ -44,6 +44,7 @@ class BeneficiarySequenceRecoveryTest {
                   "customers": [
                     { "id": 1, "name": "Alice", "email": "a@example.com",
                       "address": { "street": "Hlavni 1", "city": "Ostrava" },
+                      "dailyLimit": 40000.00,
                       "accountIds": [],
                       "beneficiaries": [
                         { "id": 10, "name": "Landlord", "iban": "%s", "trusted": true },
@@ -68,6 +69,7 @@ class BeneficiarySequenceRecoveryTest {
                   "customers": [
                     { "id": 1, "name": "Alice", "email": "a@example.com",
                       "address": { "street": "Hlavni 1", "city": "Ostrava" },
+                      "dailyLimit": 40000.00,
                       "accountIds": [],
                       "beneficiaries": [
                         { "id": 14, "name": "Landlord", "iban": "%s", "trusted": true },
@@ -97,6 +99,7 @@ class BeneficiarySequenceRecoveryTest {
                   "customers": [
                     { "id": 1, "name": "Alice", "email": "a@example.com",
                       "address": { "street": "Hlavni 1", "city": "Ostrava" },
+                      "dailyLimit": 40000.00,
                       "accountIds": [],
                       "beneficiaries": [
                         { "id": 10, "name": "Landlord", "iban": "%s", "trusted": true }

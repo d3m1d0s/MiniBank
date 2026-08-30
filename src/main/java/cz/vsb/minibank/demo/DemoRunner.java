@@ -38,13 +38,14 @@ public class DemoRunner {
     private static final double CANCEL_AMOUNT = 5_200;
 
     /**
-     * Above the secondary account's own 3 000 soft tier and below every other threshold.
+     * Below every threshold that judges a payment on its own: untrusted, but under the 5 000
+     * untrusted threshold and nowhere near the 10 000 alert threshold, and comfortably inside the
+     * secondary account's 5 000 opening balance. Nothing about the payment itself can hold it.
      *
-     * Under the bank-wide 15 000 this payment settled on the spot - it is untrusted but under
-     * the 5 000 untrusted threshold and nowhere near the 10 000 alert threshold - so it is the
-     * only thing in this script that would behave differently if the per-account soft tier were
-     * reverted. Comfortably inside the account's 5 000 opening balance and 8 000 ceiling, so
-     * nothing else can be what refuses it.
+     * What holds it is the day it lands in. The two payments above have already taken 18 000 out
+     * of the primary account, and the day's running total the soft tier is measured against is
+     * the customer's, not one account's. This is the only step in the script that would settle on
+     * the spot if that total went back to being counted per account.
      */
     private static final double SOFT_TIER_AMOUNT = 3_500;
 
@@ -212,10 +213,10 @@ public class DemoRunner {
                     "Balance must remain unchanged after canceling T3");
             System.out.println("[OK] UC19: T3 DECLINED, balance=" + afterT3 + " (unchanged)\n");
 
-            // 4) The per-account soft authorization tier, on the one account that has one.
-            // Everything above runs on the primary account, which has no override and rides the
-            // bank-wide 15 000; without this step nothing in the script would notice if the
-            // per-account tier were reverted.
+            // 4) The soft authorization tier, counted across the customer rather than per account.
+            // Everything above runs on the primary account; this pays from the secondary one and
+            // is held anyway. Without this step nothing in the script would notice if the day's
+            // total went back to being one allowance per account.
             runSoftTierStep(infra, services, customerId);
 
             System.out.println("=== SUMMARY ===");
@@ -234,26 +235,22 @@ public class DemoRunner {
     // Helpers
 
     /**
-     * Sends one payment from the secondary account, whose soft tier is its own 3 000 rather
-     * than the bank-wide 15 000, and shows that the tier fires.
+     * Sends one payment from the secondary account and shows that the soft authorization tier is
+     * measured over the customer's whole day rather than over one account's.
      *
-     * Skipped with a printed note rather than failed when the account carries no override. The
-     * scenario's seed is a no-op on a store that already has the demo dataset, so a store
-     * seeded before this change has the column empty and this account is back on the bank-wide
-     * tier - which would settle the payment and fail an assertion about a fixture, not about
-     * the code. Re-run with -Dminibank.demo.reset=true to see it.
+     * The secondary account has sent nothing today and the amount is under every single-payment
+     * threshold, so on its own the payment settles. It is held because the primary account has
+     * already spent 18 000 of the same allowance. The threshold read here is the customer's, and
+     * this customer has none of their own, so it is the bank-wide tier that applies.
      */
     private static void runSoftTierStep(Bootstrap infra, BootstrapServices services, int customerId) {
+        Customer customer = infra.customers.byId(customerId).orElseThrow();
+        Money threshold = customer.softDailyThreshold();
+        String tier = (threshold != null)
+                ? "this customer's own " + threshold + " soft tier"
+                : "the bank-wide soft tier";
+
         Account secondary = infra.accounts.byIban(DemoScenario.SECONDARY_IBAN).orElseThrow();
-        Money threshold = secondary.softDailyThreshold();
-
-        if (threshold == null) {
-            System.out.println("[Skip] The secondary account carries no soft-tier override, so this"
-                    + " store predates the per-account threshold. Re-run with -D"
-                    + MinibankProperties.DEMO_RESET + "=true to seed one.\n");
-            return;
-        }
-
         Money before = secondary.balance();
         int t4 = services.transferService.submitPaymentToIban(
                 customerId,
@@ -264,8 +261,9 @@ public class DemoRunner {
         ).transferId();
         var tr4 = infra.transfers.byId(t4).orElseThrow();
         assertState(tr4.status() == TransferStatus.WAITING_AUTH,
-                "T4 of " + Money.czk(SOFT_TIER_AMOUNT) + " must be held by this account's own "
-                        + threshold + " tier; under the bank-wide 15 000 it would have settled");
+                "T4 of " + Money.czk(SOFT_TIER_AMOUNT) + " must be held by " + tier
+                        + ", which the day's earlier payments out of the other account crossed;"
+                        + " counted per account this one would have settled");
         assertState(infra.accounts.byId(secondary.id()).orElseThrow().balance().equals(before),
                 "A payment held for authorization must not have debited anything");
 
@@ -282,9 +280,10 @@ public class DemoRunner {
         assertState(tr4.settledAt() != null,
                 "The settled transfer must record when the money moved");
 
-        System.out.println("[OK] Per-account soft tier: T4=" + t4 + " was held by the secondary"
-                + " account's own " + threshold + " threshold and then SENT, balance=" + after
-                + " (fee=" + fee4 + ", stored not recomputed)\n");
+        System.out.println("[OK] Customer-wide soft tier: T4=" + t4 + " left the secondary account"
+                + " and was held anyway by " + tier + ", already crossed by the primary account's"
+                + " payments, then SENT, balance=" + after + " (fee=" + fee4
+                + ", stored not recomputed)\n");
     }
 
     /**

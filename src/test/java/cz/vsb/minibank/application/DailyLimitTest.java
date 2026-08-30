@@ -23,6 +23,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZonedDateTime;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -32,7 +33,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
  * The daily limit is cumulative, has two tiers, and is enforced at both
  * creation and authorization.
  *
- * What it replaced compared one amount against Account.dailyLimit and, when that tripped, only
+ * The ceiling and the tier are the CUSTOMER's, so a customer holding several accounts has one
+ * day's allowance and not one per account. This class exercises a customer with a single account,
+ * which is where the two arrangements agree; OwnAccountTransfersDoNotSpendTheDayTest takes the
+ * case where they do not.
+ *
+ * What it replaced compared one amount against a per-account limit and, when that tripped, only
  * set requireAuthorization - which FixedOtpValidator satisfies with the compile-time constant
  * "0000". Measured against the store this project ships with: opening 25 000.00, 23 300.03 sent
  * in a day against a 15 000.00 limit, zero refusals. So every case here is written to fail
@@ -59,7 +65,7 @@ class DailyLimitTest {
     /** Large enough that the funds check never decides anything these tests assert. */
     private static final Money OPENING = Money.czk(500_000);
 
-    /** The account's own hard ceiling, the stored daily_limit_czk. */
+    /** The customer's hard ceiling, the stored customers.daily_limit_czk. */
     private static final Money CEILING = Money.czk(40_000);
 
     /** RuleBasedRiskService.AUTH_THRESHOLD_FOR_DAY_TOTAL, restated so the arithmetic reads. */
@@ -86,10 +92,10 @@ class DailyLimitTest {
         infra = new Bootstrap(tempDir.resolve("data.json").toString());
 
         Customer customer = new Customer(CUSTOMER_ID, "Limit Probe", "limit@example.com",
-                new Address("Hlavni 1", "Ostrava"));
+                new Address("Hlavni 1", "Ostrava"), CEILING);
         customer.addAccountId(ACCOUNT_ID);
         infra.customers.save(customer);
-        infra.accounts.save(new Account(ACCOUNT_ID, new IBAN(ACCOUNT_IBAN), OPENING, CEILING));
+        infra.accounts.save(new Account(ACCOUNT_ID, new IBAN(ACCOUNT_IBAN), OPENING));
         infra.customers.saveBeneficiary(CUSTOMER_ID, new Beneficiary(
                 TRUSTED_BENEFICIARY_ID, "Trusted payee", new IBAN(TRUSTED_IBAN), true));
     }
@@ -487,11 +493,17 @@ class DailyLimitTest {
         return infra.accounts.byId(ACCOUNT_ID).orElseThrow().balance();
     }
 
-    /** The store's own answer for the banking day containing the given instant. */
+    /**
+     * The store's own answer for the banking day containing the given instant, asked the way the
+     * ceiling asks it: over the customer's accounts, dropping anything that only moved to another
+     * of them. This customer holds one account, so the second collection excludes nothing here -
+     * OwnAccountTransfersDoNotSpendTheDayTest is where it has something to exclude.
+     */
     private Money sentOnDayOf(Instant when) {
         LocalDate day = LocalDate.ofInstant(when, TransferApplicationService.BANK_ZONE);
-        return infra.transfers.sentTotalBetween(
-                ACCOUNT_ID,
+        return infra.transfers.sentTotalLeavingCustomerBetween(
+                List.of(ACCOUNT_ID),
+                List.of(ACCOUNT_IBAN),
                 day.atStartOfDay(TransferApplicationService.BANK_ZONE).toInstant(),
                 day.plusDays(1).atStartOfDay(TransferApplicationService.BANK_ZONE).toInstant());
     }

@@ -7,16 +7,23 @@ import java.math.BigDecimal;
 /**
  * JSON representation of an account stored in the JSON data store.
  *
- * transferIds is gone with the domain field. Every store written before this change carries the
- * array, and JsonDataStore builds a plain ObjectMapper with FAIL_ON_UNKNOWN_PROPERTIES enabled,
- * so without the annotation below every existing data.json and demo.json - in a developer's
- * working tree or in a running deployment - would stop deserialising and JsonDataStore.load()
- * would throw at startup. A fresh clone is the one case that cannot break: data/ and storage/
- * are gitignored, so a clone has no store file and starts from an empty Bundle.
+ * transferIds is gone with the domain field, and dailyLimit and softDailyThreshold went the same
+ * way when the two limits moved to the customer that holds the account - see Customer.dailyLimit
+ * for why a ceiling per account was not a ceiling at all. Every store written before those changes
+ * carries the stale keys, and JsonDataStore builds a plain ObjectMapper with
+ * FAIL_ON_UNKNOWN_PROPERTIES enabled, so without the annotation below every existing data.json and
+ * demo.json - in a developer's working tree or in a running deployment - would stop deserialising
+ * and JsonDataStore.load() would throw at startup. A fresh clone is the one case that cannot break:
+ * data/ and storage/ are gitignored, so a clone has no store file and starts from an empty Bundle.
  *
  * Named narrowly rather than disabling FAIL_ON_UNKNOWN_PROPERTIES on the mapper. The global flip
  * would also start swallowing genuine typos in every other DTO, which is how a renamed field
- * becomes silent data loss. The stale arrays disappear from the files on their next save.
+ * becomes silent data loss. The stale keys disappear from the files on their next save.
+ *
+ * A LIMIT THE STORE STILL CARRIES IS NOT READ, and that is the point of listing it here rather
+ * than leaving the fields in place unused: the numbers on an old account row are the ones this
+ * bank has stopped believing, and the customer row is now the only place either is written or
+ * read.
  *
  * There is no version field, and that is a decision rather than an omission. JsonUnitOfWork
  * holds the store lock from its constructor until commit or rollback, so a JSON transaction's
@@ -24,7 +31,8 @@ import java.math.BigDecimal;
  * number nothing reads and nothing compares is precisely the defect this pass is correcting in
  * fraud_alerts.decision; creating a new instance of it in the same commit would be perverse.
  */
-@JsonIgnoreProperties("transferIds")   // removed with the schema pass; older stores still carry it
+// All three were removed from the aggregate; older stores still carry them.
+@JsonIgnoreProperties({"transferIds", "dailyLimit", "softDailyThreshold"})
 public class JsonAccount {
     public int id;
     public String iban;
@@ -43,15 +51,4 @@ public class JsonAccount {
      * {@code JsonMapper} refuses the null instead.
      */
     public BigDecimal balance;
-
-    public BigDecimal dailyLimit;
-
-    /**
-     * This account's own soft authorization tier, or null to use the bank-wide one.
-     *
-     * Null is a meaning here rather than an absence to tolerate: 0.00 would mean "every payment
-     * crosses the soft tier", so the two cannot be collapsed. A store written before the field
-     * existed has the key absent, which Jackson leaves as null - the right answer.
-     */
-    public BigDecimal softDailyThreshold;
 }

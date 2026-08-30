@@ -89,17 +89,16 @@ class FraudReviewGateTest {
         alerts = infra.alerts;
 
         Customer customer = new Customer(CUSTOMER_ID, "Payer", "payer@example.com",
-                new Address("Hlavni 1", "Ostrava"));
+                new Address("Hlavni 1", "Ostrava"), Money.czk(500_000));
         customer.addAccountId(ACCOUNT_ID);
         infra.customers.save(customer);
-        accounts.save(new Account(ACCOUNT_ID, new IBAN(ACCOUNT_IBAN), OPENING, Money.czk(500_000)));
+        accounts.save(new Account(ACCOUNT_ID, new IBAN(ACCOUNT_IBAN), OPENING));
 
         Customer other = new Customer(OTHER_CUSTOMER_ID, "Payee", "payee@example.com",
-                new Address("Hlavni 2", "Ostrava"));
+                new Address("Hlavni 2", "Ostrava"), Money.czk(500_000));
         other.addAccountId(OTHER_ACCOUNT_ID);
         infra.customers.save(other);
-        accounts.save(new Account(OTHER_ACCOUNT_ID, new IBAN(OTHER_IBAN),
-                Money.czk(5_000), Money.czk(500_000)));
+        accounts.save(new Account(OTHER_ACCOUNT_ID, new IBAN(OTHER_IBAN), Money.czk(5_000)));
 
         BootstrapServices services = new BootstrapServices(
                 infra.customers, infra.accounts, infra.transfers, infra.alerts,
@@ -367,23 +366,29 @@ class FraudReviewGateTest {
     }
 
     /**
-     * The verdict is added to the case file, not written over it. Overwriting {@code reason}
-     * left a confirmed-fraud alert whose only stated reason was that somebody had declined it,
-     * with no record of what had been suspicious about the payment in the first place.
+     * The verdict is added to the case file, not written over it, and the two halves of the file
+     * stay apart.
+     *
+     * Overwriting {@code reason} left a confirmed-fraud alert whose only stated reason was that
+     * somebody had declined it, with no record of what had been suspicious about the payment in
+     * the first place. Appending to it fixed that and introduced the next problem: one line then
+     * held the rules' sentence and the analyst's, with nothing to tell a reader which was which.
+     * The comment has a field of its own now, and this case is what stops either half from
+     * reaching back into the other.
      */
     @Test
-    void decliningKeepsTheReasonTheRulesRaisedTheAlertFor() {
+    void decliningKeepsTheReasonTheRulesRaisedTheAlertForAndRecordsTheAnalystsApart() {
         int id = payExternal(RAISES_ALERT);
         String raisedFor = alertFor(id).reason();
         assertNotNull(raisedFor);
 
         fraudService.decline(id, "victim confirmed the payment was not theirs");
 
-        String after = alertFor(id).reason();
-        assertTrue(after.contains(raisedFor),
-                "the risk reason must survive the verdict: " + after);
-        assertTrue(after.contains("victim confirmed the payment was not theirs"),
-                "and so must the analyst's: " + after);
+        assertEquals(raisedFor, alertFor(id).reason(),
+                "the risk reason must survive the verdict and must not grow by it");
+        assertEquals("victim confirmed the payment was not theirs",
+                alertFor(id).decisionComment(),
+                "and the analyst's words must be readable on their own");
     }
 
     // ------------------------------------------------------------------ the customer's way out
@@ -549,7 +554,7 @@ class FraudReviewGateTest {
 
         // No OTP counter runs on a held transfer.
         assertThrows(InvalidStateTransitionException.class,
-                () -> held.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS));
+                () -> held.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS, Instant.now()));
 
         held.releaseForAuthorization();
         assertEquals(TransferStatus.WAITING_AUTH, held.status());
@@ -570,12 +575,12 @@ class FraudReviewGateTest {
         sent.releaseForAuthorization();
         sent.send(sourceAccount(), null, new ZeroFeePolicy(), sent.createdAt());
         assertEquals(TransferStatus.SENT, sent.status());
-        assertThrows(InvalidStateTransitionException.class, () -> sent.decline("too late"));
+        assertThrows(InvalidStateTransitionException.class, () -> sent.decline("too late", Instant.now()));
         assertThrows(InvalidStateTransitionException.class, sent::releaseForAuthorization);
 
         // A held transfer that was declined stays out of reach of the analyst's release.
         Transfer cancelled = heldTransfer();
-        cancelled.decline("Canceled by customer");
+        cancelled.decline("Canceled by customer", Instant.now());
         assertThrows(InvalidStateTransitionException.class, cancelled::releaseForAuthorization,
                 "an approval must not resurrect a payment its owner withdrew");
 
@@ -583,7 +588,7 @@ class FraudReviewGateTest {
         // the record of why this payment stopped, so whoever declines it second rewrites it.
         cancelled.drainDomainEvents();
         assertThrows(InvalidStateTransitionException.class,
-                () -> cancelled.decline("Declined by fraud analyst"));
+                () -> cancelled.decline("Declined by fraud analyst", Instant.now()));
         assertEquals("Canceled by customer", cancelled.declineReason(),
                 "a refused decline must not rewrite the reason that stands");
         assertTrue(cancelled.drainDomainEvents().isEmpty(),
@@ -624,7 +629,7 @@ class FraudReviewGateTest {
                 "money that has left cannot be held back by a review");
 
         Transfer declined = heldTransfer();
-        declined.decline("Canceled by customer");
+        declined.decline("Canceled by customer", Instant.now());
         assertThrows(InvalidStateTransitionException.class,
                 declined::holdForReviewOnAuthorization);
     }
@@ -644,8 +649,8 @@ class FraudReviewGateTest {
     void releasingATransferKeepsTheAttemptsSpentBeforeItWasHeld() {
         Transfer t = createdTransfer();
         t.requestAuthorization(new CardPayment(t.amount(), "****0000"));
-        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS);
-        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS);
+        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS, Instant.now());
+        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS, Instant.now());
         assertEquals(TransferStatus.WAITING_AUTH, t.status(), "two of three leaves one");
         assertEquals(2, t.authAttempts());
 
@@ -658,7 +663,7 @@ class FraudReviewGateTest {
                 "a released transfer keeps what its owner spent; otherwise the three-attempt cap"
                         + " is refillable by getting the payment reviewed");
 
-        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS);
+        t.registerFailedOtpAttempt(TransferApplicationService.MAX_OTP_ATTEMPTS, Instant.now());
         assertEquals(TransferStatus.DECLINED, t.status(),
                 "the next wrong code is the third and must exhaust it");
 

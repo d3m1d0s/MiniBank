@@ -128,7 +128,8 @@ frontend-shared/           imported by both through a @shared/* path alias
 minibank-web/              the customer application, port 5173
 └─ src/  NewPaymentPage, WaitingAuthorizationsPage, FraudDeskPage, LoginDialog,
          money.ts (parsing what a customer types), api.ts (a barrel over the shared client),
-         and the two vitest suites - the only test runner either front end has
+         and the six vitest suites, the only test runner either front end has: function tests
+         over the shared module, no component tests and no jsdom
 
 minibank-fraud-web/        the analyst application, port 5174
 └─ src/  FraudDesk, Login, api.ts (the same barrel)

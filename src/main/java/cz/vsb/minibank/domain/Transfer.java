@@ -75,6 +75,19 @@ public class Transfer implements RecordsDomainEvents {
     private Payment authMethod; // nullable
     private String declineReason;
 
+    /**
+     * When this payment was refused, beside the sentence saying why.
+     *
+     * The pair is one fact and only the second half used to be kept, so a customer could read why
+     * their payment had been stopped and never when. It is NOT {@link #settledAt}: that is when
+     * the money moved, which is what settlement means, and a refused payment moved none.
+     *
+     * Null on everything that has not been refused, and on every refused row written before the
+     * column existed - the instant was never recorded anywhere a query could reach it, so there
+     * was nothing to carry over and the migration deliberately carries nothing.
+     */
+    private Instant declinedAt;
+
     private int authAttempts;
 
     private Instant authValidUntil;
@@ -159,10 +172,27 @@ public class Transfer implements RecordsDomainEvents {
      */
     public Money feeAmount(FeePolicy policy) { return policy.compute(amount); }
 
+    /** How long a customer has to enter the code, for a payment made through the product. */
+    public static final Duration AUTH_WINDOW = Duration.ofMinutes(5);
+
     /**
      * Requests authorization for the transfer and moves it to WAITING_AUTH.
      */
     public void requestAuthorization(Payment method) {
+        requestAuthorization(method, AUTH_WINDOW);
+    }
+
+    /**
+     * The same, with the window named by the caller.
+     *
+     * It is a parameter for exactly one caller, the demo seed, and for a reason the product does
+     * not have: a fixture written once has to still be usable whenever somebody opens the
+     * showcase, and a window of five minutes from the moment the data was written is closed by
+     * the time anybody looks. The five minutes stay the rule for every payment a customer makes;
+     * a seeded row is not one of those, and saying so here is better than leaving the screen that
+     * asks for a code with nothing it can be asked about.
+     */
+    public void requestAuthorization(Payment method, Duration window) {
         if (status != TransferStatus.CREATED)
             throw new InvalidStateTransitionException("Authorization allowed only from CREATED");
 
@@ -172,7 +202,7 @@ public class Transfer implements RecordsDomainEvents {
         this.status = TransferStatus.WAITING_AUTH;
 
         this.authAttempts = 0;
-        this.authValidUntil = Instant.now().plus(Duration.ofMinutes(5));
+        this.authValidUntil = Instant.now().plus(window);
 
         raise(new TransferStatusChanged(this, old, this.status));
     }
@@ -393,8 +423,20 @@ public class Transfer implements RecordsDomainEvents {
      * cancellable by its owner. That is what keeps a customer from being trapped behind a queue
      * nobody is working: the hold has no expiry of its own, so the customer's own Cancel is their
      * way out of it.
+     *
+     * @param at when the payment was refused. Mandatory for the reason {@code settledAt} is
+     *           mandatory on {@link #send}: it is the only record of when this payment reached
+     *           its final state, and a call site that could omit it would leave a refusal with no
+     *           moment at all - which is exactly the hole this parameter was added to close.
+     *           Taken rather than read from the clock here, so that a refusal and whatever else
+     *           the same transaction records are readings of ONE clock: an analyst's verdict
+     *           stamps the alert's resolvedAt and this from the same instant, and two calls to
+     *           Instant.now() a few lines apart would put a case file's two halves microseconds
+     *           out of step for no reason a reader could explain.
      */
-    public void decline(String reason) {
+    public void decline(String reason, Instant at) {
+        java.util.Objects.requireNonNull(at, "at");
+
         if (status == TransferStatus.SENT)
             throw new InvalidStateTransitionException("Cannot decline already SENT transfer");
 
@@ -405,6 +447,7 @@ public class Transfer implements RecordsDomainEvents {
         TransferStatus old = this.status;
         this.status = TransferStatus.DECLINED;
         this.declineReason = reason;
+        this.declinedAt = at;
 
         raise(new TransferStatusChanged(this, old, this.status));
     }
@@ -489,6 +532,24 @@ public class Transfer implements RecordsDomainEvents {
     }
 
     /**
+     * Restores when a stored row says this payment was refused.
+     *
+     * Its own method for the reason {@link #hydrateSettlement} is one, and the reason is the same
+     * one twice over: hydrateForLoad already carries the sentence this instant belongs beside, and
+     * giving it a seventh parameter would touch both of its overloads and every call site of each,
+     * several of which are tests that have nothing to do with this.
+     *
+     * Null is accepted and is the common case: everything that has not been refused, and every
+     * refused row written before the column existed. It validates nothing, exactly like the other
+     * two hydrate methods - a loader that refused a legacy row would make the store unreadable,
+     * and the rule that only a refused payment carries this is held at write time, by the domain
+     * above and by transfers_declined_at_only_when_declined in the schema.
+     */
+    public void hydrateDeclinedAt(Instant declinedAt) {
+        this.declinedAt = declinedAt;
+    }
+
+    /**
      * Restores what a stored row says this payment owes the network.
      *
      * Its own method for the reason hydrateSettlement is one: the two existing hydrate methods
@@ -551,6 +612,14 @@ public class Transfer implements RecordsDomainEvents {
     public Instant createdAt() { return createdAt; }
     public Payment authMethod() { return authMethod; }
     public String declineReason() { return declineReason; }
+
+    /**
+     * When this payment was refused, or null on one that has not been.
+     *
+     * Null also on a refused payment stored before this was kept, which is a third situation and
+     * the same value: the instant was never recorded, so there is no honest number to return.
+     */
+    public Instant declinedAt() { return declinedAt; }
     public int authAttempts() { return authAttempts; }
     public Instant authValidUntil() { return authValidUntil; }
     public int version() { return version; }
@@ -588,8 +657,18 @@ public class Transfer implements RecordsDomainEvents {
 
     /**
      * Registers a failed OTP attempt and declines the transfer when the maximum is reached.
+     *
+     * @param at when this attempt was made, which becomes the refusal instant on the attempt that
+     *           exhausts the allowance. Taken rather than read from the clock for the reason
+     *           {@link #decline} takes it: this is the sixth path to a refusal and the least
+     *           visible one, since the caller does not write the sentence and may not notice it
+     *           has just stopped a payment. It is passed on every attempt and used on at most one
+     *           of them, which costs nothing and keeps the signature honest about what the method
+     *           can do.
      */
-    public void registerFailedOtpAttempt(int maxAttempts) {
+    public void registerFailedOtpAttempt(int maxAttempts, Instant at) {
+        java.util.Objects.requireNonNull(at, "at");
+
         if (status != TransferStatus.WAITING_AUTH) {
             throw new InvalidStateTransitionException("OTP attempts allowed only in WAITING_AUTH");
         }
@@ -598,7 +677,7 @@ public class Transfer implements RecordsDomainEvents {
 
         if (this.authAttempts >= maxAttempts) {
             // final decline after too many invalid OTP attempts
-            decline("Too many invalid OTP attempts");
+            decline("Too many invalid OTP attempts", at);
         }
     }
 

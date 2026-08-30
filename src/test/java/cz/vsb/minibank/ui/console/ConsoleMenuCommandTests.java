@@ -43,7 +43,8 @@ public class ConsoleMenuCommandTests {
                 customerId,
                 "Test User",
                 "test@example.com",
-                new Address("Street 1", "City")
+                new Address("Street 1", "City"),
+                Money.czk(5000)
         );
         infra.customers.save(c);
 
@@ -51,8 +52,7 @@ public class ConsoleMenuCommandTests {
         Account a = new Account(
                 accId,
                 new IBAN("CZ6508000000192000145399"),
-                Money.czk(20000),
-                Money.czk(5000)
+                Money.czk(20000)
         );
         infra.accounts.save(a);
         c.addAccountId(accId);
@@ -168,7 +168,8 @@ public class ConsoleMenuCommandTests {
                 strangerId,
                 "Other User",
                 "other@example.com",
-                new Address("Street 2", "City")
+                new Address("Street 2", "City"),
+                Money.czk(5000)
         );
         infra.customers.save(stranger);
 
@@ -176,8 +177,7 @@ public class ConsoleMenuCommandTests {
         infra.accounts.save(new Account(
                 strangerAccId,
                 new IBAN("CZ1301000000000098765432"),
-                Money.czk(50000),
-                Money.czk(5000)
+                Money.czk(50000)
         ));
         stranger.addAccountId(strangerAccId);
         infra.customers.save(stranger);

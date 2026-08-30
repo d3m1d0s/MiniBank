@@ -154,10 +154,11 @@ public final class SqlTransferRepository implements TransferRepository {
                     auth_method,
                     card_number_masked,
                     decline_reason,
+                    declined_at,
                     auth_attempts,
                     auth_valid_until
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO UPDATE SET
                     source_account_id    = EXCLUDED.source_account_id,
                     beneficiary_id       = EXCLUDED.beneficiary_id,
@@ -173,6 +174,7 @@ public final class SqlTransferRepository implements TransferRepository {
                     auth_method          = EXCLUDED.auth_method,
                     card_number_masked   = EXCLUDED.card_number_masked,
                     decline_reason       = EXCLUDED.decline_reason,
+                    declined_at          = EXCLUDED.declined_at,
                     auth_attempts        = EXCLUDED.auth_attempts,
                     auth_valid_until     = EXCLUDED.auth_valid_until,
                     version              = transfers.version + 1
@@ -256,21 +258,31 @@ public final class SqlTransferRepository implements TransferRepository {
                 ps.setNull(15, Types.VARCHAR);
             }
 
+            // Beside the sentence it belongs with, and written on the same terms as settled_at
+            // above: present only where the event happened. NULL covers everything that has not
+            // been refused and every refused row stored before the column existed, which are two
+            // situations and one value - in neither is there an instant to write.
+            if (t.declinedAt() != null) {
+                ps.setTimestamp(16, Timestamp.from(t.declinedAt()));
+            } else {
+                ps.setNull(16, Types.TIMESTAMP_WITH_TIMEZONE);
+            }
+
             // auth_attempts
             if (t.authAttempts() > 0) {
-                ps.setInt(16, t.authAttempts());
+                ps.setInt(17, t.authAttempts());
             } else {
-                ps.setNull(16, Types.INTEGER);
+                ps.setNull(17, Types.INTEGER);
             }
 
             // auth_valid_until
             if (t.authValidUntil() != null) {
-                ps.setTimestamp(17, Timestamp.from(t.authValidUntil()));
+                ps.setTimestamp(18, Timestamp.from(t.authValidUntil()));
             } else {
-                ps.setNull(17, Types.TIMESTAMP_WITH_TIMEZONE);
+                ps.setNull(18, Types.TIMESTAMP_WITH_TIMEZONE);
             }
 
-            ps.setInt(18, t.version());
+            ps.setInt(19, t.version());
 
             // version is absent from the INSERT column list on purpose: a new row takes the
             // column default 0, so no code path ever chooses an insert version.
@@ -329,6 +341,7 @@ public final class SqlTransferRepository implements TransferRepository {
                    auth_method,
                    card_number_masked,
                    decline_reason,
+                   declined_at,
                    auth_attempts,
                    auth_valid_until,
                    version
@@ -371,10 +384,14 @@ public final class SqlTransferRepository implements TransferRepository {
      *
      * ORDER BY id ASC for the reason SqlFraudAlertRepository.loadAllWithConnection gives in full,
      * and not repeated here: unordered, PostgreSQL answers in physical order, and one wrong OTP
-     * attempt rewrites a waiting transfer and moves it behind every other row.
-     * AuthorizationController.waitingFor renders this order as it stands, so the payment the
-     * customer is looking at drops to the bottom of the list between two reads of the same
-     * screen. ASC because it is what the JSON adapter already answers.
+     * attempt rewrites a waiting transfer and moves it behind every other row, so the payment the
+     * customer is looking at drops to the bottom of a list between two reads of the same screen.
+     * ASC because it is what the JSON adapter already answers.
+     *
+     * The customer's two lists no longer read this method - they take a page from
+     * {@link #bySourceAccountsNewestFirst}, which orders by the creation instant instead, and the
+     * screens want the newest payment first rather than the oldest. This one keeps its ascending
+     * id order for the callers that hold every row of an account at once.
      */
     private List<Transfer> loadBySourceAccountWithConnection(Connection conn, int accountId, UnitOfWork uow)
             throws SQLException {
@@ -395,6 +412,7 @@ public final class SqlTransferRepository implements TransferRepository {
                auth_method,
                card_number_masked,
                decline_reason,
+               declined_at,
                auth_attempts,
                auth_valid_until,
                version
@@ -426,6 +444,185 @@ public final class SqlTransferRepository implements TransferRepository {
         }
 
         return result;
+    }
+
+    @Override
+    public List<Transfer> bySourceAccountsNewestFirst(Collection<Integer> accountIds,
+                                                      Collection<TransferStatus> statuses,
+                                                      int offset, int limit) {
+        // Answered without a statement, and without a connection: an empty account set matches
+        // nothing, and a page of nothing is what a caller asking for no rows wants back.
+        if (accountIds.isEmpty() || limit <= 0) {
+            return List.of();
+        }
+
+        UnitOfWork uow = UowContext.current();
+
+        try {
+            if (uow instanceof SqlUnitOfWork sqlUow) {
+                return loadPageWithConnection(sqlUow.connection(), accountIds, statuses, offset, limit, uow);
+            } else {
+                try (Connection conn = DriverManager.getConnection(url, user, password)) {
+                    return loadPageWithConnection(conn, accountIds, statuses, offset, limit, uow);
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException(
+                    "Failed to load a page of transfers for accountIds=" + accountIds, e);
+        }
+    }
+
+    /**
+     * One page of the customer's payments, newest first.
+     *
+     * Both predicates are {@code = ANY (?)} over a bound array, for the reason
+     * {@link #sumSentToIbanWithConnection} sets out in full: an IN list assembled from the values
+     * would put them in the statement text, and a generated run of placeholders would give this
+     * query a different text for every number of accounts a customer happens to hold. Two arrays
+     * mean one statement text whatever is asked for, and both are freed once it has run.
+     *
+     * ORDER BY created_at DESC, id DESC. The column is NOT NULL, so the first key is total on
+     * every row and no NULLS clause is needed; the second is what makes the order total when two
+     * rows carry the same instant, which offset paging requires - without it the database is free
+     * to answer the tied rows in either order on either page, so one is shown twice and one is
+     * never shown at all. OFFSET before LIMIT reads in the order the numbers are computed.
+     *
+     * No index is declared for it. idx_transfers_daily_total leads on source_account_id and
+     * serves the membership; the sort is over one customer's own rows, which is the handful this
+     * screen exists to show.
+     */
+    private List<Transfer> loadPageWithConnection(Connection conn, Collection<Integer> accountIds,
+                                                  Collection<TransferStatus> statuses,
+                                                  int offset, int limit, UnitOfWork uow)
+            throws SQLException {
+
+        String sql = """
+        SELECT id,
+               source_account_id,
+               beneficiary_id,
+               target_iban_snapshot,
+               amount,
+               currency,
+               fee,
+               message,
+               status,
+               created_at,
+               settled_at,
+               dispatch_state,
+               auth_method,
+               card_number_masked,
+               decline_reason,
+               declined_at,
+               auth_attempts,
+               auth_valid_until,
+               version
+          FROM transfers
+         WHERE source_account_id = ANY (?)
+           AND status = ANY (?)
+         ORDER BY created_at DESC, id DESC
+         LIMIT ? OFFSET ?
+        """;
+
+        List<Transfer> result = new ArrayList<>();
+
+        Array sources = conn.createArrayOf("integer", accountIds.toArray(new Integer[0]));
+        Array wanted = conn.createArrayOf("varchar", statusNames(statuses));
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setArray(1, sources);
+            ps.setArray(2, wanted);
+            ps.setInt(3, limit);
+            ps.setInt(4, Math.max(0, offset));
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    int id = rs.getInt("id");
+                    Transfer cached = (uow != null) ? uow.get(Transfer.class, id) : null;
+                    if (cached != null) {
+                        result.add(cached);
+                        continue;
+                    }
+
+                    Transfer t = mapRowToTransfer(rs);
+                    if (uow != null) {
+                        uow.put(Transfer.class, t.id(), t);
+                    }
+                    result.add(t);
+                }
+            }
+        } finally {
+            sources.free();
+            wanted.free();
+        }
+
+        return result;
+    }
+
+    @Override
+    public int countBySourceAccounts(Collection<Integer> accountIds,
+                                     Collection<TransferStatus> statuses) {
+        if (accountIds.isEmpty()) {
+            return 0;
+        }
+
+        UnitOfWork uow = UowContext.current();
+
+        try {
+            if (uow instanceof SqlUnitOfWork sqlUow) {
+                return countWithConnection(sqlUow.connection(), accountIds, statuses);
+            } else {
+                try (Connection conn = DriverManager.getConnection(url, user, password)) {
+                    return countWithConnection(conn, accountIds, statuses);
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException(
+                    "Failed to count transfers for accountIds=" + accountIds, e);
+        }
+    }
+
+    /**
+     * The size of the set the page above is taken out of, counted in the database.
+     *
+     * The two predicates are the page query's, character for character, so the number beside the
+     * list and the rows in it cannot come to describe different sets. No identity map is consulted
+     * and none is filled: this is a number, not an aggregate, and substituting instances this
+     * transaction happens to hold would count nothing differently.
+     */
+    private int countWithConnection(Connection conn, Collection<Integer> accountIds,
+                                    Collection<TransferStatus> statuses) throws SQLException {
+
+        String sql = """
+        SELECT COUNT(*)
+          FROM transfers
+         WHERE source_account_id = ANY (?)
+           AND status = ANY (?)
+        """;
+
+        Array sources = conn.createArrayOf("integer", accountIds.toArray(new Integer[0]));
+        Array wanted = conn.createArrayOf("varchar", statusNames(statuses));
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setArray(1, sources);
+            ps.setArray(2, wanted);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        } finally {
+            sources.free();
+            wanted.free();
+        }
+    }
+
+    /**
+     * The status names the two queries above bind, with an empty request read as every status.
+     *
+     * Expanding "all" into the full list here rather than dropping the predicate keeps one
+     * statement text for both callers. The expansion is over {@code values()}, so a status added
+     * to the enum tomorrow joins the customer's history without anybody remembering to list it.
+     */
+    private static String[] statusNames(Collection<TransferStatus> statuses) {
+        Collection<TransferStatus> wanted =
+                statuses.isEmpty() ? List.of(TransferStatus.values()) : statuses;
+        return wanted.stream().map(TransferStatus::name).toArray(String[]::new);
     }
 
     @Override
@@ -482,6 +679,7 @@ public final class SqlTransferRepository implements TransferRepository {
                auth_method,
                card_number_masked,
                decline_reason,
+               declined_at,
                auth_attempts,
                auth_valid_until,
                version
@@ -516,19 +714,31 @@ public final class SqlTransferRepository implements TransferRepository {
     }
 
     @Override
-    public Money sentTotalBetween(int accountId, Instant fromInclusive, Instant toExclusive) {
+    public Money sentTotalLeavingCustomerBetween(Collection<Integer> accountIds,
+                                                 Collection<String> ownIbans,
+                                                 Instant fromInclusive, Instant toExclusive) {
+        // Answered without a statement and without a connection, like the page query above: a
+        // customer with no accounts has sent nothing, and SUM over no rows is the same zero this
+        // returns.
+        if (accountIds.isEmpty()) {
+            return Money.czk(0.0);
+        }
+
         UnitOfWork uow = UowContext.current();
 
         try {
             if (uow instanceof SqlUnitOfWork sqlUow) {
-                return sumSentWithConnection(sqlUow.connection(), accountId, fromInclusive, toExclusive);
+                return sumLeavingCustomerWithConnection(
+                        sqlUow.connection(), accountIds, ownIbans, fromInclusive, toExclusive);
             } else {
                 try (Connection conn = DriverManager.getConnection(url, user, password)) {
-                    return sumSentWithConnection(conn, accountId, fromInclusive, toExclusive);
+                    return sumLeavingCustomerWithConnection(
+                            conn, accountIds, ownIbans, fromInclusive, toExclusive);
                 }
             }
         } catch (SQLException e) {
-            throw new RuntimeException("Failed to total sent transfers for accountId=" + accountId, e);
+            throw new RuntimeException(
+                    "Failed to total sent transfers for accountIds=" + accountIds, e);
         }
     }
 
@@ -614,7 +824,7 @@ public final class SqlTransferRepository implements TransferRepository {
     }
 
     /**
-     * One aggregate row instead of every transfer the account has ever made, and no identity
+     * One aggregate row instead of every transfer the customer has ever made, and no identity
      * map: the total must be what the store holds, not what this transaction has in memory.
      *
      * The day a payment counts against is the day it settled, which is the day the money
@@ -627,38 +837,85 @@ public final class SqlTransferRepository implements TransferRepository {
      * so; transfers_currency_czk now refuses such a row outright, and this stays because the
      * aggregate reads the column without building a Transfer out of any row it counts.
      *
-     * idx_transfers_daily_total serves every predicate above bar the currency, which is left out
-     * of it deliberately: source_account_id and status lead the index and
-     * COALESCE(settled_at, created_at) is its third key, written there as the same expression
-     * this query writes or the planner would not match it. This paragraph named
-     * idx_transfers_source_account and said the time predicate was never index-served; the
-     * composite index subsumed the one and answered the other, and db/init/schema.sql no longer
-     * creates the index it named.
+     * THE ACCOUNT PREDICATE IS A SET because the ceiling is a limit on a person: see
+     * {@link cz.vsb.minibank.domain.Customer#dailyLimit}. It is {@code = ANY (?)} over one bound
+     * array for the reasons {@link #sumSentToIbanWithConnection} gives in full and does not repeat
+     * here - an IN list would put values in the statement text, generated placeholders would give
+     * the query a different text per number of accounts.
+     *
+     * THE DESTINATION PREDICATE IS THE EXCLUSION, and it is what stops a customer inflating the
+     * day's total by moving money between two accounts they hold: such a payment leaves one of
+     * these accounts and arrives on another, so it has not left the customer, and summing both
+     * accounts without dropping it would count it. {@code <> ALL} over the empty array is true,
+     * which is what makes the single-account default on the interface a call to this method with
+     * nothing to exclude. NULL is filtered out of the array by {@link #normalizedIbans}, and it
+     * has to be: one NULL element makes {@code <> ALL} answer NULL for every row and the total
+     * collapses to zero.
+     *
+     * Both sides are compared NORMALIZED, which is what {@code IBAN.normalize} does in Java and
+     * what the two expressions here do in SQL: {@code Transfer} takes the snapshot as a plain
+     * String and validates only the amount, so a row holding {@code "cz43 0800 ..."} is reachable
+     * through the public constructor. The IS NULL arm counts a row whose destination is missing
+     * rather than excluding it - a row this bank cannot say the destination of is not one it may
+     * treat as an internal move - and it is unreachable on this backend, where
+     * target_iban_snapshot is NOT NULL. It is written anyway so that both backends state one rule.
+     *
+     * idx_transfers_daily_total serves the account membership and the status, and its third key is
+     * COALESCE(settled_at, created_at) written as the same expression this query writes or the
+     * planner would not match it. The currency is deliberately not in it, and neither is the
+     * destination: the planner reads {@code = ANY} on the leading column as the set of index scans
+     * it is, and both are filters applied to whatever rows that leaves.
      */
-    private Money sumSentWithConnection(Connection conn, int accountId,
-                                        Instant fromInclusive, Instant toExclusive) throws SQLException {
+    private Money sumLeavingCustomerWithConnection(Connection conn, Collection<Integer> accountIds,
+                                                   Collection<String> ownIbans,
+                                                   Instant fromInclusive, Instant toExclusive)
+            throws SQLException {
 
         String sql = """
         SELECT COALESCE(SUM(amount), 0)
           FROM transfers
-         WHERE source_account_id = ?
+         WHERE source_account_id = ANY (?)
            AND status = ?
            AND currency = ?
+           AND (target_iban_snapshot IS NULL
+                OR UPPER(REGEXP_REPLACE(target_iban_snapshot, '\\s', '', 'g')) <> ALL (?))
            AND COALESCE(settled_at, created_at) >= ?
            AND COALESCE(settled_at, created_at) <  ?
         """;
 
+        Array sources = conn.createArrayOf("integer", accountIds.toArray(new Integer[0]));
+        Array own = conn.createArrayOf("varchar", normalizedIbans(ownIbans));
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.setInt(1, accountId);
+            ps.setArray(1, sources);
             ps.setString(2, TransferStatus.SENT.name());
             ps.setString(3, "CZK");
-            ps.setTimestamp(4, Timestamp.from(fromInclusive));
-            ps.setTimestamp(5, Timestamp.from(toExclusive));
+            ps.setArray(4, own);
+            ps.setTimestamp(5, Timestamp.from(fromInclusive));
+            ps.setTimestamp(6, Timestamp.from(toExclusive));
             try (ResultSet rs = ps.executeQuery()) {
                 rs.next();
                 return Money.czk(rs.getBigDecimal(1));
             }
+        } finally {
+            sources.free();
+            own.free();
         }
+    }
+
+    /**
+     * The destinations above, in the form the stored snapshots are compared in, with nothing
+     * unusable left in the array.
+     *
+     * A null survives {@code IBAN.normalize} as a null, and one null in the bound array would make
+     * the {@code <> ALL} test answer NULL on every row rather than true, so the aggregate would
+     * total zero for a customer who has spent all day paying. Dropping it excludes one destination
+     * fewer, which is the safe direction: a payment is counted that might not have needed to be.
+     */
+    private static String[] normalizedIbans(Collection<String> ibans) {
+        return ibans.stream()
+                .map(IBAN::normalize)
+                .filter(Objects::nonNull)
+                .toArray(String[]::new);
     }
 
     // -------------------------------------------------------------------------
@@ -722,6 +979,13 @@ public final class SqlTransferRepository implements TransferRepository {
                 feeBd != null ? Money.czk(feeBd) : null,
                 settledTs != null ? settledTs.toInstant() : null);
         t.attachMessage(rs.getString("message"));
+
+        // Read on the same terms as settled_at just above: a timestamp or nothing, and nothing is
+        // the common answer. It is restored through a method of its own rather than as another
+        // argument to hydrateForLoad, which already carries the sentence this instant belongs
+        // beside - see Transfer.hydrateDeclinedAt for why that call is left alone.
+        Timestamp declinedTs = rs.getTimestamp("declined_at");
+        t.hydrateDeclinedAt(declinedTs != null ? declinedTs.toInstant() : null);
 
         // Absent is a real value and the common one - an intra-bank payment owes the network
         // nothing, and neither does any row written before this column existed - so it is read

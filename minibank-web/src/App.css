@@ -9,76 +9,386 @@
 }
 
 :root {
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  color-scheme: dark;
+  font-family: var(--font-family-ui);
+  /* 100% rather than a hard 16px: it is 16px in every mainstream UA, so nothing moves on
+     defaults, and it leaves a reader who has raised their default text size alone, which is
+     what the rem-based control height depends on. */
+  font-size: 100%;
+  line-height: var(--leading-normal);
 }
 
 body {
   margin: 0;
   min-height: 100vh;
-  background:
-          radial-gradient(circle at top left, #111827, #020617 55%),
-          radial-gradient(circle at bottom right, #020617, #000000 60%);
-  color: #f9fafb;
+  background: var(--color-canvas-image);
+  color: var(--color-text-primary);
 }
 
-/* ====== Shell + Card ====== */
+/*
+ * Form controls do not inherit typography from their container, so without this
+ * a field renders in the UA font at the UA size: on this page that was Arial at
+ * 13.33px, and a textarea in monospace, beside labels in system-ui at 16px.
+ */
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+/*
+ * The keyboard ring. On :focus-visible rather than :focus, so a pointer press on a
+ * button or a select does not draw one. A text field is the exception the browser
+ * makes for itself: a control that takes typing counts as focus visible whenever it
+ * is focused, pointer or keyboard.
+ *
+ * The offset is load-bearing: it puts the ring on the surface behind the control, so
+ * the ring is measured against that surface and never against a button fill or a
+ * selection tint.
+ */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[role="button"]:focus-visible {
+  outline: var(--border-width-marker) solid var(--color-focus-ring);
+  outline-offset: var(--focus-offset);
+}
+
+/*
+ * The one element in this application that takes the ring without being a control tag: a queue
+ * row. It has a tab stop, the button role and the two keys, but it cannot be a <button> without
+ * ceasing to be a row, so the ring has to be asked for by role.
+ *
+ * No offset here, and that is the exception rather than an oversight. The offset above puts the
+ * ring on the surface behind the control; a table row has no surface behind it but the row above
+ * and the row below, so an outset ring is drawn over its neighbours' text. Drawn on the row's own
+ * edge instead, where the cells' own hairline already is.
+ */
+tr[role="button"]:focus-visible {
+  outline-offset: 0;
+}
+
+/* ====== Shell, page and dialog ====== */
 
 .app-shell {
   min-height: 100vh;
   display: flex;
   justify-content: center;
-  align-items: flex-start;
-  padding: 40px 16px;
+  /*
+   * stretch, so a working screen is as tall as the window rather than as tall as what is in
+   * it. The size of the shell is the window's to decide on both axes; the sign-in dialog is
+   * the one exception and the rule below takes it out of the stretch.
+   */
+  align-items: stretch;
 }
 
+/*
+ * The one screen that keeps canvas around it, and the only gutter left in this stylesheet
+ * that is not simply keeping text off the glass.
+ *
+ * Anchored rather than centred on its own height. Centred, the dialog split every growth
+ * across both of its edges: the message under the password field pushed the two fields up
+ * 46px and the button down 46px, out from under the pointer that had just pressed it, and
+ * sprang the other way on the next submit when the message was cleared. The offset below
+ * is the window's business alone, so the fields hold still and only what stands under the
+ * message can move. If the offset drifts from the true height of the dialog the dialog
+ * sits a few pixels off centre, which is the whole of the failure.
+ *
+ * max() keeps a gutter on a window too short to centre in; below that the page scrolls,
+ * which is what it should do and is not a jump.
+ */
+.app-shell:has(.card--narrow) {
+  /*
+   * The band held open under the password field for a refusal, declared here because the offset
+   * below has to know about it: the dialog now rests that much taller than its nominal height,
+   * and an offset computed without it would stand the card below centre by half of this. The
+   * measurement belongs beside --size-dialog-nominal in the theme file once somebody owns both;
+   * it is one value in one place until then, so the two uses cannot drift apart.
+   *
+   * The form's own gap goes with it. The band is one more child of a flex column, so the card
+   * grows by the band and by the space in front of it, and an offset that counted only the band
+   * left the card 8px below centre. Both are named here rather than folded into one number, so
+   * that the reason the second one exists survives.
+   *
+   * 5rem is the measurement: the tallest box this card draws is the bank's refusal of a password,
+   * 69px of box under 8px of its own margin at 100 percent text and 150 under 8 at 200, and the
+   * band is in rem so it grows with it. It was two rungs larger while the box still carried a
+   * title line reading Error; that line is gone, and the band came down with it.
+   */
+  --size-login-error-slot: 5rem;
+  align-items: flex-start;
+  padding: max(var(--space-10),
+               calc((100vh
+                     - var(--size-dialog-nominal, var(--size-dialog-max))
+                     - var(--size-login-error-slot)
+                     - var(--gap-form)) / 2))
+           var(--space-7) var(--space-7);
+}
+
+/*
+ * The band itself. Empty until something is refused, and exactly as tall then as it is now.
+ *
+ * The card top is already held still by the offset above; this is the other half of the same
+ * fault, measured at 1440x900: the box appearing under the two fields pushed the Sign in button
+ * 126px down the card, out from under the pointer that had just pressed it, and pulled it back on
+ * the next press. Held open, nothing on the card moves at all.
+ *
+ * The price is stated rather than hidden: there is an empty band under the password field before
+ * the first refusal. The alternative was to put the button above the box, which holds it still by
+ * putting the way out of a refusal above the refusal itself.
+ */
+.login-error-slot {
+  min-block-size: var(--size-login-error-slot);
+}
+
+/*
+ * A screen that is still in the tree and is not the one being looked at.
+ *
+ * The payment form is kept across a move to another screen, because it holds the confirmation
+ * of a payment that has just been made and, beside it, a payment half typed. `display: none`
+ * and not opacity or an offset: this has to take the screen out of the accessibility tree and
+ * out of the tab order as well as out of sight, or a reader lands in a form nobody can see and
+ * the tab key walks through two copies of the same navigation column.
+ */
+.screen-parked {
+  display: none;
+}
+
+/*
+ * A working screen. Not a card: a border, a radius and a shadow drawn around the whole
+ * viewport describe neither a card nor a page, and a web application in a browser tab runs
+ * to the edges of the window because the window is the frame. What is left of it is one
+ * surface, and the header below is what keeps that surface from beginning with a line of
+ * text floating on nothing.
+ */
 .card {
   width: 100%;
-  max-width: 1120px;
-  background: rgba(15, 23, 42, 0.95);
-  border-radius: 24px;
-  padding: 24px 32px 32px;
-  border: 1px solid rgba(148, 163, 184, 0.25);
-  box-shadow:
-          0 28px 80px rgba(0, 0, 0, 0.75),
-          0 0 0 1px rgba(15, 23, 42, 0.6);
+  background: var(--color-surface-shell);
+}
+
+/*
+ * The sign-in dialog, which keeps the frame the working screens have given up: it is a
+ * dialog, it stays a dialog on an empty field, and that is what signing in looks like
+ * everywhere.
+ *
+ * The auto block margins it used to carry are gone. They centred it on its own height,
+ * which is the whole of the jump described above; the shell holds it at the top now and
+ * stretch is off there, so nothing is left for them to do.
+ */
+.card--narrow {
+  max-width: var(--size-dialog-max);
+  border-radius: var(--radius-shell);
+  padding: var(--space-9) var(--space-10) var(--space-10);
+  border: var(--border-width-hairline) solid var(--color-border-container);
+  box-shadow: var(--shadow-shell);
 }
 
 .card-header {
-  padding-bottom: 16px;
-  margin-bottom: 24px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.25);
+  padding-bottom: var(--space-7);
+  margin-bottom: var(--space-9);
+  border-bottom: var(--border-width-hairline) solid var(--color-border-container);
+}
+
+/*
+ * The page header of a working screen. It is furniture now rather than the first block of
+ * content: it runs the full width of the window, it stands outside the reading column, and
+ * with no card edge left to contain it, its own surface and its lower edge are the only
+ * things that tell a reader where the page begins.
+ */
+.card:not(.card--narrow) > .card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-7);
+  padding: var(--space-8) var(--space-10);
+  margin-bottom: 0;
+  background: var(--color-surface-chrome);
+}
+
+/*
+ * The page gutter, and nothing more than that: it keeps text off the glass. The navigation
+ * column starts here, at the edge of the window, because it is furniture too.
+ */
+.card:not(.card--narrow) > .card-body {
+  padding: var(--space-9) var(--space-10) var(--space-10);
 }
 
 .card-header h1 {
   margin: 0;
-  font-size: 2.4rem;
-  font-weight: 700;
-  letter-spacing: 0.03em;
+  font-size: var(--text-7);
+  /* The body leading inherited from :root is far too loose at this size. */
+  line-height: var(--leading-tight);
+  font-weight: var(--weight-bold);
+  letter-spacing: var(--tracking-wide);
+}
+
+/* ====== The name of the application ====== */
+
+/*
+ * The mark, the name and one line saying what the place is. The lockup stands on the
+ * sign-in dialog and, without the line, at the left end of the header band of every
+ * working screen. The mark is a background image so that each skin sets its own from
+ * its theme file, and it is sized off the type scale rather than a fixed pixel count:
+ * at 200 percent text it grows with the name it stands beside instead of shrinking
+ * into a dot.
+ *
+ * background-image alone, so that a theme which has not declared --brand-mark yet loses
+ * the image and keeps the tile rather than losing the whole shorthand.
+ *
+ * It wraps because the dialog does not. At 200 percent text the mark and the name measure
+ * 448px inside a 414px card and the last letter of the name was cut off by the card's own
+ * edge; wrapped, the mark takes a line of its own and the name is whole. The lockup is
+ * stacked rather than clipped, which is the way round it has to be.
+ */
+.brand {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-6);
+}
+
+.brand-mark {
+  flex: none;
+  width: var(--text-7);
+  height: var(--text-7);
+  /*
+   * A share of the mark rather than one of the radius roles, because the mark is drawn at
+   * two sizes: 38px in the dialog and 22px in the header band. A role token is a fixed
+   * count of pixels, and the 10px that reads as a rounded square at 38px is almost the
+   * whole of the corner at 22px, so the header mark came out round while the dialog one
+   * did not. A share keeps one shape at every size.
+   */
+  border-radius: 25%;
+  background-color: var(--color-accent);
+  background-image: var(--brand-mark);
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
+}
+
+/*
+ * Header size, not dialog size. The band is furniture, and the largest thing on a
+ * working screen should be the work: at the dialog's 38px the name of the application
+ * would outweigh everything in the panel beside it. A type token rather than a pixel
+ * count, so the mark still grows with the name at 200 percent text.
+ */
+.card:not(.card--narrow) > .card-header .brand-name {
+  font-size: var(--text-6);
+}
+
+.card:not(.card--narrow) > .card-header .brand-mark {
+  width: var(--text-6);
+  height: var(--text-6);
+}
+
+.brand-line {
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-4);
+  color: var(--color-text-muted);
+}
+
+/* ====== Who is signed in, and the way out ====== */
+
+/*
+ * At the right end of the header band, because that band is the only furniture a web
+ * screen has above the fold and this is furniture rather than content. The foot of the
+ * navigation column was the alternative and it is not a place: that column is stretched
+ * to whatever the panel beside it happens to be, so its foot moves by a hundred pixels
+ * between two screens and disappears entirely below 900px.
+ */
+.identity {
+  display: flex;
+  align-items: center;
+  gap: var(--space-6);
+  margin-left: auto;
+}
+
+.identity-who {
+  font-size: var(--text-3);
+  line-height: var(--leading-dense);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.identity-role {
+  font-size: var(--text-1);
+  color: var(--color-text-muted);
+}
+
+.identity-role::before {
+  content: "·";
+  margin: 0 var(--space-3);
+}
+
+/*
+ * A control with no shape of its own, for the same reason a navigation entry has none:
+ * an outline in the header band would be the brightest thing on a working screen, and
+ * this is the control a person presses last. The hover fill is what says it is a
+ * control. The desktop window draws the same control as a white box on grey and it is
+ * the first thing the eye finds there, which is what this is avoiding.
+ */
+.identity-exit {
+  padding: var(--space-3) var(--space-6);
+  border: none;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-3);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+  transition: background-color var(--motion-fast) var(--ease),
+              color var(--motion-fast) var(--ease),
+              transform var(--motion-instant) var(--ease);
+}
+
+/*
+ * --color-surface-hover is three points from the band on every channel, so a hover built
+ * from it would not be visible at all. The band needs a hover surface of its own, one
+ * step LIGHTER than itself; --color-surface-chrome-hover is that name and no theme
+ * declares it yet, so the container edge stands in until one does.
+ */
+.identity-exit:hover {
+  background-color: var(--color-surface-chrome-hover, var(--color-border-container));
+  color: var(--color-text-primary);
+  transform: var(--lift-hover);
+}
+
+.identity-exit:active {
+  background-color: var(--color-surface-chrome-hover, var(--color-border-container));
+  transform: var(--lift-active);
 }
 
 /* ====== Main layout: left navigation, right content ====== */
 
+/*
+ * stretch rather than flex-start, and the hairline between the two columns is the reason.
+ * That line is the navigation column's own right border, so with flex-start the column was
+ * exactly as tall as its three or six entries and the line stopped in mid air a fifth of the
+ * way down a page that carried on for another 1600px. Stretched, the column is as tall as
+ * the panel beside it and the line ends where the content does.
+ */
 .card-body.layout {
   display: flex;
-  align-items: flex-start;
-  gap: 32px;
+  align-items: stretch;
+  gap: var(--space-10);
 }
 
 /* ====== Navigation (left column) ====== */
 
 .nav {
-  flex: 0 0 260px;
-  padding-right: 24px;
-  border-right: 1px solid rgba(55, 65, 81, 0.9);
+  flex: 0 0 var(--size-nav-column);
+  padding-right: var(--space-9);
+  border-right: var(--border-width-hairline) solid var(--color-border-container);
 }
 
 .nav-title {
-  font-size: 0.75rem;
-  letter-spacing: 0.2em;
+  font-size: var(--text-1);
+  letter-spacing: var(--tracking-widest);
   text-transform: uppercase;
-  color: #9ca3af;
-  margin-bottom: 18px;
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-7);
 }
 
 .nav ul {
@@ -87,292 +397,1994 @@ body {
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--gap-nav);
 }
 
-.nav-link {
+/*
+ * The shape every entry shares, and the whole of it. Nothing is drawn at rest, so an
+ * entry that goes nowhere cannot carry the frame of one that does; what it costs is
+ * that the current entry has to be marked by a fill rather than by an outline.
+ *
+ * The transparent leading border is what squares the column up. It is 2px of layout on
+ * every row, coloured on one of them, so all six labels start on one vertical line
+ * instead of the bordered row standing 2px right of the others. display: block because
+ * half these rows are a span, and an inline span ignores width and vertical padding.
+ *
+ * The rest colour is the primary text, not the secondary it used to be. The first cut
+ * this column makes has to be live against planned: at the secondary step the working
+ * entry read as slightly less grey than the dead ones rather than as the one that goes
+ * somewhere. It costs no pixels, which is the point, since the entry that needed the
+ * help may not take a shape of its own without borrowing the current entry's.
+ */
+.nav-item {
+  display: block;
   width: 100%;
   text-align: left;
-  padding: 8px 14px;
-  border-radius: 999px;
+  padding: var(--space-4) var(--space-6);
   border: none;
+  border-inline-start: var(--border-width-marker) solid transparent;
+  border-radius: var(--radius-field);
   background: transparent;
-  color: #e5e7eb;
-  font-size: 0.95rem;
+  color: var(--color-text-primary);
+  font-size: var(--text-4);
+  font-weight: var(--weight-medium);
   cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease, transform 0.05s ease;
+  transition: background-color var(--motion-fast) var(--ease),
+              color var(--motion-fast) var(--ease),
+              transform var(--motion-instant) var(--ease);
 }
 
-.nav-link:hover {
-  background: rgba(31, 41, 55, 0.9);
+/*
+ * The current entry is excluded by name. Hover and "you are here" now write the same
+ * property, so without this the pointer passing over the current entry would take its
+ * fill away. A planned entry is not a control and must not answer like one.
+ */
+.nav-item:hover:not(.nav-item--current, .nav-item--planned) {
+  background-color: var(--color-surface-hover);
+  transform: var(--lift-hover);
 }
 
-.nav-link--active {
-  background: rgba(59, 130, 246, 0.18);
-  color: #f9fafb;
+.nav-item:active:not(.nav-item--current, .nav-item--planned) {
+  background-color: var(--color-surface-hover);
+  transform: var(--lift-active);
+}
+
+/*
+ * A fill and a leading bar, and no ring. The ring is the keyboard's device: when this
+ * was drawn as one, the first Tab stop wore the same blue outline at the same radius as
+ * the current page and neither could be told from the other. The fill alone measures
+ * 1.37:1 on the shell, which is a tint rather than a statement, so the bar carries the
+ * contrast at 7.1:1.
+ */
+.nav-item--current {
+  background-color: var(--color-selected-surface);
+  border-inline-start-color: var(--color-selected-marker);
+  color: var(--color-text-primary);
+}
+
+.nav-item--planned {
+  color: var(--color-text-planned);
+  font-weight: var(--weight-regular);
+  cursor: default;
 }
 
 /* ====== Right column (form / content) ====== */
 
+/*
+ * min-width: 0 against the automatic minimum size of a flex item. Without it this
+ * panel can never be narrower than its widest child, so a wide table pushed the
+ * panel, then the card, then the page, and the window grew a horizontal scrollbar
+ * instead of the table getting one.
+ */
 .form-panel {
   flex: 1 1 auto;
+  min-width: 0;
+  /*
+   * THE reading column, and the only ceiling left on a working screen. Every block inside it
+   * is as wide as this and no wider - the form, the notices, the detail boxes and the tables
+   * alike - which is what makes their right edges line up instead of a table running to the
+   * window while the block under it stops 1400px short.
+   *
+   * The full bleed parts are deliberately outside it: the page surface, the header bar and
+   * the navigation column are furniture and run to the edges of the window. Only what is
+   * read is bounded.
+   */
+  max-width: var(--size-content-max);
+  /*
+   * And the panel is what its own contents are measured against. A screen asks how much room it
+   * has, not how wide the window is: the same panel is 1080px in a 1440 window, about 920 when
+   * the reader has doubled their text, and 326 on a phone, and the answers differ in all three.
+   * inline-size only, so the panel is still sized by the flex row it sits in and only its width
+   * is held away from its contents.
+   */
+  container: panel / inline-size;
 }
 
-.form-panel h2 {
-  margin: 0 0 16px;
-  font-size: 1.4rem;
+/*
+ * ====== ONE WORKING CYCLE, NOT THREE SCREENS ======
+ *
+ * The two screens where something is chosen from a list and then acted on are one cycle: choose,
+ * read, decide. Stacked in a single reading column those three steps stand in three different
+ * screenfuls of scrolling. Measured on the fraud desk at 1440x900 with an alert open, the page is
+ * 2544px, the decision box starts at 1939 and the three buttons that are the point of the screen
+ * are below the second fold; a press on a queue row answers with nothing a reader can see,
+ * because the answer is off screen. The waiting list has the same shape in a milder form.
+ *
+ * Two panels are the answer where two panels fit, and it is the same change that answers the
+ * other complaint about these screens: a reading column of 1080px in a 2560px window leaves about
+ * 1150px of nothing to its right and about 700 under it, spending width and height at once. Side
+ * by side, the list and what is chosen each get a column, each under its own reading ceiling, and
+ * choosing a row now moves something the reader is looking at.
+ *
+ * 1600px is where, and the number is measured rather than picked. The widest thing the chosen
+ * side has to hold is the customer's payment history, five columns of which the last is two full
+ * IBANs: it needs about 790px, and under that the dates break over three lines, the sums break
+ * over two and the two account numbers of a row stop standing under each other. This panel sits
+ * 360px in from the window's edges and the split gives the detail eight twelfths, so 790px of
+ * detail wants a 1600px window. Below it the split is worse than no split at all, and that is a
+ * frame rather than an opinion: at 1440 the detail is 611px, the history table doubles in height
+ * and the page ends up exactly as long as the single column it replaced.
+ *
+ * A media query and not a container query, because on this skin the shell IS the window: owner
+ * decision 2.
+ *
+ * 4 and 8 of twelve rather than an even split, and the queue is the side that gives. A queue row
+ * is a code, a state, a sum and one short reason, all of them short and all read down rather than
+ * across; the chosen alert carries two tables and a page of facts. At the width this starts at
+ * the queue column is 403px, which is what the workstation's own queue rail is capped at, and it
+ * is a coincidence worth stating rather than a target: two skins measuring the same row arrived
+ * at the same width for it.
+ *
+ * The panel's ceiling doubles rather than lifting. Two reading columns is what is being drawn,
+ * so two is what it is allowed to be; and it applies only to a panel that holds a split, so the
+ * payment form keeps the one column its prose and its fields are measured for.
+ */
+.work-list {
+  margin-bottom: var(--space-9);
+}
+
+/*
+ * The chosen side, and the second track of the split. min-width: 0 for the reason the panel above
+ * has it and the tracks below say in one word: a grid item takes its min-content size as an
+ * automatic minimum, so the customer's payment history inside would set this column's floor from
+ * two IBANs rather than scrolling inside its own frame.
+ */
+.work-detail {
+  min-width: 0;
+}
+
+/*
+ * ====== ONE COLUMN, AND THE TABLE SPENDS THE WIDTH ======
+ *
+ * Both of these screens were briefly split into two columns on a wide window, the list on one side
+ * and the chosen record on the other. That is not what the width is for here, and it broke a rule
+ * that holds on every size: what belongs under a table stays under it. Read at a wide window, the
+ * facts of the chosen payment and the sentence about what can be done with it had climbed up beside
+ * the list they were chosen from, so the same screen said one thing at 1900px and another at 2000,
+ * and the reader had to find the detail in a different place depending on the window.
+ *
+ * So the screens stay one column at every width, and the width goes to the thing that can use it.
+ * A table spends every pixel it is given: six columns of which one is a full IBAN read better wide
+ * and give up columns when they are cramped. Prose does not: a sentence set to 2500px is unreadable
+ * however much room is going spare. The ceiling therefore moves off the panel and onto the blocks
+ * that hold prose, which is the whole of the change.
+ */
+/*
+ * The rule is about tables and not about screens, so it is keyed on carrying one. Every screen that
+ * draws a table gives the panel the whole of the window, and the reading measure moves down onto
+ * the sections that hold no table: the facts of a chosen payment, the sentence about what can be
+ * done with it, the empty states. A section that does hold a table keeps the width, and that is the
+ * point, because six columns of which one is a full IBAN read better wide and give up columns when
+ * they are cramped.
+ *
+ * Keyed on the table rather than on a layout class so that it reaches every table in the
+ * application at once: the waiting list, the alert queue, the customer history inside a chosen
+ * alert, the case notes and the customer's own history screen. The payment form carries no table
+ * and is left at the measure, which is where a form belongs.
+ */
+.form-panel:has(.table-frame) {
+  max-width: none;
+}
+
+.form-panel:has(.table-frame) .section:not(:has(.table-frame)) {
+  max-width: var(--size-content-max);
+}
+
+/*
+ * ====== THE OTHER SCREEN'S SPLIT, WHICH IS THE SAME CYCLE WITH THE SIDES REVERSED ======
+ *
+ * The block above is measured on the fraud desk, where the chosen alert carries two tables and the
+ * queue row is a code, a state, a sum and a short reason. The authorization screen is that shape
+ * turned around, and giving it the desk's proportions cost it both halves of what the split is for.
+ *
+ * Measured at 2560 with a payment open, before this rule: the panel ran from 324 to 2484, so the
+ * width was there. The chosen payment took eight twelfths of it, 1419px, to draw nine short facts,
+ * a paragraph and one button, none of which is allowed past the reading measure: the ink stopped
+ * near 1520 and about a thousand pixels of the window were bare. The queue took the other four,
+ * 709px, and 709px is 44em, which is under the 64em where the table below gives up its columns.
+ * So the window was wide enough for a table and drew the phone's record form instead, beside a
+ * column of empty canvas. Each half of that is the other half's fault.
+ *
+ * Eight twelfths to the list here, and the queue is not the side that gives. What the chosen
+ * payment holds is prose and facts, and prose has a measure it may not exceed whatever it is
+ * given; what the queue holds is six columns of which one is a full IBAN, and columns spend every
+ * pixel they are given.
+ *
+ * 1960px is where, and it is the width at which this arrangement first pays. The panel is the
+ * window less 368px of furniture, capped at twice the reading column; the list is eight twelfths
+ * of what is left after the gap. Solved for the 64em the table needs, that is a 1936px window, and
+ * the extra 24px are the scrollbar a real window has and a screenshot does not. Below it the split
+ * would hand the queue a width where it stops being a table, which is what this rule exists to
+ * prevent, so below it the screen stays one column and the table keeps the whole of it.
+ */
+
+/*
+ * The name of the screen, and the top rung: it is the one place on a working screen where
+ * the bold weight is spent. Everything below it separates by size and by colour instead, so
+ * that a field label can never come out heavier than the heading it stands under, which is
+ * what was happening where a fact label was set in bold under a semibold heading.
+ *
+ * The child combinator is what keeps this off the section headings, which are h2 as well and
+ * are deliberately a rung down. The body leading is far too loose at this size.
+ */
+.form-panel > h2 {
+  margin: 0 0 var(--space-7);
+  font-size: var(--text-6);
+  line-height: var(--leading-tight);
+  font-weight: var(--weight-bold);
+}
+
+/* ====== Sections inside a panel ====== */
+
+.section {
+  margin-bottom: var(--space-9);
+}
+
+.section:last-child {
+  margin-bottom: 0;
+}
+
+/*
+ * The heading of a section: one rung under the name of the screen, and above everything
+ * inside the section, which is what the labels and the table cells below have been dropped
+ * to --text-3 to make room for.
+ */
+.form-panel .section-title {
+  margin: 0 0 var(--space-6);
+  font-size: var(--text-5);
+  font-weight: var(--weight-semibold);
+}
+
+/*
+ * A line under a heading that says something about the section as a whole: how many alerts
+ * the queue holds, how many of them are showing. It is a caption and not a panel. Set as a
+ * bordered box with a fill, the four queue counters were the largest and lightest object on
+ * the fraud desk and the queue itself was the fourth thing the eye reached; carrying neither
+ * a surface nor an edge, they read as what they are, and the queue is the only object in the
+ * section with a shape of its own.
+ *
+ * The heading pulls its own gap in when a caption follows, so the two read as one block.
+ */
+.section-caption {
+  margin: 0 0 var(--space-6);
+  font-size: var(--text-2);
+  color: var(--color-text-muted);
+}
+
+.form-panel .section-title:has(+ .section-caption) {
+  margin-bottom: var(--space-2);
+}
+
+.section-block {
+  margin-bottom: var(--space-6);
+}
+
+/* A row of controls that belong together: aligned to each other, wrapping when they run out of width. */
+.inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-inline);
 }
 
 /* ====== Forms / form fields ====== */
 
+/*
+ * No ceiling of its own. It used to carry one, and so did every notice and labelled row
+ * below, while the tables carried none: two ceilings on one screen is what put the right
+ * edge of a table a thousand pixels past the right edge of the block under it. There is one
+ * ceiling now and it is on .form-panel above.
+ */
+/*
+ * One right edge for the whole form, and it is the column's.
+ *
+ * Without this the rows end wherever their own contents run out: the account row stops at the
+ * balance beside it, the address row runs on, and a form of four rows reads as four unrelated
+ * widths. The measure the fields reach for is the reading column itself, which is already held to
+ * --size-content-max on the panel, so a field ends where every other block on the screen ends
+ * rather than at a width invented for forms.
+ */
 .form {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--gap-form);
+  width: 100%;
 }
 
+/*
+ * The panel is allowed to shrink below the width of this row, so the row needs
+ * somewhere to go: without wrapping it keeps its min-content width and paints
+ * outside the column instead.
+ */
 .field-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 12px;
+  gap: var(--gap-field-row);
 }
 
+/*
+ * A label names its field, it does not compete with it. At the inherited 16px every label on
+ * a form stood at the size of the section heading above it and one step under it in weight
+ * only, so the type ladder on a working screen was 22 / 16 / 16 / 16 and the headings had
+ * nothing to be above. It steps down in size and in colour here; the value it labels keeps
+ * the primary text. The floor is unchanged and still clears the longest label in the column,
+ * which is now narrower than the 80px it was measured against.
+ */
 .field-label {
-  min-width: 60px;
-  font-weight: 500;
+  min-width: var(--size-label-min);
+  font-size: var(--text-3);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
 }
 
 .field-input {
   flex: 1 1 auto;
-  padding: 8px 10px;
-  border-radius: 10px;
-  border: 1px solid rgba(55, 65, 81, 0.9);
-  background: #020617;
-  color: #f9fafb;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-field);
+  border: var(--border-width-hairline) solid var(--color-border);
+  background: var(--color-surface-field);
+  color: var(--color-text-primary);
 }
 
+/* No outline here: this rule outranks the shared ring above, which is the one to draw. */
 .field-input:focus {
-  outline: 1px solid rgba(59, 130, 246, 0.8);
-  border-color: rgba(59, 130, 246, 0.8);
+  border-color: var(--color-border-accent);
+}
+
+/*
+ * The pointer, answered by the box it is over.
+ *
+ * Every button on these screens lights up under the pointer and no field did, so on a form the
+ * cursor was the only thing saying that a box could be typed into. The four classes are the four
+ * text controls of this skin, listed together because they already share one field grammar, an
+ * edge, a fill and the same padding; a hover written for one of them would be the fifth grammar.
+ *
+ * Fill only, no lift. The workstation sets --lift-hover to none for its own fields and it is right
+ * about the reason: a box that moves under the caret is a box that moves while somebody is
+ * reading what they typed into it. Buttons are pressed, fields are aimed at.
+ */
+.field-input:hover:not(:disabled),
+.amount-input:hover:not(:disabled),
+.textarea:hover:not(:disabled),
+.otp-input:hover:not(:disabled) {
+  background-color: var(--color-surface-hover);
+}
+
+/*
+ * A field the form has refused, and the sentence saying why, under it.
+ *
+ * The edge is --color-danger-accent, which is declared as the 3:1 red for exactly this and had
+ * two call sites, both of them a button. The mark is not the only carrier: aria-invalid puts it
+ * where a colour cannot go and .field-error below is the words, so a reader who sees no red is
+ * told the same thing twice over.
+ *
+ * It outranks the focus edge on purpose, by standing after it: a field is still wrong while the
+ * caret is in it, and the ring already says which box has the caret.
+ */
+.field-input[aria-invalid="true"],
+.amount-input[aria-invalid="true"],
+.textarea[aria-invalid="true"] {
+  border-color: var(--color-danger-accent);
+}
+
+/*
+ * The sentence a refused field carries, and it is the one place on these screens where a line of
+ * prose is set against the field rather than in a box at the foot of the form. Measured, not
+ * taste: the payment form's box stood 441px under the first control it was about.
+ *
+ * The three places it is drawn are three different containers, so the base rule is only the
+ * sentence itself and each container says how it takes up its line.
+ */
+.field-error {
+  max-width: var(--size-prose-max);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-3);
+  color: var(--color-danger-text);
+}
+
+/*
+ * A form row is a wrapping flex line, so the sentence has to claim a whole one: left to size
+ * itself it sits after the box on the same line and squeezes it.
+ *
+ * max-width: none is what makes the basis work, and it is not decoration. A flex line is broken
+ * against each item's hypothetical size CLAMPED by its own max-width, so the 66ch measure on the
+ * rule above shrank the sentence to 498px, which fit in what was left of the row: measured, both
+ * refusals sat to the right of the boxes they were about, one of them 400px right of it. Without
+ * the cap the item asks for the whole row and takes the next line, which is where it belongs.
+ *
+ * The indent lines it up under the control rather than under the label, so it reads as belonging
+ * to the box and not to the form.
+ */
+.field-row > .field-error {
+  flex: 1 1 100%;
+  max-width: none;
+  margin-left: calc(var(--size-label-min) + var(--gap-field-row));
+}
+
+/*
+ * A filter is a content-sized field on a wrapping bar, and a sentence is wider than any of them.
+ * Uncapped it would make its own field as wide as itself and push the other filters onto another
+ * line, so the bar rearranges itself the moment a bound is mistyped. About 30 characters is three
+ * short lines under an 8rem box, and the bar keeps its shape.
+ */
+.filter-field > .field-error {
+  max-width: 30ch;
+}
+
+/*
+ * While a refusal stands on the bar, the fields are aligned by their top edges instead.
+ *
+ * The bar aligns to flex-end so that the boxes sit on one line whatever their labels wrap to, and
+ * that is right for a row of fields that are each a label and a box. It is wrong the moment one
+ * of them grows a sentence underneath, because the thing being aligned is then the bottom of the
+ * sentence: measured, the box for the largest amount rose 50px out of the row with its refusal
+ * beside its neighbours, and aligning that one field by its top instead sank the other one by the
+ * same 50. The whole bar has to change with it, so the boxes stay on one line.
+ *
+ * What this gives up is the case flex-end was written for, a label that wraps to two lines at a
+ * large text size. It gives it up only while something is refused.
+ */
+.filter-bar:has(.field-error) {
+  align-items: flex-start;
+}
+
+/*
+ * Widths by role, for every field that has one.
+ *
+ * .field-input on its own fills the row, which is what a field is worth on the sign-in
+ * dialog - the dialog is already the width of one short form, and a 160px box inside a 480px
+ * card would be a stump. Everywhere else that rule handed a control the space that happened
+ * to be left over: at 2560 the state filter was 1008px wide to hold the word New, and the
+ * assignee filter 1003px to hold analyst1. Each of the fields below is as wide as what a
+ * person puts into it and no wider, and the number is a token with its measurement written
+ * beside it.
+ *
+ * width rather than a flex basis. The automatic minimum size of a flex item is the control's
+ * own min-content width, and a text input reports that as the twenty characters the UA sizes
+ * it to, whatever the basis asks for - which is how the OTP box asked for 180px and rendered
+ * at 203. A specified width is its own minimum, so the token is what gets used. max-width
+ * keeps it from painting outside a row too narrow to hold it; the row wraps first, and this
+ * is what catches the window narrow enough that wrapping is not enough.
+ */
+#payment-source,
+#payment-target,
+#payment-beneficiary,
+.field-input--state,
+.field-input--amount,
+.field-input--login {
+  flex: none;
+  max-width: 100%;
+}
+
+/*
+ * The account and the beneficiary hold the same thing by role, a Czech IBAN, so they hold
+ * the same width. Their right edges landing together is a consequence of that and not a
+ * margin invented to produce it.
+ */
+#payment-source,
+#payment-target {
+  width: var(--size-field-account);
+}
+
+/*
+ * The saved payee list, which is not one of the two above: its options carry a name and no IBAN,
+ * so it is sized by the longest name and not by twenty-four characters of account number. The
+ * demo's longest, Mallory Risky, measures about 100px at this size, and a select adds 10px of
+ * padding each side, two hairlines and about 20px for the arrow it draws itself, which is 142px
+ * for that name and nothing over.
+ *
+ * --size-field-payee is the name for that measurement and no file declares it yet, so the login
+ * width stands in until one does: 10rem is 160px, which clears the demo's names with about two
+ * characters to spare and is the closest existing role. A real address book holds longer names
+ * than a demo does, so the token wants measuring properly rather than adopting this stand-in.
+ */
+#payment-beneficiary {
+  width: var(--size-field-payee, var(--size-field-login));
+}
+
+.field-input--state {
+  width: var(--size-field-state);
+}
+
+/*
+ * The same value as the amount on the payment form, so the same token. The pair must stay
+ * equal to each other: two unequal boxes read as two bounds of unequal importance.
+ */
+.field-input--amount {
+  width: var(--size-amount-field);
+}
+
+.field-input--login {
+  width: var(--size-field-login);
+}
+
+/*
+ * The browser gives a checkbox a left margin of its own, which would stand it 4px to the
+ * right of the fields above it and put a fourth left edge back in the column the labels
+ * have just been squared up into.
+ */
+.field-row input[type="checkbox"] {
+  margin-left: 0;
+}
+
+/*
+ * The filters of a queue, on one wrapping row rather than one stacked row each. Four rows of
+ * label-then-control pushed the queue itself 220px down the page and off the first fold of a
+ * 900px window: the desk opened as a form about a queue instead of as the queue. Each control
+ * keeps the width its own content decides, and the labels stand above them, which is what lets
+ * four fields and a checkbox share about 800px.
+ *
+ * align-items: flex-end so the controls sit on one line whatever their labels wrap to.
+ */
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--gap-field-row) var(--gap-inline);
+}
+
+.filter-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/*
+ * The label column floor belongs to a row where the label stands beside its control. Above
+ * one, it would hold a 128px field open to nothing and put a gap in the row that reads as a
+ * missing field.
+ */
+.filter-field > .field-label {
+  min-width: 0;
+}
+
+/*
+ * A checkbox and its sentence, which is a control with its label to the right of it and so
+ * has no label above. The minimum height is what stands it on the same line as the fields
+ * beside it rather than on their labels.
+ */
+/*
+ * A line of its own, under the fields rather than after them.
+ *
+ * flex-basis of the whole row is what breaks the line: the filter bar wraps, so a full width item
+ * cannot share a row with anything and the fields above it keep their own widths. Sitting at the
+ * end of the field row instead, this control was a fifth filter drawn unlike the other four, with
+ * its label on the right where theirs are above and its box aligned to their inputs rather than to
+ * their labels.
+ */
+/*
+ * flex-start rather than center, and it is the wrapping that decides it. The sentence beside this
+ * box is a sentence and not a word: at 200 percent text it takes two lines, and centred against a
+ * two line block the box stood beside the gap between them, which is beside neither. Against the
+ * first line the pair reads as one thing at every size.
+ */
+.filter-check {
+  flex-basis: 100%;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-height: var(--control-min-height);
+  font-size: var(--text-3);
+  color: var(--color-text-secondary);
+}
+
+/*
+ * The one control on either skin that neither of them painted, and so the one control that looked
+ * identical in a dark application and a light one: the browser's own square, in the browser's own
+ * blue, 13px at 100 percent text and 13px at 200, beside a label that had grown to 28.
+ *
+ * em on both axes, so it tracks the sentence it belongs to. accent-color rather than appearance:
+ * none, deliberately: the tick, the disabled state and the platform's own focus treatment come
+ * with the control, and the palette is the one thing that was wrong.
+ *
+ * The top margin is the optical half of flex-start above: a box the height of one em still sits a
+ * little above the cap line of the text beside it, because the line box is taller than the type.
+ */
+.filter-check input[type="checkbox"] {
+  margin: calc((1lh - 1em) / 2) 0 0;
+  inline-size: 1em;
+  block-size: 1em;
+  accent-color: var(--color-accent);
+}
+
+/*
+ * The filters when the panel has run out of room for them, which is a phone and, more often, a
+ * reader who has doubled their text: at 200 percent in a 1280 window the four fields and the
+ * checkbox took 330px of a 800px screen and pushed the queue itself under the fold, which is the
+ * illness the comment above says was cured. It was cured at 100 percent only.
+ *
+ * The label steps down beside its control instead of standing over it, which is a line of type per
+ * field. Nothing is hidden and nothing is folded away: a filter a reader cannot see is a filter
+ * they do not know is set, and these four decide what the queue below is showing.
+ *
+ * 42em against the panel, not the window. At the default text the panel is 1080px, which is 67.5em
+ * and nowhere near it; the same panel at 200 percent text is about 29em, because the em grew and
+ * the panel did not.
+ */
+@container panel (max-width: 42em) {
+  .filter-field {
+    flex-direction: row;
+    align-items: baseline;
+    column-gap: var(--space-5);
+  }
+
+  /*
+   * The label keeps its own length and does not take the floor a form row's label column has. The
+   * floor was tried and cost a whole line: at 200 percent text it is 176px, which pushed the four
+   * fields past two rows into three, and three uneven rows of filters is what this block exists to
+   * avoid. What it buys instead, four controls starting on one vertical line, is worth less than
+   * the row of the queue that the third filter row pushes off the screen.
+   */
+  .filter-field > .field-label {
+    flex: 0 0 auto;
+  }
 }
 
 .field-side {
   white-space: nowrap;
-  font-size: 0.9rem;
-  color: #e5e7eb;
+  font-size: var(--text-3);
+  color: var(--color-text-secondary);
 }
 
+/*
+ * The amount, which is the one figure on the payment form that decides anything. It was a
+ * 128px box at body size tucked on the end of the beneficiary row, beside an optional message
+ * measuring 569 by 90: the weight on the screen was the inverse of the meaning. It takes the
+ * lead rung here, right aligned and tabular so the places line up as the digits are typed, and
+ * the padding matches the fields above so the rows are the same height.
+ *
+ * The width is 1 234 567,89 at this size, which measures 124px, plus 10px of padding each side
+ * and two hairlines: 146px, and the field wants a little slack past its longest content.
+ */
 .amount-input {
-  margin-left: 6px;
-  width: 140px;
-  padding: 6px 10px;
-  border-radius: 10px;
-  border: 1px solid rgba(55, 65, 81, 0.9);
-  background: #020617;
-  color: #f9fafb;
+  flex: none;
+  max-width: 100%;
+  width: var(--size-amount-field-lead);
+  font-size: var(--text-6);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-field);
+  border: var(--border-width-hairline) solid var(--color-border);
+  background: var(--color-surface-field);
+  color: var(--color-text-primary);
 }
 
+/*
+ * A labelled control that is not inside a form. Every one of them holds a textarea, and a
+ * textarea is the one control with no content width to be measured: what it holds is prose,
+ * and prose has a measure instead. 140 characters set on one 1080px line read worse than the
+ * same 140 over two, which is the reason --size-prose-max already exists.
+ *
+ * The ceiling is on the column rather than on the textarea because the character counter
+ * under the message field is aligned to the end of this column, and a counter that stays at
+ * 1080 while its field stops at 66ch is no longer counting anything the reader can see.
+ */
 .field-column {
+  max-width: var(--size-prose-max);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-3);
+}
+
+/*
+ * The column a prose box and its counter share, and it takes the width the form takes.
+ *
+ * It was held to a measure of its own, back when the note was the largest object on a form of
+ * short fields and had to be cut down to size. The fields around it have since been let out to
+ * the reading column, so a cap here would leave one short box under a row of long ones. The
+ * counter is aligned to the end of this column, which is why the width belongs on the column and
+ * not on the box: constraining only the box would leave the counter behind at the old edge.
+ */
+.field-column:has(> .textarea) {
+  width: 100%;
+  /* The prose measure the plain column carries is for text being read, and this column holds a
+     box being typed into. It ends where the fields above it end. */
+  max-width: none;
 }
 
 .textarea {
   resize: vertical;
-  min-height: 80px;
-  max-height: 200px;
-  padding: 8px 10px;
-  border-radius: 14px;
-  border: 1px solid rgba(55, 65, 81, 0.9);
-  background: #020617;
-  color: #f9fafb;
+  min-height: var(--size-textarea-min);
+  max-height: var(--size-textarea-max);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-inset);
+  border: var(--border-width-hairline) solid var(--color-border);
+  background: var(--color-surface-field);
+  color: var(--color-text-primary);
 }
 
 .message-counter {
   align-self: flex-end;
-  font-size: 0.8rem;
-  color: #9ca3af;
+  font-size: var(--text-1);
+  color: var(--color-text-muted);
 }
 
 /* Helper text (for hints, empty states, etc.) */
 
 .helper-text {
-  font-size: 0.85rem;
-  color: #9ca3af;
+  /* The one block that is not measured against the column: it is sentences rather than data,
+     and a line has a length past which the eye stops finding the start of the next one. */
+  max-width: var(--size-prose-max);
+  font-size: var(--text-3);
+  color: var(--color-text-muted);
+}
+
+/*
+ * A status line about a list, which is a fact rather than something to read through.
+ *
+ * The reading measure above is for prose, and under a list it buys nothing: the note saying an
+ * alert is hidden is one sentence of about a hundred characters, and capped at the measure it
+ * broke onto a second line with the whole width of the queue standing empty beside it. Declared
+ * after .helper-text so that a line carrying both takes this.
+ */
+.queue-note {
+  max-width: none;
+}
+
+/*
+ * Why the controls under it are not there, stated as a fact about the payment.
+ *
+ * Not .helper-text, and above rather than below. The sentence saying that the time to confirm
+ * had run out stood underneath the row it explained, in the quietest type the screen owns: the
+ * reason arrived after the effect and weighed less than it. Here it carries what every other
+ * fact on the screen carries, the primary ink at the size of the facts panel, and the reading
+ * measure it needs as prose.
+ */
+.state-note {
+  max-width: var(--size-prose-max);
+  margin: 0 0 var(--space-6);
+  font-size: var(--text-3);
+  color: var(--color-text-primary);
+}
+
+/*
+ * The way out of a payment, on a line of its own with the sentence that names it as one.
+ *
+ * It used to ride the row that finishes the payment, thrown to the far end of it: at 1440 that
+ * left 733 pixels of empty page around the only warm shape in the lower half, at 2560 it grew
+ * to 944, and the eye reached the control that refuses a payment before the pair that completes
+ * it. The gap was meant to say "not one of these two" and said "look here" instead. Its own
+ * line says the first without the second, and the caption beside the button keeps it from being
+ * the widest thing on the line as well as the loneliest.
+ */
+.exit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap-inline);
+}
+
+.exit-row .helper-text {
+  margin: 0;
 }
 
 /* ====== Summary box (confirmation / error) ====== */
 
 .summary {
-  margin-top: 8px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(59, 130, 246, 0.6);
-  background: rgba(15, 23, 42, 0.9);
-  font-size: 0.9rem;
+  margin-top: var(--space-4);
+  padding: var(--space-5) var(--space-6);
+  border-radius: var(--radius-inset);
+  border: var(--border-width-hairline) solid var(--color-info-border);
+  background: var(--color-surface-raised);
+  font-size: var(--text-3);
+}
+
+/*
+ * Variants of the box. The three are the three answers a reader has to tell apart without
+ * reading: it worked, it did not, this is for your information. They take the outcome slots
+ * rather than the status ladders those slots borrow from, because a status is a quiet word in a
+ * table and an outcome is the reply to a press that cannot be taken back, and the two have to be
+ * free to move apart. Every box on these screens carries one of the three now, so the bare edge
+ * above is left as the fallback of a box that claims nothing.
+ *
+ * Each takes its triple WHOLE, fill and edge and ink together, which is the call site half of the
+ * contract in scale.css and is what this rule got wrong for a whole wave. It set the border alone,
+ * so a recorded decision here was a green hairline around the ordinary raised fill while the same
+ * answer on the workstation was a green block with green ink: one meaning, two shapes, and the
+ * difference sitting in the 1px channel a reader who has just pressed something irreversible is
+ * least likely to be reading. The inks are measured against the fills inside the boxes rather than
+ * against the raised surface, and the theme files carry those numbers.
+ *
+ * The notice fill resolves to the raised surface the box already had, so a neutral box does not
+ * move a pixel.
+ */
+.summary--danger {
+  border-color: var(--color-outcome-failed-border);
+  background: var(--color-outcome-failed-surface);
+  color: var(--color-outcome-failed-text);
+}
+
+.summary--success {
+  border-color: var(--color-outcome-done-border);
+  background: var(--color-outcome-done-surface);
+  color: var(--color-outcome-done-text);
+}
+
+.summary--neutral {
+  border-color: var(--color-outcome-notice-border);
+  background: var(--color-outcome-notice-surface);
+  color: var(--color-outcome-notice-text);
 }
 
 .summary-title {
-  font-weight: 600;
-  margin-bottom: 4px;
+  font-weight: var(--weight-semibold);
+  margin-bottom: var(--space-2);
 }
 
 .summary ul {
   margin: 0;
-  padding-left: 18px;
+  padding-left: var(--space-7);
+}
+
+/*
+ * The way out of a failed read, inside the box that reports it.
+ *
+ * Its own row rather than .actions, which is measured for the foot of a form and would set the
+ * button 2px under the last sentence. Drawn only where the call can be asked again for free, so
+ * this row never appears under a refused payment or a refused decision.
+ */
+.summary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--gap-actions);
+  margin-top: var(--space-5);
+}
+
+/*
+ * Status and code, and never the body. The sentences above it are written for the reader; this one
+ * line is written for whoever is sent the screenshot, which is why it is the smallest and quietest
+ * thing in the box rather than absent: the sentences deliberately say nothing a machine could be
+ * looked up by.
+ */
+.summary-reference {
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-1);
+  color: var(--color-text-muted);
+  overflow-wrap: break-word;
 }
 
 /* ====== Buttons ====== */
 
 .actions {
-  margin-top: 4px;
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: var(--gap-actions);
+  margin-top: var(--gap-actions-top);
 }
 
+/*
+ * The dialog's own separation. At the shared 4px the button stood 20px under the password
+ * against 16px between the two fields, which is not a gap: it read as a third row of the
+ * form rather than as the thing the form is for. The token is 4px on every other web form
+ * too and is wrong there for the same reason, but raising it would move screens that are
+ * not this block's.
+ */
+.card--narrow .actions {
+  margin-top: var(--space-7);
+}
+
+/*
+ * Three levels, and the reason there are three: a row of controls with two shapes in it can
+ * only say "this one" and "the rest", and the rows on these screens hold three consequences.
+ * The one that does the work is filled, the one that destroys something is an edge, and the
+ * one that changes nothing carries no shape at all and is set apart by the gap in front of it.
+ * The same three levels, in the same order, as the analyst's window; only the palette differs.
+ */
 .btn-primary,
-.btn-secondary {
-  padding: 8px 18px;
-  border-radius: 999px;
-  border: none;
-  font-size: 0.95rem;
+.btn-secondary,
+.btn-quiet {
+  padding: var(--space-4) var(--space-7);
+  border-radius: var(--radius-control);
+  font-size: var(--text-4);
+  font-weight: var(--weight-medium);
   cursor: pointer;
-  transition: background 0.15s ease, transform 0.05s ease, opacity 0.15s ease;
+  transition: background-color var(--motion-fast) var(--ease),
+              border-color var(--motion-fast) var(--ease),
+              color var(--motion-fast) var(--ease),
+              transform var(--motion-instant) var(--ease);
 }
 
 .btn-primary {
   /* One step darker than the surrounding accent blue: the near-white label
-     sat at about 3.5:1 on #3b82f6, on #2563eb it clears 4.5:1. */
-  background: #2563eb;
-  color: #f9fafb;
+     sat at about 3.5:1 on the lighter blue, on this one it clears 4.5:1. The
+     edge is the lighter blue, because the fill itself cannot draw a boundary
+     against a raised surface at 3:1 and the edge can. */
+  background: var(--color-accent);
+  color: var(--color-text-on-accent);
+  border: var(--border-width-hairline) solid var(--color-border-accent);
 }
 
-.btn-primary:hover:not(:disabled) {
-  background: #1d4ed8;
-  transform: translateY(-0.5px);
+.btn-primary:hover:not(:disabled, [aria-busy="true"], .planned-item) {
+  background-color: var(--color-accent-hover);
+  transform: var(--lift-hover);
+}
+
+.btn-primary:active:not(:disabled, [aria-busy="true"], .planned-item) {
+  background-color: var(--color-accent-active);
+  transform: var(--lift-active);
 }
 
 .btn-secondary {
-  background: rgba(15, 23, 42, 1);
-  color: #e5e7eb;
-  border: 1px solid rgba(55, 65, 81, 0.9);
+  background: var(--color-surface-raised);
+  color: var(--color-text-secondary);
+  border: var(--border-width-hairline) solid var(--color-border);
 }
 
-.btn-secondary:hover:not(:disabled) {
-  background: rgba(30, 41, 59, 1);
+.btn-secondary:hover:not(:disabled, [aria-busy="true"], .planned-item) {
+  background-color: var(--color-surface-hover);
+  transform: var(--lift-hover);
 }
 
-.btn-primary:disabled,
-.btn-secondary:disabled {
-  opacity: 0.6;
-  cursor: default;
+.btn-secondary:active:not(:disabled, [aria-busy="true"], .planned-item) {
+  background-color: var(--color-surface-hover);
+  transform: var(--lift-active);
 }
-
-/* ====== Planned-only controls ====== */
 
 /*
- * Nav entries and buttons that sketch the product around this showcase but are
- * not built. Muted like a disabled control, but pointer events stay on so the
- * title can explain why on hover; the rules below take back the hover styles a
- * live control would show.
+ * The secondary that destroys something: cancelling a payment, recording a verdict against a
+ * customer. It is a modifier and is written beside .btn-secondary, not instead of it.
+ *
+ * An edge and a label, never a fill. A filled red would out shout the primary and turn an
+ * ordinary working outcome into an alarm, which is precisely the failure this is undoing: on
+ * the authorization screen the brightest control on the row was the one that cancels the
+ * payment, while the control the screen exists for waited grey beside it. The two are the same
+ * pixels no longer.
+ *
+ * No lift on hover. The fill is what answers here, and lifting the destructive control towards
+ * the pointer is an invitation the primary should be making.
  */
-.planned-item,
-.planned-item:hover {
-  opacity: 0.6;
-  cursor: default;
+.btn-secondary--danger {
+  border-color: var(--color-danger-accent);
+  color: var(--color-danger-text);
 }
 
-.nav-link.planned-item:hover {
+.btn-secondary--danger:hover:not(:disabled, [aria-busy="true"], .planned-item) {
+  background-color: var(--color-danger-surface);
+  transform: none;
+}
+
+.btn-secondary--danger:active:not(:disabled, [aria-busy="true"], .planned-item) {
+  background-color: var(--color-danger-surface);
+  transform: var(--lift-active);
+}
+
+/*
+ * The third level: a control that decides nothing. Refreshing a list, saving notes without
+ * taking a decision. No fill and no edge, so it is a control only while the pointer is on it,
+ * which is what the header's own exit control already does for the same reason. With nothing
+ * selected on the authorization screen, Refresh was the loudest thing on the page.
+ *
+ * A disabled one recedes by its label alone, which is all it has; the shared rule below is
+ * what colours it.
+ */
+.btn-quiet {
+  border: none;
   background: transparent;
+  color: var(--color-text-secondary);
 }
 
-.btn-secondary.planned-item:hover {
-  background: rgba(15, 23, 42, 1);
+.btn-quiet:hover:not(:disabled, [aria-busy="true"], .planned-item) {
+  background-color: var(--color-surface-hover);
+  color: var(--color-text-primary);
+  transform: var(--lift-hover);
+}
+
+.btn-quiet:active:not(:disabled, [aria-busy="true"], .planned-item) {
+  background-color: var(--color-surface-hover);
+  transform: var(--lift-active);
+}
+
+/* ====== Unavailable controls: disabled, busy, planned ====== */
+
+/*
+ * Three states that used to be one dimmed control each and were therefore the same
+ * pixels. None of them uses opacity now: dimming a control dims its label with it,
+ * so neither the fill nor the text could be aimed at a contrast target.
+ *
+ * A neutral control keeps its rest fill and is told apart by its weakened edge, its
+ * weakened label and its cursor. A control whose rest fill is an accent has to lose
+ * that fill, because a control that cannot be pressed must not look like the one
+ * that can.
+ */
+.btn-primary:disabled,
+.btn-secondary:disabled,
+.btn-quiet:disabled,
+.field-input:disabled,
+.amount-input:disabled,
+.textarea:disabled,
+.otp-input:disabled,
+[aria-disabled="true"]:not(.planned-item) {
+  border-color: var(--color-border-disabled);
+  color: var(--color-text-disabled);
+  cursor: not-allowed;
+}
+
+/*
+ * The primary while it waits for something: a code that has not been typed, a row that has not
+ * been picked. It loses its fill, for the reason above, but it keeps its accent edge, and that
+ * is the whole of the repair on the authorization screen. At the disabled edge the button had
+ * stopped being a shape at all - 2.09:1 against the page, against 4.27:1 for the secondary
+ * beside it - so the eye went to the control that cancels the payment. The edge holds the rank
+ * while the dead fill and the muted label say "not yet"; muted rather than disabled text,
+ * because on this fill that is the pairing that clears 4.5:1.
+ */
+.btn-primary:disabled,
+.btn-primary[aria-disabled="true"] {
+  background-color: var(--color-surface-disabled);
+  border-color: var(--color-border-accent);
+  color: var(--color-text-muted);
+}
+
+/*
+ * The intent is that busy keeps every rest colour, so that a control waiting on its own
+ * request still reads as the live control while a disabled one recedes. That is not what
+ * the screens show today, and the reason is in the markup rather than here.
+ *
+ * Eleven controls write the attribute: the two that refresh a list, the four that ask for
+ * another page of one, the pair that takes and releases an alert, and the three that decide
+ * one. All eleven write it beside `disabled`, and none of them can be busy without being
+ * disabled, so the rules above answer first: a bare `[aria-busy="true"]` weighs (0,1,0)
+ * against (0,2,0) for `.btn-primary:disabled` and for the shared unavailable rule. Measured
+ * on the running client, a busy primary comes out at the disabled fill, the disabled label
+ * and cursor not-allowed, channel for channel the same as one that is only disabled, and
+ * the progress cursor below never reaches a pointer.
+ *
+ * The eight hover and active exclusions above name the attribute for the same reason and
+ * cut nothing beyond the `:not(:disabled)` standing beside them, since every element the
+ * busy half would exclude the disabled half has excluded already.
+ *
+ * Both stay: the pairing is what would have to change, and a control that keeps taking
+ * presses while its own press is in flight is the worse of the two bargains.
+ */
+[aria-busy="true"] {
+  cursor: progress;
+}
+
+/*
+ * A part of the product sketched around this showcase but not built. A dashed edge rather
+ * than a dimmed one, so it reads without colour and stops looking like a control that is
+ * merely unavailable for now. Pointer events stay on so the title can explain why on hover;
+ * the hover and active rules above already stand back from this class.
+ *
+ * The class alone, without the aria-disabled it used to be paired with. What wears it is a
+ * span drawn in the shape of a button (NewPaymentPage.tsx, beside Review payment), and a span
+ * is not a control that could become pressable later, which is the only thing aria-disabled
+ * would have said. Keeping the attribute in the selector would have meant writing it back
+ * onto an element where it means nothing, purely so that a stylesheet could find it.
+ *
+ * Button shapes only. The navigation column does not use it: an outline there gave four
+ * entries that go nowhere the shape of a target while the entry that worked had none, so a
+ * dead entry in that column is muted text and nothing else.
+ */
+.planned-item {
+  background-color: transparent;
+  border: var(--border-width-hairline) var(--border-style-planned) var(--color-border-strong);
+  color: var(--color-text-planned);
+  cursor: default;
 }
 
 /* ====== Table for WaitingAuthorizationsPage / FraudDeskPage ====== */
 
+/*
+ * The box a table stands in, and inside it the box that scrolls. Two elements where there was
+ * one, and the mark on the edge is what asks for the second: anything positioned inside a scroll
+ * container is laid out against the content and scrolls away with it, so the band that says
+ * `there is more this way` has to hang on something that does not move. The frame carries the
+ * edge, the ground and the corners; the box inside it carries the overflow and nothing else.
+ *
+ * overflow-x rather than hidden: a table too wide for the panel has to be reachable.
+ * It was hidden, which could not clip either, because the panel it sits in refused to
+ * shrink - so the table simply broke out of the card.
+ *
+ * The frame is also what a row is measured against. Whether six facts are a row of a table or a
+ * record of several lines is decided by the width THIS box has and not by the width of the
+ * window: one table stands in a phone, in the left half of a split panel and in a full reading
+ * column, and only this element knows which of the three it is in.
+ */
+.table-frame {
+  position: relative;
+  container: table-frame / inline-size;
+  border-radius: var(--radius-surface);
+  border: var(--border-width-hairline) solid var(--color-border-container);
+  background: var(--color-surface-raised);
+}
+
 .table-wrapper {
-  border-radius: 16px;
-  border: 1px solid rgba(55, 65, 81, 0.9);
-  overflow: hidden;
-  background: rgba(15, 23, 42, 0.9);
+  overflow-x: auto;
+  border-radius: inherit;
+}
+
+/*
+ * The edge that says the table carries on past it.
+ *
+ * A clip with nothing on it reads as a fault rather than as a boundary: at 390 the last column of
+ * the waiting list was one letter of its heading and a ladder of one-letter lines, and at 200
+ * percent text the fraud queue cut `Assignee` mid word and left `Created` out of the document
+ * entirely, with no line, no shadow and no fade at the cut. TableFrame.tsx measures which side is
+ * hiding something and writes it here; what is decided here is only what the mark looks like.
+ *
+ * A band of the canvas fading out over 32px rather than a flat colour or a line. The head of a
+ * table and its rows stand on two different grounds, so a band that matched one of them would be
+ * a stripe over the other; a shade darkens both the same way. It is drawn only while there is
+ * something behind it, on the side that has it, which is why this is an attribute and not a class.
+ */
+.table-frame[data-edges~="start"]::before,
+.table-frame[data-edges~="end"]::after {
+  content: "";
+  position: absolute;
+  inset-block: 0;
+  inline-size: var(--space-10);
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.table-frame[data-edges~="start"]::before {
+  inset-inline-start: 0;
+  background: linear-gradient(
+          to right,
+          color-mix(in srgb, var(--color-surface-canvas) 60%, transparent),
+          transparent
+  );
+}
+
+.table-frame[data-edges~="end"]::after {
+  inset-inline-end: 0;
+  background: linear-gradient(
+          to left,
+          color-mix(in srgb, var(--color-surface-canvas) 60%, transparent),
+          transparent
+  );
 }
 
 .table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: var(--text-3);
 }
 
 .table thead {
-  background: #020617;
+  background: var(--color-surface-sunken);
 }
 
 .table th,
 .table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid rgba(31, 41, 55, 1);
+  padding: var(--space-4) var(--space-5);
+  border-bottom: var(--border-width-hairline) solid var(--color-border-divider);
 }
 
-.table tr:hover {
-  background: rgba(24, 35, 55, 0.9);
+/*
+ * th has no text-align of its own, so the browser centres it while every cell under it is
+ * left aligned: "Beneficiary IBAN" stood 87px to the right of the IBAN it labels at 1440,
+ * and further at every size above that.
+ */
+.table th {
+  text-align: left;
 }
 
-.table-row--selected,
-.table-row--active {
-  background: rgba(59, 130, 246, 0.14);
+/*
+ * Amounts right aligned and tabular, so the digits line up by place and by width.
+ *
+ * The cell names itself, and that is the whole rule now. Two counting selectors used to stand
+ * beside it and find the amount column by position, because no cell carried a class when they
+ * were written: the alert queue's amount was the fifth of nine columns and the waiting list's
+ * the third of six, and a :has() on the header count was what told the two shapes apart. Every
+ * amount cell in this application carries the class today, so both of them had stopped matching
+ * anything, and a table with a seventh column would have had to be counted in here as well.
+ * Their own comment said to delete them once the class was everywhere rather than extend them.
+ */
+.table .cell--amount {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The one cell in a table that holds a sentence somebody typed.
+ *
+ * It takes the rest of the row, which is the point: the two stamps beside a journal entry are a
+ * date and a login and are as wide as what they hold, and left to the browser's own algorithm the
+ * three columns would be shared out by the length of the text in them, so a table of short entries
+ * would put its dates in the middle of the panel and a table with one long entry would not. At
+ * 100% the two short columns collapse to their content and the words take what is left, so the
+ * ruling stands in the same place whatever is written under it.
+ *
+ * No cap on the words and no ellipsis. A note is read, not scanned: the reason it exists is that
+ * the record used to be one string an analyst could overwrite, and a record that shows the first
+ * line of what a colleague wrote has kept the text without keeping the meaning.
+ */
+.table .cell--prose {
+  width: 100%;
+}
+
+/*
+ * Why an alert was raised, in a queue row, and the one value on that row with no length of its
+ * own. The rules join their reasons with a plus, so a payment that tripped four of them writes a
+ * sentence: at 282 characters the column stacked about thirty lines and pushed the eight other
+ * facts of that row off the bottom of the screen, in a table read by scanning down one column at
+ * a time.
+ *
+ * Two lines, and the rest is a keystroke away rather than gone: the whole sentence rides the cell
+ * as its title, and the panel under the queue prints it in full under `Why this alert was raised`
+ * the moment the row is chosen. Two rather than one because the first line of a reason is usually
+ * the first rule only, and two rules is what a scan is looking for.
+ *
+ * The clamp is on a box inside the cell and not on the cell. A td that took display: -webkit-box
+ * would stop being a cell of the table, and the column it stands in is one the table's own layout
+ * sizes; the clamp changes what is drawn, never what the column measures.
+ */
+.table .reason-short {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+}
+
+/*
+ * A date beside a cell that has claimed the rest of the row, kept on its own line.
+ *
+ * The rule above leaves the short columns at their content width, and content width for a cell of
+ * text is the longest word in it: `21. 8. 2026 17:28` collapsed to three stacked lines, in the
+ * column a journal is read down. Nothing else about it changes, so the ink and the size stay the
+ * table's own.
+ */
+.table .cell--stamp {
+  white-space: nowrap;
+}
+
+/*
+ * When a payment was asked for, and under it when the money actually moved.
+ *
+ * The same shape as the amount stack below and for the same reason: two readings of one thing,
+ * read against each other, so they share a cell rather than standing at two ends of a row. Both
+ * lines at the table's own size, because a date set a rung smaller stops lining up with the dates
+ * above and below it, and a column of dates is read down.
+ *
+ * The second line is the one that may be missing: a payment that has not settled has no such
+ * moment, and on a fraud desk that is most of the table. It steps back in ink because it annotates
+ * the line above rather than answering the column a second time, which is the fee line's rule two
+ * blocks down and the same measured ink.
+ */
+.table .time-asked,
+.table .time-settled {
+  display: block;
+  line-height: var(--leading-tight);
+}
+
+.table .time-settled {
+  color: var(--color-text-muted);
+}
+
+/*
+ * The amount, and under it what was added to it: two lines of one sum in one cell.
+ *
+ * Set at the table's own size, both of them, and this is the whole reason the second line is not
+ * a rung smaller. The rule two blocks down already states it for the route stack: at 12px over
+ * 14px the groups of digits stop standing under each other, and standing under each other is the
+ * only thing tabular figures are for. A fee whose hellers do not sit under the amount's hellers
+ * is a second number beside the first rather than a part of it.
+ *
+ * Led tight, because these are two lines of one datum rather than two lines of prose, and the
+ * alignment is the cell's: right, inherited, never restated per line.
+ */
+.table .amount-value,
+.table .amount-fee {
+  display: block;
+  line-height: var(--leading-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The fee steps back: it annotates the number above it and is not a second answer to the column.
+ * 5.84:1 on the row ground, the same ink the top line of the route stack takes for the same
+ * reason. A colour and not a size, and not weight either: weight in this table is spent on the
+ * account an alert was raised on.
+ */
+.table .amount-fee {
+  color: var(--color-text-muted);
+}
+
+/*
+ * Where the money left and where it went, in one column.
+ *
+ * Both lines are set at the table's own size. A smaller top line was tried and discarded: at
+ * 12px over 14px the groups of four in the two account numbers no longer stand under each
+ * other, and standing under each other is the only reason the digits are tabular. The step
+ * between the two lines is colour, and colour alone.
+ *
+ * Led tight, because these are two lines of one number rather than two lines of prose: at the
+ * body leading a line stood 21px and a row carrying both measured 59px against the 38px of a
+ * row carrying one, and that difference is what a queue reads down. It measures 47.8 now.
+ *
+ * NOT nowrap, and that is the repair. An account number is printed in groups of four with a
+ * space between them, so the only breaks a browser can take here are the ones between groups:
+ * the number folds where it was already divided and never mid group. Held on one line instead,
+ * the column could not shrink at all and the table simply grew past its own wrapper, which at
+ * 200 percent text was 1139 inside 1052 with a scrollbar under the fold to reach the rest.
+ * Wrapping is the narrow window's answer and scrolling sideways is not.
+ */
+.table .route-from,
+.table .route-to {
+  display: block;
+  line-height: var(--leading-tight);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Subordinate, and readable: 5.85:1 on the row ground, 5.15:1 under the hover fill.
+ */
+.table .route-from {
+  color: var(--color-text-muted);
+}
+
+/*
+ * The account the alert was raised on, marked in weight and one rung of ink.
+ *
+ * Two places emit the class and they are the two fraud desks: FraudDeskPage here and FraudDesk on
+ * the workstation, both on the same test, the source account of the row against the account the
+ * alert names. HistoryPage emits it too and it can never fire there: the customer's own history
+ * is called with no alerted account at all, so the test is against null on every row and this
+ * selector matches nothing on that screen. That is why the rule is safe to state once for the
+ * whole table rather than per desk.
+ *
+ * Weight is the channel this skin has, and the workstation's is ink, and that is not two designs
+ * of one thing: the two ladders are inverted. On the dark skin the step from the source line to
+ * the beneficiary is already 2.43:1 of ink, and above the row's own #f9fafb there is nothing left
+ * to climb to, secondary to primary being 1.18:1. On the light skin the same two lines are 1.21:1
+ * apart, which is no step at all, so it spends weight on telling them apart and keeps 1.85:1 of
+ * ink for this mark. Same semantics, opposite budgets.
+ *
+ * The beneficiary line is deliberately left without a weight of its own here, and the asymmetry
+ * against the workstation is the point rather than an oversight. Given one, the cell sets solid
+ * and loses the order inside it, and on the customer's history, where no alert exists, it would
+ * repaint a stack that has nothing to mark.
+ */
+.table .route-from--alerted {
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-semibold);
+}
+
+/*
+ * Whether the money left the bank, said on the line that names the account it went to.
+ *
+ * The third channel this cell has, because the first two are spent: the four state tones answer
+ * a different question one column away and a fifth colour would be read as a fifth answer to
+ * that one, and the ink inside this cell is already carrying the difference between the account
+ * that paid and the account that was paid. What is left is a word, which needs no legend and no
+ * key and survives being enlarged. The word itself is the shared glossary's, and what is decided
+ * here is only how quietly it is set. Most payments a customer makes do leave the bank, so this
+ * one runs down most of the column and has to be readable past rather than read: muted ink and a
+ * rung of size below the number it annotates, which is also what keeps it from being taken for
+ * the tail of that number.
+ *
+ * --color-route-boundary rather than the muted ink written out, so that tuning the dozen quiet
+ * things the muted ink carries cannot silently move a mark whose contrast was measured. The
+ * theme states the measurement: 5.84:1 on the row ground and 5.16:1 under the hover fill.
+ *
+ * A block, and therefore the third line of the stack rather than a word beside the second. Set
+ * inline it read as a suffix of the account number it annotates, and on a narrow column it wrapped
+ * to a line of its own anyway, so the cell was two shapes depending on the width. It is the same
+ * rule the workstation states for the same stack, which is what keeps one table from reading two
+ * ways across the two platforms.
+ *
+ * Led like the numbers above it rather than like the prose it is made of, because it is a line of
+ * one stack and not a sentence under one. Declared here and not on the span alone: the line the
+ * span lands on takes its height from the strut of the cell around it.
+ *
+ * nowrap, so the two words break together or not at all.
+ */
+.table .route-boundary {
+  display: block;
+  white-space: nowrap;
+  line-height: var(--leading-tight);
+  font-size: var(--text-2);
+  color: var(--color-route-boundary);
+}
+
+/*
+ * Why a payment was refused: a sentence somebody wrote, standing under the row it explains.
+ *
+ * It was a sixth column, and a sentence has no width to be given: it took its share out of the
+ * route stack, which is the tightest column this table has, and left both account numbers to
+ * fight over what remained. The workstation had worked this out first and the customer screens
+ * take its form, one row group per payment with the note as a second row of it.
+ *
+ * The two rules are what make the pair read as one thing rather than as two rows that happen to
+ * be adjacent. The divider the payment's own cells draw is taken away where a note follows, so
+ * the group is closed by the note's edge instead; and the note starts where the payment's line
+ * of figures ends, with no gap of its own, because a gap there would read as the start of the
+ * next payment.
+ *
+ * No ink of its own, and that is a decision rather than an omission. A step down was tried at
+ * the secondary text and is not a step a reader can see on this skin: #e5e7eb against the row's
+ * #f9fafb is 1.1:1, so the rule cost a line of stylesheet and bought a difference nothing on
+ * screen showed. The step below that, the muted ink, is visible and is the wrong direction: a
+ * refusal is the exceptional row in ten and this sentence is the whole of the explanation, so
+ * setting it quieter than the nine ordinary rows around it inverts the rule the tones and the
+ * boundary mark are both written to. The workstation leaves it at its own row ink for the same
+ * reason.
+ *
+ * A payment that was not declined has no such row at all, so nothing here has to stand in for
+ * an absent value.
+ */
+.table tr:has(+ .history-note) > td {
+  border-bottom: 0;
+}
+
+.table .history-note > td {
+  padding-top: 0;
+}
+
+.table tbody tr:hover {
+  background-color: var(--color-surface-hover);
+}
+
+/*
+ * A table whose rows are not selectable, which is every table on a screen with no detail panel
+ * to open. The hover fill above is on every table in the application, so without this a row that
+ * does nothing lights up under the pointer and reads as a control that has been pressed and
+ * ignored. Written here rather than by narrowing the rule above, because the two desks DO select
+ * rows and the fill is right for them.
+ */
+.table--static tbody tr:hover {
+  background-color: transparent;
+}
+
+/*
+ * Selection is drawn on the cells rather than on the row: a row under
+ * border-collapse cannot be relied on to paint a box-shadow, and a cell is painted
+ * above its row's background, so the hover fill passes underneath the tint instead
+ * of over it. The two rules no longer compete at all, because they no longer target
+ * the same element, and a hovered selected row now reads as both at once.
+ */
+.table-row--selected > td {
+  box-shadow: inset 0 0 0 9999px var(--color-selected-surface);
+}
+
+.table-row--selected > td:first-child {
+  box-shadow:
+          inset var(--border-width-marker) 0 0 0 var(--color-selected-marker),
+          inset 0 0 0 9999px var(--color-selected-surface);
+}
+
+/*
+ * ====== WHERE A ROW STOPS BEING A ROW ======
+ *
+ * A table is a grid of columns, and a column needs enough width to hold what it heads. The two
+ * lists a reader chooses from have six and nine of them, and below a certain width the columns
+ * stop being readable at all: on a 390 phone the waiting list showed one letter of the word
+ * Status in its heading and broke `Waiting for your code` into a vertical ladder of one and two
+ * letter lines, and the fraud queue showed five of its nine columns with the other four past the
+ * edge. Scrolling sideways is not an answer for a list whose whole question is `which of these
+ * is mine and what is happening to it`: the answer was in the column that had gone.
+ *
+ * So the same facts are laid out as a record of several lines, each fact on its own line beside
+ * its own name, and the names come from the headings the table already carries. The three that
+ * open the record are the three a reader picks a row by: what it is called, how much money, and
+ * what state it is in. What the record costs is height, which is the axis a phone has.
+ *
+ * A container query and not a media query, because what decides is the width of THIS box. The
+ * same table stands in a full reading column, in the left half of a split panel about 570px wide
+ * and on a phone, and one window width can hold all three at once.
+ *
+ * 64em is where, and it is measured in em on purpose. The reading column this application caps
+ * itself at is 1080px, which is 67.5em at the default text size, so the table shape survives
+ * exactly where it has always stood, at the full column, and gives way everywhere narrower. In em
+ * rather than px because a reader who doubles their text has doubled every column's contents
+ * without widening the box: at 200 percent text 64em is 2048px and a 920px panel is well under
+ * it, which is the fraud queue that used to cut `Assignee` in half.
+ */
+@container table-frame (max-width: 64em) {
+  /*
+   * The headings are the labels now, one per fact, so the row of them has nothing left to head.
+   * Hidden from the eye and kept for anyone listening: these are still cells of a table and the
+   * headings are still what names them. The same six declarations as .visually-hidden, written
+   * out because a utility class on the element would hide the head at every width.
+   */
+  .table--record thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+
+  .table--record,
+  .table--record tbody {
+    display: block;
+  }
+
+  /*
+   * One record. The two tracks are declared here rather than inside the cell so that every label
+   * in the record stands on one line: a cell laying out its own label column would set that
+   * column from its own label alone, and a record of nine facts would have nine left edges.
+   */
+  .table--record tr {
+    display: grid;
+    grid-template-columns: minmax(var(--size-label-min), max-content) minmax(0, 1fr);
+    column-gap: var(--space-6);
+    row-gap: var(--space-2);
+    padding: var(--space-6);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-divider);
+  }
+
+  .table--record tbody tr:last-child {
+    border-bottom: 0;
+  }
+
+  /* Each cell spans the record and borrows its two tracks for its own name and value. */
+  .table--record td {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    padding: 0;
+    border-bottom: 0;
+  }
+
+  .table--record td::before {
+    content: attr(data-label);
+    color: var(--color-text-muted);
+  }
+
+  /*
+   * The first line of the record: what it is called, and what it is worth. Neither takes a name,
+   * because a payment code and a sum of money say what they are, and because this line is what
+   * the eye lands on. The amount keeps the right alignment and the tabular figures it has in the
+   * column, so a list of records can still be read down for the money.
+   */
+  .table--record td.cell--lead {
+    display: block;
+    grid-column: 1;
+    order: -3;
+    font-weight: var(--weight-medium);
+  }
+
+  .table--record td.cell--lead::before {
+    content: none;
+  }
+
+  .table--record td.cell--amount {
+    display: block;
+    grid-column: 2;
+    order: -2;
+  }
+
+  .table--record td.cell--amount::before {
+    content: none;
+  }
+
+  /*
+   * The state comes straight after, and keeps its name. A queue row carries two of them, the
+   * alert's and the payment's, and two coloured words with no names on them would be two words
+   * the reader has to tell apart by hue.
+   */
+  .table--record td.cell--state {
+    order: -1;
+  }
+
+  /*
+   * The selection moves from the cells to the record. On a table the tint has to be painted per
+   * cell, because a row under border-collapse cannot be relied on to draw one; a record row is an
+   * ordinary grid box and paints its own, which is what keeps the gaps between its lines tinted
+   * along with the lines.
+   */
+  .table--record .table-row--selected > td,
+  .table--record .table-row--selected > td:first-child {
+    box-shadow: none;
+  }
+
+  .table--record .table-row--selected {
+    box-shadow:
+            inset var(--border-width-marker) 0 0 0 var(--color-selected-marker),
+            inset 0 0 0 9999px var(--color-selected-surface);
+  }
+}
+
+/*
+ * How much of a list is on screen, at its foot beside the Show more button.
+ *
+ * The sentence is built in paging.ts so that the two platforms say it in the same words; what is
+ * decided here is only its size and its colour. Muted and a rung under the rows: it is a fact
+ * about the table rather than a row of it, and at the body colour it would be the last thing read
+ * on the page and the loudest. The foot itself needs no class of its own, being the .inline row
+ * every other pair of controls in this stylesheet already uses.
+ */
+/* Stands as a span at the foot of a list and as a paragraph above one, so it states the margins
+   the UA would otherwise decide for the paragraph form. */
+.list-count {
+  margin: 0;
+  font-size: var(--text-2);
+  color: var(--color-text-muted);
+}
+
+/*
+ * A second fact on a metadata line, marked off by the same middot the identity band uses between
+ * a name and a role. It carries the separator rather than sitting between two, so a line with
+ * nothing after it never ends in a dangling mark.
+ */
+.meta-sep::before {
+  content: "·";
+  margin: 0 var(--space-3);
 }
 
 /* ====== Details card and OTP input ====== */
 
 .details-card {
-  margin-top: 16px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px solid rgba(55, 65, 81, 0.9);
-  background: rgba(15, 23, 42, 0.9);
-  font-size: 0.9rem;
+  margin-top: var(--space-7);
+  padding: var(--space-6);
+  border-radius: var(--radius-surface);
+  border: var(--border-width-hairline) solid var(--color-border-container);
+  background: var(--color-surface-raised);
+  font-size: var(--text-3);
 }
 
 .details-card p {
-  margin: 2px 0;
+  margin: var(--space-1) 0;
 }
 
-.otp-row {
-  margin-top: 16px;
-  display: flex;
-  gap: 8px;
-  align-items: center;
+/*
+ * The name of one details card. All four under Alert details wear it, and they are headings.
+ *
+ * Two of the four used to open with a name and two with their first fact, so half of them asked
+ * the reader to work out the subject from the data, and neither of the two names was a heading:
+ * the section had no rung below it at all. It stays at the size of the facts it stands over and
+ * is told from them by weight alone, because the rule that took the old bold labels down holds
+ * here too. A name may not outweigh what it names.
+ */
+.details-title {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-3);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
 }
 
+/*
+ * A block of facts about one thing, wherever it stands: inside a details card, which already
+ * carries this size, or on its own. The details block on the authorization screen carried no
+ * class at all and so inherited the root size, which is how a fact label came to be set larger
+ * and heavier than the heading of the section holding it.
+ */
+.facts {
+  font-size: var(--text-3);
+}
+
+.facts p {
+  margin: var(--space-1) 0;
+}
+
+/*
+ * A fact and the word that names it. The label was drawn as <strong>, which is 700, under a
+ * heading at 600: the labels of the facts were the heaviest text in the section and the amount
+ * they labelled was ordinary body text. A label steps down in colour here, never up in weight,
+ * and the value keeps the primary text; --weight-bold belongs to the name of the screen alone.
+ *
+ * .fact-value--lead is for the one or two figures a decision actually turns on, the amount and
+ * the risk score. Tabular, because a figure that is read against another figure has to line up
+ * with it.
+ */
+.fact-label {
+  font-size: var(--text-3);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.fact-value {
+  font-size: var(--text-3);
+  color: var(--color-text-primary);
+}
+
+.fact-value--lead {
+  font-size: var(--text-5);
+  font-weight: var(--weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * width, not a flex basis: the basis was 180px and the box drew at 203, because a text input
+ * whose width is left to the flex algorithm cannot go below the twenty characters the UA
+ * sizes it to. A one-time code is ten digits at the very most.
+ */
 .otp-input {
-  flex: 0 0 180px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(55, 65, 81, 0.9);
-  background: #020617;
-  color: #f9fafb;
+  flex: none;
+  width: var(--size-otp-field);
+  max-width: 100%;
+  padding: var(--space-3) var(--space-5);
+  border-radius: var(--radius-control);
+  border: var(--border-width-hairline) solid var(--color-border);
+  background: var(--color-surface-field);
+  color: var(--color-text-primary);
+}
+
+/* ====== Spacing and colour utilities ====== */
+
+/*
+ * The cheapest way to keep spacing out of the markup while the components stay as
+ * they are. Declared last on purpose: every one of them lands on an element that
+ * already carries a class with its own margin, and a single class only wins on
+ * source order.
+ */
+.gap-above-sm {
+  margin-top: var(--space-4);
+}
+
+.gap-above-md {
+  margin-top: var(--space-5);
+}
+
+.gap-above-lg {
+  margin-top: var(--space-6);
+}
+
+.gap-below-sm {
+  margin-bottom: var(--space-4);
+}
+
+/*
+ * Everything that is left of a row goes in front of this control. It is what sets a control
+ * apart from the ones it stands beside without giving it a colour: the pair that decides sits
+ * together, and the one that decides nothing, or the one that undoes everything, is pushed to
+ * the far end. On a row too narrow to hold them all the control simply takes the next line,
+ * which is the same statement made downwards.
+ */
+.push-end {
+  margin-inline-start: auto;
+}
+
+.text-danger {
+  color: var(--color-danger-text);
+}
+
+/*
+ * Facts about one thing, side by side on one wrapping line.
+ *
+ * The .facts block above puts one fact to a line, which is right for a panel that is read as
+ * sentences. These are read against each other instead - what a customer has sent today against
+ * the ceiling they are sending towards, what a payment costs against what it moves - and stacked
+ * they would push the amount field off the first fold of the form. The words and their weights
+ * are .fact-label and .fact-value as everywhere else; only the direction differs.
+ */
+.fact-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--gap-inline);
+  font-size: var(--text-3);
+}
+
+/*
+ * A line that belongs to the field above it rather than to the form.
+ *
+ * Indented to the left edge of the control, not of its label, so the quote and the refusal to
+ * price one read as part of the amount row. The two measurements are the label track and the gap
+ * that follows it, which is exactly what .field-row puts in front of a control.
+ *
+ * The customer's day used to be indented like this too, under the account selector, and that is
+ * exactly what was wrong with it: the indent said the two figures belonged to the control above
+ * them. They are one fact about the person, so they stand above the form at the heading's own
+ * left edge and carry no indent at all.
+ * On a row narrow enough to have wrapped, the label is above its control and this indent is 5.5rem
+ * of nothing; that is the same trade every fixed label column makes here and it is the same
+ * breakpoint.
+ */
+.under-field {
+  margin-inline-start: calc(var(--size-label-min) + var(--gap-field-row));
+}
+
+/*
+ * THE THREE TREATMENTS, in the dark palette. Which one a value takes is decided once, by the
+ * shared glossary; these are the web's spelling of the same three names the workstation carries
+ * in fraud.css, and only the colours differ.
+ *
+ * The ordinary outcome is quiet and the exceptional one is marked. Nine Sent rows wearing a badge
+ * each would be nine pieces of noise, and it was the absence of any mark at all that let a refused
+ * payment read as a sent one: in the fraud desk history the Declined row was set in exactly the
+ * same grey as the eight rows around it, while the same row on the workstation was dark red and
+ * found from four rows away. No fill and no border, as there: colour, and a half step of weight on
+ * the two that are not the ordinary outcome.
+ *
+ * The class goes on the status word and never on the cell, so the alignment and the amount rules
+ * on the cells beside it are untouched.
+ *
+ * They are down here with the utilities, and for the utilities' own reason: a tone lands on a word
+ * that already carries a class with a colour of its own. The status inside a details card is
+ * .fact-value, which sets the primary text at the same single-class weight, so declared any
+ * earlier the tone lost the cascade and the one status a reader looks straight at came out plain.
+ *
+ * MEASURED, and one of the three needs a decision that is not a stylesheet's to take. These words
+ * stand on four grounds: the raised row #1b2742, the hover #22304f, and each of those again under
+ * the selection tint, because a selected queue row paints an inset over every one of its cells.
+ * Settled (#e5e7eb) measures 12.0, 11.6, 8.9 and 8.1, and pending (#fcd34d) 10.3, 9.7, 8.3 and
+ * 7.0, so both clear 4.5:1 everywhere they can appear. Blocked is salmon #fa8072 and measures 5.9,
+ * 5.2, 4.4 and 3.96, so it fails on a selected queue row and again on a selected hovered one. That
+ * is the same trap --color-selected-marker was already pulled out of, being #60a5fa and not
+ * #3b82f6 for exactly this reason. A lighter red in this one role, #fca5a5, measures 7.8, 6.9, 5.9
+ * and 5.2. Choosing it is a palette change and belongs in the theme files, so --color-tone-blocked
+ * is the name it would take and the danger text stands in until one of them declares it, the way
+ * the container edge stands in for the header band's hover above.
+ */
+/*
+ * The finished outcome carries nothing at all, not even a colour of its own: it is the ground the
+ * other three are read against, and a table where every row is marked marks out nothing.
+ */
+.tone-settled {
+  color: inherit;
+  font-weight: inherit;
+}
+
+.tone-open {
+  color: var(--color-tone-open);
+  font-weight: var(--weight-bold);
+}
+
+.tone-pending {
+  color: var(--color-warning-text);
+  font-weight: var(--weight-bold);
+}
+
+.tone-blocked {
+  color: var(--color-tone-blocked, var(--color-danger-text));
+  font-weight: var(--weight-bold);
+}
+
+/*
+ * Read aloud, never drawn. Not display:none and not visibility:hidden: both take the text out
+ * of the accessibility tree, which is the one place this string exists for.
+ */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* ====== Responsive layout tweaks ====== */
 
+/* The compact breakpoint. A media query prelude cannot read a custom property. */
 @media (max-width: 900px) {
-  .card {
-    padding: 20px 16px 24px;
+  .card--narrow {
+    padding: var(--space-8) var(--space-7) var(--space-9);
   }
 
+  /* A narrow window has no width to spend on a gutter, and the page header is the first
+     thing that pays for one. */
+  .card:not(.card--narrow) > .card-header {
+    padding: var(--space-7);
+  }
+
+  /* Identity is two lines of text and a control, and the band at 390 cannot hold it beside
+     the name of the application without cutting one of them. It takes its own row above
+     rather than sharing: width: 100% is what forces the stack, whatever the name measures. */
+  .identity {
+    order: -1;
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .card:not(.card--narrow) > .card-body {
+    padding: var(--space-8) var(--space-7) var(--space-9);
+  }
+
+  /*
+   * stretch, not the flex-start the row layout wants. Stacked, the cross axis is the
+   * horizontal one, and flex-start sizes each item to its own content: the table then
+   * made the panel wider than the card whatever min-width said.
+   */
   .card-body.layout {
     flex-direction: column;
+    align-items: stretch;
   }
 
   .nav {
     flex: none;
     padding-right: 0;
-    padding-bottom: 16px;
+    padding-bottom: var(--space-7);
     border-right: none;
-    border-bottom: 1px solid rgba(55, 65, 81, 0.9);
-    margin-bottom: 16px;
+    border-bottom: var(--border-width-hairline) solid var(--color-border-container);
+    margin-bottom: var(--space-7);
   }
+}
+
+/* ====== Forced colours ====== */
+
+/*
+ * What this skin looks like when the reader has taken its palette away.
+ *
+ * In a forced colours mode the operating system replaces every fill, every border colour and
+ * every text colour with its own pair, and it does it whatever the stylesheet says. A rule that
+ * carries meaning in a colour therefore carries nothing there, and three of this application's do:
+ * the two controls drawn with no edge at all, the table whose grid is a divider colour, and the
+ * chosen row, which is a tint. Measured with forced colours emulated at 1440x900: Refresh and
+ * Sign out read as bare words with nothing around them, and the queue read as text in columns.
+ *
+ * The focus ring is deliberately absent from this block. It is drawn with outline, which forced
+ * colours keeps, so it already survives; restating it here would be a second place to keep it
+ * right.
+ *
+ * The system keywords are the point. ButtonBorder and CanvasText are whatever the reader's own
+ * mode says they are, so this block says which things need an edge and lets the mode pick it.
+ */
+@media (forced-colors: active) {
+  /*
+   * The two controls that carry no shape of their own. That is the right answer in the palette,
+   * where the gap in front of them and their colour say what rank they are; with the colour gone
+   * they are the only things on the screen that can be pressed and do not look it.
+   */
+  .btn-quiet,
+  .identity-exit {
+    border: var(--border-width-hairline) solid ButtonBorder;
+  }
+
+  /*
+   * The grid, which is a row of dividers and goes with the fills. Every cell takes the edge
+   * rather than the row, because border-collapse draws the cell's own.
+   */
+  .table th,
+  .table td {
+    border: var(--border-width-hairline) solid CanvasText;
+  }
+
+  /*
+   * The clipped edge, whose fade is a gradient and says nothing once the palette is the system's.
+   * A rule of the mode's own ink instead, on the side that is hiding something: the mark has to
+   * survive here more than anywhere, because the reader who turned this mode on is the one least
+   * likely to see a shade.
+   */
+  .table-frame[data-edges~="start"]::before,
+  .table-frame[data-edges~="end"]::after {
+    background: none;
+    inline-size: var(--border-width-marker);
+  }
+
+  .table-frame[data-edges~="start"]::before {
+    border-inline-start: var(--border-width-marker) solid CanvasText;
+  }
+
+  .table-frame[data-edges~="end"]::after {
+    border-inline-end: var(--border-width-marker) solid CanvasText;
+  }
+
+  /*
+   * The chosen row, whose tint is a background and is dropped along with the rest. An outline is
+   * the one mark a forced mode keeps, so the selection is drawn as one; forced-color-adjust is
+   * not used here because nothing is being preserved, the mark is being replaced.
+   */
+  .table-row--selected > td {
+    outline: var(--border-width-marker) solid Highlight;
+    outline-offset: calc(-1 * var(--border-width-marker));
+  }
+
+  /*
+   * A refused field is deliberately not given an outline here, and this is the note saying so
+   * rather than an omission: the ring is drawn with outline too, and a rule naming the box by
+   * attribute outranks :focus-visible, so the field a reader had just tabbed into would be the
+   * one field with no ring. What the refusal has left in this mode is the sentence under the
+   * box and aria-invalid, which is where it was going to be read anyway.
+   */
 }

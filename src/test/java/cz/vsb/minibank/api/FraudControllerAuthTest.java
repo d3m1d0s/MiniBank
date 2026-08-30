@@ -5,6 +5,7 @@ import cz.vsb.minibank.application.SecurityContext;
 import cz.vsb.minibank.domain.*;
 import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
+import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -66,6 +68,7 @@ class FraudControllerAuthTest {
         FraudAlertRepository alerts = mock(FraudAlertRepository.class);
         TransferRepository transfers = mock(TransferRepository.class);
         AccountRepository accounts = mock(AccountRepository.class);
+        CustomerRepository customers = mock(CustomerRepository.class);
         FraudApplicationService fraudService = mock(FraudApplicationService.class);
         FeePolicy feePolicy = new ZeroFeePolicy();
 
@@ -76,8 +79,7 @@ class FraudControllerAuthTest {
                 "test",
                 80,
                 "fraud",
-                List.of("tag"),
-                "notes"
+                List.of("tag")
         );
         alert.hydrateForLoad(
                 FraudAlertState.NEW,
@@ -85,8 +87,7 @@ class FraudControllerAuthTest {
                 Instant.now(),
                 80,
                 "fraud",
-                List.of("tag"),
-                "notes"
+                List.of("tag")
         );
 
         // Real transfer so it is not filtered out
@@ -98,24 +99,32 @@ class FraudControllerAuthTest {
                 Money.czk(1000)                   // amount
         );
 
-        when(alerts.all()).thenReturn(List.of(alert));
-        when(transfers.byId(10)).thenReturn(Optional.of(transfer));
+        // The queue asks the store for a page of rows, for how many the filter matched, and for
+        // the whole queue by state. Three answers, and the last is deliberately not derived from
+        // the first two.
+        when(alerts.queuePage(any(), anyInt(), anyInt())).thenReturn(List.of(
+                new FraudAlertRepository.QueueRow(alert, transfer.id(), transfer.status(),
+                        transfer.amount())));
+        when(alerts.queueTotal(any())).thenReturn(1);
+        when(alerts.countByState()).thenReturn(Map.of(FraudAlertState.NEW, 1));
 
         FraudController ctrl = new FraudController(
                 alerts,
                 transfers,
                 accounts,
+                customers,
                 fraudService,
                 feePolicy,
                 noOpUnitOfWork()
         );
 
         // act
-        var resp = ctrl.listAlerts(null, null, null, null, null, null, null);
+        var resp = ctrl.listAlerts(null, null, null, null, null, null, null, null, null);
 
         // assert: call succeeds and the alert is included in the result
         assertNotNull(resp);
-        assertEquals(1, resp.items().size());
+        assertEquals(1, resp.alerts().items().size());
+        assertEquals(1, resp.alerts().total());
         assertEquals(1, resp.counters().newCount()); // extra check on counters
     }
 
@@ -127,6 +136,7 @@ class FraudControllerAuthTest {
         FraudAlertRepository alerts = mock(FraudAlertRepository.class);
         TransferRepository transfers = mock(TransferRepository.class);
         AccountRepository accounts = mock(AccountRepository.class);
+        CustomerRepository customers = mock(CustomerRepository.class);
         FraudApplicationService fraudService = mock(FraudApplicationService.class);
         FeePolicy feePolicy = new ZeroFeePolicy();
 
@@ -134,6 +144,7 @@ class FraudControllerAuthTest {
                 alerts,
                 transfers,
                 accounts,
+                customers,
                 fraudService,
                 feePolicy,
                 noOpUnitOfWork()
@@ -142,7 +153,7 @@ class FraudControllerAuthTest {
         // act + assert
         assertThrows(
                 AccessDeniedException.class,
-                () -> ctrl.listAlerts(null, null, null, null, null, null, null)
+                () -> ctrl.listAlerts(null, null, null, null, null, null, null, null, null)
         );
     }
 
@@ -164,6 +175,7 @@ class FraudControllerAuthTest {
                 mock(FraudAlertRepository.class),
                 mock(TransferRepository.class),
                 mock(AccountRepository.class),
+                mock(CustomerRepository.class),
                 mock(FraudApplicationService.class),
                 new ZeroFeePolicy(),
                 noOpUnitOfWork()
@@ -180,11 +192,78 @@ class FraudControllerAuthTest {
                 mock(FraudAlertRepository.class),
                 mock(TransferRepository.class),
                 mock(AccountRepository.class),
+                mock(CustomerRepository.class),
                 mock(FraudApplicationService.class),
                 new ZeroFeePolicy(),
                 noOpUnitOfWork()
         );
 
         assertThrows(AccessDeniedException.class, () -> ctrl.getAlert(1));
+    }
+
+    /**
+     * The four routes added since the cases above, gated the same way and asserted the same way.
+     *
+     * Two of them write, and one of those writes a name into an audit-facing column, so they are
+     * worth pinning individually rather than trusting to the class they live in: the gate is in
+     * this controller and nowhere behind it, because FraudApplicationService deliberately checks
+     * no role of its own.
+     */
+    @Test
+    void theAssignmentTheHistoryAndTheHiddenQueueAreAllForbiddenForCustomer() {
+        SecurityContext.setCurrentUser(customerUser());
+
+        FraudController ctrl = new FraudController(
+                mock(FraudAlertRepository.class),
+                mock(TransferRepository.class),
+                mock(AccountRepository.class),
+                mock(CustomerRepository.class),
+                mock(FraudApplicationService.class),
+                new ZeroFeePolicy(),
+                noOpUnitOfWork()
+        );
+
+        assertThrows(AccessDeniedException.class, () -> ctrl.takeAlert(1));
+        assertThrows(AccessDeniedException.class, () -> ctrl.releaseAlert(1));
+        assertThrows(AccessDeniedException.class, () -> ctrl.getAlertHistory(1, null, null));
+        assertThrows(AccessDeniedException.class, () -> ctrl.listHiddenAlerts(
+                null, null, null, null, null, null, null, null, null));
+    }
+
+    /**
+     * An analyst takes an alert into their own name and no other, whatever the request says.
+     *
+     * There is no assignee on the wire at all: the route carries no body, so the only name it can
+     * write is the one on the session. That is the same rule the decision route follows for
+     * decided_by, and it is what makes an open assignment route safe - an analyst can claim work
+     * and give it back, and cannot put a colleague's name on anything.
+     */
+    @Test
+    void takingAnAlertRecordsTheSignedInAnalystAndNothingElse() {
+        SecurityContext.setCurrentUser(fraudUser());
+
+        FraudApplicationService fraudService = mock(FraudApplicationService.class);
+        FraudAlertRepository alerts = mock(FraudAlertRepository.class);
+        when(alerts.byId(anyInt())).thenReturn(Optional.empty());
+
+        FraudController ctrl = new FraudController(
+                alerts,
+                mock(TransferRepository.class),
+                mock(AccountRepository.class),
+                mock(CustomerRepository.class),
+                fraudService,
+                new ZeroFeePolicy(),
+                noOpUnitOfWork()
+        );
+
+        // The alert is missing, so the read that follows the write raises. What is asserted is
+        // the write that had already happened by then.
+        assertThrows(cz.vsb.minibank.domain.exceptions.NotFoundException.class,
+                () -> ctrl.takeAlert(7));
+        verify(fraudService).assign(7, "fraud");
+
+        assertThrows(cz.vsb.minibank.domain.exceptions.NotFoundException.class,
+                () -> ctrl.releaseAlert(7));
+        verify(fraudService).assign(7, null);
     }
 }

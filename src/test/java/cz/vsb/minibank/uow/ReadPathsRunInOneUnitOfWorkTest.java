@@ -10,6 +10,7 @@ import cz.vsb.minibank.domain.Customer;
 import cz.vsb.minibank.domain.FraudAlert;
 import cz.vsb.minibank.domain.SimpleFeePolicy;
 import cz.vsb.minibank.domain.Transfer;
+import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.UserRole;
 import cz.vsb.minibank.domain.repository.AccountRepository;
@@ -91,6 +92,12 @@ class ReadPathsRunInOneUnitOfWorkTest {
     private static final IBAN PAYER_IBAN = new IBAN("CZ6508000000192000145399");
     private static final String TARGET_IBAN = "CZ2001000000000012345678";
 
+    /** A second beneficiary, so a page can tell one lookup per beneficiary from one per row. */
+    private static final String OTHER_TARGET_IBAN = "CZ4308000000192000145407";
+
+    /** A third, named only by a payment that has already settled and so asks about nobody. */
+    private static final String SETTLED_TARGET_IBAN = "CZ9608000000192000145423";
+
     @BeforeEach
     void setUp() {
         infra = new Bootstrap(tempDir.resolve("data.json").toString());
@@ -104,7 +111,7 @@ class ReadPathsRunInOneUnitOfWorkTest {
         TransferRepository transfers = watch(infra.transfers);
         FraudAlertRepository alerts = watch(infra.alerts);
 
-        fraudController = new FraudController(alerts, transfers, accounts, null,
+        fraudController = new FraudController(alerts, transfers, accounts, customers, null,
                 new SimpleFeePolicy(), infra.uowFactory);
         authorizationController = new AuthorizationController(null, accounts, transfers,
                 new SimpleFeePolicy(), new OwnershipGuard(customers, accounts),
@@ -117,12 +124,15 @@ class ReadPathsRunInOneUnitOfWorkTest {
         signInAsAnalyst();
         witness.seen.clear();
 
-        fraudController.listAlerts(null, null, null, null, null, null, null);
+        fraudController.listAlerts(null, null, null, null, null, null, null, null, null);
 
         UnitOfWork only = witness.theOnlyOne("The alert queue");
-        assertTrue(witness.seen.size() >= 4,
-                "the queue must have asked for the alerts and then for each transfer, which is"
-                        + " what made it expensive; saw " + witness.seen.size() + " calls");
+        // Three, and three whatever the queue holds: the page, its total, and the counters. It
+        // used to be one call for every alert plus one for the payment behind each, which is what
+        // made it expensive; the upper bound is the assertion now, not the lower one.
+        assertEquals(3, witness.seen.size(),
+                "the queue must cost the same three lookups whatever the queue holds; saw "
+                        + witness.seen.size() + " calls");
         assertNotNull(only);
     }
 
@@ -138,26 +148,104 @@ class ReadPathsRunInOneUnitOfWorkTest {
         witness.theOnlyOne("The alert detail");
     }
 
+    /**
+     * Opening an alert costs the same whether the customer behind it has sent two payments or
+     * eight.
+     *
+     * A count would have to be restated every time the panel gains a fact, so the assertion is
+     * the comparison instead, and the comparison is the property that matters: the history beside
+     * an alert now asks the store which side of the bank each unsettled payment was heading for,
+     * and asking that once per row would put a repository call behind every line of a table that
+     * exists to be scanned. Both customers here pay one beneficiary, so an answer kept for the
+     * page makes the two screens cost the same and an answer fetched per row does not.
+     */
+    @Test
+    void theAlertDetailCostsTheSameWhateverTheCustomersHistoryHolds() {
+        seedAlertedTransfers(2);
+        int smallAlert = infra.alerts.all().get(0).id();
+        signInAsAnalyst();
+        witness.seen.clear();
+        fraudController.getAlert(smallAlert);
+        int forTwoPayments = witness.seen.size();
+
+        seedAlertedTransfers(8);
+        int largeAlert = infra.alerts.all().get(infra.alerts.all().size() - 1).id();
+        witness.seen.clear();
+        fraudController.getAlert(largeAlert);
+        int forEightPayments = witness.seen.size();
+
+        assertEquals(forTwoPayments, forEightPayments,
+                "the alert detail cost " + forTwoPayments + " lookups for a customer with two"
+                        + " payments and " + forEightPayments + " for one with eight, so its"
+                        + " price follows the length of the history");
+    }
+
     @Test
     void theCustomersWaitingListRunsEveryLookupInOneUnitOfWork() {
         int customerId = seedAlertedTransfers(2);
         signInAsCustomer(customerId);
         witness.seen.clear();
 
-        authorizationController.listMyWaiting();
+        authorizationController.listMyWaiting(0, 25);
 
-        witness.theOnlyOne("The waiting list");
+        UnitOfWork only = witness.theOnlyOne("The waiting list");
+        // Three, and three whatever the customer holds: the caller, the total, and the page. It
+        // used to be one call for the accounts plus one per account for its transfers, and it
+        // then filtered and counted whatever that returned.
+        assertEquals(3, witness.seen.size(),
+                "the waiting list must cost the same three lookups whatever the customer holds;"
+                        + " saw " + witness.seen.size() + " calls");
+        assertNotNull(only);
     }
 
     /**
-     * The only read endpoint that resolves its caller, and therefore the only one that reaches
-     * CustomerRepository at all.
+     * Four fixed lookups, and one more per beneficiary that has to be asked about.
      *
-     * The other three reads take their subject from the session and never load it, so a witness
-     * on the customer repository would sit idle in every test above and prove nothing. This is
-     * the path that exercises it: three lookups - the caller through
-     * {@link OwnershipGuard#requireCaller}, the transfer, then its account - which have to be
-     * three uses of one unit of work rather than three connections.
+     * The four are the caller through the ownership guard, the customer's accounts so a row can
+     * name the one the payment left, the count beside the list, and the page itself. They do not
+     * move with the size of the history.
+     *
+     * The rest is the price of saying whether a payment stayed inside this bank, and it is no
+     * longer a constant, which is why this is spelled out rather than counted. A payment that has
+     * settled answers from its own record and reaches no repository at all. One that has not is
+     * asked about once per beneficiary for the whole page, not once per row, so the five rows and
+     * three beneficiaries seeded here cost two lookups and not four. The honest upper bound is
+     * therefore a page whose rows have not settled and name a different beneficiary each: that is
+     * one lookup per row, bounded by the page size rather than by the history behind it.
+     */
+    @Test
+    void theCustomersPaymentHistoryRunsEveryLookupInOneUnitOfWork() {
+        int customerId = seedAlertedTransfers(3);
+        seedPayment(customerId, OTHER_TARGET_IBAN, false);
+        seedPayment(customerId, SETTLED_TARGET_IBAN, true);
+        signInAsCustomer(customerId);
+        witness.seen.clear();
+
+        authorizationController.listMyTransfers(0, 25);
+
+        UnitOfWork only = witness.theOnlyOne("The payment history");
+        assertEquals(7, witness.seen.size(),
+                "the payment history must cost four fixed lookups - the caller through the"
+                        + " ownership guard, their accounts for the numbers, the count and the"
+                        + " page - plus one per DISTINCT beneficiary it has to ask about. It asks"
+                        + " about a payment whenever the row recorded no obligation to the"
+                        + " network, which is every payment here: four have not settled and the"
+                        + " fifth settled inside the bank. They name three numbers between them,"
+                        + " so the answer is seven. The count is per number and not per row"
+                        + " because the caller raises one map for the page; a sixth payment to"
+                        + " any of those three would add nothing; saw "
+                        + witness.seen.size() + " calls");
+        assertNotNull(only);
+    }
+
+    /**
+     * Three lookups - the caller through {@link OwnershipGuard#requireCaller}, the transfer, then
+     * its account - which have to be three uses of one unit of work rather than three connections.
+     *
+     * The two customer lists above resolve their caller through the same guard, so
+     * CustomerRepository is exercised by them as well; this is the only read that then names a
+     * transfer and has to prove the ownership check and the lookups behind it share the one
+     * transaction.
      */
     @Test
     void theTransferDetailRunsEveryLookupInOneUnitOfWork() {
@@ -179,7 +267,7 @@ class ReadPathsRunInOneUnitOfWorkTest {
         seedAlertedTransfers(1);
         signInAsAnalyst();
 
-        fraudController.listAlerts(null, null, null, null, null, null, null);
+        fraudController.listAlerts(null, null, null, null, null, null, null, null, null);
 
         // The JSON unit of work holds the store lock until it completes, so one left open would
         // wedge every later request rather than merely leaking a connection.
@@ -209,12 +297,11 @@ class ReadPathsRunInOneUnitOfWorkTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             int customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Queue Probe", "queue@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), Money.czk(4_000_000), null);
             infra.customers.save(c);
 
             int accountId = infra.accounts.nextId();
-            infra.accounts.save(new Account(accountId, PAYER_IBAN,
-                    Money.czk(5_000_000), Money.czk(4_000_000), null));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, Money.czk(5_000_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
 
@@ -229,6 +316,32 @@ class ReadPathsRunInOneUnitOfWorkTest {
 
             scope.uow().commit();
             return customerId;
+        }
+    }
+
+    /**
+     * One more payment from the first account a customer already holds.
+     *
+     * A settled one is hydrated rather than sent, because what this class observes is the read
+     * path: the row it needs is one that has been sent and owes the network nothing, and going
+     * through {@code Transfer.send} to get there would drag two account rows and a fee policy
+     * into a test about how many times a repository is called.
+     */
+    private void seedPayment(int customerId, String targetIban, boolean settled) {
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            int accountId = infra.accounts.byCustomerId(customerId).get(0).id();
+
+            Transfer t = new Transfer(infra.transfers.nextId(), accountId, null, targetIban,
+                    Money.czk(12_000));
+            if (settled) {
+                t.hydrateForLoad(TransferStatus.SENT, null, null, t.createdAt());
+                t.hydrateSettlement(Money.czk(50), t.createdAt());
+            } else {
+                t.holdForReview(null);
+            }
+            infra.transfers.add(t);
+
+            scope.uow().commit();
         }
     }
 

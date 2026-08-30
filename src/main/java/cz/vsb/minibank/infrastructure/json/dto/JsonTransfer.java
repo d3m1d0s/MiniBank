@@ -46,6 +46,16 @@ public class JsonTransfer {
     public String settledAt;
 
     /**
+     * When this payment was refused. ISO-8601, the same shape as the instants around it.
+     *
+     * Null on everything that has not been refused, and on every refused row this store held
+     * before the field existed - the instant was never kept, so there is nothing to read and
+     * nothing a loader could invent. It is NOT settledAt: that is when the money moved, and a
+     * refused payment moved none.
+     */
+    public String declinedAt;
+
+    /**
      * What this payment still owes the payment network: the name of a DispatchState constant, or
      * null when it owes it nothing.
      *

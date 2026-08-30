@@ -18,9 +18,11 @@ import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import java.time.Instant;
 import java.util.Collection;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -131,6 +133,109 @@ public class JsonTransferRepository implements TransferRepository {
     }
 
     /**
+     * One page of the transfers sent from a set of accounts, newest first.
+     *
+     * IT SLICES IN MEMORY, and there is no version of this backend that does not: the store is one
+     * JSON document read into a list, so every matching row is filtered and sorted before the page
+     * can be cut out of it. What that costs is real and is accepted - this is the demo backend and
+     * the one the tests run against, while SQL does the same work in the statement.
+     *
+     * What is NOT allowed to differ is the answer. The order is created_at descending with the id
+     * descending behind it, which is the other backend's ORDER BY, and the tie-break is what makes
+     * offset paging safe: without it two rows carrying the same instant may swap between two reads,
+     * so one appears on both pages and one on neither. The comparator is composed and then reversed
+     * as a whole, so both keys descend together; that is safe here, unlike the reversal
+     * FraudController warns about, because no null rule is composed into it - a row with no
+     * readable creation instant is refused below rather than placed.
+     *
+     * The refusals are the loader's own, applied to the two fields this method reads without
+     * building a Transfer around them. A status or a creation instant that is present and
+     * unreadable is refused rather than skipped, exactly as {@link #awaitsDispatch} and
+     * {@code dayKeyOf} refuse theirs, and exactly as JsonMapper would refuse the row a moment
+     * later: a page that silently omits a payment is a history the customer cannot reconcile.
+     */
+    @Override
+    public List<Transfer> bySourceAccountsNewestFirst(Collection<Integer> accountIds,
+                                                      Collection<TransferStatus> statuses,
+                                                      int offset, int limit) {
+        if (accountIds.isEmpty() || limit <= 0) {
+            return List.of();
+        }
+
+        UnitOfWork uow = UowContext.current();
+        Set<TransferStatus> wanted = wantedStatuses(statuses);
+
+        return store.read(bundle -> bundle.transfers.stream()
+                .filter(dto -> accountIds.contains(dto.sourceAccountId))
+                .filter(dto -> wanted.contains(statusOf(dto)))
+                .sorted(Comparator.comparing(JsonTransferRepository::createdAtOf)
+                        .thenComparingInt((JsonTransfer dto) -> dto.id)
+                        .reversed())
+                .skip(Math.max(0, offset))
+                .limit(limit)
+                .map(dto -> {
+                    if (uow != null) {
+                        Transfer cached = uow.get(Transfer.class, dto.id);
+                        if (cached != null) {
+                            return cached;
+                        }
+                    }
+                    Transfer d = JsonMapper.toDomain(dto, store);
+                    if (uow != null) {
+                        uow.put(Transfer.class, d.id(), d);
+                    }
+                    return d;
+                })
+                .collect(Collectors.toList()));
+    }
+
+    /**
+     * How many rows the page above is taken out of.
+     *
+     * Counted off the DTOs, with the page query's own two predicates and no third, so the number
+     * the screen prints beside a list and the rows in that list describe one set. No Transfer is
+     * built and no identity map is touched: this is a count, and substituting instances this
+     * transaction holds would count nothing differently.
+     */
+    @Override
+    public int countBySourceAccounts(Collection<Integer> accountIds,
+                                     Collection<TransferStatus> statuses) {
+        if (accountIds.isEmpty()) {
+            return 0;
+        }
+
+        Set<TransferStatus> wanted = wantedStatuses(statuses);
+
+        return store.read(bundle -> (int) bundle.transfers.stream()
+                .filter(dto -> accountIds.contains(dto.sourceAccountId))
+                .filter(dto -> wanted.contains(statusOf(dto)))
+                .count());
+    }
+
+    /**
+     * The statuses the two methods above admit, with an empty request read as every status.
+     *
+     * An EnumSet rather than the caller's collection: this is a membership test run once per
+     * stored row, and it is also what makes an empty request cheap to express as "all of them"
+     * rather than as a second code path with no predicate in it.
+     */
+    private static Set<TransferStatus> wantedStatuses(Collection<TransferStatus> statuses) {
+        return statuses.isEmpty()
+                ? EnumSet.allOf(TransferStatus.class)
+                : EnumSet.copyOf(statuses);
+    }
+
+    /** The status a stored row names, refusing a row whose status the loader would refuse. */
+    private static TransferStatus statusOf(JsonTransfer dto) {
+        return StoredValue.requiredEnum(TransferStatus.class, dto.status, "status", "transfer", dto.id);
+    }
+
+    /** The creation instant a stored row names, refusing a row the loader would refuse. */
+    private static Instant createdAtOf(JsonTransfer dto) {
+        return StoredValue.requiredInstant(dto.createdAt, "creation instant", "transfer", dto.id);
+    }
+
+    /**
      * Every payment that has left this bank and that no gateway has been handed yet.
      *
      * Sorted by id although this store is a list that is appended to in id order, so in practice
@@ -187,7 +292,9 @@ public class JsonTransferRepository implements TransferRepository {
     }
 
     @Override
-    public Money sentTotalBetween(int accountId, Instant fromInclusive, Instant toExclusive) {
+    public Money sentTotalLeavingCustomerBetween(Collection<Integer> accountIds,
+                                                 Collection<String> ownIbans,
+                                                 Instant fromInclusive, Instant toExclusive) {
         // Summed off the DTOs. bySourceAccount would build a Transfer and two LazyRef closures
         // per row to read one number off each, and would substitute identity-map instances
         // whose in-memory status can already differ from the stored one. Each row is wrapped in
@@ -207,13 +314,32 @@ public class JsonTransferRepository implements TransferRepository {
         // Only this backend can reach any of it. On SQL the CHECK constraints on amount and
         // currency make such a row unrepresentable and the sum runs in the database.
         //
+        // The account test is a membership test over the ids the caller passed and the ids are not
+        // copied into a Set, for the reason sentTotalToIbanBetween gives: a customer's handful of
+        // accounts, once per stored row, under a lock already held.
+        //
+        // The destination test is the exclusion, and it is what a per-account ceiling could not
+        // express: a payment that lands on another account of the same customer has left this
+        // account without leaving the customer, so counting it would let the day's allowance be
+        // spent by moving money in place. A row whose snapshot is missing matches no exclusion and
+        // is therefore counted - the column is NOT NULL on the other backend only, and a row this
+        // bank cannot say the destination of is not one it may call an internal move.
+        //
         // store.read holds the store lock, which a JsonUnitOfWork on this thread already holds,
         // so the re-acquisition is reentrant and costs nothing.
+        if (accountIds.isEmpty()) {
+            return Money.czk(0.0);
+        }
+
+        Set<String> excluded = normalizedIbans(ownIbans);
+
         return store.read(bundle -> {
             Money total = Money.czk(0.0);
             for (JsonTransfer dto : bundle.transfers) {
-                if (dto.sourceAccountId != accountId) continue;
+                if (!accountIds.contains(dto.sourceAccountId)) continue;
                 if (!TransferStatus.SENT.name().equals(dto.status)) continue;
+                String destination = IBAN.normalize(dto.targetIbanSnapshot);
+                if (destination != null && excluded.contains(destination)) continue;
                 Instant countedOn = dayKeyOf(dto);
                 if (countedOn == null) continue;
                 if (countedOn.isBefore(fromInclusive) || !countedOn.isBefore(toExclusive)) continue;
@@ -221,6 +347,22 @@ public class JsonTransferRepository implements TransferRepository {
             }
             return total;
         });
+    }
+
+    /**
+     * The destinations that do not count as leaving, normalized once rather than per stored row.
+     *
+     * A Set rather than the caller's collection, unlike the account ids beside it: this is
+     * normalized, so it has to be built anyway, and building it as a list would mean a scan per
+     * row over values that are already in hand. A null survives {@code IBAN.normalize} as a null
+     * and is dropped, which keeps this collection saying exactly what the other backend's bound
+     * array says.
+     */
+    private static Set<String> normalizedIbans(Collection<String> ibans) {
+        return ibans.stream()
+                .map(IBAN::normalize)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
     }
 
     /**

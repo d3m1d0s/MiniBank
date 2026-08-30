@@ -3,7 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>minibank-web</title>
+    <!--
+      Without this line a browser asks for /favicon.ico on every load and is answered with the
+      only 404 either application produces. An SVG and no .ico fallback: every browser these
+      screens are built for takes one, and a second file would be a second mark to keep in step.
+    -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>MiniBank</title>
   </head>
   <body>
     <div id="root"></div>

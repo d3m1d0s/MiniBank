@@ -1,195 +1,2132 @@
 :root {
-    font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-    background: #ececec;
-    color: #111;
+    font-family: var(--font-family-ui);
+    /*
+     * 100% rather than a hard 16px: it is 16px in every mainstream UA, so nothing moves on
+     * defaults, and it leaves a user who has raised their default text size alone, which is
+     * what --control-min-height in rem depends on.
+     */
+    font-size: 100%;
+    line-height: var(--leading-normal);
+    background: var(--color-surface-canvas);
+    color: var(--color-text-primary);
 }
 
 * { box-sizing: border-box; }
+
+/* The shell below already fills the viewport, and the window allows for the shell padding, so the UA margin was pure overflow. */
+body { margin: 0; }
+
+/*
+ * Form controls do not inherit typography from their container, so without this every
+ * field and button renders in the UA font at the UA size: Arial at 13.33px, beside a
+ * shell in system-ui at 16px.
+ */
+button,
+input,
+select,
+textarea {
+    font: inherit;
+}
+
+/* The keyboard ring. Deliberately not on :focus, so a pointer press does not draw one. */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+    outline: var(--border-width-marker) solid var(--color-focus-ring);
+    outline-offset: var(--focus-offset);
+}
+
+/* Used by the sign-in panel, which is a .panel and a form at once. */
+.form { display: flex; flex-direction: column; gap: var(--gap-form); }
 
 .shell {
     min-height: 100vh;
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 18px;
+    padding: var(--space-7);
+}
+
+/*
+ * THE DOOR DOES NOT MOVE WHEN IT REFUSES.
+ *
+ * Centred, a window that grows grows in both directions: the error box under the password added
+ * 128px of height and the centring gave 64 of it back off the top, so both fields and the button
+ * a person had just pressed slid up the screen while they were still looking at them. Measured at
+ * 1440x900 on a refused password: the window top went 268.9 to 204.8 and the password box went
+ * 515.1 to 451.0.
+ *
+ * So this screen is offset from the top by half of what is left over at its resting height, which
+ * puts it exactly where centring put it and holds it there while the box below the fields opens.
+ * --size-dialog-nominal is that resting height, 362px, measured on the running window; the token
+ * was declared for this rule and had no call site until now. If it ever drifts from the true
+ * height the window sits a few pixels off centre, which is the whole of the failure.
+ *
+ * The band under the password field is subtracted with it, and so is the form's own gap. The window
+ * now rests that much taller than its nominal height, because the band is one more child of a flex
+ * column and costs both its own height and the space in front of it; an offset computed without
+ * them stands the window that much below centre. Both are named rather than folded into one number,
+ * so the reason the second one is there survives.
+ *
+ * max() keeps a gutter on a viewport too short to centre in; under that the shell scrolls, which
+ * is what it should do and is not a jump.
+ *
+ * Scoped to the window that holds a form. The same class carries the "no screens for this account"
+ * window, which has nothing under it that can grow and a resting height of its own, and there is
+ * no reason to move a screen that never jumped.
+ */
+.shell:has(.window--login .form) {
+    align-items: flex-start;
+    padding: max(var(--space-7),
+                 calc((100vh
+                       - var(--size-dialog-nominal, var(--size-dialog-max))
+                       - var(--size-login-error-slot)
+                       - var(--gap-form)) / 2))
+             var(--space-7) var(--space-7);
+}
+
+/*
+ * The band itself. Empty until something is refused, and exactly as tall then as it is now.
+ *
+ * The top of the window is held still by the offset above; this is the other half of the same
+ * fault, measured at 1440x900 on both an empty submit and a wrong password: the box appearing
+ * under the two fields grew the window from 362px to 460px and took the Sign in button 98px down
+ * with it, out from under the pointer that had just pressed it. Held open, nothing on the window
+ * moves at all.
+ *
+ * --size-login-error-slot is 5.75rem on this skin, against the tallest box this door draws: 70px
+ * of box inside 8px of its own margin top and bottom. In rem, so the band grows with the text
+ * rather than letting the box out of it at 200 percent.
+ */
+.login-error-slot {
+    min-block-size: var(--size-login-error-slot);
 }
 
 .window {
-    width: min(1280px, 100%);
-    height: min(820px, 100vh);
-    background: #f7f7f7;
-    border: 1px solid #bdbdbd;
-    border-radius: 10px;
+    /*
+     * A maximised window. The old pair of ceilings held it at 1700x1180 whatever the display,
+     * which on a 2560x1440 screen leaves about 430px of grey down each side and reads as an
+     * application that has not been finished. The size of a window is decided by the display
+     * it is on and never by the amount of content in it, so both axes now take everything the
+     * shell hands them. What is left around it is the shell padding, and that is the whole
+     * reason this still reads as a window rather than a page: chrome that meets the edge of
+     * the screen has stopped being chrome. The floors are gone with the ceilings and nothing
+     * shrinks, because 100% and the viewport less that padding were already the last terms of
+     * the two min() calls: at every viewport small enough for a floor to matter the old rule
+     * resolved to exactly these two values, and above it the window only grows.
+     */
+    width: 100%;
+    height: calc(100vh - var(--space-7) * 2);
+    /*
+     * The containing block for what is positioned inside it, and that is what stops the page
+     * growing a scrollbar over empty ground.
+     *
+     * The screen reader labels this desk writes are the standard hidden box, which is
+     * position: absolute. With nothing positioned above them their containing block was the root,
+     * and an absolutely positioned box reports its overflow to its containing block rather than to
+     * whatever clips in between: the overflow: hidden here never saw them. Every hidden label that
+     * sat below the fold inside the scrolling panes, and the case notes carry one per row, pushed
+     * the root scroller down instead. Opening an alert on a wide screen therefore grew a page
+     * scrollbar leading to a couple of hundred pixels of nothing, while the window itself had not
+     * moved. Naming this the containing block puts them back inside the box that clips.
+     */
+    position: relative;
+    background: var(--color-surface-shell);
+    border: var(--border-width-hairline) solid var(--color-border-container);
+    border-radius: var(--radius-shell);
     overflow: hidden;
-    box-shadow: 0 10px 35px rgba(0,0,0,.15);
+    box-shadow: var(--shadow-shell);
     display: flex;
     flex-direction: column;
 }
 
-.window--login { max-width: 560px; height: auto; }
+.window--login { max-width: var(--size-dialog-max); height: auto; }
 
 .titlebar {
-    height: 44px;
-    background: #e2e2e2;
-    border-bottom: 1px solid #bdbdbd;
+    /*
+     * min-height for the same reason .btn takes one: the bar is 44px of chrome around text
+     * that grows, and at a raised default size a fixed height let the window's overflow cut
+     * the top off the title and the button inside it.
+     */
+    min-height: var(--size-titlebar);
+    background: var(--color-surface-chrome);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-container);
     display: flex;
     align-items: center;
-    padding: 0 12px;
+    padding: 0 var(--space-6);
     justify-content: space-between;
+    /*
+     * The bar carries a mark now as well as two names and the way out, and a bar that cannot
+     * wrap answers the width it has run out of by pushing its last child off the edge. It
+     * wraps only when it would otherwise overflow, so nothing about the ordinary window moves;
+     * what it buys is the narrow window at a raised text size, where the four things in here
+     * measure more than the window is wide.
+     */
+    flex-wrap: wrap;
+    row-gap: var(--space-3);
 }
 
-.title { font-weight: 700; }
-.titlebar-right { display: flex; gap: 10px; align-items: center; }
-.user { font-size: 12px; opacity: .75; }
+/*
+ * The lockup and the screen it qualifies, on one line.
+ *
+ * The mark is sized from the bar's own text rather than from the dialog's, and this is the
+ * difference between window furniture and a banner: at the door the name is the largest thing on
+ * the screen because there is nothing else on it, and up here the largest thing has to be the
+ * work. The same lockup at the same proportion, one rung of type down.
+ */
+.title {
+    font-weight: var(--weight-bold);
+    display: flex;
+    align-items: center;
+    gap: var(--space-5);
+    min-width: 0;
+}
 
+.titlebar .brand {
+    font-size: inherit;
+    gap: var(--space-4);
+}
+
+/* The separator is drawn rather than typed, so the two halves stay two strings. */
+.title-screen::before {
+    content: "·";
+    margin-right: var(--space-5);
+    color: var(--color-text-muted);
+}
+
+.titlebar-right { display: flex; gap: var(--space-5); align-items: center; margin-left: auto; }
+.user { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
+
+/*
+ * THE WAY OUT, DRAWN AS A WORD.
+ *
+ * A white box on grey was the first thing the eye found on the first frame of the working day:
+ * three objects on that frame carried a shape of their own, the open case, Refresh, and this, and
+ * this is the control an analyst presses last. At a raised text size it grew louder still, second
+ * only to Approve. The customer application's band has always drawn the same control with no
+ * shape at rest, and its stylesheet names this window as the thing it was avoiding.
+ *
+ * What says it is a control is the hover, and the hover needs a surface of its own: the bar is
+ * darker than the shell, so the ordinary hover fill, which is mixed against the shell, would be
+ * invisible on it. --color-surface-chrome-hover is that value and this skin declares it.
+ *
+ * Scoped to the bar rather than given a name of its own, because the rule is about the furniture
+ * and not about this button: nothing in the chrome of a window carries an outline.
+ */
+.titlebar .btn {
+    border-color: transparent;
+    background: transparent;
+    color: var(--color-text-secondary);
+}
+
+/*
+ * Written with the same exclusions the general hover below carries, and for the reason the danger
+ * button already carries them: the two rules would otherwise weigh the same and the later one in
+ * the file, which is the general one, would paint the shell's hover fill over this.
+ */
+.titlebar .btn:hover:not(:disabled):not([aria-busy="true"]) {
+    background-color: var(--color-surface-chrome-hover);
+    color: var(--color-text-primary);
+}
+
+.titlebar .btn:active:not(:disabled):not([aria-busy="true"]) {
+    background-color: var(--color-surface-chrome-hover);
+}
+
+/*
+ * auto rather than hidden. The panes below can now shrink, so this only scrolls once
+ * they are both at their floor; when something does outgrow the window it has to be
+ * reachable rather than silently cut off, which is what hidden did to the whole detail
+ * pane on any screen under about 1250px.
+ */
 .content {
-    padding: 12px;
+    padding: var(--space-6);
     flex: 1;
-    overflow: hidden;
+    overflow: auto;
 }
 
+/*
+ * Both working tracks need a floor. The queue keeps its 420px wherever there is room for it, but
+ * against a rigid sibling the flexible track has nothing to stop it reaching zero, and a
+ * detail pane of no width is worse than one .content has to scroll to.
+ *
+ * The rail in front of them takes neither a floor nor a share. max-content is its width, which is
+ * the width of its own longest entry and nothing else: a fraction of the window would grow a
+ * column of three short words into a field of white on a large display, and a fixed count of
+ * pixels would be a number chosen at one text size. It is also the only track here that can be
+ * given up, which is the whole of the ordering when the three no longer fit: the queue does not
+ * pay for the navigation, because the card in it is four lines and two of them are an IBAN and an
+ * amount, and --size-queue-min is what those four lines cost.
+ */
 .content--split {
     display: grid;
-    grid-template-columns: 420px 1fr;
-    gap: 12px;
+    grid-template-columns: max-content minmax(var(--size-queue-min), var(--size-queue-max)) minmax(var(--size-detail-min), 1fr);
+    gap: var(--space-6);
+}
+
+/*
+ * THE RAIL: where the screens are, as against the panel beside it, where the cases are.
+ *
+ * Bare rather than a panel, and that is the whole of what makes it furniture: a third bordered
+ * card would read as a third thing to work in, and this is a thing to read once. What separates
+ * it from the queue is the hairline it wears on its own edge, which is the customer application's
+ * answer as well; what differs is everything about the paint, because that is the half the two
+ * skins are allowed to disagree on.
+ *
+ * Nothing in here is a control today: this window serves one screen, so the one entry that is not
+ * planned is the screen the reader is standing on. The states are still drawn, because the states
+ * are about the product rather than about what can be pressed.
+ */
+.nav {
+    padding-right: var(--space-6);
+    border-right: var(--border-width-hairline) solid var(--color-border-container);
+    min-width: 0;
+}
+
+/*
+ * Folded, the rail is its handle and its edge. The track it sits in is sized to its content, so
+ * dropping the heading and the entries is the whole of the shrinking; this only closes up the
+ * padding that was holding a column of names.
+ */
+.nav--folded {
+    padding-right: var(--space-3);
+}
+
+/* The handle and the heading on one line, with the handle first and the heading beside it. */
+.nav-head {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    margin-bottom: var(--space-5);
+}
+
+/*
+ * The heading carries no space of its own in this row, above it or below it.
+ *
+ * Only the space under it was being cancelled, and the space over it is not this stylesheet's:
+ * it is the browser's own margin on an h2, 0.83em, which at this heading's 12px is 9.96px. In a
+ * row that centres its items, that margin is centred with the text rather than ignored, so the
+ * word sat five pixels below the handle beside it and the row stood 26px tall to hold a 24px
+ * button. Zeroing it aligns the two and takes two pixels of ground back rather than adding any.
+ *
+ * It is also what makes the handle keep the promise the rail makes about it. Folded, the heading
+ * is taken out of flow and the row collapses to the button, so the margin was shifting the handle
+ * by a pixel every time it was pressed: the one control that is supposed to stand still moved
+ * under the finger that moved it.
+ */
+.nav-head .nav-title {
+    margin: 0;
+}
+
+/*
+ * The one control on this surface, and the only thing in the rail wearing the accent.
+ *
+ * Square, so that the rail folded to it is a strip of one width rather than a button standing in
+ * a column of another. It keeps its box when the heading beside it goes, which is what holds it
+ * in place across the fold.
+ */
+.nav-toggle {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: var(--size-nav-toggle);
+    block-size: var(--size-nav-toggle);
+    padding: 0;
+    border: none;
+    border-radius: var(--radius-field);
+    background: none;
+    color: var(--color-accent);
+    cursor: pointer;
+    transition: color var(--motion-fast) var(--ease);
+}
+
+.nav-toggle:hover { color: var(--color-accent-hover); }
+.nav-toggle:active { color: var(--color-accent-active); }
+
+.nav-toggle-icon {
+    inline-size: var(--size-nav-toggle-icon);
+    block-size: var(--size-nav-toggle-icon);
+}
+
+/*
+ * The column names itself in the smallest type on the screen, tracked and upper case, which is
+ * what the customer application does with the same word and for the same reason: a heading over
+ * three short entries has to be told from them without being louder than them.
+ */
+.nav-title {
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+    letter-spacing: var(--tracking-widest);
+    text-transform: uppercase;
+    color: var(--color-text-muted);
+    margin-bottom: var(--space-5);
+}
+
+.nav ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--gap-nav);
+}
+
+/*
+ * The same fault the decision fold names further down: an author's `display` outweighs the UA's
+ * own [hidden] rule, so the list above would go on drawing itself with the attribute set.
+ */
+.nav ul[hidden] { display: none; }
+
+/*
+ * The shape every entry shares, and there is none: nothing is drawn at rest, so an entry that
+ * goes nowhere cannot borrow the frame of one that does. What that costs is that the current
+ * entry has to be marked by a fill rather than by an outline, which is what it takes below.
+ *
+ * The leading border is 2px of layout on every row and coloured on one of them, so all three
+ * labels start on one vertical line instead of the marked row standing 2px right of the others.
+ */
+.nav-item {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-6);
+    padding: var(--space-3) var(--space-5);
+    border-inline-start: var(--border-width-marker) solid transparent;
+    border-radius: var(--radius-field);
+    color: var(--color-text-primary);
+    font-size: var(--text-3);
+    line-height: var(--leading-dense);
+}
+
+/*
+ * A fill and a bar on the leading edge, the same pair the chosen card in the queue is drawn with,
+ * because it is the same statement: this is the one you are looking at. The fill alone is a tint
+ * and the bar is what carries the contrast.
+ */
+.nav-item--current {
+    background-color: var(--color-selected-surface);
+    border-inline-start-color: var(--color-selected-marker);
+}
+
+.nav-item--planned {
+    color: var(--color-text-planned);
 }
 
 .panel {
-    background: #fff;
-    border: 1px solid #cfcfcf;
-    border-radius: 10px;
-    padding: 12px;
+    background: var(--color-surface-raised);
+    border: var(--border-width-hairline) solid var(--color-border-container);
+    border-radius: var(--radius-surface);
+    padding: var(--space-6);
     height: 100%;
-    overflow: hidden;
+    /*
+     * auto rather than hidden. Only the list and the scroll body below have a scroll
+     * container of their own, so the title, the error box and the filters were cut off
+     * with nothing to scroll them back into view.
+     */
+    overflow: auto;
     display: flex;
     flex-direction: column;
+    /* A flex item takes its min-content size as an automatic minimum. */
+    min-height: 0;
+    min-width: 0;
 }
 
+/*
+ * The name of a panel, and every panel that has one is now a heading element carrying it.
+ *
+ * So the class states all three things the UA would otherwise decide from the element: the top
+ * margin, which pushed the title off the panel's own padding, the weight, and the size, which
+ * arrived at 24px from h2 while the identical class on the queue panel rendered at 16px. A name
+ * inside a working window is a label on a box and is set like one; what decides its rung is the
+ * window it is in and not the tag it is written with.
+ *
+ * The exception is the door, where the panel is the whole content of a small window and its title
+ * is the first thing a person reads: the rung there is the one the name of the bank takes beside
+ * it, so the two windows somebody meets before they are inside agree.
+ */
 .panel-title {
-    font-weight: 700;
-    margin-bottom: 10px;
+    font-weight: var(--weight-bold);
+    font-size: inherit;
+    margin: 0 0 var(--space-5);
 }
 
-.filters { display: grid; gap: 8px; margin-bottom: 10px; }
+.window--login .panel-title {
+    font-size: var(--text-6);
+}
+
+/*
+ * A paragraph placed straight into a panel is prose rather than data, and the one on the
+ * no-screens window is the whole content of it. Secondary rather than primary, so the
+ * sentence sits under its heading instead of competing with it, and on the panel's own
+ * rungs rather than the UA's 1em, so the heading above and the action below keep one
+ * rhythm. It needs no measure of its own: that window is capped at --size-dialog-max.
+ */
+.panel > p {
+    margin: 0 0 var(--space-6);
+    color: var(--color-text-secondary);
+}
+
+/*
+ * The name of the bank, on the one screen that has to carry it. Without this the first
+ * frame of the workstation is two unnamed fields in a small window, which describes a
+ * form template and not the door of a bank.
+ *
+ * The lockup is sized from the name outwards: .brand sets the type size once and the
+ * mark takes its own from it, so the tile keeps its proportion to the word beside it at
+ * any text size instead of shrinking into a dot at 200 percent. It wraps for the same
+ * reason, because the window will not.
+ *
+ * background-image on its own line, not folded into the background shorthand: a theme
+ * that has not declared --brand-mark loses the letter and keeps the accent tile, rather
+ * than losing the tile as well and leaving the name standing beside nothing.
+ */
+.brand {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-5);
+    font-size: var(--text-6);
+}
+
+.brand-mark {
+    flex: none;
+    inline-size: 1.5em;
+    block-size: 1.5em;
+    /*
+     * A share of the mark rather than one of the radius roles, and the customer application
+     * states the same rule for the same reason. The mark is drawn at two sizes here as well:
+     * 33px on the sign-in window, where .brand sets its own type size, and 24px in the title
+     * bar, where it inherits the window's. A role token is a fixed count of pixels, so the 8px
+     * that reads as a rounded square on the entrance is a third of the corner in the band, and
+     * the two marks were different shapes on two screens of one application. A share keeps one
+     * shape at every size, and it is the shape the web wears.
+     */
+    border-radius: 25%;
+    background-color: var(--color-accent);
+    background-image: var(--brand-mark);
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+}
+
+.brand-name {
+    margin: 0;
+    font-size: inherit;
+    font-weight: var(--weight-bold);
+    line-height: var(--leading-tight);
+}
+
+.brand-line {
+    margin: var(--space-4) 0 0;
+    font-size: var(--text-3);
+    line-height: var(--leading-dense);
+    color: var(--color-text-muted);
+}
+
+/*
+ * The name of the bank is what the form is under, not its first row. At the bare --gap-form
+ * it stood the same distance from Username as Username stands from Password, and a block
+ * spaced like a row is read as one. The step is the one the action already takes at the
+ * other end, so the rows of the form are bracketed by the same gap top and bottom.
+ */
+.form > header {
+    margin-bottom: var(--gap-actions-top);
+}
+
+/*
+ * The four controls that narrow the queue, and the block in this panel that gives way first.
+ *
+ * A flex child refuses to shrink under what is in it unless it is told otherwise, so on a short
+ * panel these four rows kept every pixel they wanted and the tray under them took the whole of the
+ * shortfall. The order of precedence on this panel is the queue, then the way of narrowing it: an
+ * analyst reads cases here and sets a filter once. So this is what scrolls when the panel runs out
+ * of height, and the tray below keeps its floor.
+ */
+.filters {
+    display: grid;
+    gap: var(--space-4);
+    min-height: 0;
+    overflow: auto;
+    /*
+     * The room the keyboard ring needs, taken back out again on every side.
+     *
+     * A box that scrolls clips what is painted outside it, and the ring is drawn 4px outside the
+     * control it belongs to: 2px of offset and 2px of ring. Without this the first thing a person
+     * tabbing into the filters would see is a ring with one side shaved off. The padding is that
+     * 4px and the negative margin cancels it, so no control moves; the overhang falls inside the
+     * panel's own 12px of padding and never reaches its edge, so the panel gains no scrollbar.
+     */
+    padding: var(--space-2);
+    margin: calc(var(--space-2) * -1) calc(var(--space-2) * -1)
+            calc(var(--space-5) - var(--space-2));
+    /*
+     * The third box in this window that can cut its contents, so it says so the same way as the
+     * other two. Without it a select clipped through the middle by the tray below reads as a
+     * misdrawn control rather than as a row that continues above the edge.
+     */
+    background:
+        linear-gradient(var(--color-surface-raised) 0 100%) var(--scroll-edge-cover-top),
+        linear-gradient(var(--color-surface-raised) 0 100%) var(--scroll-edge-cover-bottom),
+        var(--scroll-edge-shade);
+}
 
 .row {
     display: grid;
-    gap: 8px;
+    gap: var(--gap-field-row);
     align-items: center;
     min-width: 0;
 }
 
-.row label { font-size: 12px; opacity: .8; }
-.row input,
-.row select {
-    height: 34px;
-    border: 1px solid #cfcfcf;
-    border-radius: 8px;
-    padding: 0 10px;
-    background: #fff;
+/*
+ * The row's word, whether or not it belongs to a control.
+ *
+ * The amount filter is one field asked about twice, so its word names neither box and cannot be
+ * a <label>: the two boxes carry their own names, and this is set exactly like the labels beside
+ * it so that the column of words down the filters stays one column.
+ */
+.row label,
+.row .row-label { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-secondary); }
+/*
+ * The checkbox is excluded by name. What follows is the grammar of a text field, and a
+ * checkbox given a field's width, height, radius and fill stops looking like a switch and
+ * starts looking like an empty box waiting to be typed into.
+ */
+.row input:not([type="checkbox"]),
+.row select,
+.row textarea {
+    /*
+     * min-height rather than height. A fixed 34px clipped the control's own label the
+     * moment the text grew, and in rem the floor grows with it instead.
+     */
+    min-height: var(--control-min-height);
+    border: var(--border-width-hairline) solid var(--color-border);
+    border-radius: var(--radius-field);
+    padding: var(--space-2) var(--space-5);
+    background: var(--color-surface-field);
+    transition: background-color var(--motion-fast) var(--ease),
+                border-color var(--motion-fast) var(--ease),
+                color var(--motion-fast) var(--ease),
+                transform var(--motion-instant) var(--ease);
 
     width: 100%;
     min-width: 0;
 }
 
+/*
+ * A box the screen has refused, marked where the mistake is.
+ *
+ * The refusal itself is a sentence and stays one; this is the thing that says which of four
+ * controls it is about, and without it a filter row answers with a red block under the list and
+ * nothing at all around the box that has to be corrected. --color-danger-accent is the red
+ * declared for exactly this, 3:1 against the field's own fill, and it is louder than the ordinary
+ * --color-border so that the edge reads as marked rather than as merely present.
+ *
+ * The colour never carries it alone: every control marked here also names, through
+ * aria-describedby, the sentence that explains it.
+ */
+.row input[aria-invalid="true"],
+.row select[aria-invalid="true"],
+.row textarea[aria-invalid="true"] {
+    border-color: var(--color-danger-accent);
+}
 
-.row--2 { grid-template-columns: 90px 1fr; }
-.row--3 { grid-template-columns: 90px 1fr 1fr; }
+/*
+ * The box and the sentence it switches are one line, not a field with a caption under it:
+ * the field rules above no longer reach a checkbox, and the label that wraps it is the row.
+ *
+ * flex-start and not center, because the sentence wraps. At 200 percent text it is two lines
+ * tall, and centred against a 64px block the 13px box stood beside the gap between them: the pair
+ * stopped reading as one thing, and the control appeared to belong to neither line. Against the
+ * first line it is where a reader expects the switch for the sentence that starts there.
+ */
+.row label:has(> input[type="checkbox"]) {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+}
 
+/*
+ * The one control in this window the palette did not paint, and the one that did not grow.
+ *
+ * A checkbox is drawn by the browser, so at 200 percent text it stayed 13px beside a sentence
+ * that had gone from 16px to 32px, and it was drawn in the browser's blue on both skins: the
+ * single control that looked identical in the dark window and the light one was the one neither
+ * of them had touched. In em it is sized from the text beside it and holds its proportion at any
+ * text size, and accent-color hands the tick to this theme's own accent.
+ *
+ * accent-color rather than appearance: none. The second draws the box, the tick, the disabled
+ * state and the focus ring from scratch, and a switch every operating system already draws well
+ * is a poor place to spend that; what was wrong was the colour and the size, and this is both.
+ *
+ * The line box the em is measured against is a step taller than the letters in it, so the box
+ * would sit a shade high against the first line under flex-start. Half the difference between the
+ * two puts its middle on the middle of the text, which is where centring had it on a sentence
+ * short enough not to wrap.
+ */
+.row label:has(> input[type="checkbox"]) > input[type="checkbox"] {
+    flex: none;
+    inline-size: 1em;
+    block-size: 1em;
+    margin: 0;
+    margin-block-start: calc((var(--leading-dense) * 1em - 1em) / 2);
+    accent-color: var(--color-accent);
+}
+
+.row--2 { grid-template-columns: var(--size-row-label) 1fr; }
+
+/*
+ * How much of a box has been used, under the box and at its end. It is a third child of a two
+ * column row, so it is placed rather than flowed: left to itself it would land in the label
+ * column of the next line. The customer application says the same thing in the same place under
+ * its own boxes.
+ */
+.field-counter {
+    grid-column: 2;
+    justify-self: end;
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+    color: var(--color-text-muted);
+}
+.row--3 { grid-template-columns: var(--size-row-label) 1fr 1fr; }
+
+/*
+ * A checkbox whose own sentence is its name, so the row has no separate word to set beside it.
+ * It starts where the controls above it start rather than at the panel edge, or the one row of
+ * the filters that carries prose would be the one row that does not line up with the rest.
+ */
+.row--check { grid-template-columns: var(--size-row-label) 1fr; }
+.row--check > label { grid-column: 2; }
+
+/*
+ * The tray is a hole in the panel, not more panel: at #fafafa against #ffffff a short queue
+ * read as an unpainted area rather than as an almost empty tray.
+ *
+ * A FLOOR AND A CEILING, because a tray is a frame of its own size with a variable number of
+ * cases in it, and until now it had neither.
+ *
+ * The floor. `flex: 1` alone let the tray pay for everything above it: at 200 percent text on a
+ * 1280x800 window the filters wanted 420px of a 649px panel and the tray was left 12px of a 206px
+ * queue, so the one card in it was a horizontal blue sliver with the tops of its letters in it and
+ * the panel called Alerts queue showed no alert at all. 9rem is one whole card and the head of the
+ * next: a card is 112px at the default text size and about 190px at twice it, and the floor is
+ * 144px and 288px at those two sizes. In rem, so what the floor is worth is a card and not a count
+ * of pixels chosen at one text size.
+ *
+ * What pays for it is what stands ABOVE the tray, which is the rule this had backwards: the
+ * filters are how a queue is narrowed and the tray is the queue, so the filters give up their
+ * height and scroll inside what is left. That is the .filters rule above.
+ *
+ * The ceiling. `flex: 1` also made the tray as tall as the panel however few cases were in it: at
+ * 2560x1440 a 1017px tray held one 112px card, which is not a queue that has been drawn small but
+ * a tray that is empty for nine hundred pixels. max-content stops the growth at the last card, so
+ * the tray is as tall as the queue in it, up to the panel; a queue long enough to need the whole
+ * panel still gets it and still scrolls.
+ */
 .list {
-    border: 1px solid #d8d8d8;
-    border-radius: 10px;
-    padding: 6px;
+    border: var(--border-width-hairline) solid var(--color-border-container);
+    border-radius: var(--radius-surface);
+    padding: var(--space-3);
     overflow: auto;
     flex: 1;
-    background: #fafafa;
+    /*
+     * THE EDGE THAT HAS SOMETHING BEHIND IT SAYS SO.
+     *
+     * Four layers and no script. The two rules are attached to the box, so they sit on its top and
+     * bottom edges wherever the content stands; the two blocks of the tray's own colour are
+     * attached to the content, so they travel with it and cover the rule at the end they are at.
+     * At rest, both ends are covered and nothing is drawn. Scrolled, the cover at that end has
+     * moved away and the rule shows: a line at the edge the content continues past, which is what
+     * a card cut through the middle of its letters was being left to say on its own.
+     */
+    background:
+        linear-gradient(var(--color-surface-canvas) 0 100%) var(--scroll-edge-cover-top),
+        linear-gradient(var(--color-surface-canvas) 0 100%) var(--scroll-edge-cover-bottom),
+        var(--scroll-edge-shade),
+        var(--color-surface-canvas);
+}
+
+/*
+ * An empty tray and an empty case pane say the same thing the same way. The detail pane is the
+ * larger half of the first frame an analyst meets, and a 12px sentence in the top left corner of
+ * it left "Sign out" as the only marked object on the screen: the opening frame pointed at the
+ * way out. Centred in the space it is talking about, it is what the eye lands on instead.
+ */
+.list > .hint,
+.panel-scroll > .hint {
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--text-3);
 }
 
 .list-item {
     width: 100%;
     text-align: left;
-    border: 1px solid #dcdcdc;
-    border-radius: 10px;
-    background: #fff;
-    padding: 10px;
-    margin-bottom: 8px;
+    border: var(--border-width-hairline) solid var(--color-border);
+    border-radius: var(--radius-surface);
+    background: var(--color-surface-raised);
+    padding: var(--space-5);
+    margin-bottom: var(--space-4);
     cursor: pointer;
+    transition: background-color var(--motion-fast) var(--ease),
+                border-color var(--motion-fast) var(--ease),
+                color var(--motion-fast) var(--ease),
+                transform var(--motion-instant) var(--ease);
 }
 
-.list-item--active { outline: 2px solid #5b8cff; border-color: #5b8cff; }
+/*
+ * Drawn inside, so the keyboard ring stays the only thing using the outline channel, and
+ * so hover, which owns background-color, cannot reach it. The second shadow is the tint:
+ * a spread larger than the item fills it, clipped to the padding box, so selection is
+ * legible at a glance in a queue long enough to scroll and not only at its edge.
+ */
+.list-item--active {
+    box-shadow:
+        inset 0 0 0 var(--border-width-marker) var(--color-selected-marker),
+        inset 0 0 0 9999px var(--color-selected-surface);
+    border-color: var(--color-selected-marker);
+}
 
-.li-top { display: flex; justify-content: space-between; gap: 10px; }
-.li-code { font-weight: 700; }
-.li-state { font-size: 12px; opacity: .75; }
-.li-mid { margin-top: 4px; font-size: 13px; }
-.li-bot { margin-top: 6px; font-size: 12px; opacity: .8; }
+.li-top { display: flex; justify-content: space-between; gap: var(--space-5); }
+.li-code { font-weight: var(--weight-bold); }
+.li-state { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
 
-.counters {
-    margin-top: 10px;
+/*
+ * A card is read down, so the nine fields of a queue entry land in four lines rather than in the
+ * nine columns the web gives them. This line carries the two numbers, and it is split rather than
+ * run together: pushed to the two edges of the card they form two columns down the whole tray, so
+ * a queue can be triaged by amount or by risk at a glance instead of one row at a time. Tabular
+ * figures for the same reason, and they cost nothing on the transfer code beside them.
+ */
+.li-mid {
+    margin-top: var(--space-2);
     display: flex;
-    gap: 12px;
-    font-size: 12px;
-    opacity: .8;
+    justify-content: space-between;
+    gap: var(--space-5);
+    font-size: var(--text-2);
+    line-height: var(--leading-dense);
+    font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The reason, in the two lines a card can spare for it.
+ *
+ * Nothing bounds this string anywhere: the column is TEXT, the server sends it whole, and a queue
+ * card is a fixed shape with a variable sentence in it. Two lines is what the card has after the
+ * code, the two numbers and the stamp, and past that the card would be growing at the expense of
+ * every card under it. The full text is on the element as a title and in the case pane in full.
+ *
+ * The -webkit- prefixed box is what every current engine implements for this; the unprefixed
+ * line-clamp is not there yet, and the overflow is what actually cuts.
+ */
+.li-bot {
+    margin-top: var(--space-3);
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+    color: var(--color-text-secondary);
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+}
+
+/*
+ * When the alert was raised and who has it. The rung under the reason above it: this is what an
+ * analyst reads when they are choosing between two cards, never when they are reading one.
+ */
+.li-foot { margin-top: var(--space-3); font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
+
+/*
+ * The way to lengthen the queue, drawn as the last thing in the tray rather than under it: a
+ * control that says there is more belongs where the rows run out, which is where the eye is when
+ * they do. Full width for the same reason the cards are, so it reads as the end of the tray and
+ * not as a stray button standing in it.
+ */
+.list-more { width: 100%; }
+
+/*
+ * How much of the tray is on screen, and the control that asks the queue again.
+ *
+ * The first thing under the tray, so it took the divider that used to open the counters strip:
+ * this line is about the list directly above it, and the strip below counts something else.
+ *
+ * flex-end and not space-between, because the count is not always there. An empty tray says so in
+ * words inside itself and this line stays quiet rather than saying "Showing: 0" underneath it, and
+ * after a refusal there is no page to count at all; in both the button has to stay at the right
+ * edge where it was, rather than sliding to the left because its neighbour went away.
+ */
+.queue-line {
+    margin-top: var(--space-5);
+    padding-top: var(--space-5);
+    border-top: var(--border-width-hairline) solid var(--color-border-container);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-4);
+}
+
+.queue-line > .hint { margin-right: auto; }
+
+/*
+ * Two facts on one line, told apart by a dot rather than by a second line. Declared here in the
+ * same words as the customer application declares it, because the line it separates is the same
+ * line: what is on screen, and which clock the times are told by.
+ */
+.meta-sep::before {
+    content: "\00B7";
+    margin: 0 var(--space-3);
+}
+
+/*
+ * A status line under the list, and it wraps: at 200 percent text the last counter was cut
+ * off by the panel edge and read "show".
+ */
+.counters {
+    margin-top: var(--space-5);
+    display: flex;
+    flex-wrap: wrap;
+    /* The shorthand first: it resets row-gap, so the wrapped row spacing has to follow it. */
+    gap: var(--space-6);
+    row-gap: var(--space-3);
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+    color: var(--color-text-secondary);
 }
 
 .box {
-    border: 1px solid #d8d8d8;
-    border-radius: 10px;
-    padding: 10px;
-    margin-bottom: 10px;
-    background: #fff;
+    border: var(--border-width-hairline) solid var(--color-border-container);
+    border-radius: var(--radius-surface);
+    padding: var(--space-5);
+    margin-bottom: var(--space-5);
+    background: var(--color-surface-raised);
 }
 
-.box-title { font-weight: 700; margin-bottom: 8px; }
+/*
+ * The name of a box, one rung of the outline below the name of the panel it stands in. Written
+ * with a heading element now, so the same two declarations the panel title needs are stated here:
+ * the UA sets a heading a size and a margin of its own, and a box in a working window is named at
+ * the size of its own contents with the block's spacing around it.
+ */
+.box-title {
+    font-weight: var(--weight-bold);
+    font-size: inherit;
+    margin: 0 0 var(--space-4);
+}
 
-.facts { margin: 0; padding-left: 18px; font-size: 13px; }
-.history { display: grid; gap: 6px; }
-.history-row {
+/*
+ * The foot of a box that holds a list: how much of it is on screen, and the way to see the rest.
+ *
+ * The two sit on one line, the count under the first column of the table and the control at the
+ * far edge, and they fall to two lines when there is no room for that. The queue puts the same
+ * pair in two different places, the count in the counters strip and the button as the last row of
+ * the tray, because there the rows are what scrolls; here the box is inside a pane that scrolls,
+ * so the foot of the table is where both belong.
+ */
+.box-foot {
+    margin-top: var(--space-5);
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+}
+
+/*
+ * THE CASE HEAD. Not a .box, and that is the point.
+ *
+ * What stood here was a bordered block with no title carrying five lines in the largest body
+ * type on the pane, four of which repeated the card the analyst had just clicked two hundred
+ * pixels to its left. Giving it a title would have made it worse: the only honest title is
+ * "Case", which says nothing the pane's own name does not. This material is not evidence, it is
+ * the subject, and a subject does not sit in a bordered box beside the evidence. So the border,
+ * the fill and the padding go, every remaining block on the pane is headed, and what is left is
+ * the pane's subject line, the way .panel-title is the pane's name.
+ *
+ * The order is the order a decision is taken in: which case, then the two numbers it turns on,
+ * then the two states. The numbers were the two things never marked out - the amount was the
+ * third bullet of a list at 13px and the risk score was one line of five at 16px - and they are
+ * now the largest text on the screen at --text-6. Nothing else on a working desktop screen uses
+ * that rung, and the one above it would read as marketing in a light window.
+ */
+.case-head { margin-bottom: var(--space-6); }
+
+.case-id {
+    font-size: var(--text-2);
+    line-height: var(--leading-dense);
+    color: var(--color-text-secondary);
+}
+
+/*
+ * Flex and not two grid tracks: a 1fr grid would stand "80" five hundred pixels away from the
+ * amount on a wide display, and a figure is sized by what goes into it.
+ */
+.figures {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-9);
+    margin: var(--space-3) 0;
+}
+
+.figure-label {
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+    color: var(--color-text-secondary);
+}
+
+.figure-value {
+    font-size: var(--text-6);
+    line-height: var(--leading-tight);
+    font-weight: var(--weight-bold);
+    font-variant-numeric: tabular-nums;
+}
+
+.case-state {
+    font-size: var(--text-2);
+    line-height: var(--leading-dense);
+    color: var(--color-text-secondary);
+}
+
+/*
+ * THE THREE TREATMENTS. Which one a value takes is decided once, by the shared glossary, and
+ * spelled here in this theme's palette and in the web's in its own; same three names, two skins.
+ *
+ * The ordinary outcome is quiet and the exceptional outcome is marked. Nine Sent rows wearing a
+ * badge each would be nine pieces of noise, and it was the absence of any mark at all that let
+ * Declined read as Sent in a column of twelve pixel text. No fill and no border: a window does
+ * not do pills, and colour plus a half step of weight is enough on a light ground where the
+ * danger text is 9.49:1 and the warning text clears 4.5:1 on both row grounds.
+ */
+/* Nothing at all, not even a colour: it is the ground the other three are read against. */
+.tone-settled { color: inherit; font-weight: inherit; }
+.tone-open { color: var(--color-tone-open); font-weight: var(--weight-bold); }
+/* Its own palette slot rather than the danger text, which is what the box and its edge are for.
+   In this theme the two carry the same value and nothing here moves; in the dark one they do not,
+   because the salmon that is legible in an error box falls under 4.5:1 on a selected table row. */
+.tone-blocked { color: var(--color-tone-blocked); font-weight: var(--weight-bold); }
+.tone-pending { color: var(--color-warning-text); font-weight: var(--weight-bold); }
+
+/* A figure that is read against the one above or below it. Cheap enough to hand out by name. */
+.num { font-variant-numeric: tabular-nums; }
+
+/*
+ * FACTS, as a definition list rather than a bulleted list.
+ *
+ * A bulleted list is the shape of a page somebody reads once. This is a panel somebody reads
+ * forty times a day, always looking for one row, and the window idiom's answer to that is a
+ * two column grid. The label track is --size-row-label, which is what the filter rows and the
+ * decision footer already use, so the labels of the evidence and the labels of the controls
+ * stand on one vertical line down the whole pane.
+ *
+ * Baselines and not boxes: the label rung is a step under the value rung, and aligning the tops
+ * of two unequal line boxes would leave every label sitting slightly high.
+ */
+/*
+ * TWO COLUMNS OF FACTS, and the fold is what buys them.
+ *
+ * Nine labelled rows set their labels in a 90px track and their values in a track 783px wide, of
+ * which the widest value, a grouped IBAN, covers 187px. Six hundred pixels of the pane were being
+ * spent on nothing while the history table under it lost two of the rows it used to show. Folded
+ * into five rows and four, the block gives 88px back, which at a 29px row pitch is three more
+ * payments visible without scrolling.
+ *
+ * auto-fit and a rem floor rather than a media query: what decides is whether two columns of
+ * labels and values still fit, and that question moves with the text size as well as with the
+ * window. At 200 percent text one 19rem column is already 608px against 883px of pane, so the
+ * block returns to the single column it is today with nothing written to say so. The row gap
+ * matches the one inside each list, so a single column reads as one list and not as two stacked.
+ */
+.facts-split {
     display: grid;
-    grid-template-columns: 160px 150px 160px 1fr;
-    gap: 10px;
-    font-size: 12px;
-    padding: 6px 8px;
-    border: 1px solid #ececec;
-    border-radius: 8px;
-    background: #fafafa;
+    grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+    column-gap: var(--space-9);
+    row-gap: var(--space-3);
+    align-items: start;
 }
 
-.actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.facts {
+    margin: 0;
+    display: grid;
+    grid-template-columns: var(--size-row-label) minmax(0, 1fr);
+    align-items: baseline;
+    row-gap: var(--space-3);
+    column-gap: var(--space-5);
+    font-size: var(--text-2);
+    line-height: var(--leading-dense);
+}
+
+.facts dt {
+    font-size: var(--text-1);
+    color: var(--color-text-secondary);
+}
+
+/*
+ * The shared formatter groups an IBAN in fours, so the spaces are the break opportunities and
+ * the value column has nothing unbreakable in it. overflow-wrap is the floor under that: an
+ * account number that ever arrives ungrouped wraps rather than running out of the pane.
+ */
+.facts dd {
+    margin: 0;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+/*
+ * The same fact as the mark in the history column, stated the other way round.
+ *
+ * A list that puts one fact on a line is not scanned the way a column is, so here the ordinary
+ * reading is worth printing too and the value says which bank holds the account either way. It
+ * is an annotation of the number above it and not a fact of its own, which is what the rung and
+ * the ink say: the list sets its values at --text-2, so unlike the history column this one has a
+ * step below it to take, and it takes the same role colour so the two readings of the one fact
+ * are set in one ink on this pane.
+ */
+.facts .fact-note {
+    font-size: var(--text-1);
+    color: var(--color-route-boundary);
+}
+
+/*
+ * THE HISTORY TABLE. A real table, with a real head.
+ *
+ * Four unlabelled columns asked a reader to work out that the last one is the beneficiary's
+ * account and not the sender's, and that the first is a timestamp and not a value date. The
+ * structure is what the customer application already gives the same data, which is the standing
+ * rule: the two platforms share structure and semantics and differ only in skin.
+ *
+ * table-layout: fixed and percentage columns, which the div grid it replaces could not risk
+ * while a status was a single unbreakable token: HELD_FOR_REVIEW needed a 104px floor of its
+ * own. The glossary spends that word on "Under review", every status now has a space in it, and
+ * the floor has no justification left. The percentages are sized from what goes into each
+ * column at 12px: a grouped IBAN is the widest thing here and takes a third of the row.
+ */
+.history {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+}
+
+.history th,
+.history td {
+    padding: var(--space-3) var(--space-4);
+    text-align: left;
+    vertical-align: top;
+    /* An IBAN has no break opportunity in it unless it was grouped. */
+    overflow-wrap: anywhere;
+}
+
+.history col.col--id { width: 9%; }
+.history col.col--created { width: 19%; }
+.history col.col--amount { width: 17%; }
+.history col.col--status { width: 22%; }
+.history col.col--route { width: 33%; }
+
+.history thead th {
+    font-weight: var(--weight-semibold);
+    color: var(--color-text-secondary);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-container);
+}
+
+/*
+ * One row group per payment, so a decline reason stays part of the row it explains: the ground
+ * alternates by record and not by line, and a reason cannot end up striped against its own row.
+ *
+ * Ten bordered cards in a column were an ornament that cost about 8px a row. A hairline and an
+ * alternating ground read as a table, which is what this is.
+ */
+.history tbody {
+    color: var(--color-text-secondary);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-divider);
+}
+
+.history tbody:last-child { border-bottom: 0; }
+.history tbody:nth-of-type(even) { background: var(--color-surface-sunken); }
+
+/*
+ * The lines a payment adds under its own row: why it was refused, and where it went.
+ *
+ * The class was called here and declared only on the customer application, which this window
+ * never loads, so the rows arrived with the table's own cell padding on both edges and read as
+ * a second record rather than as the tail of the one above. Only the top padding goes: the row
+ * group already carries the hairline that separates one payment from the next, so unlike the
+ * customer's table there is no per row border here to switch off.
+ *
+ * No ink of its own. A refusal is the exceptional row in ten and this sentence is the whole of
+ * the explanation, so setting it quieter than the ordinary rows around it would invert the rule
+ * the tones are written to.
+ */
+.history .history-note > td { padding-top: 0; }
+
+/*
+ * The amount is the spine of the table: the one column read down rather than across, so it is
+ * the one that keeps the primary colour while the timestamps and the account numbers step back.
+ * Right aligned and tabular, or the digits of 50.00, 1500.00 and 10001.00 are read one by one.
+ *
+ * A class and not :nth-child. The cell is marked where it is built, so adding a column can never
+ * silently move the alignment onto the wrong one. The head cell carries it too, or the word
+ * Amount stands over the left edge of a column whose digits end at its right edge; the colour is
+ * the one thing the head does not take, because a heading is not a value.
+ */
+.history .cell--amount {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.history tbody .cell--amount { color: var(--color-text-primary); }
+
+/*
+ * The amount, and under it what was added to it: two lines of one sum, set and led like the two
+ * account numbers in the route column, for the same reason. This skin could not take a rung down
+ * for the second line even if it wanted one: the table is already at --text-1, the bottom of the
+ * shared scale.
+ */
+.history .amount-value,
+.history .amount-fee {
+    display: block;
+    line-height: var(--leading-tight);
+    font-variant-numeric: tabular-nums;
+}
+
+/*
+ * The cell around it keeps the primary ink because the amount is the spine of the table. The fee
+ * is an annotation of that number, so it takes the muted ink: 8.45:1 on the row ground and 8.10:1
+ * on the sunken one. A rule on the span rather than a heavier selector on the cell, because ink
+ * that reaches the line by inheritance is what the line above it is set in.
+ */
+.history .amount-fee {
+    color: var(--color-text-muted);
+}
+
+/*
+ * When the payment was asked for, and under it when the money moved.
+ *
+ * The same two line grammar as the amount and its fee, and for the same reason: two facts about
+ * one payment that are read against each other belong in one cell rather than in two columns a
+ * reader has to align by eye. The second line carries its own word, which the fee's does not,
+ * because two timestamps are the same shape and nothing else in the cell would say which is which.
+ *
+ * Drawn only where the payment settled, so most rows on this desk are one line as before.
+ */
+.history .created-value,
+.history .created-settled {
+    display: block;
+    line-height: var(--leading-tight);
+}
+
+.history .created-settled {
+    color: var(--color-text-muted);
+}
+
+/*
+ * Where the money left and where it went, in one column.
+ *
+ * Two lines of one number, so they are set at one size and led tighter than a line of prose:
+ * at 12px over 14px the groups of four stop standing under each other and tabular digits buy
+ * nothing.
+ *
+ * NOT nowrap, and that is the repair. Holding both lines on one line each was written for a
+ * column that would always be wide enough for one account number, and this pane has a floor of
+ * 360: at 390 the table stood 373 wide inside a 280 clip and every route cell ran 94px past its
+ * own column, and at 200 percent text the same table was 858 inside 743. The formatter prints an
+ * IBAN in groups of four with a space between them, so the only break the browser can take here
+ * is the one it was already given, between two groups; the number folds where it was divided and
+ * never mid group. A narrow window's answer is to fold, and a table that has to be scrolled
+ * sideways to be read is not an answer at all.
+ */
+.history .route-from,
+.history .route-to {
+    display: block;
+    line-height: var(--leading-tight);
+    font-variant-numeric: tabular-nums;
+}
+
+.history .route-from { color: var(--color-text-muted); }
+
+/* The one the eye is looking for, so it keeps the weight and the row's own ink. */
+.history .route-to { font-weight: var(--weight-semibold); }
+
+/*
+ * The account this alert was raised on. Ink, because on this skin muted and secondary are
+ * #4d4d4d against #414141 and the step between them is not a channel a reader can use.
+ */
+.history .route-from--alerted {
+    color: var(--color-text-primary);
+    font-weight: var(--weight-semibold);
+}
+
+/*
+ * Whether the money left this bank, said on the line under the account it went to.
+ *
+ * The third channel this cell has left, because the first two are spent. Four state tones run
+ * down the columns beside it answering a different question, whether the row is still somebody's
+ * problem, and a fifth colour would be read as a fifth answer to that one; weight and ink are
+ * already spent inside this cell telling the two account numbers apart. So the mark is a word,
+ * and all this rule decides is how quietly it is set.
+ *
+ * Quietly matters more here than it reads: most payments a customer makes do leave the bank, so
+ * this word runs down most of the column and has to be readable past rather than read.
+ *
+ * The web sets it a rung of type below the number it annotates. This skin cannot: its history
+ * table is already at --text-1, the bottom rung of the shared scale, and inventing a smaller
+ * literal for one word would put a size on this pane that no other text in the product can be
+ * measured against. What separates it instead is what it is - letters under a run of digits, on
+ * a line of its own, at the row's regular weight against the semibold of the number above - and
+ * --color-route-boundary is what keeps it under that number rather than beside it. The role and
+ * not the muted ink written out, so that tuning the dozen quiet things the muted ink carries
+ * cannot silently move a mark whose contrast was measured; the theme states the three grounds it
+ * was measured on.
+ *
+ * A block, and led like the two numbers above it rather than like the prose it is made of,
+ * because it is the third line of one stack and not a sentence under one. Declaring the leading
+ * on the span alone would have done nothing: the line the span lands on takes its height from the
+ * strut of the box around it, which is the cell at the table's own leading. It is not free
+ * either, and every row pays it: every payment in the demonstration set leaves the bank, so this
+ * line is drawn on all ten. At the cell's leading a row stood 42.4px against the 39.4 of two
+ * lines; as a block of its own the third line costs 3px less and the row holds at 39.4.
+ *
+ * nowrap, so the two words fold together or not at all rather than leaving "bank" alone under
+ * them in a column whose floor is a third of 360.
+ */
+.history .route-boundary {
+    display: block;
+    white-space: nowrap;
+    line-height: var(--leading-tight);
+    color: var(--color-route-boundary);
+}
+
+/*
+ * Read aloud, never drawn. Not display:none and not visibility:hidden: both take the text out
+ * of the accessibility tree, which is the one place this string exists for.
+ */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/*
+ * Why an earlier payment was refused: prose, and prose does not want a sixth column 60px wide in
+ * a pane whose floor is 360. It runs the width of its own row group, under the row it belongs
+ * to, and a payment that was not declined simply has no such row, so the empty value is never
+ * drawn at all.
+ */
+/*
+ * THE JOURNAL. A table, and set like the one above it on purpose.
+ *
+ * Three columns rather than five, and no row groups: an entry has nothing under it to keep with
+ * it, so one row is one record and the ground alternates by row. Everything else is the history's
+ * grammar unchanged, the fixed layout, the hairline head, the alternating ground, the muted ink
+ * with the one column that matters kept primary, because the two blocks sit within an inch of each
+ * other in one pane and two tables of the same material set two ways read as two kinds of thing.
+ *
+ * The rules are written out rather than shared with a joint selector. What the two tables have in
+ * common is an idiom and not a component: the history's columns are sized from an IBAN and these
+ * from a timestamp and a login, its cells carry two lines apiece and these carry one, and a
+ * selector binding them would have to be unpicked the first time either changed.
+ */
+.notes {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+}
+
+.notes th,
+.notes td {
+    padding: var(--space-3) var(--space-4);
+    text-align: left;
+    vertical-align: top;
+    /* A login has no break opportunity in it, and neither has a long word in an entry. */
+    overflow-wrap: anywhere;
+}
+
+/*
+ * The two stamps take what they need and the entry takes the rest. A grouped timestamp is the
+ * widest thing in the first column and a login the widest in the second, and both are of a known
+ * size, unlike the third, which is however much somebody wrote: every percent not spent on the
+ * stamps is a line of prose that does not wrap.
+ */
+.notes col.col--written { width: 26%; }
+.notes col.col--author { width: 18%; }
+.notes col.col--note { width: 56%; }
+
+.notes thead th {
+    font-weight: var(--weight-semibold);
+    color: var(--color-text-secondary);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-container);
+}
+
+.notes tbody tr {
+    color: var(--color-text-secondary);
+    border-bottom: var(--border-width-hairline) solid var(--color-border-divider);
+}
+
+.notes tbody tr:last-child { border-bottom: 0; }
+.notes tbody tr:nth-child(even) { background: var(--color-surface-sunken); }
+
+/*
+ * The entry is the row and the two stamps qualify it, which is the opposite of the history, where
+ * the amount is the spine and the prose is a remark under it. So the primary ink goes here, on the
+ * words, and the stamps keep the muted ink the cell inherits.
+ */
+.notes .note-text { color: var(--color-text-primary); }
+
+.actions { display: flex; flex-wrap: wrap; gap: var(--gap-actions); margin-top: var(--gap-actions-top); }
 
 .btn {
-    height: 34px;
-    border: 1px solid #bdbdbd;
-    background: #fff;
-    border-radius: 8px;
-    padding: 0 12px;
+    min-height: var(--control-min-height);
+    border: var(--border-width-hairline) solid var(--color-border);
+    background: var(--color-surface-raised);
+    border-radius: var(--radius-control);
+    padding: var(--space-2) var(--space-6);
     cursor: pointer;
+    transition: background-color var(--motion-fast) var(--ease),
+                border-color var(--motion-fast) var(--ease),
+                color var(--motion-fast) var(--ease),
+                transform var(--motion-instant) var(--ease);
 }
 
 .btn--primary {
-    background: #1f5eff;
-    border-color: #1f5eff;
-    color: #fff;
+    background: var(--color-accent);
+    border-color: var(--color-border-accent);
+    color: var(--color-text-on-accent);
 }
 
+/*
+ * Three levels, not two: the one that releases, the one that records fraud, and the one that
+ * decides nothing. The third is set apart by the gap it stands behind rather than by colour.
+ * Danger is an edge and not a fill: a filled red would out shout the primary and turn an
+ * ordinary working outcome into an alarm.
+ */
+.btn--danger {
+    border-color: var(--color-danger-accent);
+    color: var(--color-danger-text);
+}
+
+.btn--quiet {
+    margin-left: auto;
+    color: var(--color-text-secondary);
+}
+
+/*
+ * The interaction states, and the rule that keeps them apart: each one owns a different
+ * property. Hover and the press write background-color, selection writes box-shadow, focus
+ * writes outline. Nothing that can happen at the same time as something else writes what that
+ * something else wrote, so no state can erase another and the background shorthand above stays
+ * safe to use.
+ *
+ * Hover and the press are suppressed on a control that cannot be operated. Busy is not
+ * suppressed, because a busy control is still the live one: that is the whole difference
+ * between it and disabled, which recedes.
+ *
+ * Every one of these selectors used to carry a fourth exclusion, for a planned entry, and this
+ * window has none: nothing here has ever worn that class, and what was going to bring it, a rail
+ * of screens, arrived carrying words rather than controls. An entry that leads nowhere is not a
+ * button on this surface, so there is nothing for a button rule to make an exception of. The
+ * customer application does have such buttons and keeps its own copy of the rule.
+ */
+.btn:hover:not(:disabled):not([aria-busy="true"]),
+.list-item:hover:not(:disabled):not([aria-busy="true"]),
+.row input:not([type="checkbox"]):hover:not(:disabled),
+.row select:hover:not(:disabled) {
+    background-color: var(--color-surface-hover);
+    transform: var(--lift-hover);
+}
+
+.btn--primary:hover:not(:disabled):not([aria-busy="true"]) {
+    background-color: var(--color-accent-hover);
+}
+
+/* Written to the same specificity as the primary's, or the neutral .btn:hover above would win. */
+.btn--danger:hover:not(:disabled):not([aria-busy="true"]) {
+    background-color: var(--color-danger-surface);
+}
+
+.btn:active:not(:disabled):not([aria-busy="true"]),
+.list-item:active:not(:disabled):not([aria-busy="true"]) {
+    background-color: var(--color-surface-hover);
+    /* The press, from the same pair of names the hover above takes. A literal here would be the
+       one half of the pair a skin could move without the other noticing. */
+    transform: var(--lift-active);
+}
+
+.btn--primary:active:not(:disabled):not([aria-busy="true"]) {
+    background-color: var(--color-accent-active);
+}
+
+/*
+ * Unstyled, the UA drew a disabled label in rgba(16,16,16,.3), which is 2.01:1 on white.
+ * A neutral control keeps its rest fill and is told apart by its weakened edge, its
+ * weakened label and its cursor, so the rule holds on any surface. An accent control has
+ * to lose its fill instead: something that cannot be pressed must not look like the one
+ * that can.
+ */
+.btn:disabled,
+.btn[aria-disabled="true"],
+.list-item:disabled,
+.row input:not([type="checkbox"]):disabled,
+.row select:disabled {
+    border-color: var(--color-border-disabled);
+    color: var(--color-text-disabled);
+    cursor: not-allowed;
+}
+
+.btn--primary:disabled,
+.btn--primary[aria-disabled="true"] {
+    background-color: var(--color-surface-disabled);
+}
+
+/*
+ * Eight controls set aria-busy while their request is in flight: the queue's Refresh and its
+ * Load more, the two assignment buttons, the history's Load more, and the three decision
+ * buttons. Each of them passes `disabled` in the same breath, and `.btn:disabled` is the
+ * stronger selector, so the pointer over a busy control still reads not-allowed and busy
+ * still paints as disabled. What the attribute earns today is the announcement a screen
+ * reader makes; the cursor below is for the busy control that is not also disabled, and
+ * there is none yet.
+ */
+[aria-busy="true"] { cursor: progress; }
+
+/*
+ * One shape, two palettes. The outcome of an irreversible action is announced the way its
+ * refusal already was, and the permanent help text below the buttons keeps the .hint style
+ * it has always had, so the difference reads without reading.
+ */
+.error,
+.result {
+    padding: var(--space-5);
+    border-radius: var(--radius-surface);
+    margin: var(--space-4) 0;
+    border: var(--border-width-hairline) solid;
+}
+
+/*
+ * The two answers a press can get, and both take the outcome slots rather than the status
+ * ladders those slots borrow from.
+ *
+ * A status is a quiet word in a table; an outcome is the reply to an action that cannot be taken
+ * back, and the two have to be free to move apart in one skin without dragging the other with
+ * them. This window reached the success and danger ladders directly, the customer application
+ * reached the outcome layer, and a recorded decision was therefore one meaning addressed by two
+ * different names. The values do not move today: on both skins the outcome slots alias these
+ * exact ladders, and the point of the change is that the question "do the two desks colour a
+ * recorded decision the same way" can now be answered without opening either stylesheet.
+ *
+ * Each takes its triple whole, fill and edge and ink together. Setting the edge alone is how the
+ * customer application ended up drawing a green hairline around its ordinary raised fill while
+ * this window drew a green block with green ink.
+ */
 .error {
-    background: #ffe7e7;
-    border: 1px solid #ffb3b3;
-    color: #7a0b0b;
-    padding: 10px;
-    border-radius: 10px;
-    margin: 8px 0;
+    background: var(--color-outcome-failed-surface);
+    border-color: var(--color-outcome-failed-border);
+    color: var(--color-outcome-failed-text);
 }
 
-.hint { font-size: 12px; opacity: .75; }
+.result {
+    background: var(--color-outcome-done-surface);
+    border-color: var(--color-outcome-done-border);
+    color: var(--color-outcome-done-text);
+}
 
-.left, .right { min-height: 0; }
-.panel { min-height: 0; }
+/*
+ * The name of the box, over the sentences in it.
+ *
+ * A bordered red block with no name reads as a fault of the screen; a named one reads as an
+ * answer to the thing that was asked. Set like a .box-title, because that is what it is: the
+ * blocks in this window are titled, and these two were the only ones that were not.
+ */
+.error-title,
+.result-title { font-weight: var(--weight-bold); margin-bottom: var(--space-3); }
+
+/*
+ * The status and the code of the answer, under the sentences that explain it.
+ *
+ * Nobody at this desk needs to read it; it is there so that a photograph of the box is worth
+ * something to whoever runs the bank, now that an unreadable body is dropped before it can reach a
+ * screen. Small, and quieter than the prose above it by a shade rather than by a colour: the
+ * danger palette has three slots, surface, border and text, and none of them is a muted text.
+ */
+.error-reference {
+    margin-top: var(--space-4);
+    font-size: var(--text-1);
+    line-height: var(--leading-dense);
+    font-variant-numeric: tabular-nums;
+    opacity: 0.8;
+}
+
+/*
+ * A queue that could not answer says so where its rows would be, so the tray goes on being the
+ * one place this panel makes a statement about what it holds. At the top of the tray when there
+ * are no rows, and under the last of them when the failure was a page that did not arrive.
+ */
+.list > .error:first-child { margin-top: 0; }
+
+.hint { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
+
+/*
+ * The sentence that reconciles the counters with a queue the desk's own filter has emptied.
+ *
+ * It stands under both of them, because it is about the difference between them, and it is prose
+ * in a panel of data: three sentences set at the dense leading the counter cells take would read
+ * as a block rather than as something written to be read. Not an error box, and nothing here may
+ * make it one: nothing has failed, the desk is explaining a default it applied itself.
+ */
+.queue-note {
+    margin-top: var(--space-4);
+    line-height: var(--leading-normal);
+}
+
+/*
+ * The horizontal counterpart of the rule the vertical axis already had. A grid item
+ * takes its min-content size as an automatic minimum, so without this the detail pane
+ * could not shrink.
+ */
+.left, .right { min-height: 0; min-width: 0; }
 
 
+/*
+ * The scrolling body of the detail pane, and the answer to where a large display's extra
+ * width goes now that the window no longer stops taking it. Not to the queue: a queue row is
+ * a code, a state, an amount and one short reason, it is read down rather than across, and a
+ * 900px row would be emptier than the pane the width was taken from, with the emptiness put
+ * on the navigation side instead of the working one. Not split between the two either, which
+ * spends the width twice and buys the same field of white in both. It stops here. The pane
+ * itself keeps its whole share of the split, so it still shrinks and grows with the window
+ * and the layout has one flexible track as before; only what is read inside it is bounded.
+ * 1280px is where, because under the old window ceiling this body was never wider than about
+ * 1220px: no resolution the old window already fitted moves at all, and past it the width
+ * arrives as margin inside the pane rather than as a column whose longest line, a single
+ * IBAN, ends two fifths of the way across it.
+ */
+/*
+ * THE FLOOR UNDER THE EVIDENCE, and the order of precedence it states.
+ *
+ * A decision screen has to show what the decision is taken on. Until now the footer took its half
+ * of the panel first and the evidence lived on the remainder, and at 200 percent text on a
+ * 1280x800 window the remainder was 256px against 3712px of case: the title Facts and one line of
+ * fact cut through the middle of its letters, under a footer of 323px that had all three verdict
+ * buttons whole. That is the priority upside down. What gives up room when a pane is short is the
+ * irreversible action, never the material it is taken on.
+ *
+ * So the evidence is floored and the footer yields to it. The floor is written on the footer's
+ * ceiling rather than here, and that is not a detail: a floor declared on this box and a ceiling
+ * declared on that one are two rules that both have to be obeyed, and at 200 percent text they
+ * asked for half the panel each with the panel's own title still to pay for. Measured on the
+ * running window: the panel wanted 739px of the 671px it had and pushed the third verdict button
+ * out of the bottom of itself, which is the fault this was repairing. One rule cannot contradict
+ * itself, so there is one rule, and it is on .panel-foot below.
+ */
 .panel-scroll {
     flex: 1;
+    /* A flex item takes its min-content size as an automatic minimum, and this one holds a case
+       three thousand pixels long. What it is guaranteed comes from the footer's ceiling. */
     min-height: 0;
     overflow: auto;
-    padding-right: 4px;
+    padding-right: var(--space-2);
+    max-width: var(--size-shell-max);
+    /* The body gains and loses its scrollbar as the detail changes; the gutter keeps the
+       evidence from shifting sideways under the eye when it does. */
+    scrollbar-gutter: stable;
+    /* Asked, at the foot of this file, whether it can still be scrolled up and down. */
+    container-type: scroll-state;
+}
+
+/*
+ * THE FOOT OF THE PANE: a plate on the line, a region that folds, and a tail that does neither.
+ *
+ * The verdict is the reason this screen exists, so it does not scroll with the evidence: it is the
+ * panel's footer, and what is above it moves past it. What used to be written here was that the
+ * three buttons never move. They did, and the note was the only thing saying otherwise: measured
+ * on the running window at 1440x900 with 200 percent text, the block wants 594px, the 50% ceiling
+ * clips it to 373, and the 221px that falls off the bottom is the button row and the line under it.
+ * The one thing pinned here was the one thing not drawn.
+ *
+ * So the block is three things. The plate straddles the hairline and is the whole of the control.
+ * The region under it holds the title and the two boxes: it is what gives, it is the only part
+ * that scrolls, and it is what the plate puts away. Everything after it is the tail, fixed and
+ * drawn in both states: the three buttons, the line saying why one of them is dead, the line about
+ * a payment already sent, and the two boxes that answer a press. A press can be made from the
+ * folded state, and folding its answer would let an analyst release a payment and be told nothing.
+ *
+ * Folded the block is 73px at every ordinary size against 292 unfolded, and 199px at 200 percent
+ * text, which is under the ceiling and needs no scrollbar at all.
+ *
+ * overflow is visible here rather than auto, and has to be: the plate hangs half above this box
+ * and a block that clips its own overflow would cut it in two. The scrolling moves down to the
+ * region, which is the only child that should ever have had it.
+ *
+ * The ceiling is the rule written into the block below, and past it the region scrolls, so what
+ * an analyst scrolls for is the comment box rather than the buttons.
+ */
+.panel-foot {
+    flex: 0 0 auto;
+    margin-top: var(--space-5);
+    /*
+     * One rung above the rest of the pane, and bought rather than chosen: the plate hangs half its
+     * own height below the line, so this is what its lower edge lands on. Two pixels.
+     */
+    padding-top: var(--space-6);
+    border-top: var(--border-width-hairline) solid var(--color-border-container);
+    max-width: var(--size-shell-max);
+    /*
+     * THE ONE RULE THAT DECIDES HOW THE PANEL IS DIVIDED, and it is written here because the
+     * footer is the half that has to give.
+     *
+     * Three terms, and each is a sentence about this screen.
+     *
+     * Half the panel, which is the ceiling this block has always had and is what stops a long
+     * comment being typed over the evidence.
+     *
+     * Whatever is left after 12rem of evidence, which is the new one and the whole of the repair:
+     * a decision screen shows what the decision is taken on, so the material comes first and the
+     * irreversible action lives on the remainder, not the other way round. Measured at 200 percent
+     * text on 1280x800 before it: the footer held 323px and had all three verdict buttons whole
+     * while the evidence held 256px of 3712 and showed the word Facts over one line of fact cut
+     * through the middle of its letters. In rem, because a floor for reading is a count of lines
+     * and has to be worth the same at any text size.
+     *
+     * And never less than 9rem, which is what the row of buttons itself measures when it wraps to
+     * three lines at 200 percent. Below that the footer would be shorter than the one thing in it
+     * that cannot fold, and the buttons would hang out of the bottom of the panel: the block is
+     * overflow: visible by necessity, so nothing here clips them, and a verdict off the bottom of
+     * the screen is the fault this whole footer exists to prevent.
+     *
+     * What pays, between the three, is the folding region: it is the only child that gives, the
+     * tail below it never does, and an analyst who wants the boxes back has the grip on the seam.
+     */
+    max-height: min(50%, max(9rem, calc(100% - 12rem)));
+    /* The containing block for the plate, which is hung from the top edge of this one. */
+    position: relative;
+    overflow: visible;
+    display: flex;
+    flex-direction: column;
+}
+
+/* The tail does not give. What shrinks against the ceiling is the region, and only the region. */
+.panel-foot > * { flex: 0 0 auto; }
+
+.panel-foot > .decision-fold {
+    flex: 0 1 auto;
+    /* A flex item takes its min-content size as an automatic minimum. */
+    min-height: 0;
+    overflow: auto;
+    /* The second scroller in this window with opaque children, asked the same question. */
+    container-type: scroll-state;
+}
+
+/*
+ * Stated rather than left to the UA, because this is a flex child and the rule that lays flex
+ * children out is written a few lines above: any display of ours declared on this region would
+ * outweigh the UA's own [hidden] rule and draw a block that is meant to be away.
+ */
+.decision-fold[hidden] { display: none; }
+
+/*
+ * THE PLATE ON THE LINE. A button, and deliberately not a .btn.
+ *
+ * .btn is the grammar of a control standing in a row of controls: a 34px floor that grows with the
+ * text, the field padding, the neutral fill and the operable border. This is none of those things.
+ * It is window furniture on a fixed hairline, and it is sized in pixels for that reason: a plate
+ * built in rem, photographed at 1440x900 with 200 percent text, had grown tall enough to stand on
+ * the Approve button under it. 24 by 88 clears the 24 by 24 a pointer target owes at every text
+ * size, and the caret inside is sized from the plate rather than from the type scale, so it is a
+ * caret on a plate at 100 percent and at 200.
+ *
+ * Half above the line and half below it, which is what says the plate belongs to the seam and not
+ * to the block under it. Centred on the block rather than on the pane: at 1920 the foot is capped
+ * at --size-shell-max inside a wider pane, and it is this block's line that is being folded.
+ *
+ * The accent fill, because it is the one control in this half of the pane and an analyst who has
+ * folded the block has to be able to find what unfolds it. The border carries the same colour as
+ * the fill and is not decoration: under a forced palette every fill this file declares is replaced
+ * by the reader's, and an edge is what keeps the plate a plate there.
+ *
+ * No transition on the fold itself. The block changes height by a quarter of the pane, and an
+ * animated pane is a pane an analyst waits for; the plate's own colour keeps the ordinary rung.
+ * The keyboard ring is the one the stylesheet already draws on every button.
+ */
+/*
+ * A caret sitting on the seam, and no plate behind it.
+ *
+ * It was a pill the width of a word, and on a pane whose whole lower half is buttons that read as
+ * a fourth one. What is wanted here is a grip, so the arrow is the control: it takes the accent
+ * the primary button takes, at a size that can be aimed at without being a shape of its own.
+ *
+ * The background is the panel's own surface rather than nothing, and that is the whole reason the
+ * seam looks cut rather than crossed: the hairline runs under this box, and a transparent grip
+ * would have the line drawn straight through the middle of the arrow. The inline padding is what
+ * decides how much of the line it interrupts.
+ *
+ * block-size is the pointer target and stays at 24px whatever the text does, which clears the
+ * minimum on its own; the glyph inside it is set by --size-fold-caret. Both in pixels, for the
+ * reason the comment on the button gives: this is window furniture and not text.
+ */
+.fold-handle {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    block-size: var(--size-fold-handle-height);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 var(--space-3);
+    border: none;
+    background: var(--color-surface-raised);
+    color: var(--color-accent);
+    font-size: var(--size-fold-caret);
+    line-height: 1;
+    cursor: pointer;
+    transition: color var(--motion-fast) var(--ease);
+}
+
+.fold-handle:hover { color: var(--color-accent-hover); }
+.fold-handle:active { color: var(--color-accent-active); }
+
+/*
+ * No rung between one row and the next, because there is already one.
+ *
+ * The seam these two boxes needed is the count under each of them: a line of its own, set small
+ * and quiet at the end of the box it measures, which is exactly the gap a margin was added to
+ * make. With both, the footer spent twice for one separation and the block grew by the difference
+ * on a screen where its height is the thing in short supply.
+ */
+
+/*
+ * The field takes the cell.
+ *
+ * It was capped at 32rem on the argument that a comment and a note are short, and the argument was
+ * about the text rather than about the box: a short sentence in a box half the width of its row
+ * leaves a band of panel beside every field with nothing in it, and the counter under the box then
+ * sits in the middle of the row rather than at its end. What keeps these two honest is the count
+ * under them, not a ceiling on the box.
+ */
+.panel-foot .row input,
+.panel-foot .row textarea { max-width: none; }
+
+/*
+ * Both boxes of the footer, which are now two drafts and neither of them a copy of what is stored.
+ *
+ * A ceiling and a hand grip, in that order. The block they are in is the panel's sole and is
+ * capped at half the panel, so an entry of twenty lines has to stop growing before it pushes the
+ * three buttons out of the panel entirely; past the ceiling it scrolls inside itself. Vertical
+ * only, because the width is settled by the rule above and a box dragged wider than its row would
+ * sit over the evidence beside it.
+ */
+.panel-foot .row textarea {
+    max-height: var(--size-textarea-max);
+    resize: vertical;
+}
+
+/*
+ * Four pixels off the note box, and they come out of its padding rather than its height.
+ *
+ * The box is three rows, and its height is derived from them: three lines of text plus the field
+ * padding above and below, 82px at the base size. Taking the four off the height instead would
+ * leave the padding untouched and the box one line shorter than the rows it advertises, so a note
+ * of three lines - the length the box invites - would scroll where it does not today. Taken off
+ * the padding, the frame closes by exactly four and the room for text is the same three lines it
+ * was, which is why this is the only place the field padding of the row is overridden.
+ */
+.panel-foot .row textarea#decision-note {
+    padding-block: var(--space-1);
+}
+
+/*
+ * THE CUT EDGE ON THE TWO SCROLLERS WHOSE CHILDREN ARE OPAQUE, and the one place in this window
+ * where the mark is an overlay rather than a background.
+ *
+ * The tray and the filters draw theirs in their own background: two rules pinned to the box and
+ * two blocks of its own ground attached to the content, so a rule shows exactly at the end the
+ * content continues past. That cannot work here, and this was measured on the running window
+ * rather than argued. Every block in the case pane and in the folding region is a .box with a
+ * fill of its own, and a child paints over the parent background it stands on. Padding does not
+ * rescue it either: a scroller\'s padding is part of what scrolls, so a strip held clear at rest
+ * is gone the moment anything moves, which is the moment the mark is for. What survived was a
+ * 15px stub in the scrollbar gutter, because a local layer is measured against what scrolls and
+ * the reserved gutter is not part of that. A mark that is there a sixteenth of the time reads as
+ * a misdraw, which is the fault this mark exists to undo.
+ *
+ * So the rule is a sticky pseudo above the children, and it is asked when to show itself. The
+ * question is a scroll-state query on the scroller, which answers whether there is anything past
+ * that edge, and it answers it about the box rather than about a scroll position, so a pane whose
+ * evidence fits says nothing at either end. Sitting inside the scrollport, the overlay is the
+ * width of what is actually cut and never reaches the gutter.
+ *
+ * The negative margin is what keeps it free: two pixels of height taken straight back out again,
+ * so an overlay that draws nothing at rest also moves nothing.
+ *
+ * Where the query is not answered the rules stay away, which is the state this window was already
+ * in. Nothing else on this screen depends on them.
+ */
+.panel-scroll::before,
+.panel-scroll::after,
+.decision-fold::before,
+.decision-fold::after {
+    content: '';
+    display: block;
+    /* Sticky rather than absolute: it is pinned to the scrollport and not to the pane, and it is
+       the scrollport whose edge is doing the cutting. */
+    position: sticky;
+    z-index: var(--z-sticky);
+    /*
+     * A shade and not a line. This was a hairline at the weight of a focus ring, in the strong
+     * border colour, and on a pane whose whole message is "there is more of this" it took more
+     * attention than the case it was standing over. The mark has to be legible without being
+     * looked at, so it is a few pixels of the ground getting darker, and it fades rather than
+     * ends. Same depth and same colour as the trays in the queue column, which take theirs from
+     * --scroll-edge-shade in the shared scale.
+     */
+    block-size: var(--space-6);
+    opacity: 0;
+}
+
+.panel-scroll::before,
+.decision-fold::before {
+    inset-block-start: 0;
+    /* Pulled back by its own height, so the mark lies over the first rows rather than pushing
+       them down: it is a reading of the edge and not a band in the layout. */
+    margin-block-end: calc(-1 * var(--space-6));
+    background: linear-gradient(to bottom, var(--color-scroll-edge), transparent);
+}
+
+.panel-scroll::after,
+.decision-fold::after {
+    inset-block-end: 0;
+    margin-block-start: calc(-1 * var(--space-6));
+    background: linear-gradient(to top, var(--color-scroll-edge), transparent);
+}
+
+@container scroll-state(scrollable: top) {
+    .panel-scroll::before,
+    .decision-fold::before { opacity: 1; }
+}
+
+@container scroll-state(scrollable: bottom) {
+    .panel-scroll::after,
+    .decision-fold::after { opacity: 1; }
+}
+
+/*
+ * Above this width the single column stops being the right answer: the ceiling that keeps a
+ * column of text readable turns into a permanent band of white beside it. A container query
+ * and not a media query, because what decides is the width of this pane and not of the
+ * screen. The literal is here rather than in a token because a container query condition
+ * cannot read a custom property; if it ever earns a name, the name belongs in the desktop
+ * theme and not in the shared scale.
+ *
+ * 1600 is where, and the number comes from the band: the readable column is capped at 1280,
+ * so a pane narrower than that has no band to reclaim and a pane at 1425, which is what 1920
+ * gives, has 145px of it. Splitting there costs more than it buys, because two columns of
+ * short evidence end higher up the panel and put the emptiness in the middle of the panel
+ * instead of at its right edge. At 1600 the band is 320px and from there it only grows.
+ */
+.right { container-type: inline-size; }
+
+@container (min-width: 1600px) {
+    .panel-scroll {
+        max-width: none;
+        display: grid;
+        grid-template-columns: minmax(0, 5fr) minmax(0, 7fr);
+        column-gap: var(--space-6);
+        align-content: start;
+    }
+
+    .panel-scroll > .hint,
+    .panel-scroll > .error { grid-column: 1 / -1; }
+
+    /*
+     * The two cut marks are children here like everything else, so they are given the full width
+     * rather than left to be auto placed into the first free cell of a column. The first of them
+     * takes the first row, which is what moves the row the history block is written to.
+     */
+    .panel-scroll::before,
+    .panel-scroll::after { grid-column: 1 / -1; }
+
+    /* History is the one block that wants width: five columns and two IBANs in the last. It
+       starts under the mark rather than beside it. */
+    .box--history { grid-column: 2; grid-row: 2 / span 2; }
+
+    /*
+     * The journal follows it down the same column, for the same reason and one more: it is the
+     * second table on the pane and its widest column is prose, so it wants the wide track too, and
+     * the split then reads as the subject and its facts on the left against the evidence and the
+     * record of it on the right. Left to place itself it would drop under the facts into a track
+     * five twelfths of the pane wide.
+     */
+    .box--notes { grid-column: 2; }
+
+    .panel-foot { max-width: none; }
+}
+
+/*
+ * WHERE THE RAIL GIVES UP ITS LANE, and it is the first of the three to do so.
+ *
+ * The arithmetic, and it is measured rather than guessed: the two working tracks are 320 and 360
+ * at their floors, the two gaps between three tracks are 12 each, the window pads by 12 a side and
+ * the shell by 16 a side around a window with a hairline on each edge, which is 762 before the
+ * rail is counted. The rail is 157 on the running window at the default text size, so the three
+ * lanes stop fitting just under 920 and that is where this branch begins.
+ *
+ * Folded it is a strip across the top of the working area rather than a column beside it, and it
+ * keeps its hairline: the border moves from the edge it was dividing to the edge it divides now.
+ * The strip is what the narrow window inherits as well, so below 760, where the split itself
+ * becomes one column, the rail is already a strip and no third full height column can appear.
+ */
+@media (max-width: 920px) {
+    /*
+     * Two rows, and the first one is named. Left to place itself the strip is an auto row in a
+     * grid with height to spare, and auto rows take a share of what is left over: the rail came
+     * out as a band of entries with 120px of nothing under it and its hairline at the bottom of
+     * the nothing. max-content is the height of what is in it, and the panes take the rest.
+     */
+    .content--split {
+        grid-template-columns: minmax(var(--size-queue-min), var(--size-queue-max)) minmax(var(--size-detail-min), 1fr);
+        grid-template-rows: max-content minmax(0, 1fr);
+    }
+
+    .nav {
+        grid-column: 1 / -1;
+        display: flex;
+        align-items: baseline;
+        gap: var(--space-6);
+        flex-wrap: wrap;
+        padding-right: 0;
+        padding-bottom: var(--space-5);
+        border-right: none;
+        border-bottom: var(--border-width-hairline) solid var(--color-border-container);
+    }
+
+    .nav-title { margin-bottom: 0; }
+
+    .nav ul {
+        flex-direction: row;
+        flex-wrap: wrap;
+        gap: var(--space-4);
+    }
+
+}
+
+/*
+ * Under about 740px the two tracks plus their gaps and the padding no longer fit, and the
+ * detail pane simply left the screen to the right. One column, the queue a tray of bounded
+ * height above the case. The window stays a window; it is just narrow. The arithmetic of the
+ * threshold: 320 + 360 for the two floors, 12 of gap and 24 of padding is 716, so 760 is the
+ * first width at which the split is still honest.
+ */
+@media (max-width: 760px) {
+    /*
+     * A column of two, and a flex column rather than a one track grid. Both panes are sized
+     * from what is in them here, and two auto grid rows inside a pane of definite height
+     * shared that height equally instead: the queue got 365px for 399px of content and its
+     * counter line was painted over by the case below it.
+     */
+    .content--split {
+        display: flex;
+        flex-direction: column;
+    }
+
+    /* Neither pane shrinks below what is in it; the shell around them scrolls instead. */
+    .left, .right { flex: 0 0 auto; }
+    .panel { height: auto; }
+    .list { max-height: 40vh; }
+
+    /*
+     * THE VERDICT, WITHIN ONE MOVE OF ANY PART OF THE CASE.
+     *
+     * The case pane keeps the two-part discipline it has at every other width, and this one line is
+     * the whole of it: the evidence is a box of bounded height with its own scroller, and the
+     * decision block is drawn under it. What was here instead let the evidence run to whatever
+     * length the case had, and on a 390 window that is three and a half screens: measured on the
+     * running window, the top of the decision block stood at 2712 of a 3038px scroller with 751 of
+     * it visible, so the screen that exists for a verdict opened with the verdict two and a half
+     * screens below anything on it and nothing on the first screen saying it was there.
+     *
+     * Half the window height, so the pane comes to about one screen with the block under it: an
+     * analyst who has scrolled to the case has the evidence and all three buttons in front of them,
+     * and reading the case moves the evidence inside its own box rather than moving the page.
+     *
+     * The block itself is NOT pinned here and its ceiling is lifted, which is the difference from
+     * the earlier attempt at this: a footer stuck to the bottom of a 390 window took nearly half of
+     * a screen that holds three lines of prose, and it took that half whether or not anybody was
+     * deciding anything. Drawn whole under the evidence it costs nothing until it is reached, and
+     * the grip above it puts its two boxes away for whoever wants more of the case on screen.
+     */
+    .right .panel-scroll { max-height: 50vh; }
+    .panel-foot { max-height: none; }
+}
+
+/*
+ * A DISPLAY THAT PAINTS ITS OWN COLOURS.
+ *
+ * Forced colours replace the whole palette with the reader's four or five, and drop fills,
+ * shadows and images on the way. This window comes through it well, because its controls carry a
+ * real border rather than a fill: the buttons, the fields, the cards and the two tables all keep
+ * their edges and lose only the tones. One thing does not, and it is the one the screen is for.
+ *
+ * Selection here is drawn with two inset box-shadows, a marker edge and a tint, and box-shadow is
+ * among the things forced colours discard: the tray kept every card and lost all trace of which
+ * one is open, on a screen whose entire job is one case at a time. The edge is what comes back,
+ * in Highlight, which is the colour that palette keeps for the chosen thing, and at the marker
+ * width so that it is told from the hairline the other cards wear without depending on the colour
+ * at all. Nothing moves: the cards are border-box, so the second pixel is taken from the padding.
+ *
+ * The edge and not a fill, and this was measured rather than assumed. Painted Highlight with
+ * HighlightText on it, the card came out solid cyan with three of its four lines struck out in
+ * black: the browser lays a backplate of the page colour behind text inside an author painted
+ * block, so every line whose ink this stylesheet had not set was drawn in the reader's black on
+ * the reader's black. An edge asks for none of that and leaves the four lines exactly as legible
+ * as they are on every other card.
+ *
+ * Written to two classes rather than one so it outweighs the hover rule, which is .list-item plus
+ * a pseudo class: at equal weight the later rule wins, and this one has to win over a pointer
+ * resting somewhere else in the tray.
+ *
+ * What is NOT done here, so nobody reads this block as the whole item: the four state tones. They
+ * are colour plus weight, so under a forced palette a settled row still reads apart from the
+ * three that want attention, but blocked, pending and open become one another. Telling them apart
+ * without colour needs a word or a mark rather than a stylesheet rule, which is a decision about
+ * what the screen says and not about how it is painted. prefers-contrast is untouched here too.
+ */
+@media (forced-colors: active) {
+    .list-item.list-item--active {
+        border-color: Highlight;
+        border-width: var(--border-width-marker);
+    }
+
+    /*
+     * The same loss on the rail, and it takes two rules rather than one.
+     *
+     * The current entry is a tint and a bar. The tint is a fill and the palette drops it, so the
+     * bar is what has to carry the whole statement, in Highlight, which is the colour that palette
+     * keeps for the chosen thing. The second rule is the one that was not obvious and was measured
+     * rather than assumed: the leading edge the other two entries wear is `transparent`, and a
+     * forced palette does NOT leave that alone here. It came back painted in the reader's
+     * foreground, so all three entries stood behind a bar and the rail said the reader was in
+     * three places at once. Canvas is the surface behind them, which is the way to spend two
+     * pixels of layout on nothing without asking for a colour of our own.
+     *
+     * The planned entries lose their muted colour here and cannot get it back, because colour is
+     * what the reader has taken away. They do not need it, and this is the second thing the word
+     * buys over a title: it survives a palette that the colour does not.
+     */
+    .nav-item {
+        border-inline-start-color: Canvas;
+    }
+
+    .nav-item.nav-item--current {
+        border-inline-start-color: Highlight;
+    }
 }

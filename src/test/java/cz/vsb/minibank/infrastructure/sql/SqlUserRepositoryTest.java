@@ -6,6 +6,7 @@ import cz.vsb.minibank.domain.User;
 import cz.vsb.minibank.domain.UserRole;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.repository.UserRepository;
+import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
@@ -105,7 +106,7 @@ public class SqlUserRepositoryTest {
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
              Statement st = conn.createStatement()) {
             st.execute("""
-                    TRUNCATE TABLE users, fraud_alerts, transfers, beneficiaries, accounts, customers
+                    TRUNCATE TABLE users, fraud_alert_notes, fraud_alerts, transfers, beneficiaries, accounts, customers
                     RESTART IDENTITY CASCADE
                     """);
         }
@@ -452,7 +453,8 @@ public class SqlUserRepositoryTest {
             if (withCustomer) {
                 int id = infra.customers.nextId();
                 infra.customers.save(new Customer(id, "Owner of " + username,
-                        username + "@example.com", new Address("Hlavni 1", "Ostrava")));
+                        username + "@example.com", new Address("Hlavni 1", "Ostrava"),
+                        Money.czk(40_000)));
                 customerId = id;
             }
 

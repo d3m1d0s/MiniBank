@@ -53,10 +53,28 @@ public class FraudAlert implements RecordsDomainEvents {
     private String decidedBy;
     private Instant resolvedAt;
 
+    /**
+     * What the analyst wrote when they took that decision, or null when they took it without a
+     * word.
+     *
+     * A FIELD OF ITS OWN, and this is the change it exists for. The comment used to be appended
+     * into {@link #reason} behind a " | ", so one line on the analyst's screen carried two facts
+     * with different authors: why the bank's rules were worried about this payment, and what a
+     * person concluded after looking at it. A screen reading that line could not tell them apart,
+     * and neither could anybody querying the column.
+     *
+     * REPLACED BY A LATER DECISION, exactly as {@link #decision}, {@link #decidedBy} and
+     * {@link #resolvedAt} are: this is the comment on the decision of record, and the decision of
+     * record is the last one taken. Nothing is lost by that, because the journal beside it
+     * ({@link FraudAlertNote}) is the append-only half of the case file and is where an analyst
+     * puts something that has to survive. The two are a deliberate division of labour and not two
+     * spellings of one idea.
+     */
+    private String decisionComment;
+
     private Integer riskScore;
     private String assignee;
     private final List<String> tags = new ArrayList<>();
-    private String notes;
 
     /**
      * The version the store holds for this row, or 0 for an alert no store has seen.
@@ -84,9 +102,46 @@ public class FraudAlert implements RecordsDomainEvents {
     private int version;
 
     public FraudAlert(int id, int transferId, String reason) {
-        this(id, transferId, reason, null, null, null, null);
+        this(id, transferId, reason, null, null, null);
     }
 
+    /**
+     * Raises an alert now, which is what every path that raises one from a live request wants.
+     *
+     * Delegates rather than duplicating, so there is one place an alert is built and one place
+     * the clock is read on this aggregate.
+     */
+    public FraudAlert(
+            int id,
+            int transferId,
+            String reason,
+            Integer riskScore,
+            String assignee,
+            List<String> tags
+    ) {
+        this(id, transferId, reason, riskScore, assignee, tags, Instant.now());
+    }
+
+    /**
+     * Raises an alert at a given instant.
+     *
+     * {@link Transfer} has always taken its creation instant and this aggregate never could, and
+     * the difference showed on the fraud desk. An alert is raised in the same breath as the hold
+     * it explains, so its creation instant is the payment's; with the clock read in here instead,
+     * a fixture that dates a payment in the past got an alert dated now, and the desk printed a
+     * payment created twenty hours before the alert about it. Nothing in the product could
+     * produce that, so a reader could only take it for a rule they had not understood.
+     *
+     * The demonstration seed is the caller that needs this and is not the reason it is right. A
+     * seed reads the clock once for the whole dataset precisely so its rows agree with each
+     * other, and an aggregate that reads its own clock is outside that agreement whoever builds
+     * it: two alerts raised in one transaction already differed by whatever the two constructor
+     * calls cost.
+     *
+     * @param createdAt when the alert was raised. Never null; a caller with no instant of its own
+     *                  wants the constructor above, which says so by reading the clock rather
+     *                  than by passing nothing
+     */
     public FraudAlert(
             int id,
             int transferId,
@@ -94,19 +149,18 @@ public class FraudAlert implements RecordsDomainEvents {
             Integer riskScore,
             String assignee,
             List<String> tags,
-            String notes
+            Instant createdAt
     ) {
         this.id = id;
         this.transferId = transferId;
         this.state = FraudAlertState.NEW;
         this.reason = reason;
-        this.createdAt = Instant.now();
+        this.createdAt = java.util.Objects.requireNonNull(createdAt, "createdAt");
         this.riskScore = riskScore;
         this.assignee = assignee;
         if (tags != null) {
             this.tags.addAll(tags);
         }
-        this.notes = notes;
     }
 
     /**
@@ -118,8 +172,7 @@ public class FraudAlert implements RecordsDomainEvents {
             Instant createdAt,
             Integer riskScore,
             String assignee,
-            List<String> tags,
-            String notes
+            List<String> tags
     ) {
         this.state = state;
         this.reason = reason;
@@ -142,30 +195,32 @@ public class FraudAlert implements RecordsDomainEvents {
         if (tags != null) {
             this.tags.addAll(tags);
         }
-
-        this.notes = notes;
     }
 
     public void hydrateForLoad(FraudAlertState state, String reason, Instant createdAt) {
-        hydrateForLoad(state, reason, createdAt, null, null, null, null);
+        hydrateForLoad(state, reason, createdAt, null, null, null);
     }
 
     /**
      * Restores the analyst's verdict from a stored row.
      *
-     * Separate from hydrateForLoad rather than an eighth, ninth and tenth parameter on its
-     * already seven-parameter signature, so its existing call sites - including several in
-     * tests - are left alone.
+     * Separate from hydrateForLoad rather than four more parameters on its already
+     * six-parameter signature, so its existing call sites - including several in tests - are left
+     * alone.
      *
-     * All three arguments may be null and none is validated. Every alert that exists today has
+     * All four arguments may be null and none is validated. Every alert that exists today has
      * them absent, so a null check here would make every stored alert fail to load; on the JSON
      * side that failure is swallowed by the mapper and would silently reset a decided queue back
      * to NEW, which on this project's fraud gate makes held transfers unreleasable.
      */
-    public void hydrateDecision(String decision, String decidedBy, Instant resolvedAt) {
+    public void hydrateDecision(String decision,
+                                String decidedBy,
+                                Instant resolvedAt,
+                                String decisionComment) {
         this.decision = decision;
         this.decidedBy = decidedBy;
         this.resolvedAt = resolvedAt;
+        this.decisionComment = decisionComment;
     }
 
     /**
@@ -183,6 +238,9 @@ public class FraudAlert implements RecordsDomainEvents {
      * arrived here as the constructor's NEW - a closed alert reopened by a typo in a column - and
      * was accepted. Both now refuse the row instead; see StoredValue.
      *
+     * @param comment what the analyst wrote when they cleared it, or null when they cleared it
+     *        without a word, which is the common case. It goes to {@link #decisionComment} and
+     *        never to {@code reason}: see that field for why the two are not one line
      * @param decidedBy the analyst's username, or null when the decision came from a surface
      *        with no login - the console fraud menu in legacy JSON mode, and the demo runner.
      *        Null rather than a placeholder: inventing an analyst for a mode with no users
@@ -190,7 +248,7 @@ public class FraudAlert implements RecordsDomainEvents {
      * @param decidedAt supplied rather than read off the system clock, like every other instant
      *        this project records
      */
-    public void approve(String decidedBy, Instant decidedAt) {
+    public void approve(String comment, String decidedBy, Instant decidedAt) {
         if (state != FraudAlertState.NEW) {
             throw new InvalidStateTransitionException(
                     "Only an open alert can be approved, this one is " + state);
@@ -199,17 +257,26 @@ public class FraudAlert implements RecordsDomainEvents {
         FraudAlertState old = this.state;
         this.state = FraudAlertState.OK;
 
-        // Written below the guard, so a refused transition records no verdict, no analyst and
-        // no timestamp on an alert somebody else had already decided.
+        // Written below the guard, so a refused transition records no verdict, no analyst, no
+        // timestamp and no comment on an alert somebody else had already decided.
         this.decision = DECISION_APPROVE;
         this.decidedBy = decidedBy;
         this.resolvedAt = java.util.Objects.requireNonNull(decidedAt, "decidedAt");
+        recordDecisionComment(comment);
 
         raise(new FraudAlertStateChanged(this, old, this.state));
     }
 
     /**
-     * Records confirmed fraud, with the reason the analyst gave.
+     * The same verdict from a surface that carries no comment: the console fraud menu and the
+     * demo runner, which have no box for one.
+     */
+    public void approve(String decidedBy, Instant decidedAt) {
+        approve(null, decidedBy, decidedAt);
+    }
+
+    /**
+     * Records confirmed fraud, with the comment the analyst gave for it.
      *
      * Allowed from OK on purpose, and that is not an oversight: fraud is usually confirmed after
      * the money has left, by which time the alert has been cleared. Refusing it there is what
@@ -217,16 +284,16 @@ public class FraudAlert implements RecordsDomainEvents {
      *
      * SUSPICIOUS is terminal. There is no way back to OK.
      *
-     * The analyst's reason is appended rather than substituted. {@code reason} is the only
-     * record of why the rules raised this alert at all, and replacing "New beneficiary + high
-     * amount" with "Declined by fraud analyst" left a confirmed-fraud case file that no longer
-     * said what had been suspicious about the payment. At most one append can ever happen,
-     * because SUSPICIOUS is terminal.
+     * THE COMMENT NO LONGER TOUCHES {@code reason}. It used to be appended to it behind a bar,
+     * which kept the rules' own sentence but left one line saying two things at once: why the bank
+     * was worried, and what a person concluded. It now goes to {@link #decisionComment}, and
+     * {@code reason} is again only what raised the alert.
      *
+     * @param comment what the analyst wrote, or null when they refused it without a word
      * @param decidedBy the analyst's username, or null for a decision recorded from the console
      * @param decidedAt when the verdict was recorded
      */
-    public void markSuspicious(String reason, String decidedBy, Instant decidedAt) {
+    public void markSuspicious(String comment, String decidedBy, Instant decidedAt) {
         if (state == FraudAlertState.SUSPICIOUS) {
             throw new InvalidStateTransitionException("This alert is already marked suspicious");
         }
@@ -234,20 +301,41 @@ public class FraudAlert implements RecordsDomainEvents {
         FraudAlertState old = this.state;
         this.state = FraudAlertState.SUSPICIOUS;
 
-        if (reason != null && !reason.isBlank()) {
-            this.reason = (this.reason == null || this.reason.isBlank())
-                    ? reason
-                    : this.reason + " | " + reason;
-        }
-
         // Overwrites an earlier APPROVE, which is right: OK -> SUSPICIOUS is the fraud-confirmed
         // -after-the-fact path, and the decision of record is the last one taken. SUSPICIOUS is
         // terminal, so this can happen at most once.
         this.decision = DECISION_DECLINE;
         this.decidedBy = decidedBy;
         this.resolvedAt = java.util.Objects.requireNonNull(decidedAt, "decidedAt");
+        recordDecisionComment(comment);
 
         raise(new FraudAlertStateChanged(this, old, this.state));
+    }
+
+    /**
+     * Stores what the analyst typed alongside their decision.
+     *
+     * Called from inside both verdicts, below their guards, so a transition somebody else had
+     * already taken leaves none of the refused caller's wording on the alert. It is also called
+     * directly for ANNOTATE, which is not a verdict and changes no state: that is the one route
+     * that reaches an already-decided alert, since approve and markSuspicious both refuse a
+     * second verdict and would take the writing down with them.
+     *
+     * A null or blank comment writes nothing rather than clearing what is there. Absent is what
+     * a decision taken without a comment sends, and it is the common case on an APPROVE; treating
+     * it as an instruction to erase would make every wordless verdict destroy the previous one's
+     * comment.
+     *
+     * A second comment REPLACES the first, which is the deliberate half of this and the reason
+     * the journal exists beside it. See {@link #decisionComment}: this field is the comment on
+     * the decision of record, and {@link FraudAlertNote} is where something that has to survive
+     * belongs.
+     */
+    public void recordDecisionComment(String comment) {
+        if (comment == null || comment.isBlank()) {
+            return;
+        }
+        this.decisionComment = comment.trim();
     }
 
     public void setRiskScore(Integer riskScore) {
@@ -265,10 +353,6 @@ public class FraudAlert implements RecordsDomainEvents {
         }
     }
 
-    public void updateNotes(String notes) {
-        this.notes = notes;
-    }
-
     public int id() { return id; }
     public int transferId() { return transferId; }
     public FraudAlertState state() { return state; }
@@ -284,10 +368,12 @@ public class FraudAlert implements RecordsDomainEvents {
     /** When the verdict was recorded, or null while the alert is open. */
     public Instant resolvedAt() { return resolvedAt; }
 
+    /** What the analyst wrote with that verdict, or null when they wrote nothing. */
+    public String decisionComment() { return decisionComment; }
+
     public Integer riskScore() { return riskScore; }
     public String assignee() { return assignee; }
     public List<String> tags() { return Collections.unmodifiableList(tags); }
-    public String notes() { return notes; }
 
     public int version() { return version; }
 
@@ -296,9 +382,10 @@ public class FraudAlert implements RecordsDomainEvents {
      *
      * Two callers, both in SqlFraudAlertRepository: once when a row is read, and once after a
      * guarded write reports the version it left behind. The second call is what lets one unit of
-     * work save the same alert twice without the second write conflicting with the first, and
-     * every decision does exactly that - {@code FraudApplicationService.decideAndUpdateAlert}
-     * saves once in the verdict arm and again after the assignee, tags and notes block.
+     * work save the same alert twice without the second write conflicting with the first. No
+     * caller does that today - a decision is one save now that the notes it used to write in a
+     * second pass are their own append-only table - and the write-back stays because the
+     * alternative is a repository whose guard is correct only as long as nobody adds one.
      *
      * The invariant a future retry must respect is {@link Account#hydrateVersion}'s: once a save
      * has executed this number is the store's only while that transaction is still going to

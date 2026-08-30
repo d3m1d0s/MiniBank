@@ -1,6 +1,7 @@
 package cz.vsb.minibank.domain.repository;
 
 import cz.vsb.minibank.domain.Transfer;
+import cz.vsb.minibank.domain.TransferStatus;
 import cz.vsb.minibank.domain.value.Money;
 
 import java.time.Instant;
@@ -39,6 +40,54 @@ public interface TransferRepository {
     List<Transfer> bySourceAccount(int accountId);
 
     /**
+     * One page of the transfers sent from a set of accounts, newest first.
+     *
+     * The set is the accounts one CUSTOMER holds, the same shape and for the same reason
+     * {@link #sentTotalToIbanBetween} takes: a customer's payment history is one list across their
+     * accounts, and asking per account and merging in Java would order the result by account and
+     * then by date, which is not an order anybody asked for.
+     *
+     * WHY IT IS PAGED AT ALL. {@link #bySourceAccount} answers with every row an account has ever
+     * sent and every caller then took what it wanted from that, which is a query whose cost grows
+     * with the customer's history to draw one screenful. The bound belongs in the store, so the
+     * page is what is read rather than what is kept.
+     *
+     * NEWEST FIRST, AND TOTALLY ORDERED. created_at descending with the id descending behind it.
+     * The tie-break is not decoration: two payments created in the same instant, or with the same
+     * stored timestamp, leave the sort undecided, and an undecided sort under offset paging shows
+     * one row twice on page two and drops another entirely. bySourceAccount's ascending id order
+     * is left alone - the sweep and the waiting screen it serves want it.
+     *
+     * @param accountIds the accounts to read from, in any order; an empty collection answers with
+     *                   an empty list without touching the store
+     * @param statuses   the statuses to include; AN EMPTY COLLECTION MEANS EVERY STATUS, which is
+     *                   what the customer's own history asks for. The waiting list passes the two
+     *                   it can act on, so both lists page through one query rather than through a
+     *                   query and a filter applied afterwards - a filter applied after the page
+     *                   would answer a page of three rows and call it a page of twenty-five
+     * @param offset     how many rows to skip; zero or more
+     * @param limit      how many rows to return; zero or fewer answers with an empty list
+     */
+    List<Transfer> bySourceAccountsNewestFirst(Collection<Integer> accountIds,
+                                               Collection<TransferStatus> statuses,
+                                               int offset,
+                                               int limit);
+
+    /**
+     * How many rows the page above is taken out of.
+     *
+     * Counted in the store rather than by measuring a list this application has loaded, which is
+     * the whole point of the pair: the foot of a list reads "Showing 25 of 137" and the second
+     * number cannot come from the twenty-five rows on screen. The predicate is the page query's,
+     * to the letter, so the two can never describe different sets.
+     *
+     * @param accountIds as above; empty counts zero without touching the store
+     * @param statuses   as above; empty counts every status
+     */
+    int countBySourceAccounts(Collection<Integer> accountIds,
+                              Collection<TransferStatus> statuses);
+
+    /**
      * Every transfer that has settled out of this bank and that no gateway has been handed yet,
      * in ascending id order.
      *
@@ -59,8 +108,21 @@ public interface TransferRepository {
     List<Transfer> awaitingDispatch();
 
     /**
-     * Totals the CZK amounts that have actually left the given account in the half-open instant
-     * range, fees excluded.
+     * Totals the CZK amounts that have actually left the given CUSTOMER in the half-open instant
+     * range, fees excluded: sent out of any of these accounts, less what only moved to another
+     * of them.
+     *
+     * WHY THE EXCLUSION. This total is what the daily ceiling is measured against, and the
+     * ceiling is now a limit on a person - see {@link cz.vsb.minibank.domain.Customer#dailyLimit}.
+     * Summing a customer's accounts without subtracting their internal moves would count one such
+     * move twice, once as an outflow of the paying account and again as nothing at all on the
+     * receiving side, so a customer could raise their own day total, or exhaust it, by shuffling
+     * money between their own accounts without a heller leaving the bank on their behalf.
+     *
+     * WHY IT IS KEYED ON THE DESTINATION IBAN AND NOT ON "STAYED IN THIS BANK". Those are
+     * different sets. A trusted payee may bank here too, and a payment to them has left the
+     * customer as surely as one that goes out over the network. The predicate is membership of
+     * the destination snapshot in the customer's own IBANs, and nothing wider.
      *
      * "Actually left" is status SENT. {@link cz.vsb.minibank.domain.Transfer#send} is the only
      * method that assigns it on the money path, it is the only method that debits, and it is
@@ -80,31 +142,63 @@ public interface TransferRepository {
      * creation time is missing or unreadable is left out, on both backends, and so is a row in
      * any currency but CZK.
      *
+     * The stored snapshot is compared in its normalized form, for the reason {@link
+     * #sentTotalToIbanBetween} gives: {@code Transfer} takes it as a plain String and a
+     * denormalized one is reachable through the public constructor. A row whose snapshot is
+     * missing matches no exclusion and is therefore counted, which is the safe way round: the
+     * column is NOT NULL in SQL only, and a row the JSON store cannot say the destination of is
+     * not a row this bank may treat as an internal move.
+     *
+     * @param accountIds the accounts to total across, in any order; a repeated id changes
+     *                   nothing, because this is a membership test and not a join, and an empty
+     *                   set totals to zero without touching the store
+     * @param ownIbans   the destinations that do not count as leaving, in any form; normalized
+     *                   before comparison. In production this is the IBANs of exactly those
+     *                   accounts, and an empty collection excludes nothing, which is what makes
+     *                   the single-account form below a call to this one
      * @return the total in CZK; both stores hold one currency and every transfer is created
      *         with it. The currency predicate was once the only thing keeping that assumption
      *         checked; it is now the last of three, behind Transfer's constructor and the
      *         transfers_currency_czk constraint, and is kept because this aggregate reads rows
      *         without building a Transfer out of any of them
      */
-    Money sentTotalBetween(int accountId, Instant fromInclusive, Instant toExclusive);
+    Money sentTotalLeavingCustomerBetween(Collection<Integer> accountIds,
+                                          Collection<String> ownIbans,
+                                          Instant fromInclusive,
+                                          Instant toExclusive);
 
     /**
-     * The same total, narrowed to one destination and widened to a set of accounts: what has
-     * left any of these accounts for this IBAN in the range.
+     * The plain total for one account, excluding nothing.
+     *
+     * Not the form the ceiling asks for - that one is above and spans a customer - but the form
+     * the per-backend tests state the row-level rules in, where there is no customer to hang them
+     * on: which rows count, which timestamp decides the window, what a malformed row does. A
+     * default rather than a query of its own on each backend, so that the rules those tests pin
+     * are the rules the ceiling is actually measured by.
+     */
+    default Money sentTotalBetween(int accountId, Instant fromInclusive, Instant toExclusive) {
+        return sentTotalLeavingCustomerBetween(List.of(accountId), List.of(),
+                fromInclusive, toExclusive);
+    }
+
+    /**
+     * The same total over the same set of accounts, narrowed to one destination: what has left
+     * any of these accounts for this IBAN in the range.
      *
      * A sibling rather than a parameter on the method above, because the two answer different
-     * questions and only one of them may ever widen. That one bounds what a customer may spend
-     * in a day and the suite pins its shape; this one feeds the fraud rule, which asks whether
-     * an amount is being split across several payments to one new payee. Sharing an aggregate
-     * would mean a change made for the alert could move the ceiling.
+     * questions. That one bounds what a customer may spend in a day and the suite pins its shape;
+     * this one feeds the fraud rule, which asks whether an amount is being split across several
+     * payments to one new payee. Sharing an aggregate would mean a change made for the alert
+     * could move the ceiling.
      *
      * The set the caller passes is the accounts one CUSTOMER holds, and saying so is the whole
      * of what this parameter is for. Keyed on the paying account alone - which is what it
      * inherited from the day total above, never argued for - the rule was optional for anybody
      * with a second account: 6 500 from each of two of their own accounts to one untrusted IBAN
-     * is 13 000 in a day that no evaluation ever saw more than half of. The day total keeps the
-     * narrower scope deliberately, because the ceiling it is compared against is a column on one
-     * account and a total over another account's rows could not be measured against it.
+     * is 13 000 in a day that no evaluation ever saw more than half of. The day total has since
+     * been widened the same way, so the two now read the same rows and differ only in what they
+     * ask of the destination: this one keeps a single named payee, that one drops the customer's
+     * own accounts.
      *
      * The stored snapshot is compared in its normalized form - see {@link
      * cz.vsb.minibank.domain.value.IBAN#normalize} - because {@code Transfer} takes the snapshot

@@ -6,10 +6,12 @@ import cz.vsb.minibank.domain.Customer;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.value.IBAN;
+import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
+import java.math.BigDecimal;
 import java.sql.*;
 import java.util.List;
 import java.util.Objects;
@@ -123,7 +125,8 @@ public final class SqlCustomerRepository implements CustomerRepository {
             throws SQLException {
 
         String sql = """
-                SELECT id, name, email, street, city
+                SELECT id, name, email, street, city,
+                       daily_limit_czk, soft_daily_threshold_czk
                   FROM customers
                  WHERE id = ?
                 """;
@@ -139,11 +142,20 @@ public final class SqlCustomerRepository implements CustomerRepository {
                 String street = rs.getString("street");
                 String city = rs.getString("city");
 
+                // The two limits are read here rather than off the accounts, which is where they
+                // were until they became limits on a person: see Customer.dailyLimit. The soft
+                // tier is nullable and stays null when it is absent, because null means "this
+                // customer has no opinion, use the bank-wide tier" and 0.00 would mean the
+                // opposite rule - authorize everything.
+                BigDecimal softThreshold = rs.getBigDecimal("soft_daily_threshold_czk");
+
                 Customer c = new Customer(
                         dbId,
                         name,
                         email,
-                        new Address(street, city)
+                        new Address(street, city),
+                        Money.czk(rs.getBigDecimal("daily_limit_czk")),
+                        softThreshold != null ? Money.czk(softThreshold) : null
                 );
 
                 // Load account ids for this customer
@@ -228,13 +240,16 @@ public final class SqlCustomerRepository implements CustomerRepository {
             throws SQLException {
 
         String sql = """
-                INSERT INTO customers (id, name, email, street, city)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO customers (id, name, email, street, city,
+                                       daily_limit_czk, soft_daily_threshold_czk)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (id) DO UPDATE
                   SET name  = EXCLUDED.name,
                       email = EXCLUDED.email,
                       street = EXCLUDED.street,
-                      city = EXCLUDED.city
+                      city = EXCLUDED.city,
+                      daily_limit_czk = EXCLUDED.daily_limit_czk,
+                      soft_daily_threshold_czk = EXCLUDED.soft_daily_threshold_czk
                 """;
 
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -243,6 +258,17 @@ public final class SqlCustomerRepository implements CustomerRepository {
             ps.setString(3, c.email());
             ps.setString(4, c.address().street());
             ps.setString(5, c.address().city());
+            ps.setBigDecimal(6, c.dailyLimit().amount());
+
+            // NULL rather than the bank-wide number when this customer has no tier of their own,
+            // so that "no opinion" and "a tier that happens to equal the bank's" stay different
+            // rows. Writing the default in would also freeze it: the bank changing its tier would
+            // leave every customer carrying the old one.
+            if (c.softDailyThreshold() != null) {
+                ps.setBigDecimal(7, c.softDailyThreshold().amount());
+            } else {
+                ps.setNull(7, Types.NUMERIC);
+            }
             ps.executeUpdate();
         }
 

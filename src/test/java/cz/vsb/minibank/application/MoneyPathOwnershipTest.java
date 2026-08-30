@@ -116,10 +116,10 @@ class MoneyPathOwnershipTest {
                               int accountId, String accountIban,
                               int beneficiaryId, String beneficiaryName, String beneficiaryIban) {
         Customer c = new Customer(customerId, name, name + "@example.com",
-                new Address("Test Street", "Ostrava"));
+                new Address("Test Street", "Ostrava"), DAILY_LIMIT);
         c.addAccountId(accountId);
         customers.save(c);
-        accounts.save(new Account(accountId, new IBAN(accountIban), OPENING_BALANCE, DAILY_LIMIT));
+        accounts.save(new Account(accountId, new IBAN(accountIban), OPENING_BALANCE));
         customers.saveBeneficiary(customerId,
                 new Beneficiary(beneficiaryId, beneficiaryName, new IBAN(beneficiaryIban), true));
     }

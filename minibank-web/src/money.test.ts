@@ -1,10 +1,17 @@
 import { describe, it, expect } from 'vitest';
-import { parseAmount, formatCzech, formatMoney } from './money';
+import { parseAmount, formatCzech, formatFeeLine, formatMoney } from '@shared/money';
+import { EMPTY_VALUE } from '@shared/format';
 
 /**
- * The amount a customer types is the one place in this application where the same string means
+ * The amount a customer types is the one place in these applications where the same string means
  * two different numbers depending on who is reading it, and where getting it wrong moved money.
  * `1,000` used to be accepted and paid 1.00 CZK behind a success panel.
+ *
+ * The subject is the shared module rather than this application's own. The parser was written
+ * twice, once per application, and it is one function now; these assertions moved with it and are
+ * the only ones the second copy ever had. They stay in this project because it is the one that
+ * runs a test command - the workstation has none - and they sit beside the other five files that
+ * test the shared layer.
  *
  * Locales are passed explicitly everywhere below rather than read from the environment, so these
  * assertions say what they mean on any machine.
@@ -141,15 +148,44 @@ describe('what is refused, and what it says', () => {
         expect(refusal(raw, CZ)).toBe(message);
     });
 
-    it.each(['abc', '1500 CZK', '12a', '1,5,5', '-5', '+5', '1e3'])(
-        'refuses %s as not an amount at all',
+    it('refuses a separator with nothing around it as an amount not yet typed', () => {
+        // What reaches the field when somebody starts at the decimal point and stops. There are
+        // no digits and no fraction, which is the same state an empty box is in, so it gets the
+        // same sentence rather than one about grouping or about zero. An empty string never
+        // reaches this branch: it is answered several checks earlier.
+        expect(refusal(',', CZ)).toBe('Enter the amount to send.');
+        expect(refusal('.', CZ)).toBe('Enter the amount to send.');
+    });
+
+    it.each(['abc', '1500 CZK', '12a', '-5', '+5', '1e3'])(
+        'refuses %s for the characters in it, and says what an amount is made of',
         (raw) => {
-            expect(value(raw, CZ)).toBeNull();
+            // The reason is pinned and not only the refusal. A minus sign and an `e` are both
+            // things somebody types on purpose, and "not an amount" alone leaves them looking
+            // for which half of what they wrote the field objected to. `1,5,5` used to be in
+            // this row and does not belong to it: every character in it is one an amount is
+            // made of, and it is refused two checks later, for its grouping.
+            expect(refusal(raw, CZ)).toBe(
+                'An amount is digits, spaces between thousands and one decimal comma, like 1 500,00.',
+            );
         },
     );
 
     it.each(['0', '0,00', '0.00', '0,0'])('refuses %s because it moves no money', (raw) => {
         expect(refusal(raw, CZ)).toContain('greater than zero');
+    });
+
+    it('refuses an amount too long to be a number, and does not call it zero', () => {
+        // Past about 1,8e308 Number answers Infinity, which is neither negative nor zero, and
+        // the two used to share one branch: somebody who had leant on the 9 key was told to
+        // enter an amount greater than zero and left rereading three hundred digits for a minus
+        // sign. 309 is where it starts, measured, not guessed.
+        const tooLong = '9'.repeat(309);
+        expect(refusal(tooLong, CZ)).toContain('more than any amount this bank can hold');
+        expect(refusal(tooLong, CZ)).not.toContain('greater than zero');
+
+        // One digit fewer is still a number, and is still taken.
+        expect(value('9'.repeat(308), CZ)).toBe(Number('9'.repeat(308)));
     });
 
     it.each(['1,2345', '0,001', '1234,5678'])(
@@ -159,7 +195,16 @@ describe('what is refused, and what it says', () => {
         },
     );
 
-    it.each(['1.2345,00', '12.34.567,00', '1234.5,00'])(
+    it('says the same about a fraction with no whole part, whichever mark divides it', () => {
+        // Neither of these can be grouping: there is nothing in front of the separator to
+        // group. So both readings land on three decimals and both get the heller sentence, the
+        // one already pinned for ,500 under cs-CZ, in the locale that would otherwise have read
+        // the comma as a thousands mark.
+        expect(refusal(',500', EN)).toContain('two digits after the comma');
+        expect(refusal('.500', CZ)).toContain('two digits after the comma');
+    });
+
+    it.each(['1.2345,00', '12.34.567,00', '1234.5,00', '1234.567,89', '.123,45', '1,5,5'])(
         'refuses %s because the grouping does not run in threes',
         (raw) => {
             expect(refusal(raw, CZ)).toContain('threes');
@@ -184,6 +229,14 @@ describe('what the field writes back', () => {
         expect(formatCzech(1)).toBe('1,00');
         expect(formatCzech(0.5)).toBe('0,50');
         expect(formatCzech(0.01)).toBe('0,01');
+    });
+
+    it('holds that rule at zero too, which is the value most likely to lose its hellers', () => {
+        // No amount the parser accepts is zero, so this arrives only from a caller holding a
+        // number of its own. That is exactly why it is pinned: a bare 0 would be the one money
+        // value on a screen written without its heller digits, and the rule above is about
+        // every amount rather than about the ones a customer typed.
+        expect(formatCzech(0)).toBe('0,00');
     });
 
     it.each([1, 0.01, 0.5, 999.99, 1000, 1234.56, 1234567.89])(
@@ -225,11 +278,28 @@ describe('the edges of what a payment can be', () => {
     it('handles an amount larger than any real balance without losing digits', () => {
         expect(value('999 999 999,99', CZ)).toBe(999999999.99);
     });
+
+    it('takes an amount past the last exact integer, and shows what it read', () => {
+        // 9007199254740993 is the first whole number a double cannot hold: it arrives as ...992.
+        // This is pinned as ACCEPTED, with the echo, rather than refused above a ceiling, and
+        // the echo is the whole of the argument: the field writes back the number that was
+        // understood, so a reading that lost a crown says so on screen before anything is sent.
+        // Sixteen digits is nine thousand billion crowns, which no account here holds; refusing
+        // it would be a rule about a case nobody reaches, and it would still need the echo for
+        // every amount below the ceiling. Pinned so that changing it is a decision somebody
+        // takes rather than a behaviour that drifts.
+        const parsed = parseAmount('9007199254740993,00', CZ);
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok) return;
+
+        expect(parsed.value).toBe(9007199254740992);
+        expect(parsed.czech).toBe(`9${NBSP}007${NBSP}199${NBSP}254${NBSP}740${NBSP}992,00`);
+    });
 });
 
 describe('showing an amount the server has already decided', () => {
     it('prints the amount and its currency together', () => {
-        expect(formatMoney({ amount: '1500.00', currency: 'CZK' })).toBe('1500.00 CZK');
+        expect(formatMoney({ amount: '1500.00', currency: 'CZK' })).toBe(`1${NBSP}500,00 CZK`);
     });
 
     it('never prints an amount without its unit, which is the defect it exists to prevent', () => {
@@ -244,14 +314,102 @@ describe('showing an amount the server has already decided', () => {
     it('shows a dash for an absent value rather than an empty gap', () => {
         // Null is meaningful here: a payment that has not settled has been charged nothing,
         // which is a different fact from a charge of zero.
-        expect(formatMoney(null)).toBe('—');
-        expect(formatMoney(undefined)).toBe('—');
+        expect(formatMoney(null)).toBe(EMPTY_VALUE);
+        expect(formatMoney(undefined)).toBe(EMPTY_VALUE);
     });
 
-    it('leaves the digits exactly as the server wrote them', () => {
-        // Not run through formatCzech: these are amounts the bank has decided, not amounts a
-        // person is typing, and regrouping them here would be a second formatting rule on one
-        // value.
-        expect(formatMoney({ amount: '999999.99', currency: 'CZK' })).toBe('999999.99 CZK');
+    it('groups the digits the Czech way, which is what the dates beside them already do', () => {
+        // 10001.00 CZK used to be printed one line above 13. 8. 2026 20:52, so the page carried
+        // two conventions and the amount was the half in neither.
+        expect(formatMoney({ amount: '10001.00', currency: 'CZK' })).toBe(`10${NBSP}001,00 CZK`);
+        expect(formatMoney({ amount: '999999.99', currency: 'CZK' })).toBe(
+            `999${NBSP}999,99 CZK`,
+        );
+        expect(formatMoney({ amount: '50.00', currency: 'CZK' })).toBe('50,00 CZK');
+    });
+
+    it('regroups rather than reparses, so the digits are still the ones the server sent', () => {
+        // Past what a double can hold. Nothing here goes through Number(), so nothing rounds.
+        expect(formatMoney({ amount: '12345678901234567.89', currency: 'CZK' })).toBe(
+            `12${NBSP}345${NBSP}678${NBSP}901${NBSP}234${NBSP}567,89 CZK`,
+        );
+        // The scale is the server's. Two decimals are not invented for a whole number, and a
+        // third is not thrown away.
+        expect(formatMoney({ amount: '1500', currency: 'CZK' })).toBe(`1${NBSP}500 CZK`);
+        expect(formatMoney({ amount: '1.005', currency: 'CZK' })).toBe('1,005 CZK');
+    });
+
+    it('keeps the currency as the code the server chose', () => {
+        // Czech convention decides the numerals. The unit is the server's own value, and Kč
+        // would be a wrong word rather than a translated one the day a second currency appears.
+        expect(formatMoney({ amount: '10.00', currency: 'EUR' })).toBe('10,00 EUR');
+    });
+
+    it('prints an amount it cannot read as it arrived, rather than as NaN', () => {
+        expect(formatMoney({ amount: 'unknown', currency: 'CZK' })).toBe('unknown CZK');
+    });
+
+    it('reads back through the input parser, so the echo and the receipt agree', () => {
+        // The amount field writes 1 500,00 into the box; the confirmation beneath it prints
+        // 1 500,00 CZK. One convention, so the customer is not asked to match two.
+        const shown = formatMoney({ amount: '1500.00', currency: 'CZK' });
+        expect(value(shown.replace(' CZK', ''), CZ)).toBe(1500);
+    });
+});
+
+/**
+ * The fee as it stands under the amount it was added to, on all three history tables.
+ *
+ * The rule that decides whether the line exists at all lives in this one function rather than in
+ * each table, because it is the same rule three times and the answer is not obvious from the row:
+ * a fee of nothing and a fee of zero read alike in a cell and mean opposite things. The screens do
+ * nothing but ask whether they were given a string.
+ */
+describe('the fee that stands under an amount', () => {
+    it('marks it as added rather than as a second amount beside the first', () => {
+        // The sign carries the whole of the wording. Nothing on the row says the word "fee", the
+        // line is right aligned under the amount, and the plus is what makes it an addition to
+        // that number instead of an unlabelled money value in the same cell.
+        expect(formatFeeLine({ amount: '15.00', currency: 'CZK' })).toBe('+15,00 CZK');
+        expect(formatFeeLine({ amount: '125.01', currency: 'CZK' })).toBe('+125,01 CZK');
+    });
+
+    it('prints a charge of nothing, because that is an answer and not an absence', () => {
+        // "This one cost you nothing" is the thing the line exists to say, and it is the reading
+        // a customer is least able to work out for themselves. A blank here would ask them to
+        // know the tariff before they could tell a free payment from one whose fee went missing.
+        expect(formatFeeLine({ amount: '0.00', currency: 'CZK' })).toBe('+0,00 CZK');
+    });
+
+    it('prints no line at all where nothing has been charged yet', () => {
+        // The same distinction formatMoney states for null, and the reason the wire sends null
+        // rather than zero: a payment that has not settled has been charged nothing. Null and not
+        // a dash, because the cell above it is already occupied by the amount and a dash under it
+        // would be read as a charge the screen could not name.
+        expect(formatFeeLine(null)).toBeNull();
+        expect(formatFeeLine(undefined)).toBeNull();
+    });
+
+    it('groups its digits the same way the amount above it does', () => {
+        // Two lines of one sum, so a fee whose thousands are grouped differently from the amount
+        // is two numbers in one cell rather than one number and its addition.
+        expect(formatFeeLine({ amount: '1500.00', currency: 'CZK' })).toBe(`+1${NBSP}500,00 CZK`);
+    });
+
+    it('carries the currency, which is the defect the whole module exists to prevent', () => {
+        // This is the exact value that used to be printed bare under an amount that had a unit,
+        // on both fraud desks. It goes through formatMoney, so there is no call site left that
+        // could forget it, and the code stays the server's own the day a second currency appears.
+        expect(formatFeeLine({ amount: '25.00', currency: 'CZK' })).toContain('CZK');
+        expect(formatFeeLine({ amount: '10.00', currency: 'EUR' })).toBe('+10,00 EUR');
+    });
+
+    it('says the same digits the amount formatter would, with one character in front', () => {
+        // Derived rather than spelled out a second time: the point is that there is one rule for
+        // printing money and this line is that rule with a sign, not a second convention.
+        for (const amount of ['15.00', '0.00', '125.01', '1500.00', '10001.00']) {
+            const fee = { amount, currency: 'CZK' };
+            expect(formatFeeLine(fee)).toBe(`+${formatMoney(fee)}`);
+        }
     });
 });

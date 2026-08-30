@@ -9,6 +9,7 @@ import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.StoredValue;
 
 import java.sql.*;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -193,8 +194,14 @@ public class SqlUserRepository implements UserRepository {
         // matters most: an unreadable role decides what its holder may do. It used to raise a
         // NullPointerException on an absent value and a bare IllegalArgumentException on an
         // unknown one, both of which the advice answers as an unexplained 500.
+        // Locale.ROOT, because this row is read on the sign-in path and the default locale is the
+        // JVM's rather than this bank's. Under a Turkish default the i of a row stored as
+        // "operations" folds to a capital that keeps its dot, so the result is not the constant
+        // OPERATIONS and the holder of a perfectly good account is refused with an unreadable-role
+        // fault, on a machine whose only difference is where it thinks it is. Same fix, and the
+        // same reason, as IBAN.normalize and the two fraud repositories.
         UserRole role = StoredValue.requiredEnum(
-                UserRole.class, roleStr == null ? null : roleStr.toUpperCase(),
+                UserRole.class, roleStr == null ? null : roleStr.toUpperCase(Locale.ROOT),
                 "role", "user", id);
         int customerId = rs.getInt("customer_id");
         Integer customerIdObj = rs.wasNull() ? null : customerId;

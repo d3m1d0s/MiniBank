@@ -54,14 +54,13 @@ class SelfTransferTest {
 
         CustomerRepository customers = infra.customers;
         Customer customer = new Customer(CUSTOMER_ID, "Self Test", "self@example.com",
-                new Address("Test Street 1", "Ostrava"));
+                new Address("Test Street 1", "Ostrava"), Money.czk(100_000));
         customer.addAccountId(ACCOUNT_ID);
         customer.addAccountId(SECOND_ACCOUNT_ID);
         customers.save(customer);
 
-        accounts.save(new Account(ACCOUNT_ID, new IBAN(OWN_IBAN), OPENING, Money.czk(100_000)));
-        accounts.save(new Account(SECOND_ACCOUNT_ID, new IBAN(SECOND_IBAN),
-                Money.czk(5_000), Money.czk(100_000)));
+        accounts.save(new Account(ACCOUNT_ID, new IBAN(OWN_IBAN), OPENING));
+        accounts.save(new Account(SECOND_ACCOUNT_ID, new IBAN(SECOND_IBAN), Money.czk(5_000)));
 
         // A beneficiary that points back at the customer's own source account, which is how
         // the same mistake arrives through the saved-payee path.

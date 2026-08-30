@@ -57,6 +57,12 @@ public class JsonMapper {
         j.name = c.name();
         j.email = c.email();
         j.address = toDto(c.address());
+        j.dailyLimit = c.dailyLimit().amount();
+        // Left absent rather than written as 0.00 when the customer has no tier of their own: a
+        // stored zero would mean "authorize every payment", which is a real and different rule.
+        if (c.softDailyThreshold() != null) {
+            j.softDailyThreshold = c.softDailyThreshold().amount();
+        }
         j.accountIds.addAll(c.accountIds());
         for (Beneficiary b : c.beneficiaries()) {
             j.beneficiaries.add(toDto(b));
@@ -83,7 +89,15 @@ public class JsonMapper {
     public static Customer toDomain(JsonCustomer j) {
         Address address = (j.address != null) ? toDomain(j.address) : new Address(null, null);
 
-        Customer c = new Customer(j.id, j.name, j.email, address);
+        // The daily ceiling is required and the soft tier is not, which is the same split the
+        // account's balance and its own tier used to make and for the same reasons: a customer
+        // with no ceiling is a customer nothing bounds, while a customer with no tier of their own
+        // uses the bank-wide one and a stored 0.00 would be the opposite rule.
+        Money soft = (j.softDailyThreshold != null) ? Money.czk(j.softDailyThreshold) : null;
+
+        Customer c = new Customer(j.id, j.name, j.email, address,
+                requiredMoney(j.dailyLimit, "dailyLimit", "customer", j.id),
+                soft);
         if (j.accountIds != null) {
             for (Integer id : j.accountIds) {
                 c.addAccountId(id);
@@ -158,25 +172,14 @@ public class JsonMapper {
         j.id = a.id();
         j.iban = a.iban().value();
         j.balance = a.balance().amount();
-        j.dailyLimit = a.dailyLimit().amount();
-        // Left absent rather than written as 0.00 when the account has no override: a stored
-        // zero would mean "authorize every payment", which is a real and different rule.
-        if (a.softDailyThreshold() != null) {
-            j.softDailyThreshold = a.softDailyThreshold().amount();
-        }
         return j;
     }
 
     public static Account toDomain(JsonAccount j) {
-        // Null is a meaning on this field and not a missing value: an account with no override
-        // uses the bank-wide tier, and a stored 0.00 would be the opposite rule.
-        Money soft = (j.softDailyThreshold != null) ? Money.czk(j.softDailyThreshold) : null;
         // Account.version is deliberately not restored: the JSON backend has no version column
         // and nothing on this side reads one. See JsonAccount.
         return new Account(j.id, new IBAN(j.iban),
-                requiredMoney(j.balance, "balance", "account", j.id),
-                requiredMoney(j.dailyLimit, "dailyLimit", "account", j.id),
-                soft);
+                requiredMoney(j.balance, "balance", "account", j.id));
     }
 
     /**
@@ -195,13 +198,14 @@ public class JsonMapper {
     /**
      * The same, for a field whose currency the row stores beside it rather than implies.
      *
-     * Only a transfer does. An account's money answers to columns named balance_czk and
-     * daily_limit_czk on the other backend, so its currency is in the name and there is nothing
-     * stored to read. A transfer's is a stored value, and it is read back here rather than forced
-     * to crowns so that a row written in anything else arrives at {@code Transfer}'s constructor
-     * as what it claims to be and is refused there. Forcing it is how this backend used to load a
-     * foreign row as real crowns while the SQL one rebuilt it faithfully - one row answering
-     * differently depending on which adapter read it.
+     * Only a transfer does. An account's balance and a customer's two limits answer to columns
+     * named balance_czk, daily_limit_czk and soft_daily_threshold_czk on the other backend, so
+     * their currency is in the name and there is nothing stored to read. A transfer's is a stored
+     * value, and it is read back here rather than forced to crowns so that a row written in
+     * anything else arrives at {@code Transfer}'s constructor as what it claims to be and is
+     * refused there. Forcing it is how this backend used to load a foreign row as real crowns
+     * while the SQL one rebuilt it faithfully - one row answering differently depending on which
+     * adapter read it.
      */
     private static Money requiredMoney(BigDecimal stored, String currency,
                                        String field, String kind, int id) {
@@ -250,6 +254,11 @@ public class JsonMapper {
             }
         }
         j.declineReason = t.declineReason();
+        // Written beside the sentence it belongs with, and left absent where there is no instant,
+        // on the same terms as settledAt above.
+        if (t.declinedAt() != null) {
+            j.declinedAt = t.declinedAt().toString();
+        }
         j.authAttempts = t.authAttempts();
         if (t.authValidUntil() != null) {
             j.authValidUntil = t.authValidUntil().toString();
@@ -306,6 +315,15 @@ public class JsonMapper {
                 j.settledAt, "settlement instant", "transfer", j.id);
         t.hydrateSettlement(fee, settledAt);
         t.attachMessage(j.message);
+
+        // Read through the same helper as the settlement instant, and for the same reason: absent
+        // is a real value here - everything not refused, and every refused row stored before this
+        // field - while a timestamp that is present and will not parse is a row no loader should
+        // accept. Reading a garbled one as null would write the null back over it on the next
+        // save, losing the only record of when a payment was stopped.
+        Instant declinedAt = StoredValue.presentInstantOrNull(
+                j.declinedAt, "refusal instant", "transfer", j.id);
+        t.hydrateDeclinedAt(declinedAt);
 
         // The same split the two instants above make, on an enum: absent is a real value, present
         // and unreadable is not. It is written out here rather than through StoredValue.requiredEnum
@@ -424,6 +442,7 @@ public class JsonMapper {
         j.state = a.state().name();
         j.decision = a.decision();
         j.decidedBy = a.decidedBy();
+        j.decisionComment = a.decisionComment();
         j.reason = a.reason();
         if (a.createdAt() != null) {
             j.createdAt = a.createdAt().toString();
@@ -437,32 +456,52 @@ public class JsonMapper {
         if (a.tags() != null) {
             j.tags.addAll(a.tags());
         }
-        j.notes = a.notes();
+
+        // notes is deliberately not written. The journal is a list of its own beside the alerts,
+        // and the field on this record survives only so a store written before the journal
+        // existed can be read once and carried; see JsonFraudAlert.notes.
 
         return j;
     }
 
     public static FraudAlert toDomain(JsonFraudAlert j) {
-        FraudAlert a = new FraudAlert(j.id, j.transferId, j.reason);
-
         java.time.Instant ts =
                 StoredValue.requiredInstant(j.createdAt, "creation instant", "fraud alert", j.id);
 
         java.util.List<String> tags =
                 (j.tags != null) ? j.tags : java.util.Collections.emptyList();
 
+        // The comment an analyst gave with a verdict used to be appended into the reason behind
+        // a " | ", so a record written before it had a field of its own carries both facts on one
+        // line. Split here, which is this backend's half of what the SQL migration does with an
+        // UPDATE: the head is the sentence the rules produced and the tail is what a person wrote.
+        // The separator was written by one line of code and the rules' own sentences contain no
+        // bar, so the split is exact rather than a guess, and a record already carrying its own
+        // comment is left alone.
+        String reason = j.reason;
+        String comment = j.decisionComment;
+        if (comment == null && reason != null) {
+            int bar = reason.indexOf(" | ");
+            if (bar >= 0) {
+                comment = reason.substring(bar + 3);
+                reason = reason.substring(0, bar);
+            }
+        }
+
+        FraudAlert a = new FraudAlert(j.id, j.transferId, reason);
+
         FraudAlertState st = StoredValue.requiredEnum(
                 FraudAlertState.class, j.state, "state", "fraud alert", j.id);
-        a.hydrateForLoad(st, j.reason, ts, j.riskScore, j.assignee, tags, j.notes);
+        a.hydrateForLoad(st, reason, ts, j.riskScore, j.assignee, tags);
 
-        // hydrateDecision takes all three as null, which is what every alert written before
+        // hydrateDecision takes all four as null, which is what every alert written before
         // these fields existed has. Absent is a real value here, unlike the state above; a
         // resolution instant that is present and cannot be read is not, because it used to land
         // on exactly the value a legal row carries and nothing downstream could tell the two
         // apart.
         java.time.Instant resolvedAt = StoredValue.presentInstantOrNull(
                 j.resolvedAt, "resolution instant", "fraud alert", j.id);
-        a.hydrateDecision(j.decision, j.decidedBy, resolvedAt);
+        a.hydrateDecision(j.decision, j.decidedBy, resolvedAt, comment);
 
         return a;
     }

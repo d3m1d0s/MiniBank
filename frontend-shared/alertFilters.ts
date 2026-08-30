@@ -31,7 +31,11 @@ export function amountRangeProblem(
     unreadable: AmountBoxes,
 ): string | null {
     if (unreadable.min || unreadable.max) {
-        return 'That amount could not be read. Enter a number, like 1500 or 1500.50.';
+        // The example is spelled the Czech way because that is what the box beside this sentence
+        // writes back: the parser echoes 1 500,50 into the field whatever was typed. It used to
+        // teach 1500.50, which the parser does accept but no screen in either application ever
+        // shows, so the one sentence a mistyped bound gets was teaching the other convention.
+        return 'That amount could not be read. Enter a number, like 1 500 or 1 500,50.';
     }
 
     const min = filters.minAmount ? Number(filters.minAmount) : null;

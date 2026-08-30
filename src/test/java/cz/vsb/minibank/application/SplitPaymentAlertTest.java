@@ -72,15 +72,15 @@ class SplitPaymentAlertTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             UnitOfWork uow = scope.uow();
             customerId = infra.customers.nextId();
+            // A ceiling and a soft tier high enough that neither fires: what this test is about
+            // is the alert, and a refusal or a hold from another rule would prove nothing.
             Customer c = new Customer(customerId, "Split Probe", "split@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"),
+                    Money.czk(900_000), Money.czk(800_000));
             infra.customers.save(c);
 
             accountId = infra.accounts.nextId();
-            // A ceiling and a soft tier high enough that neither fires: what this test is about
-            // is the alert, and a refusal or a hold from another rule would prove nothing.
-            infra.accounts.save(new Account(accountId, PAYER,
-                    Money.czk(1_000_000), Money.czk(900_000), Money.czk(800_000)));
+            infra.accounts.save(new Account(accountId, PAYER, Money.czk(1_000_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
             uow.commit();
@@ -305,8 +305,7 @@ class SplitPaymentAlertTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             Customer owner = infra.customers.byId(ownerId).orElseThrow();
             int id = infra.accounts.nextId();
-            infra.accounts.save(new Account(id, iban,
-                    Money.czk(1_000_000), Money.czk(900_000), Money.czk(800_000)));
+            infra.accounts.save(new Account(id, iban, Money.czk(1_000_000)));
             owner.addAccountId(id);
             infra.customers.save(owner);
             scope.uow().commit();
@@ -319,7 +318,8 @@ class SplitPaymentAlertTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             int id = infra.customers.nextId();
             infra.customers.save(new Customer(id, "Split Neighbour", "neighbour@example.com",
-                    new Address("Hlavni 2", "Ostrava")));
+                    new Address("Hlavni 2", "Ostrava"),
+                    Money.czk(900_000), Money.czk(800_000)));
             scope.uow().commit();
             return id;
         }

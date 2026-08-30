@@ -55,12 +55,12 @@ class TransferAmountValidationTest {
 
         CustomerRepository customers = infra.customers;
         Customer customer = new Customer(CUSTOMER_ID, "Amount Test", "amount@example.com",
-                new Address("Test Street 1", "Ostrava"));
+                new Address("Test Street 1", "Ostrava"), Money.czk(15_000));
         customer.addAccountId(ACCOUNT_ID);
         customers.save(customer);
 
         accounts.save(new Account(ACCOUNT_ID, new IBAN("CZ5201000000199999999999"),
-                OPENING_BALANCE, Money.czk(15_000)));
+                OPENING_BALANCE));
 
         customers.saveBeneficiary(CUSTOMER_ID,
                 new Beneficiary(BENEFICIARY_ID, "Target", new IBAN(TARGET_IBAN), true));
@@ -177,7 +177,7 @@ class TransferAmountValidationTest {
 
     @Test
     void debitRejectsANonPositiveAmountWithoutTouchingTheBalance() {
-        Account account = new Account(1, new IBAN(TARGET_IBAN), Money.czk(100), Money.czk(1000));
+        Account account = new Account(1, new IBAN(TARGET_IBAN), Money.czk(100));
 
         assertFalse(account.canDebit(Money.czk(-1000), Money.czk(0)));
         assertThrows(InvalidAmountException.class,
@@ -456,6 +456,9 @@ class TransferAmountValidationTest {
         row.address = null;
         row.accountIds = null;
         row.beneficiaries = null;
+        // Not one of the null shapes under test: the ceiling is required, and a row without it is
+        // refused by the same rule that refuses an account with no balance.
+        row.dailyLimit = new java.math.BigDecimal("40000.00");
 
         Customer loaded = JsonMapper.toDomain(row);
 

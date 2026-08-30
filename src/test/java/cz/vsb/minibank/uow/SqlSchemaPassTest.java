@@ -81,6 +81,9 @@ public class SqlSchemaPassTest {
     private static final IBAN PAYER_IBAN = new IBAN("CZ6508000000192000145399");
     private static final IBAN EXTERNAL_IBAN = new IBAN("CZ2001000000000012345678");
 
+    /** A second account of the payer's own customer, which the day's total must not count. */
+    private static final IBAN OWN_SECOND_IBAN = new IBAN("CZ4308000000192000145407");
+
     @BeforeAll
     static void probeTestDatabase() {
         TestDatabase.requireSeparateFromApplicationDatabase();
@@ -98,7 +101,7 @@ public class SqlSchemaPassTest {
         try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
              Statement st = conn.createStatement()) {
             st.execute("""
-                    TRUNCATE TABLE fraud_alerts, transfers, beneficiaries, accounts, customers
+                    TRUNCATE TABLE fraud_alert_notes, fraud_alerts, transfers, beneficiaries, accounts, customers
                     RESTART IDENTITY CASCADE
                     """);
         }
@@ -274,9 +277,9 @@ public class SqlSchemaPassTest {
                 // real: the first is what cancelPayment does, the second what the wrong-OTP
                 // branch does, and neither writes an account.
                 if (t.status() == TransferStatus.WAITING_AUTH && !cancelTaken.getAndSet(true)) {
-                    t.decline("Canceled by customer");
+                    t.decline("Canceled by customer", Instant.now());
                 } else {
-                    t.registerFailedOtpAttempt(99);
+                    t.registerFailedOtpAttempt(99, Instant.now());
                 }
                 infra.transfers.save(t);
 
@@ -340,7 +343,7 @@ public class SqlSchemaPassTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             UnitOfWork uow = scope.uow();
             Transfer t = infra.transfers.byId(transferId).orElseThrow();
-            t.decline("Canceled by customer");
+            t.decline("Canceled by customer", Instant.now());
             infra.transfers.save(t);
             uow.commit();
         }
@@ -370,7 +373,7 @@ public class SqlSchemaPassTest {
      * with its alert still open in the queue. From there
      * {@code FraudApplicationService.decline} records the verdict on the alert alone - its guard
      * excludes SENT and DECLINED so an analyst's wording cannot overwrite the customer's own - and
-     * the REQUEST_CONFIRMATION route writes no transfer on any status. Neither racer below touches
+     * the ANNOTATE route writes no transfer on any status. Neither racer below touches
      * the transfers row, so before fraud_alerts had a version of its own nothing looked at all and
      * the second commit simply won.
      *
@@ -408,12 +411,12 @@ public class SqlSchemaPassTest {
 
                 // Whichever thread gets here first decides which analyst this one is. Both are
                 // real: the first is what decline() does once the transfer is out of reach, the
-                // second what the REQUEST_CONFIRMATION arm does, and neither writes a transfer.
+                // second what the ANNOTATE arm does, and neither writes a transfer.
                 if (!verdictTaken.getAndSet(true)) {
                     alert.markSuspicious("Confirmed by the card scheme", "anna.analyst",
                             Instant.now());
                 } else {
-                    alert.updateNotes("Called the customer back");
+                    alert.recordDecisionComment("Called the customer back");
                 }
                 infra.alerts.save(alert);
 
@@ -456,13 +459,13 @@ public class SqlSchemaPassTest {
     /**
      * The token survives a round trip, and one analyst deciding alone is untouched.
      *
-     * Both halves matter and the second is not padding. A decision writes the alert TWICE in one
-     * unit of work - {@code decideAndUpdateAlert} saves in the verdict arm and again after the
-     * assignee, tags and notes block - so a guard whose write-back was missing would refuse every
-     * decision this application makes, on the second save, with nobody racing anybody. The load
-     * path fails the other way and just as silently: an alert that came back without its version
-     * would carry 0, and the next update would be compared against the version of a row nobody has
-     * written yet.
+     * A decision is ONE guarded write on this row now. It used to be two, because
+     * {@code decideAndUpdateAlert} saved the verdict and then saved again to write the notes blob
+     * over whatever was in the column; the notes are their own append-only table and the second
+     * save went with them. What still has to hold is the load path, and it fails silently: an
+     * alert that came back without its version would carry 0, and the next update would be
+     * compared against the version of a row nobody has written yet, which is a lost update dressed
+     * as a successful one.
      */
     @Test
     void theAlertVersionComesBackFromTheStoreAndAnUncontendedDecisionStillLands() throws Exception {
@@ -479,24 +482,147 @@ public class SqlSchemaPassTest {
                 "the aggregate must carry the version the store holds after a load");
 
         services.fraudService.decideAndUpdateAlert(
-                held.alertId(), "APPROVE", null, "anna.analyst", List.of("manual-review"),
-                "looked fine", "anna.analyst");
+                held.alertId(), "APPROVE", "looked fine", "called the payee, all in order",
+                "anna.analyst");
 
-        assertEquals(2, versionOfAlert(held.alertId()),
-                "the verdict and the metadata are two guarded writes in one unit of work, and the"
-                        + " second is only possible because the first handed back the version it"
-                        + " left behind");
+        assertEquals(1, versionOfAlert(held.alertId()),
+                "a decision is one guarded write on the alert row, and the note taken with it is"
+                        + " an insert into a table of its own rather than a second pass over this"
+                        + " one");
 
         FraudAlert decided = infra.alerts.byId(held.alertId()).orElseThrow();
         assertEquals(FraudAlertState.OK, decided.state());
         assertEquals(FraudAlert.DECISION_APPROVE, decided.decision());
-        assertEquals("looked fine", decided.notes());
-        assertEquals(2, decided.version(),
+        assertEquals("looked fine", decided.decisionComment(),
+                "the analyst's comment is its own column now, and the risk reason is left saying"
+                        + " only why the alert was raised");
+        assertEquals("New beneficiary + high amount", decided.reason());
+        assertEquals(1, decided.version(),
                 "and the load brings the new one back, which is what lets the write after it be"
                         + " guarded in turn");
+
+        List<cz.vsb.minibank.domain.FraudAlertNote> journal =
+                infra.alerts.notesOf(held.alertId());
+        assertEquals(1, journal.size(), "the note written with the decision reached the journal");
+        assertEquals("called the payee, all in order", journal.get(0).text());
+        assertEquals("anna.analyst", journal.get(0).author());
         assertEquals(TransferStatus.WAITING_AUTH,
                 infra.transfers.byId(held.transferId()).orElseThrow().status(),
                 "and the payment really was released for the customer's own confirmation step");
+    }
+
+    // -------------------------------------------------------------------------
+    // The notes journal
+    // -------------------------------------------------------------------------
+
+    /**
+     * Two analysts writing on one alert both keep what they wrote, in order, each under their own
+     * name and moment.
+     *
+     * The whole of what the table replaced. notes was one column that every upsert assigned, so
+     * the second analyst to write anything destroyed the first analyst's text with nothing telling
+     * either of them, and the column recorded neither who had written what nor when. It is pinned
+     * on the SQL backend as well as on the JSON one because the guarantee is the store's here: the
+     * repository issues an INSERT and there is no UPDATE and no DELETE against this table anywhere
+     * in the application.
+     *
+     * The instants are set explicitly and one hour apart, so the case is about the ORDER the
+     * journal answers in rather than about how fast the test ran.
+     */
+    @Test
+    void twoAnalystsWritingOnOneAlertBothKeepWhatTheyWrote() {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+        HeldPayment held = seedHeldPaymentWithAlert(services);
+
+        Instant firstWrote = Instant.parse("2026-03-04T10:15:30Z");
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            infra.alerts.appendNote(new cz.vsb.minibank.domain.FraudAlertNote(
+                    held.alertId(), "anna.analyst", firstWrote, "called the payer, no answer"));
+            scope.uow().commit();
+        }
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            infra.alerts.appendNote(new cz.vsb.minibank.domain.FraudAlertNote(
+                    held.alertId(), "bob.analyst", firstWrote.plusSeconds(3600),
+                    "payer called back, confirms the payment"));
+            scope.uow().commit();
+        }
+
+        List<cz.vsb.minibank.domain.FraudAlertNote> journal =
+                infra.alerts.notesOf(held.alertId());
+
+        assertEquals(2, journal.size(), "appending must never replace");
+        assertEquals("called the payer, no answer", journal.get(0).text());
+        assertEquals("anna.analyst", journal.get(0).author());
+        assertEquals(firstWrote, journal.get(0).writtenAt());
+        assertEquals("payer called back, confirms the payment", journal.get(1).text());
+        assertEquals("bob.analyst", journal.get(1).author());
+    }
+
+    /**
+     * The entry the migration carries over reads back, and reads back as authorless.
+     *
+     * db/migrate/fraud-alert-comment-and-notes-journal.sql turns the single notes text of an
+     * existing row into exactly this shape: no author, because the column recorded none, and the
+     * alert's own creation instant, because that is the earliest moment the note could have been
+     * written and it is what keeps the carried entry at the top of the journal. The row is written
+     * here the way the migration writes it, as raw SQL, so this pins the shape a database that has
+     * been migrated actually holds rather than the shape the application happens to write.
+     */
+    @Test
+    void theEntryTheMigrationCarriesOverReadsBackWithNoAuthorAndStandsFirst() throws Exception {
+        BootstrapServices services = new BootstrapServices(
+                infra.customers, infra.accounts, infra.transfers, infra.alerts, infra.uowFactory);
+        HeldPayment held = seedHeldPaymentWithAlert(services);
+
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
+             PreparedStatement ps = conn.prepareStatement("""
+                     INSERT INTO fraud_alert_notes (alert_id, author, written_at, text)
+                     SELECT id, NULL, created_at, ?
+                       FROM fraud_alerts
+                      WHERE id = ?
+                     """)) {
+            ps.setString(1, "Called the payer, no answer");
+            ps.setInt(2, held.alertId());
+            ps.executeUpdate();
+        }
+
+        try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+            infra.alerts.appendNote(new cz.vsb.minibank.domain.FraudAlertNote(
+                    held.alertId(), "anna.analyst", Instant.now().plusSeconds(60),
+                    "payer called back"));
+            scope.uow().commit();
+        }
+
+        List<cz.vsb.minibank.domain.FraudAlertNote> journal =
+                infra.alerts.notesOf(held.alertId());
+
+        assertEquals(2, journal.size(), "the carried entry must not be lost by a later one");
+        assertEquals("Called the payer, no answer", journal.get(0).text());
+        assertNull(journal.get(0).author(),
+                "the column recorded no author, and a placeholder would name somebody who never"
+                        + " wrote anything");
+        assertEquals("payer called back", journal.get(1).text());
+    }
+
+    /**
+     * A note on an alert that does not exist is refused by the schema rather than stored.
+     *
+     * The foreign key is what answers this, and it is answered here rather than by a check in
+     * Java: a lookup before the insert would be a second answer to the same question and a racier
+     * one. What matters for the caller is that it comes back as a failure and not as a silent
+     * orphan in a table whose whole purpose is being the record of what was said.
+     */
+    @Test
+    void aNoteOnAnAlertThatDoesNotExistIsRefused() {
+        assertThrows(RuntimeException.class, () -> {
+            try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
+                infra.alerts.appendNote(new cz.vsb.minibank.domain.FraudAlertNote(
+                        4242, "anna.analyst", Instant.now(), "on nothing at all"));
+                scope.uow().commit();
+            }
+        });
     }
 
     // -------------------------------------------------------------------------
@@ -707,24 +833,25 @@ public class SqlSchemaPassTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             UnitOfWork uow = scope.uow();
             customerId = infra.customers.nextId();
+            // A soft tier of its own, below the ceiling, so the customer really has two tiers.
             Customer c = new Customer(customerId, "Schema Probe", "schema@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), Money.czk(400_000), Money.czk(3_000));
             infra.customers.save(c);
 
             accountId = infra.accounts.nextId();
-            // A soft tier of its own, below the ceiling, so the account really has two tiers.
-            infra.accounts.save(new Account(accountId, PAYER_IBAN,
-                    Money.czk(500_000), Money.czk(400_000), Money.czk(3_000)));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, Money.czk(500_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
             uow.commit();
         }
 
-        Account reloaded = infra.accounts.byId(accountId).orElseThrow();
-        assertNotNull(reloaded.softDailyThreshold(), "the per-account soft tier must come back");
+        Customer reloaded = infra.customers.byId(customerId).orElseThrow();
+        assertNotNull(reloaded.softDailyThreshold(), "the customer's soft tier must come back");
         assertEquals(0, Money.czk(3_000).amount().compareTo(reloaded.softDailyThreshold().amount()));
+        assertEquals(0, Money.czk(400_000).amount().compareTo(reloaded.dailyLimit().amount()),
+                "and so must the ceiling beside it");
 
-        // 2 500 is under this account's own 3 000 tier and under every untrusted threshold, so
+        // 2 500 is under this customer's own 3 000 tier and under every untrusted threshold, so
         // it settles at creation and carries a fee and a settlement instant.
         int settled = services.transferService.submitPaymentToIban(
                 customerId, accountId, EXTERNAL_IBAN.value(), 2_500, "invoice 2026/03").transferId();
@@ -738,7 +865,7 @@ public class SqlSchemaPassTest {
         assertEquals("invoice 2026/03", t.message(),
                 "the payment reference must survive the store, not be accepted and dropped");
 
-        // 3 500 crosses this account's own tier, so it waits - and while it waits it has no fee
+        // 3 500 crosses this customer's own tier, so it waits - and while it waits it has no fee
         // and no settlement instant, which must round-trip as null rather than as zero.
         int waiting = services.transferService.submitPaymentToIban(
                 customerId, accountId, EXTERNAL_IBAN.value(), 3_500, null).transferId();
@@ -755,7 +882,7 @@ public class SqlSchemaPassTest {
                 customerId, accountId, EXTERNAL_IBAN.value(), 12_000, "over the alert threshold").transferId();
         services.fraudService.decideAndUpdateAlert(
                 infra.alerts.byTransferId(flagged).orElseThrow().id(),
-                "APPROVE", null, null, List.of("manual-review"), "looked fine", "anna.analyst");
+                "APPROVE", "looked fine", null, "anna.analyst");
 
         FraudAlert decided = infra.alerts.byTransferId(flagged).orElseThrow();
         assertEquals(FraudAlert.DECISION_APPROVE, decided.decision(),
@@ -796,15 +923,14 @@ public class SqlSchemaPassTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             UnitOfWork uow = scope.uow();
             customerId = infra.customers.nextId();
+            // A soft tier far below the ceiling, so an amount can cross the tier without coming
+            // anywhere near the daily limit and no second rule can be what routed the payment.
             Customer c = new Customer(customerId, "Version Probe", "version@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), Money.czk(400_000), Money.czk(3_000));
             infra.customers.save(c);
 
             accountId = infra.accounts.nextId();
-            // A soft tier far below the ceiling, so an amount can cross the tier without coming
-            // anywhere near the daily limit and no second rule can be what routed the payment.
-            infra.accounts.save(new Account(accountId, PAYER_IBAN,
-                    Money.czk(500_000), Money.czk(400_000), Money.czk(3_000)));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, Money.czk(500_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
             uow.commit();
@@ -816,7 +942,7 @@ public class SqlSchemaPassTest {
         int afterSeeding = versionOf(accountId);
         assertEquals(0, afterSeeding, "seeding an account is one insert and no guarded write");
 
-        // 3 500 crosses this account's own 3 000 tier and nothing else: below the untrusted
+        // 3 500 crosses this customer's own 3 000 tier and nothing else: below the untrusted
         // single-amount threshold, below the alert threshold, far below the ceiling.
         int waiting = services.transferService.submitPaymentToIban(
                 customerId, accountId, EXTERNAL_IBAN.value(), 3_500, null).transferId();
@@ -848,20 +974,93 @@ public class SqlSchemaPassTest {
                         + " must not drop the one that persists a balance");
     }
 
+    /**
+     * The day's total drops what only moved to another account of the same customer, and it
+     * decides that on NORMALIZED IBANs on both sides of the comparison.
+     *
+     * This is the one predicate of the customer-wide total that is written in SQL rather than in
+     * Java, and it is written as {@code <> ALL} over an array of normalized snapshots. A plain
+     * {@code =} would be wrong and not merely strict: {@link Transfer} takes its destination as a
+     * plain String and validates only the amount, so a row holding {@code "cz43 0800 ..."} is
+     * reachable through the public constructor and is stored exactly as it was typed. Compared as
+     * it stands it is a different account from the customer's own, the internal move is counted as
+     * having left them, and the day inflates by an amount that never went anywhere.
+     *
+     * Both spellings are inserted behind the domain's back, because that is the only way to put a
+     * denormalized snapshot in the column, and because what is under test is the statement and not
+     * the writer. The row to a genuinely foreign IBAN is there to show the exclusion is a
+     * destination test and not the query answering zero.
+     */
+    @Test
+    void theDayTotalDropsTheCustomersOwnIbanHoweverTheSnapshotIsSpelled() throws Exception {
+        int accountId = seedAccount(Money.czk(500_000), Money.czk(400_000), null);
+
+        Instant when = Instant.now();
+        insertRawSettledTransferTo(accountId, EXTERNAL_IBAN.value(), "1000.00", when);
+        insertRawSettledTransferTo(accountId, OWN_SECOND_IBAN.value(), "4000.00", when);
+        insertRawSettledTransferTo(accountId, "cz43 0800 0000 1920 0014 5407", "5000.00", when);
+
+        Instant from = when.minusSeconds(300);
+        Instant to = when.plusSeconds(300);
+
+        assertEquals(0, Money.czk(10_000).amount().compareTo(
+                        infra.transfers.sentTotalBetween(accountId, from, to).amount()),
+                "the plain per-account total excludes nothing, so all three rows are in it");
+
+        assertEquals(0, Money.czk(1_000).amount().compareTo(
+                        infra.transfers.sentTotalLeavingCustomerBetween(
+                                List.of(accountId), List.of(OWN_SECOND_IBAN.value()), from, to)
+                                .amount()),
+                "both spellings of the customer's own account are dropped, and only the payment"
+                        + " that really left is left standing");
+
+        assertEquals(0, Money.czk(1_000).amount().compareTo(
+                        infra.transfers.sentTotalLeavingCustomerBetween(
+                                List.of(accountId),
+                                List.of("cz43 0800 0000 1920 0014 5407"), from, to)
+                                .amount()),
+                "and the exclusion list is normalized too: the caller builds it from stored"
+                        + " account rows and may spell it either way");
+    }
+
     // ------------------------------------------------------------------
     // fixture and plumbing
     // ------------------------------------------------------------------
+
+    /**
+     * A settled row with a destination of the caller's choosing, written straight into the table.
+     *
+     * The application cannot produce a denormalized snapshot through the API - IBAN normalizes on
+     * construction - so the row the SQL predicate has to survive can only be inserted like this.
+     */
+    private void insertRawSettledTransferTo(int accountId, String targetIban, String amount,
+                                            Instant when) throws SQLException {
+        try (Connection conn = DriverManager.getConnection(jdbcUrl, dbUser, dbPass);
+             PreparedStatement ps = conn.prepareStatement("""
+                     INSERT INTO transfers
+                         (id, source_account_id, target_iban_snapshot, amount, currency, status,
+                          created_at, settled_at)
+                     VALUES (nextval('transfers_id_seq'), ?, ?, ?::numeric, 'CZK', 'SENT', ?, ?)
+                     """)) {
+            ps.setInt(1, accountId);
+            ps.setString(2, targetIban);
+            ps.setString(3, amount);
+            ps.setTimestamp(4, java.sql.Timestamp.from(when));
+            ps.setTimestamp(5, java.sql.Timestamp.from(when));
+            ps.executeUpdate();
+        }
+    }
 
     private int seedAccount(Money balance, Money dailyLimit, Money softTier) {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             UnitOfWork uow = scope.uow();
             int customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Race Probe", "race@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), dailyLimit, softTier);
             infra.customers.save(c);
 
             int accountId = infra.accounts.nextId();
-            infra.accounts.save(new Account(accountId, PAYER_IBAN, balance, dailyLimit, softTier));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, balance));
             c.addAccountId(accountId);
             infra.customers.save(c);
 
@@ -906,12 +1105,11 @@ public class SqlSchemaPassTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Alert Probe", "alert@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), Money.czk(400_000), Money.czk(3_000));
             infra.customers.save(c);
 
             accountId = infra.accounts.nextId();
-            infra.accounts.save(new Account(accountId, PAYER_IBAN,
-                    Money.czk(500_000), Money.czk(400_000), Money.czk(3_000)));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, Money.czk(500_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
             scope.uow().commit();
@@ -931,7 +1129,7 @@ public class SqlSchemaPassTest {
     /**
      * A payment parked at WAITING_AUTH, through the production services.
      *
-     * The account gets a soft tier of 3 000 and the payment is 3 500, so it crosses that tier and
+     * The customer gets a soft tier of 3 000 and the payment is 3 500, so it crosses that tier and
      * waits. Below every other threshold on purpose: nothing else may be what stopped it, or the
      * fixture would be testing the wrong rule.
      */
@@ -945,12 +1143,11 @@ public class SqlSchemaPassTest {
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
             customerId = infra.customers.nextId();
             Customer c = new Customer(customerId, "Race Probe", "race@example.com",
-                    new Address("Hlavni 1", "Ostrava"));
+                    new Address("Hlavni 1", "Ostrava"), Money.czk(400_000), Money.czk(3_000));
             infra.customers.save(c);
 
             accountId = infra.accounts.nextId();
-            infra.accounts.save(new Account(accountId, PAYER_IBAN,
-                    Money.czk(500_000), Money.czk(400_000), Money.czk(3_000)));
+            infra.accounts.save(new Account(accountId, PAYER_IBAN, Money.czk(500_000)));
             c.addAccountId(accountId);
             infra.customers.save(c);
             scope.uow().commit();

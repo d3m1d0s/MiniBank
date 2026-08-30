@@ -21,6 +21,7 @@ import cz.vsb.minibank.domain.exceptions.DomainException;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Scanner;
 
 /**
@@ -503,11 +504,15 @@ public class ConsoleMenu {
                     + ", reason=" + a.reason());
         }
 
-        System.out.print("Action (approve/decline/request): ");
+        System.out.print("Action (approve/decline/annotate): ");
         String act = in.nextLine().trim();
         int tid = askInt("Transfer id");
 
-        switch (act.toLowerCase()) {
+        // Locale.ROOT: the words compared below are English and the default locale is the JVM's.
+        // Under a Turkish default the I of "DECLINE" folds to a lower case letter with no dot, so
+        // the result is not "decline", it matches no case here, and the operator's decision falls
+        // through to "Unknown action" with the alert left exactly as it was and nothing said.
+        switch (act.toLowerCase(Locale.ROOT)) {
             case "approve" -> {
                 services.fraudService.approve(tid);
                 System.out.println("[OK] Alert cleared. Transfer " + tid
@@ -516,7 +521,20 @@ public class ConsoleMenu {
             case "decline" -> {
                 System.out.print("Reason: ");
                 String reason = in.nextLine().trim();
-                services.fraudService.decline(tid, reason.isEmpty() ? "Declined" : reason);
+
+                // A refusal says why, or it is not taken. An empty line used to become the word
+                // "Declined", which then reached the payer as the reason their payment was
+                // stopped: this door answering, in one word, a question the operator was asked
+                // and did not answer, on the decision here that cannot be undone. Nothing is
+                // decided now, so the command can simply be run again.
+                if (reason.isEmpty()) {
+                    System.out.println("[Error] A refusal needs a reason."
+                            + " Nothing was decided; run the command again and say why"
+                            + " this payment is refused.");
+                    return;
+                }
+
+                services.fraudService.decline(tid, reason);
                 var t = infra.transfers.byId(tid).orElseThrow();
                 System.out.println("[OK] Alert marked suspicious. Transfer " + tid
                         + " has status " + t.status()
@@ -524,13 +542,15 @@ public class ConsoleMenu {
                         ? " - the payment had already been sent and was not reversed."
                         : "."));
             }
-            // Prints a line because the call is now a no-op on both aggregates: without one the
-            // operator would see a menu redraw and no evidence that anything happened.
-            case "request" -> {
-                services.fraudService.requestCustomerConfirmation(tid);
+            // The third decision, under the name the wire and both desks use for it. It was
+            // "request" here, which promised the customer a message that nothing anywhere sends.
+            // Prints a line because the call changes no state: without one the operator would see
+            // a menu redraw and no evidence that anything happened.
+            case "annotate" -> {
+                services.fraudService.annotate(tid);
                 System.out.println("[OK] Alert left open and the transfer left as it was."
                         + " The customer's confirmation step is what 'approve' unlocks,"
-                        + " and the console carries no notes to record.");
+                        + " and the console carries neither a comment nor a note to record.");
             }
             default -> System.out.println("Unknown action");
         }
@@ -668,9 +688,27 @@ public class ConsoleMenu {
         }
     }
 
+    /**
+     * The prompt names the decimal separator it accepts, because this reader does not accept the
+     * one the operator is most likely to type.
+     *
+     * Double.parseDouble takes a point and nothing else, so "1500,00" - which is how an amount is
+     * written in Czech, and what the web form both shows and requires - is refused here as "not an
+     * amount" with no hint as to what would be one. The parser is deliberately left alone: it is
+     * the console's, the two front ends have their own convention settled in the shared layer, and
+     * a second amount grammar written here is a third one to keep in step. What is fixed is the
+     * prompt, which now says which of the two forms this door takes.
+     *
+     * The default is printed in that same form and not through plain concatenation, which gives a
+     * double one decimal: the line read "for example 1500.00 [1000.0]", teaching two conventions
+     * in one prompt. Locale.ROOT is what keeps it one: without it a machine whose default locale
+     * is Czech prints 1000,00 here, which is the exact string this prompt goes on to refuse.
+     */
     private double askDouble(String label, double defVal) {
+        String shownDefault = String.format(Locale.ROOT, "%.2f", defVal);
         while (true) {
-            String s = askLine(label + " [" + defVal + "]: ");
+            String s = askLine(label + " (decimal point, for example 1500.00) ["
+                    + shownDefault + "]: ");
             if (s.isEmpty()) {
                 return defVal;
             }
@@ -678,7 +716,8 @@ public class ConsoleMenu {
                 return Double.parseDouble(s);
             } catch (NumberFormatException e) {
                 System.out.println("[Error] '" + s + "' is not an amount."
-                        + " Type a number, or leave the line blank for " + defVal + ".");
+                        + " Amounts are typed with a decimal point, for example 1500.00,"
+                        + " or leave the line blank for " + shownDefault + ".");
             }
         }
     }

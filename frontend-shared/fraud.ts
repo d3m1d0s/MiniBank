@@ -1,5 +1,5 @@
 /**
- * The fraud desk's half of the API: what the three endpoints return, and how to call them.
+ * The fraud desk's half of the API: what its endpoints return, and how to call them.
  *
  * Shared because it was written twice. Both front ends carry a fraud desk - the analyst's own
  * application, and the same desk inside the customer application for a signed-in analyst - and
@@ -12,7 +12,10 @@
  */
 
 import type { Money } from './money';
+import type { DispatchState } from './customer';
 import { API_BASE, apiFetch, handle } from './http';
+import type { Page } from './paging';
+import { applyPaging, DEFAULT_PAGE_SIZE } from './paging';
 
 export interface AlertQueueItem {
     id: number;
@@ -35,8 +38,14 @@ export interface AlertCounters {
     okCount: number;
 }
 
+/*
+ * Two counts, and they answer different questions on purpose. The page inside `alerts` describes
+ * what the current filters matched, so the foot of the list can say how much of it is on screen.
+ * `counters` counts every alert in every state before any filter and before any page, so the line
+ * above the list keeps saying how much work exists while the analyst reads three rows of it.
+ */
 export interface AlertQueueResponse {
-    items: AlertQueueItem[];
+    alerts: Page<AlertQueueItem>;
     counters: AlertCounters;
 }
 
@@ -50,12 +59,69 @@ export interface AlertInfo {
     decision: string | null;
     decidedBy: string | null;
     resolvedAt: string | null;
-    reason: string;
+    /**
+     * What the analyst wrote about the verdict, on any of the three decisions.
+     *
+     * Its own field because it is its own fact. It used to be appended into `reason` behind a bar,
+     * so one line on screen carried two different claims: why the bank was worried, and what a
+     * person concluded about it. A reader had no way to tell where the first ended and the second
+     * began, and the analyst's words inherited the authority of the rules'.
+     *
+     * Null on an open alert and on a verdict taken without a word, which are two situations and one
+     * value: neither has a comment to print, and neither is worth a line of its own. A LATER
+     * decision REPLACES it. That is the whole difference between this field and the journal beside
+     * it, which appends and is never edited; see {@link AlertNote}.
+     */
+    decisionComment: string | null;
+    /**
+     * Why the rules raised this alert, and nothing else.
+     *
+     * The name is unchanged and the meaning is narrower. Everything a person wrote now lives in
+     * `decisionComment` above or in the journal, so this is the bank's own sentence about the
+     * payment again. A screen may not caption it as the reason for a decision, and it must not be
+     * the line an analyst's comment is printed on.
+     */
+    reason: string | null;
     riskScore: number | null;
     createdAt: string | null;
+    /**
+     * Who holds the alert, written by the assignment route and by nothing else.
+     *
+     * No screen types a name here and no request body carries one: the only name that can be
+     * written is the session's, which is the rule decidedBy already followed. See {@link takeAlert}.
+     */
     assignee: string | null;
+    /**
+     * Read only, and the whole of what is left of tags.
+     *
+     * The decision route no longer accepts them, so nothing in either application can write this
+     * column; it stays on the wire because the column is still read back, and an alert tagged by
+     * anything else still shows what it carries. Do not build an editor against it. What that cost
+     * the last time is in {@link FraudDecisionRequest}.
+     */
     tags: string[];
-    notes: string | null;
+}
+
+/**
+ * One entry of an alert's journal: who wrote it, when, and what they wrote.
+ *
+ * APPEND ONLY. There is no edit and no delete, on the wire or on either screen, and that is the
+ * reason the journal exists. It replaced a single `notes` string that every save overwrote, so two
+ * analysts working the same alert erased each other and nothing recorded who had written what.
+ *
+ * `author` is null on exactly one kind of entry: the one the migration carried over from that old
+ * column, which recorded no name. It means the name was never kept, not that nobody wrote it, so a
+ * screen prints it as a word rather than as a blank; see `noteAuthorLabel` in glossary.ts.
+ *
+ * No alert id on the record, because these arrive inside one alert's detail and a second copy of
+ * the id a screen already holds is a second thing that can disagree with it.
+ */
+export interface AlertNote {
+    author: string | null;
+    /** Never null: an entry that does not say when it was written is not an entry. */
+    writtenAt: string;
+    /** Never null and never blank; the server refuses both. */
+    text: string;
 }
 
 export interface TransferInfo {
@@ -65,35 +131,218 @@ export interface TransferInfo {
     fromIban: string;
     fromBalance: Money;
     toIban: string;
+    /** Whether this bank holds the account named above. Same fact, same rule, as on HistoryItem. */
+    toIbanInBank: boolean;
+    /**
+     * What is left to happen to a payment that has already left the account.
+     *
+     * The same type the customer's own record carries, imported rather than spelled out again: one
+     * enum with one declaration in this directory, so a value added to it reaches both readers on
+     * the same build. See {@link DispatchState} for why null is three situations and not a state.
+     *
+     * It is NOT the opposite of `toIbanInBank` and a screen may never read it as one. Null covers
+     * a payment credited inside this bank, a payment that has not settled, and every row written
+     * before the column existed, and on a fraud desk the middle one is most of the queue. Which
+     * side of the bank the money was going is answered by `toIbanInBank` and by nothing else.
+     */
+    dispatchState: DispatchState | null;
     amount: Money;
     feeAmount: Money;
     createdAt: string | null;
+    /**
+     * When the money actually moved, against `createdAt`, which is when it was asked for.
+     *
+     * Null on anything that has not settled, which on a fraud desk is most of what is opened: the
+     * alert is read while the payment is still held. The same field, and the same reading, as on a
+     * history row; see {@link HistoryItem.settledAt}.
+     */
+    settledAt: string | null;
+    /**
+     * When this payment was refused, or null on one that has not been.
+     *
+     * The alternative to the instant above rather than a companion to it: a payment reaches one
+     * end. On this desk the refused end is the common one, and the panel could say a payment was
+     * declined without being able to say when.
+     */
+    declinedAt: string | null;
+    /**
+     * The payer's own reference, exactly as they typed it into the payment form.
+     *
+     * The analyst could not read it, which is the gap this closed: the customer types it, the form
+     * counts it against its limit and the bank stores it, and the one person reviewing that very
+     * payment saw everything about it except what the payer said they were paying for.
+     *
+     * Null when they wrote none, and that is a different fact from an empty string. Prose somebody
+     * typed, so a panel prints it only when there is text in it.
+     */
+    message: string | null;
+    /**
+     * Why the bank stopped this payment, or null while it might still go through.
+     *
+     * Beside `message` because the two are the sentences attached to a payment, the payer's and
+     * the bank's, and a reader meets them together; that is the same order {@link HistoryItem}
+     * puts them in and the same order the shared field list reads them in.
+     *
+     * The panel that shows the alerted payment was the last reader of a transfer without it, while
+     * every history row drawn beneath that panel had been printing it all along. So the desk could
+     * read why any earlier payment was refused and not why the one under review was.
+     *
+     * Prose, printed only where there is text, and never captioned as the reason for a decision:
+     * this is the bank's sentence about the payment, and what a person concluded lives in
+     * {@link AlertInfo.decisionComment} or in the journal.
+     */
+    declineReason: string | null;
     authMethod: string | null;
 }
 
+/**
+ * One earlier payment, in the two lists that read this type: the customer's own history, and the
+ * history beside an alert.
+ *
+ * `fromIban` is not nullable, and the server holds up its end: both places that build the record
+ * refuse to emit a row whose source account has no number rather than send a null through. A
+ * customer can hold more than one account, so without it neither list can say which of them the
+ * money left, and the analyst cannot tell the account the alert was raised on from its neighbour.
+ */
 export interface HistoryItem {
     id: number;
     createdAt: string | null;
+    /**
+     * When the money actually moved, against `createdAt`, which is when it was asked for.
+     *
+     * Two timestamps and two questions, and they are never the same instant by construction. Null
+     * on anything that has not settled, which on a fraud desk is most of the table: an alert is
+     * read while the payment is still held, so the row that carries a settlement is the exception
+     * and the one worth a reader's eye.
+     */
+    settledAt: string | null;
+    /** When it was refused, or null. The other end, never set alongside the one above. */
+    declinedAt: string | null;
     amount: Money;
+    /**
+     * What this payment cost: the fee that was taken where it settled, and what the tariff would
+     * take where it has not.
+     *
+     * Never null, which is why it is not written `| null`. The wire used to carry the charge alone
+     * and send null for everything unsettled, and the tables then drew a fee line on some rows and
+     * none on others - on the desk, on most of them, since held and refused payments are what a
+     * desk reads. A column filled here and blank there does not read as two answers; it reads as
+     * one that went missing.
+     *
+     * The two readings are not distinguished by this field and are not meant to be. `status` is
+     * next to it in every table, and a fee beside DECLINED is a price rather than a receipt.
+     */
+    fee: Money;
     status: string;
+    fromIban: string;
     toIban: string;
+    /**
+     * Whether this bank holds the account named above, which is what decides whether the money
+     * stayed inside or was owed to the payment network.
+     *
+     * An answer, not the two halves it is made of. The server has both: a settled payment
+     * registers a dispatch obligation exactly when its destination was not ours, so an empty
+     * dispatch state on a SENT transfer is the record that the credit happened here, and anything
+     * that has not settled has no such record and is answered from the live store instead.
+     * Sending the raw dispatch state would put that rule in every desk that reads this row, in the
+     * same words, which is the duplication this module and the field list next door exist to end.
+     *
+     * Never null and never a third value: an IBAN either is one of ours at the moment this row is
+     * read, or it is not. Which of the two is worth saying out loud on a row, and in what words,
+     * is settled in glossary.ts.
+     */
+    toIbanInBank: boolean;
+    /**
+     * The payer's own reference for the payment, exactly as they typed it on the form.
+     *
+     * Null when they wrote none, and that is a different fact from an empty string: one says the
+     * box was left alone, the other says something was typed and rubbed out. Neither is worth a
+     * line on a row, so a screen prints this only when there is text in it.
+     *
+     * Free text a customer wrote, which is what decides how it is drawn: it is prose and takes no
+     * column, the same as the reason a payment was stopped. See HISTORY_UNDER_ROW_FIELDS.
+     */
+    message: string | null;
     declineReason: string | null;
 }
 
+/**
+ * Everything one alert is, in one answer: the alert, the payment it was raised on, that customer's
+ * earlier payments, and the journal.
+ *
+ * The journal arrives here rather than on a route of its own because it is read exactly when the
+ * alert is, and a second request for three lines of text would be a second thing that can fail
+ * while the panel is already on screen. Oldest entry first, and `[]` when there are none: an empty
+ * list is not null, so no screen has to decide what a missing journal means.
+ *
+ * A QUEUE ROW HAS NONE OF THIS. `AlertQueueItem` gained neither the journal nor the comment, and
+ * nothing may make a row of a list read one: a table that shows the last note per row would ask the
+ * server for every alert's journal to draw ten cells of it.
+ */
 export interface AlertDetail {
     alert: AlertInfo;
     transfer: TransferInfo;
     history: HistoryItem[];
+    notes: AlertNote[];
 }
 
-export type FraudDecision = 'APPROVE' | 'DECLINE' | 'REQUEST_CONFIRMATION';
+/**
+ * What an analyst can post about an alert, and the one name each of the three carries.
+ *
+ * The third was called REQUEST_CONFIRMATION, which named something it has never done: it asks
+ * nobody for anything, it saves the notes and it takes no decision. The server accepts both
+ * spellings so the rename can reach the two desks in any order, but only ANNOTATE is on this
+ * list: the list is what a client may send, and leaving the old name here is what would let a
+ * screen go on sending it.
+ *
+ * This union is also the only declaration of the three tokens in this directory. The word list
+ * next door keys its buttons and its outcome sentences off this type instead of writing the set
+ * out a second time, because a closed set declared twice is a set that grows in one place: a
+ * fourth decision added to the wire and not to the labels compiles, and answers the analyst with
+ * the token.
+ *
+ * Rows written before the rename keep the old spelling in the database forever. Reading one back
+ * is the glossary's problem and it is handled there, in decisionLabel, which gives both spellings
+ * the same words.
+ */
+export type FraudDecision = 'APPROVE' | 'DECLINE' | 'ANNOTATE';
 
+/**
+ * The body of a decision: the verdict, the analyst's own comment on it, and one entry for the
+ * journal.
+ *
+ * TWO FIELDS LEFT THIS BODY and neither is coming back, which is worth stating here because both
+ * desks were filling them in.
+ *
+ * `tags` went because nothing on either platform could produce one. Both desks sent back the
+ * empty list they had just been read, one as `[]` and one as nothing at all, and the server read
+ * those two as opposite instructions, so one desk cleared the column on every decision and the
+ * other left it alone. See {@link AlertInfo.tags}, which is still read.
+ *
+ * `assignee` went because it has a route of its own, {@link takeAlert} and {@link releaseAlert}.
+ * Kept here it would be a second writer of one field with the opposite convention about a blank,
+ * and echoing back the assignee the desk had read is enough to resurrect an assignment a
+ * colleague cleared in the meantime.
+ *
+ * A THIRD FIELD LEFT AND ONE ARRIVED IN ITS PLACE, and the two are not the same field renamed.
+ * `notes` used to carry the whole of an alert's notes as one blob, so every press filed whatever
+ * was in the box, an emptied box included, over what a colleague had written. `note` carries ONE
+ * entry to append. Blank is the same as absent, which is what lets a screen send the field on every
+ * press without filing the same paragraph again. The server does not alias the old name: `notes`
+ * sent by an un-rebuilt desk is ignored rather than misread as an entry.
+ *
+ * `comment` is what the analyst wrote about THIS decision, and it rides with all three verdicts
+ * rather than belonging to the refusal. Nothing on a screen may call it the reason for declining,
+ * and nothing may call it the reason at all: the alert's `reason` is the bank's own sentence about
+ * the payment and this is a person's about the verdict. It was called `reason` here, which is how
+ * the two came to be printed as one line. The old key is still accepted by the server so the two
+ * desks can be rebuilt in either order; it is not offered here, because a name still on the list is
+ * a name a screen goes on sending.
+ */
 export interface FraudDecisionRequest {
     decision: FraudDecision;
-    reason?: string;
-    assignee?: string;
-    tags?: string[];
-    notes?: string;
+    comment?: string;
+    note?: string;
 }
 
 export interface AlertFilters {
@@ -114,7 +363,15 @@ export interface AlertFilters {
     excludeTransferStatus?: string[];
 }
 
-export async function fetchAlerts(filters: AlertFilters = {}): Promise<AlertQueueResponse> {
+/**
+ * The queue's query string, built once for the two routes that have to be asked the same question.
+ *
+ * The hidden list answers "which alerts is this filter keeping off the screen", which is only an
+ * answer while both requests carry the same filters. Two builders drifting by one parameter would
+ * make the two numbers stop adding up, and the collision they exist to explain would look like a
+ * miscount instead.
+ */
+function queueQuery(filters: AlertFilters, page: number, size: number): URLSearchParams {
     const params = new URLSearchParams();
 
     if (filters.state) params.set('state', filters.state);
@@ -128,11 +385,43 @@ export async function fetchAlerts(filters: AlertFilters = {}): Promise<AlertQueu
         params.append('excludeTransferStatus', status);
     }
 
-    const qs = params.toString();
-    const url = qs ? `${API_BASE}/fraud/alerts?${qs}` : `${API_BASE}/fraud/alerts`;
+    return applyPaging(params, page, size);
+}
 
-    const res = await apiFetch(url);
+export async function fetchAlerts(
+    filters: AlertFilters = {},
+    page = 0,
+    size = DEFAULT_PAGE_SIZE,
+): Promise<AlertQueueResponse> {
+    const qs = queueQuery(filters, page, size);
+    const res = await apiFetch(`${API_BASE}/fraud/alerts?${qs.toString()}`);
     return handle<AlertQueueResponse>(res);
+}
+
+/**
+ * The alerts the caller's own `excludeTransferStatus` is keeping off the queue, and only those.
+ *
+ * It exists for one sight the desk could not explain. With the state filter on Cleared and
+ * withdrawn payments hidden, the list answers nothing while the counters strip beside it still
+ * says Cleared 1, because the counters count the whole queue and the exclusion is applied to the
+ * rows. This route says where that one alert went, so the strip can be reconciled on screen
+ * instead of read as a miscount.
+ *
+ * Send it the filters the queue was sent. Excluding nothing is not an error and not the whole
+ * queue: it answers no rows and a total of zero, which is the truthful answer to "what is being
+ * hidden" when nothing is.
+ *
+ * A page rather than the queue's envelope, because there are no counters to send: they count the
+ * queue and are the number this list is being reconciled against.
+ */
+export async function fetchHiddenAlerts(
+    filters: AlertFilters = {},
+    page = 0,
+    size = DEFAULT_PAGE_SIZE,
+): Promise<Page<AlertQueueItem>> {
+    const qs = queueQuery(filters, page, size);
+    const res = await apiFetch(`${API_BASE}/fraud/alerts/hidden?${qs.toString()}`);
+    return handle<Page<AlertQueueItem>>(res);
 }
 
 export async function fetchAlertDetail(id: number): Promise<AlertDetail> {
@@ -140,6 +429,37 @@ export async function fetchAlertDetail(id: number): Promise<AlertDetail> {
     return handle<AlertDetail>(res);
 }
 
+/**
+ * The customer's payments as the desk reads them, a page at a time.
+ *
+ * The same rows as {@link AlertDetail.history} and a different promise. The detail carries at most
+ * ten of them and says nothing about how many there are; this counts the lot, so the panel can say
+ * which ten of how many it is showing and offer the rest. Scope is the alert's own: the customer
+ * behind it, every account they hold, newest first, and reachable through the alert and nothing
+ * else.
+ *
+ * A panel that pages through a history must read this rather than re-read the alert. Turning a
+ * page on the detail would make the server rebuild the alert, the payment, the account and the
+ * customer to answer a question about none of them.
+ */
+export async function fetchAlertHistory(
+    id: number,
+    page = 0,
+    size = DEFAULT_PAGE_SIZE,
+): Promise<Page<HistoryItem>> {
+    const qs = applyPaging(new URLSearchParams(), page, size);
+    const res = await apiFetch(`${API_BASE}/fraud/alerts/${id}/history?${qs.toString()}`);
+    return handle<Page<HistoryItem>>(res);
+}
+
+/**
+ * Records the verdict, and answers the whole alert back.
+ *
+ * The answer already carries the appended entry, so a panel that has just added a note must draw
+ * the journal out of this response rather than re-reading the alert. Re-reading is not only a
+ * second request: between the two of them a colleague can append, and the panel would then show a
+ * journal that does not match the result it is announcing.
+ */
 export async function postFraudDecision(
     id: number,
     payload: FraudDecisionRequest,
@@ -149,5 +469,33 @@ export async function postFraudDecision(
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
     });
+    return handle<AlertDetail>(res);
+}
+
+/**
+ * Takes the alert into the name of whoever is signed in.
+ *
+ * NO BODY, and that is the design rather than an omission: the only name this can write is the
+ * session's, the same rule the recorded verdict already follows, which is what makes a route open
+ * to every analyst safe to leave open. There is no directory of analysts in this application and
+ * therefore no way to hand work to a named colleague; what a desk offers is this control and a
+ * filter of mine against all.
+ *
+ * Answers the whole detail, exactly as a decision does, so the screen needs no second call to
+ * find out what it now holds.
+ */
+export async function takeAlert(id: number): Promise<AlertDetail> {
+    const res = await apiFetch(`${API_BASE}/fraud/alerts/${id}/assignment`, { method: 'POST' });
+    return handle<AlertDetail>(res);
+}
+
+/**
+ * Gives the alert back to the queue: the answering detail carries a null assignee.
+ *
+ * Any analyst may release any alert, including one held by somebody else. Deliberate at the
+ * server: an alert held by an analyst who has gone home must not be able to hold up the queue.
+ */
+export async function releaseAlert(id: number): Promise<AlertDetail> {
+    const res = await apiFetch(`${API_BASE}/fraud/alerts/${id}/assignment`, { method: 'DELETE' });
     return handle<AlertDetail>(res);
 }

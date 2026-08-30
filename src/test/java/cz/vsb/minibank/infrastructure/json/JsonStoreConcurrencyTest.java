@@ -249,12 +249,13 @@ class JsonStoreConcurrencyTest {
     private void seedAccount(Money balance, Money dailyLimit) {
         customerId = infra.customers.nextId();
         Customer customer = new Customer(
-                customerId, "Concurrency Probe", "probe@example.com", new Address("Hlavni 1", "Ostrava"));
+                customerId, "Concurrency Probe", "probe@example.com",
+                new Address("Hlavni 1", "Ostrava"), dailyLimit);
         infra.customers.save(customer);
 
         accountId = infra.accounts.nextId();
         infra.accounts.save(new Account(
-                accountId, new IBAN("CZ6508000000192000145399"), balance, dailyLimit));
+                accountId, new IBAN("CZ6508000000192000145399"), balance));
 
         customer.addAccountId(accountId);
         infra.customers.save(customer);

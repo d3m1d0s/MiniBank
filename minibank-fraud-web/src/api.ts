@@ -19,14 +19,60 @@ export {
     logoutSession,
 } from '@shared/http';
 
+import { API_BASE, apiFetch, handle } from '@shared/http';
+
+/*
+ * Who is signed in, described next door because the route is not the customer's.
+ *
+ * `GET /api/me` is not guarded by role, so both applications ask it about whoever is at the
+ * keyboard: the customer application to greet somebody by name rather than by the login they
+ * typed, and this window to name the analyst at the desk. The record is declared once in the
+ * shared directory for the usual reason, that a second declaration of a wire shape is how one
+ * platform comes to be reading a field the other has never heard of.
+ */
+export type { Me } from '@shared/customer';
+import type { Me } from '@shared/customer';
+
+/**
+ * The person behind the current session.
+ *
+ * An analyst has no customer record, so `name` comes back null for this window's own role and the
+ * title bar keeps the login. Asked anyway, and by the same route the customer application asks:
+ * the fact that the answer is presently empty for `fraud` is the server's to change, and a window
+ * that never asks would go on printing a login after it does.
+ */
+export async function fetchMe(): Promise<Me> {
+    const res = await apiFetch(`${API_BASE}/me`);
+    return handle<Me>(res);
+}
+
 export type { Money } from '@shared/money';
-export { formatMoney } from '@shared/money';
+/*
+ * The reader as well as the writer now. parseAmount used to be the customer application's alone,
+ * and this desk carried a second copy of it under the name readAmount because one application may
+ * not import another's src/: two parsers for the one convention that decides whether 1,000 is a
+ * thousand crowns or one. There is one, it is shared, and both amount boxes on this desk read
+ * exactly what the payment form reads.
+ */
+export { formatMoney, parseAmount } from '@shared/money';
+
+/*
+ * A page of a list as the API sends one, which is how the alert queue now arrives: the rows, the
+ * page and size that were asked for, and the total behind the filters.
+ */
+export type { Page } from '@shared/paging';
 
 export type {
     AlertQueueItem,
     AlertCounters,
     AlertQueueResponse,
     AlertInfo,
+    /*
+     * One entry of an alert's journal, which arrives inside the detail rather than on a route of
+     * its own. It is listed here because this window draws it, and the barrel is where this
+     * application says what it reads.
+     */
+    AlertNote,
     TransferInfo,
     HistoryItem,
     AlertDetail,
@@ -35,4 +81,19 @@ export type {
     AlertFilters,
 } from '@shared/fraud';
 
-export { fetchAlerts, fetchAlertDetail, postFraudDecision } from '@shared/fraud';
+/*
+ * Six calls where there were three. The three new ones are what the desk needed to stop
+ * contradicting itself: the hidden list reconciles the counters with a queue its own filter has
+ * emptied, the history route carries the page, the size and the total the alert detail never did,
+ * and the assignment pair is the only way a name can be written into the column this desk has
+ * always printed and filtered on.
+ */
+export {
+    fetchAlerts,
+    fetchAlertDetail,
+    fetchAlertHistory,
+    fetchHiddenAlerts,
+    postFraudDecision,
+    releaseAlert,
+    takeAlert,
+} from '@shared/fraud';

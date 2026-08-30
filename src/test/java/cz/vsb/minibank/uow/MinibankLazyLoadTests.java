@@ -45,7 +45,8 @@ public class MinibankLazyLoadTests {
                 customerId,
                 "Lazy User",
                 "lazy@example.com",
-                new Address("Street 1", "City")
+                new Address("Street 1", "City"),
+                Money.czk(5_000)
         );
         infra.customers.save(c);
 
@@ -54,8 +55,7 @@ public class MinibankLazyLoadTests {
         Account a = new Account(
                 accountId,
                 new IBAN("CZ6508000000192000145399"),
-                Money.czk(10_000),
-                Money.czk(5_000)
+                Money.czk(10_000)
         );
         infra.accounts.save(a);
 
@@ -234,8 +234,7 @@ public class MinibankLazyLoadTests {
         infra.accounts.save(new Account(
                 id,
                 new IBAN("CZ4308000000192000145407"),
-                Money.czk(2_000),
-                Money.czk(1_000)));
+                Money.czk(2_000)));
         return id;
     }
 

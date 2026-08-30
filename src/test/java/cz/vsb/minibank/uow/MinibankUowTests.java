@@ -30,11 +30,12 @@ public class MinibankUowTests {
 
         // initial data (outside UoW - can be saved directly)
         int cid = infra.customers.nextId();
-        Customer c = new Customer(cid, "Test User", "test@example.com", new Address("Street 1", "City"));
+        Customer c = new Customer(cid, "Test User", "test@example.com",
+                new Address("Street 1", "City"), Money.czk(5000));
         infra.customers.save(c);
 
         int accId = infra.accounts.nextId();
-        Account a = new Account(accId, new IBAN("CZ6508000000192000145399"), Money.czk(20000), Money.czk(5000));
+        Account a = new Account(accId, new IBAN("CZ6508000000192000145399"), Money.czk(20000));
         infra.accounts.save(a);
 
         c.addAccountId(accId);

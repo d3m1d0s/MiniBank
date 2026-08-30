@@ -1,11 +1,14 @@
 package cz.vsb.minibank.infrastructure.json;
 
 import cz.vsb.minibank.domain.Account;
+import cz.vsb.minibank.domain.Address;
+import cz.vsb.minibank.domain.Customer;
 import cz.vsb.minibank.domain.Transfer;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.json.dto.JsonAccount;
+import cz.vsb.minibank.infrastructure.json.dto.JsonCustomer;
 import cz.vsb.minibank.infrastructure.json.dto.JsonTransfer;
 import cz.vsb.minibank.infrastructure.json.mapping.JsonMapper;
 import org.junit.jupiter.api.Test;
@@ -35,15 +38,29 @@ class JsonMoneyRoundTripTest {
     // -------------------------------------------------------------------------
 
     @Test
-    void anAccountKeepsItsExactBalanceAndLimitsThroughTheRoundTrip() {
+    void anAccountKeepsItsExactBalanceThroughTheRoundTrip() {
         Account before = new Account(7, new IBAN(IBAN_VALUE),
-                Money.czk(new BigDecimal("12345.67")),
-                Money.czk(new BigDecimal("40000.00")),
-                Money.czk(new BigDecimal("3000.00")));
+                Money.czk(new BigDecimal("12345.67")));
 
         Account after = JsonMapper.toDomain(JsonMapper.toDto(before));
 
         assertEquals(before.balance(), after.balance());
+    }
+
+    /**
+     * The two limits, on the row that holds them now. They left the account when they became
+     * limits on a person, so this is where the round trip has to be asserted or nothing asserts
+     * it at all.
+     */
+    @Test
+    void aCustomerKeepsBothLimitsThroughTheRoundTrip() {
+        Customer before = new Customer(7, "Limit Owner", "limits@example.com",
+                new Address("Hlavni 1", "Ostrava"),
+                Money.czk(new BigDecimal("40000.00")),
+                Money.czk(new BigDecimal("3000.00")));
+
+        Customer after = JsonMapper.toDomain(JsonMapper.toDto(before));
+
         assertEquals(before.dailyLimit(), after.dailyLimit());
         assertEquals(before.softDailyThreshold(), after.softDailyThreshold());
     }
@@ -86,7 +103,6 @@ class JsonMoneyRoundTripTest {
         dto.id = 42;
         dto.iban = IBAN_VALUE;
         dto.balance = null;
-        dto.dailyLimit = new BigDecimal("40000.00");
 
         DataIntegrityException thrown =
                 assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(dto));
@@ -95,14 +111,14 @@ class JsonMoneyRoundTripTest {
     }
 
     @Test
-    void anAccountWithNoStoredDailyLimitIsRefused() {
-        JsonAccount dto = new JsonAccount();
-        dto.id = 43;
-        dto.iban = IBAN_VALUE;
-        dto.balance = new BigDecimal("100.00");
+    void aCustomerWithNoStoredDailyLimitIsRefused() {
+        JsonCustomer dto = customerRow(43);
         dto.dailyLimit = null;
 
-        assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(dto));
+        DataIntegrityException thrown =
+                assertThrows(DataIntegrityException.class, () -> JsonMapper.toDomain(dto));
+        assertTrue(thrown.getMessage().contains("43"), "the refusal must name the row");
+        assertTrue(thrown.getMessage().contains("dailyLimit"), "and the field that is missing");
     }
 
     /**
@@ -112,17 +128,24 @@ class JsonMoneyRoundTripTest {
      */
     @Test
     void anAbsentSoftThresholdIsAMeaningAndNotACorruptRow() {
-        JsonAccount dto = new JsonAccount();
-        dto.id = 44;
-        dto.iban = IBAN_VALUE;
-        dto.balance = new BigDecimal("100.00");
-        dto.dailyLimit = new BigDecimal("40000.00");
+        JsonCustomer dto = customerRow(44);
         dto.softDailyThreshold = null;
 
-        Account account = JsonMapper.toDomain(dto);
+        Customer customer = JsonMapper.toDomain(dto);
 
-        assertNull(account.softDailyThreshold(),
+        assertNull(customer.softDailyThreshold(),
                 "no override must stay no override, not become a zero tier");
+    }
+
+    /** A customer row with both limits filled in, for the tests that empty one of them. */
+    private static JsonCustomer customerRow(int id) {
+        JsonCustomer dto = new JsonCustomer();
+        dto.id = id;
+        dto.name = "Limit Owner";
+        dto.email = "limits@example.com";
+        dto.dailyLimit = new BigDecimal("40000.00");
+        dto.softDailyThreshold = new BigDecimal("3000.00");
+        return dto;
     }
 
     private static JsonTransfer row(int id, BigDecimal amount) {

@@ -68,7 +68,8 @@ class PaymentNetworkIntegrationTest {
                 customerId,
                 "Integration User",
                 "integration@example.com",
-                new Address("Street 1", "Test City")
+                new Address("Street 1", "Test City"),
+                Money.czk(10_000)
         );
         infra.customers.save(c);
 
@@ -76,8 +77,7 @@ class PaymentNetworkIntegrationTest {
         Account a = new Account(
                 accountId,
                 new IBAN("CZ6508000000192000145399"),
-                OPENING_BALANCE,
-                Money.czk(10_000)
+                OPENING_BALANCE
         );
         infra.accounts.save(a);
         c.addAccountId(accountId);

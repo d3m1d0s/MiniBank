@@ -14,6 +14,7 @@ import cz.vsb.minibank.domain.exceptions.ValidationException;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.repository.AccountRepository;
+import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
 import org.springframework.web.bind.annotation.*;
@@ -21,6 +22,7 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.*;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 import static cz.vsb.minibank.api.AuthHelpers.requireRole;
@@ -36,6 +38,7 @@ public class FraudController {
     private final FraudAlertRepository alerts;
     private final TransferRepository transfers;
     private final AccountRepository accounts;
+    private final CustomerRepository customers;
     private final FraudApplicationService fraudService;
     private final FeePolicy feePolicy;
 
@@ -52,12 +55,14 @@ public class FraudController {
     public FraudController(FraudAlertRepository alerts,
                            TransferRepository transfers,
                            AccountRepository accounts,
+                           CustomerRepository customers,
                            FraudApplicationService fraudService,
                            FeePolicy feePolicy,
                            UnitOfWorkFactory uowFactory) {
         this.alerts = alerts;
         this.transfers = transfers;
         this.accounts = accounts;
+        this.customers = customers;
         this.fraudService = fraudService;
         this.feePolicy = feePolicy;
         this.uowFactory = uowFactory;
@@ -91,7 +96,15 @@ public class FraudController {
              * job is not to lose evidence, "forgot to list it" must mean shown, not hidden.
              */
             @RequestParam(name = "excludeTransferStatus", required = false)
-            List<String> excludeTransferStatus
+            List<String> excludeTransferStatus,
+
+            /*
+             * Which page of the filtered queue, and how many rows it holds. Absent means the first
+             * page at PageDto.DEFAULT_SIZE, which is what a caller that has never heard of paging
+             * gets - and it is now a bounded answer rather than the whole store.
+             */
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size
     ) {
         requireRole(UserRole.FRAUD_ANALYST);
 
@@ -103,120 +116,212 @@ public class FraudController {
 
         // Parsed up here with the range check, so a filter the request got wrong is refused
         // before a connection is opened for it rather than after.
-        Instant fromTs = parseInstant(createdFrom);
-        Instant toTs = parseInstant(createdTo);
-        Set<TransferStatus> hidden = parseTransferStatuses(excludeTransferStatus);
+        FraudAlertRepository.QueueFilter filter = new FraudAlertRepository.QueueFilter(
+                parseState(state),
+                parseInstant(createdFrom),
+                parseInstant(createdTo),
+                assignee,
+                minAmount,
+                maxAmount,
+                parseTransferStatuses(excludeTransferStatus));
 
-        // One unit of work for the whole read, and the reason is the shape of the loop below:
-        // it asks for every alert and then for one transfer per alert. There is no connection
-        // pool in this project, so outside a unit of work each of those calls opened and tore
-        // down its own JDBC connection - N+1 of them to draw one screen. Inside one, they share
-        // a connection and the identity map answers the second request for the same transfer.
+        int pageIndex = requirePage(page);
+        int pageSize = requireSize(size);
+        int offset = requireReachableOffset(pageIndex, pageSize);
+
+        // One unit of work for the whole read. It is three statements now rather than N+1: the
+        // page, its total, and the counters. There is no connection pool in this project, so a
+        // repository call made outside a unit of work opens a JDBC connection and tears it down
+        // again, and the queue used to make one of those per alert - it asked for every alert and
+        // then for the payment behind each one. Inside one unit of work the three share a
+        // connection, and the identity map answers for an alert this transaction already holds.
         //
         // It buys connections and deduplication, not a consistent snapshot: nothing here sets an
         // isolation level, so at READ COMMITTED every statement still sees its own snapshot even
-        // inside a transaction. An alert decided while this loop runs can still appear with its
-        // old state.
+        // inside a transaction. The page and the counters beside it can therefore be a moment
+        // apart, which is what a queue an analyst is working through looks like anyway.
         //
         // On the JSON backend the unit of work holds the store lock for the whole read, so
-        // payments wait while a queue is drawn. Accepted: the loop is in memory and short, and
+        // payments wait while a queue is drawn. Accepted: the work is in memory and short, and
         // the alternative is the connection storm above on the backend that actually ships.
         try (UowScope scope = new UowScope(uowFactory.begin())) {
-            return buildQueue(state, minAmount, maxAmount, fromTs, toTs, assignee, hidden);
+            return buildQueue(filter, pageIndex, pageSize, offset);
         }
     }
 
     /**
      * Builds the queue. Called only from {@link #listAlerts}, inside its unit of work.
      */
-    private AlertQueueResponseDto buildQueue(String state,
-                                             BigDecimal minAmount,
-                                             BigDecimal maxAmount,
-                                             Instant fromTs,
-                                             Instant toTs,
-                                             String assignee,
-                                             Set<TransferStatus> hidden) {
-        List<FraudAlert> all = alerts.all();
+    private AlertQueueResponseDto buildQueue(FraudAlertRepository.QueueFilter filter,
+                                             int page,
+                                             int size,
+                                             int offset) {
 
-        FraudAlertState stateFilter = parseState(state);
+        List<FraudAlertRepository.QueueRow> rows = alerts.queuePage(filter, offset, size);
+        int total = alerts.queueTotal(filter);
 
-        String assigneeFilter = (assignee != null && !assignee.isBlank())
-                ? assignee.trim().toLowerCase(Locale.ROOT)
-                : null;
+        List<AlertQueueItemDto> items = rows.stream()
+                .map(FraudController::mapQueueItem)
+                .toList();
 
-        List<AlertQueueItemDto> items = new ArrayList<>();
+        // Over the whole queue rather than over the page or the filter, deliberately: these
+        // describe how much work exists, and the list beside them describes what is being looked
+        // at. Both desks say so now, because seven over a list of three reads as a contradiction
+        // until a screen names which number is which.
+        //
+        // Do not "fix" this to count the filtered list or the page. State is itself one of the
+        // filters and both desks open filtered to NEW, so two of the three would be permanently
+        // zero; and the reason an analyst watches them at all is to see SUSPICIOUS rise as they
+        // work, which neither a filtered nor a paged count can show.
+        Map<FraudAlertState, Integer> byState = alerts.countByState();
 
-        for (FraudAlert alert : all) {
-            if (stateFilter != null && alert.state() != stateFilter) {
-                continue;
-            }
+        AlertCountersDto counters = new AlertCountersDto(
+                byState.getOrDefault(FraudAlertState.NEW, 0),
+                byState.getOrDefault(FraudAlertState.SUSPICIOUS, 0),
+                byState.getOrDefault(FraudAlertState.OK, 0));
 
-            if (fromTs != null && alert.createdAt() != null && alert.createdAt().isBefore(fromTs)) {
-                continue;
-            }
+        return new AlertQueueResponseDto(new PageDto<>(items, page, size, total), counters);
+    }
 
-            if (toTs != null && alert.createdAt() != null && alert.createdAt().isAfter(toTs)) {
-                continue;
-            }
+    private static AlertQueueItemDto mapQueueItem(FraudAlertRepository.QueueRow row) {
+        FraudAlert alert = row.alert();
+        String createdAtStr = alert.createdAt() != null ? alert.createdAt().toString() : null;
 
-            if (assigneeFilter != null) {
-                String a = alert.assignee();
-                if (a == null || !a.toLowerCase(Locale.ROOT).contains(assigneeFilter)) {
-                    continue;
-                }
-            }
+        return new AlertQueueItemDto(
+                alert.id(),
+                "ALERT-%d".formatted(alert.id()),
+                "TR-%d".formatted(row.transferId()),
+                alert.state().name(),
+                // The payment's status and its amount came off the same row as the alert, which
+                // is what replaced a lookup per alert.
+                row.transferStatus().name(),
+                MoneyDto.of(row.amount()),
+                alert.reason(),
+                createdAtStr,
+                alert.riskScore(),
+                alert.assignee()
+        );
+    }
 
-            Optional<Transfer> optT = transfers.byId(alert.transferId());
-            if (optT.isEmpty()) {
-                continue;
-            }
+    /**
+     * The page index a request named, defaulting to the first.
+     *
+     * Refused rather than clamped when it is negative, for the reason every filter here is
+     * refused rather than ignored: a request nobody honoured must not answer 200 with a list that
+     * is not the one that was asked for.
+     */
+    private static int requirePage(Integer page) {
+        if (page == null) return 0;
+        if (page < 0) {
+            throw new ValidationException("page must not be negative: " + page);
+        }
+        return page;
+    }
 
-            Transfer t = optT.get();
+    /**
+     * The page size a request named, bounded at both ends.
+     *
+     * The ceiling is the point. An unbounded size re-opens the very thing paging exists to close,
+     * because "give me everything" would still be one request away.
+     */
+    private static int requireSize(Integer size) {
+        if (size == null) return PageDto.DEFAULT_SIZE;
+        if (size < 1 || size > PageDto.MAX_SIZE) {
+            throw new ValidationException(
+                    "size must be between 1 and " + PageDto.MAX_SIZE + ": " + size);
+        }
+        return size;
+    }
 
-            // Filtered on the transfer rather than on the alert, because that is where the fact
-            // lives. An alert whose payment was withdrawn is still the analyst's to decide - the
-            // verdict field is theirs and nothing here writes it - it is simply not urgent, and
-            // a queue that cannot hide it fills up with rows that have nothing left to decide.
-            if (hidden.contains(t.status())) {
-                continue;
-            }
+    /**
+     * How many rows to skip to reach the page that was asked for, refusing one that cannot be
+     * counted to.
+     *
+     * Widened before it is multiplied, because size is bounded above and page is bounded only by
+     * int: the product overflows, and an overflowed offset is a number the store would answer, so
+     * a page far past the end would come back holding rows. Refused with the other two rather than
+     * clamped, and refused here rather than inside the read, so nothing is opened for a request
+     * that cannot be served.
+     */
+    private static int requireReachableOffset(int page, int size) {
+        long offset = (long) page * size;
+        if (offset > Integer.MAX_VALUE) {
+            throw new ValidationException("page " + page + " is beyond any queue of size " + size);
+        }
+        return (int) offset;
+    }
 
-            BigDecimal amount = t.amount().amount();
-            if (minAmount != null && amount.compareTo(minAmount) < 0) continue;
-            if (maxAmount != null && amount.compareTo(maxAmount) > 0) continue;
+    /**
+     * The other half of the queue: the alerts the caller's own payment-status exclusion is
+     * keeping off their screen right now.
+     *
+     * WHY THIS EXISTS. One transfer status carries two meanings that read as opposites on a fraud
+     * desk. A payment the customer withdrew and a payment an analyst declined are both DECLINED,
+     * so a desk that hides withdrawn payments - which is the sensible default, since there is
+     * nothing left to decide on one - also hides every alert it has itself confirmed as fraud.
+     * The screen then contradicts itself in one glance: the counter above the list says Cleared 1
+     * while the list under it says no alerts, and nothing on the wire told it why. Both desks
+     * open in exactly that state.
+     *
+     * The queue's own rule is deliberately left alone. Hiding by payment status is right, the
+     * counters describing the whole queue are right, and neither is going to change to paper over
+     * a naming collision. What was missing is the number that reconciles them, and that is what
+     * this answers.
+     *
+     * HOW TO CALL IT: send the same query string the queue was sent, to this path instead. Every
+     * filter means what it means there, including {@code excludeTransferStatus}, which still
+     * names the statuses being hidden; this route returns those alerts and only those, so the two
+     * responses are the two halves of one filter and their totals add up to the filter without
+     * the exclusion. A caller that excluded nothing is hiding nothing and gets an empty page
+     * without the store being touched.
+     */
+    @GetMapping("/alerts/hidden")
+    public PageDto<AlertQueueItemDto> listHiddenAlerts(
+            @RequestParam(name = "state",       required = false) String state,
+            @RequestParam(name = "minAmount",   required = false) BigDecimal minAmount,
+            @RequestParam(name = "maxAmount",   required = false) BigDecimal maxAmount,
+            @RequestParam(name = "createdFrom", required = false) String createdFrom,
+            @RequestParam(name = "createdTo",   required = false) String createdTo,
+            @RequestParam(name = "assignee",    required = false) String assignee,
+            @RequestParam(name = "excludeTransferStatus", required = false)
+            List<String> excludeTransferStatus,
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size
+    ) {
+        requireRole(UserRole.FRAUD_ANALYST);
+        requireUsableAmountRange(minAmount, maxAmount);
 
-            String createdAtStr = alert.createdAt() != null ? alert.createdAt().toString() : null;
+        Set<TransferStatus> hidden = parseTransferStatuses(excludeTransferStatus);
 
-            items.add(new AlertQueueItemDto(
-                    alert.id(),
-                    "ALERT-%d".formatted(alert.id()),
-                    "TR-%d".formatted(t.id()),
-                    alert.state().name(),
-                    // From the Transfer already loaded above for its amount, so no extra lookup.
-                    t.status().name(),
-                    MoneyDto.of(t.amount()),
-                    alert.reason(),
-                    createdAtStr,
-                    alert.riskScore(),
-                    alert.assignee()
-            ));
+        int pageIndex = requirePage(page);
+        int pageSize = requireSize(size);
+        int offset = requireReachableOffset(pageIndex, pageSize);
+
+        if (hidden.isEmpty()) {
+            return new PageDto<>(List.of(), pageIndex, pageSize, 0);
         }
 
-        // Over `all` rather than over `items`, deliberately: these describe the whole queue, and
-        // the list beside them describes the filter. Both desks say so now, because seven over a
-        // list of three reads as a contradiction until a screen names which number is which.
-        //
-        // Do not "fix" this to count the filtered list. State is itself one of the filters and
-        // both desks open filtered to NEW, so two of the three would be permanently zero; and
-        // the reason an analyst watches them at all is to see SUSPICIOUS rise as they work,
-        // which a filtered count cannot show.
-        long newCount = all.stream().filter(a -> a.state() == FraudAlertState.NEW).count();
-        long suspiciousCount = all.stream().filter(a -> a.state() == FraudAlertState.SUSPICIOUS).count();
-        long okCount = all.stream().filter(a -> a.state() == FraudAlertState.OK).count();
+        // The queue's filter with its payment-status dimension turned inside out: excluding every
+        // status the caller did NOT exclude keeps exactly the rows their exclusion removed. It is
+        // expressed this way, rather than by adding an inclusion to QueueFilter, because the same
+        // predicate then serves both halves and the two cannot drift apart into answering about
+        // different sets.
+        FraudAlertRepository.QueueFilter filter = new FraudAlertRepository.QueueFilter(
+                parseState(state),
+                parseInstant(createdFrom),
+                parseInstant(createdTo),
+                assignee,
+                minAmount,
+                maxAmount,
+                EnumSet.complementOf(EnumSet.copyOf(hidden)));
 
-        AlertCountersDto counters = new AlertCountersDto(newCount, suspiciousCount, okCount);
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
+            List<AlertQueueItemDto> items = alerts.queuePage(filter, offset, pageSize).stream()
+                    .map(FraudController::mapQueueItem)
+                    .toList();
 
-        return new AlertQueueResponseDto(items, counters);
+            return new PageDto<>(items, pageIndex, pageSize, alerts.queueTotal(filter));
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -230,8 +335,10 @@ public class FraudController {
     public AlertDetailDto getAlert(@PathVariable("id") int id) {
         requireRole(UserRole.FRAUD_ANALYST);
 
-        // Four lookups that used to be four connections: the alert, its transfer, that
-        // transfer's account, and the account's whole history. Same reasoning as the queue.
+        // Six lookups that would otherwise be six connections: the alert, its transfer, that
+        // transfer's account, the customer who holds that account, every account that customer
+        // holds, and one page of the payments sent from them. Same reasoning as the queue - one
+        // unit of work rather than six, because there is no connection pool behind any of them.
         try (UowScope scope = new UowScope(uowFactory.begin())) {
             FraudAlert alert = alerts.byId(id)
                     .orElseThrow(() -> new NotFoundException("Fraud alert not found: " + id));
@@ -247,9 +354,81 @@ public class FraudController {
 
             AlertInfoDto alertDto = mapAlertInfo(alert);
             TransferInfoDto transferDto = mapTransferInfo(transfer, source);
-            List<HistoryItemDto> history = mapHistoryForAccount(source.id());
+            List<HistoryItemDto> history =
+                    mapHistoryForCustomer(source.id(), 0, DETAIL_HISTORY_ROWS, 0).items();
 
-            return new AlertDetailDto(alertDto, transferDto, history);
+            // The journal, read here and nowhere else. It is one statement for one alert, on the
+            // connection this read already holds, and it is deliberately absent from the queue:
+            // a page of thirty rows would otherwise be thirty more statements for a list no queue
+            // prints.
+            List<AlertNoteDto> notes = alerts.notesOf(id).stream()
+                    .map(FraudController::mapNote)
+                    .toList();
+
+            return new AlertDetailDto(alertDto, transferDto, history, notes);
+        }
+    }
+
+    private static AlertNoteDto mapNote(cz.vsb.minibank.domain.FraudAlertNote note) {
+        // writtenAt is required on the record, so this needs no ternary; author is legitimately
+        // absent on the entry carried over from the column the journal replaced.
+        return new AlertNoteDto(note.author(), note.writtenAt().toString(), note.text());
+    }
+
+    /**
+     * How many history rows travel inside the alert detail.
+     *
+     * Ten, which is what this response has always carried and what the panel heading on both
+     * desks promises. It is left at ten rather than raised to {@link PageDto#DEFAULT_SIZE},
+     * because the detail cannot say how many rows it left behind: its history is a bare list, so
+     * a screen reading it alone can never tell a customer with ten payments from one with two
+     * hundred. The route below is the one that answers that, and the one a panel with a
+     * "Showing 10 of 137" line under it should be reading.
+     */
+    private static final int DETAIL_HISTORY_ROWS = 10;
+
+    /**
+     * The same customer history, paged, counted, and asked for on its own.
+     *
+     * A route beside the detail rather than three more numbers inside it. The detail is one
+     * screenful of an alert and the history is a table underneath it that an analyst scrolls
+     * independently, so the two have different lifetimes: paging the table should not re-read the
+     * alert, the payment, the account and the customer behind it. It also keeps the shape the
+     * rest of this API pages with, {@link PageDto}, rather than inventing a fourth spelling of
+     * page, size and total for one panel.
+     *
+     * The scope, the order and the reach are {@link #mapHistoryForCustomer}'s and are stated
+     * there. Nothing here takes a customer or an account id: the customer is reached through the
+     * alert, so this route is exactly as narrow as the detail beside it.
+     */
+    @GetMapping("/alerts/{id}/history")
+    public PageDto<HistoryItemDto> getAlertHistory(
+            @PathVariable("id") int id,
+            @RequestParam(name = "page", required = false) Integer page,
+            @RequestParam(name = "size", required = false) Integer size
+    ) {
+        requireRole(UserRole.FRAUD_ANALYST);
+
+        // Refused before a connection is opened for it, like the queue's own paging parameters.
+        int pageIndex = requirePage(page);
+        int pageSize = requireSize(size);
+        int offset = requireReachableOffset(pageIndex, pageSize);
+
+        try (UowScope scope = new UowScope(uowFactory.begin())) {
+            FraudAlert alert = alerts.byId(id)
+                    .orElseThrow(() -> new NotFoundException("Fraud alert not found: " + id));
+
+            // Both references came from stored rows, not from the request, exactly as in getAlert.
+            Transfer transfer = transfers.byId(alert.transferId())
+                    .orElseThrow(() -> new DataIntegrityException(
+                            "Fraud alert " + id + " points at missing transfer " + alert.transferId()));
+
+            Account source = accounts.byId(transfer.sourceAccountId())
+                    .orElseThrow(() -> new DataIntegrityException(
+                            "Transfer " + transfer.id() + " points at missing account "
+                                    + transfer.sourceAccountId()));
+
+            return mapHistoryForCustomer(source.id(), pageIndex, pageSize, offset);
         }
     }
 
@@ -258,7 +437,12 @@ public class FraudController {
     // -------------------------------------------------------------------------
 
     /**
-     * Applies a decision to a fraud alert (approve, decline or request customer confirmation).
+     * Applies a decision to a fraud alert: APPROVE, DECLINE or ANNOTATE.
+     *
+     * The third is named here as the wire names it. It used to read "request customer
+     * confirmation", which is a promise nothing in this application keeps: no message is sent to
+     * anybody. See {@link FraudApplicationService#annotate}, which is the console's half of the
+     * same decision and now carries the same name.
      */
     @PostMapping("/alerts/{id}/decision")
     public AlertDetailDto decide(@PathVariable("id") int id,
@@ -268,19 +452,65 @@ public class FraudController {
         // From the session, never from the body. FraudDecisionRequest deliberately has no
         // analyst field, for the reason NewPaymentRequest has no customerId: a field the caller
         // can set is one line away from being trusted, and this one becomes an audit record.
-        // Not req.assignee() either - an assignee is who should look at an alert, decided_by is
-        // who did. requireRole above has already proved there is a signed-in user.
+        // An assignee is a different fact anyway - who should look at an alert, where decided_by
+        // is who did - and it has a route of its own below. requireRole above has already proved
+        // there is a signed-in user.
         String analyst = AuthHelpers.requireUser().username();
 
         fraudService.decideAndUpdateAlert(
                 id,
                 req.decision(),
-                req.reason(),
-                req.assignee(),
-                req.tags(),
-                req.notes(),
+                req.comment(),
+                req.note(),
                 analyst
         );
+
+        return getAlert(id);
+    }
+
+    // -------------------------------------------------------------------------
+    // Assignment
+    // -------------------------------------------------------------------------
+
+    /**
+     * Takes this alert into the signed-in analyst's name, and answers with the alert as it now
+     * stands so the screen needs no second call.
+     *
+     * No request body, and that is the design rather than an economy. The queue offers two
+     * operations, take it and give it back, and the assignee of the first is always the person
+     * asking: an analyst assigning work to a colleague is a different feature, with a directory
+     * of analysts behind it that this application does not have. Taking the name from the session
+     * is also what keeps the audit trail honest, exactly as {@link #decide} takes decided_by from
+     * the session and not from the payload.
+     *
+     * Until this route existed the assignee filter on both desks could never match anything:
+     * the column was on the wire, printed on both desks and filtered on, and nothing anywhere
+     * could write it.
+     */
+    @PostMapping("/alerts/{id}/assignment")
+    public AlertDetailDto takeAlert(@PathVariable("id") int id) {
+        requireRole(UserRole.FRAUD_ANALYST);
+
+        fraudService.assign(id, AuthHelpers.requireUser().username());
+
+        return getAlert(id);
+    }
+
+    /**
+     * Gives this alert back to the queue.
+     *
+     * DELETE on the same path rather than a POST carrying an empty assignee, because the two
+     * spellings of "no assignee" are exactly what the decision route could not tell apart: there,
+     * a blank meant leave it alone and there was no way left to say release it.
+     *
+     * Any analyst may release any alert, for the reason any analyst may take one: an alert held
+     * by somebody who has gone home must not be able to hold up the queue.
+     */
+    @DeleteMapping("/alerts/{id}/assignment")
+    public AlertDetailDto releaseAlert(@PathVariable("id") int id) {
+        requireRole(UserRole.FRAUD_ANALYST);
+
+        fraudService.assign(id, null);
 
         return getAlert(id);
     }
@@ -302,12 +532,12 @@ public class FraudController {
                 alert.decision(),
                 alert.decidedBy(),
                 resolvedAtStr,
+                alert.decisionComment(),
                 alert.reason(),
                 alert.riskScore(),
                 createdAtStr,
                 alert.assignee(),
-                tags,
-                alert.notes()
+                tags
         );
     }
 
@@ -319,9 +549,15 @@ public class FraudController {
         // charged last month whenever the FeePolicy bean was swapped.
         MoneyDto fee = MoneyDto.of(t.feeFor(feePolicy));
 
-        // Unguarded: a transfer always carries its creation instant. The authorization method
-        // beside it genuinely may be absent, which is why only one of these two is a ternary.
+        // Unguarded: a transfer always carries its creation instant. The three beside it
+        // genuinely may be absent, which is why only one of the four is not a ternary.
         String createdAtStr = t.createdAt().toString();
+
+        // When the money actually moved, and null while it has not. The instant above is when the
+        // payment was asked for, and on a desk whose whole list is held payments those two are
+        // days apart. The history rows in the same panel have carried both all along.
+        String settledAtStr = (t.settledAt() != null ? t.settledAt().toString() : null);
+
         String authMethod = (t.authMethod() != null ? t.authMethod().method() : null);
 
         return new TransferInfoDto(
@@ -331,45 +567,136 @@ public class FraudController {
                 fromIban,
                 MoneyDto.of(source.balance()),
                 t.targetIbanSnapshot(),
+                HistoryItemDto.isToIbanInBank(t, this::holdsIban),
+                dispatchStateOf(t),
                 MoneyDto.of(t.amount()),
                 fee,
                 createdAtStr,
+                settledAtStr,
+                // The other end of the payment, beside the one above. The alerted payment is
+                // often the refused one, and this panel could say the money never moved without
+                // being able to say when that was decided.
+                (t.declinedAt() != null ? t.declinedAt().toString() : null),
+                // The customer's own reference for this payment, or null when they gave none.
+                // Accepted on the creation form, counted against 140 characters and stored, and
+                // until now readable everywhere on this API except on the one panel that shows the
+                // payment an analyst is deciding about.
+                t.message(),
+                // Why the bank stopped it, or null while it might still go through. Read off the
+                // same transfer the history rows below this panel are read off, so the alerted
+                // payment and the payments under it now answer this question in one voice.
+                t.declineReason(),
                 authMethod
         );
     }
 
     /**
-     * Builds recent outgoing transfer history for the given account: newest first, at most ten.
+     * What this payment still owes the payment network, or null when it owes it nothing.
      *
-     * The sort used to compose a null rule and then reverse the whole comparator.
-     * {@code Comparator.reversed()} is {@code Collections.reverseOrder(this)}, which swaps the
-     * two arguments rather than negating the result, so it inverted the null placement along
-     * with the order: a null would have sorted *first* under a rule that says last, and taken a
-     * slot in the ten this panel shows. Reverse the key comparator inside if a null rule is ever
-     * wanted here again - never the composed one outside.
-     *
-     * It sorts on the raw value now, because a transfer cannot carry a null creation instant:
-     * {@code Transfer}'s constructor requires it, and the loader drops a null rather than
-     * storing one. That makes this the one form that is not null-safe, and deliberately so - a
-     * null here would mean the domain has been broken by an edit, and a fraud desk answering 500
-     * is better than one quietly reordering the evidence.
+     * The same one line AuthorizationController.dispatchStateOf answers for the customer's own
+     * detail screen, and stated the same way on purpose: this is the fact under one name on every
+     * record that carries it. Null is the common case and covers three situations, which
+     * {@link cz.vsb.minibank.domain.DispatchState} sets out, so it is not the opposite reading of
+     * a present value.
      */
-    private List<HistoryItemDto> mapHistoryForAccount(int accountId) {
-        List<Transfer> list = transfers.bySourceAccount(accountId);
+    private static String dispatchStateOf(Transfer t) {
+        return t.dispatchState() != null ? t.dispatchState().name() : null;
+    }
 
-        list.sort(Comparator.comparing(Transfer::createdAt).reversed());
+    /**
+     * Recent outgoing payments of the CUSTOMER behind the alert: every account they hold, newest
+     * first, one page at a time.
+     *
+     * THE SCOPE IS THE PERSON, NOT THE ACCOUNT, and that is the whole of this change. The question
+     * this list answers beside an alert is whether the payment is out of character, and character
+     * belongs to a customer. Keyed on the one account the alerted payment left, it hid the very
+     * move the desk exists to catch: an amount split across the payer's own accounts so that each
+     * part stays under a threshold, which the domain already models in SplitPaymentAlertTest.
+     *
+     * WHERE THE CUSTOMER COMES FROM decides how far this reaches, so it comes from one place only:
+     * the account loaded above from the alerted transfer. Nothing here takes a customer id, so the
+     * table is reachable only by opening an alert and only for that alert's customer, and no
+     * search across customers appears on this screen.
+     *
+     * The order and the limit are the query's now. It answers created_at descending with id
+     * descending behind it, which is totally ordered where the Comparator this method used to hold
+     * left same-instant payments undecided.
+     *
+     * THE TOTAL IS COUNTED IN THE STORE, over the same predicate the page is taken with, so the
+     * two can never describe different sets. It is what the hard ten this method used to end at
+     * could not give a screen: a table cut off at ten rows with no way to say how many there were
+     * reads as the whole of a customer's history, and it was most often not.
+     *
+     * @param page   the page index being served, echoed back in the response
+     * @param size   how many rows it holds
+     * @param offset how many to skip to reach it, already checked against overflow by the caller
+     */
+    private PageDto<HistoryItemDto> mapHistoryForCustomer(int alertedAccountId,
+                                                          int page,
+                                                          int size,
+                                                          int offset) {
+        int customerId = customers.byAccountId(alertedAccountId)
+                .orElseThrow(() -> new DataIntegrityException(
+                        "Account " + alertedAccountId + " belongs to no customer"))
+                .id();
 
-        return list.stream()
-                .limit(10)
+        List<Account> owned = accounts.byCustomerId(customerId);
+
+        Map<Integer, String> ibans = new HashMap<>();
+        List<Integer> ids = new ArrayList<>();
+        for (Account a : owned) {
+            ids.add(a.id());
+            ibans.put(a.id(), a.iban().value());
+        }
+
+        // One answer per distinct counterparty for the whole page. Only a payment that has not
+        // settled reaches the store at all, and the accounts a customer pays repeat, so this is
+        // what keeps ten rows from becoming ten lookups on the connection this read already shares.
+        Map<String, Boolean> holds = new HashMap<>();
+        Predicate<String> inBankNow = iban -> holds.computeIfAbsent(iban, this::holdsIban);
+
+        // An empty status set is the repository's word for every status, which is what a history
+        // means. See TransferRepository.bySourceAccountsNewestFirst.
+        List<HistoryItemDto> items = transfers.bySourceAccountsNewestFirst(ids, Set.of(), offset, size)
+                .stream()
                 .map(t -> new HistoryItemDto(
                         t.id(),
                         t.createdAt().toString(),
+                        // When the money actually moved, and null while it has not. The instant
+                        // beside it is when the payment was asked for, and on a desk full of held
+                        // payments those two are days apart.
+                        t.settledAt() != null ? t.settledAt().toString() : null,
+                        // The other end. On this desk it is the one that matters more often:
+                        // the queue is made of payments that were stopped, and until now a
+                        // stopped one printed no instant beyond the moment it was asked for.
+                        t.declinedAt() != null ? t.declinedAt().toString() : null,
                         MoneyDto.of(t.amount()),
+                        // feeFor and not fee(): what was taken where the payment settled, and what
+                        // this tariff would take where it has not. Held and waiting payments fill
+                        // most of this list, and fee() alone left every one of their rows without
+                        // a fee line at all. See HistoryItemDto, which states what that costs.
+                        MoneyDto.of(t.feeFor(feePolicy)),
                         t.status().name(),
+                        ibans.get(t.sourceAccountId()),
                         t.targetIbanSnapshot(),
+                        HistoryItemDto.isToIbanInBank(t, inBankNow),
+                        t.message(),
                         t.declineReason()
                 ))
                 .toList();
+
+        return new PageDto<>(items, page, size, transfers.countBySourceAccounts(ids, Set.of()));
+    }
+
+    /**
+     * Whether this bank holds the account behind an IBAN, in the form
+     * {@link HistoryItemDto#isToIbanInBank} asks for it.
+     *
+     * Wraps the one definition of the in-bank question rather than restating it: see
+     * AccountRepository.inBankByIban, which the settle path itself goes through.
+     */
+    private boolean holdsIban(String iban) {
+        return accounts.inBankByIban(iban).isPresent();
     }
 
     /**

@@ -23,8 +23,10 @@ describe('ranges that can be sent', () => {
         [{ minAmount: '0', maxAmount: '0' }, 'zero to zero'],
         [{ minAmount: '0.01', maxAmount: '0.02' }, 'hellers'],
     // The second element of each row is only there to name the case in the report. It has to be
-    // accepted as a parameter for the row to type-check, and the leading underscore is what
-    // keeps noUnusedParameters from objecting to accepting it.
+    // accepted as a parameter for the row to type-check, and the leading underscore is what keeps
+    // the two rules that count unused names quiet: noUnusedParameters, which exempts the prefix on
+    // its own, and @typescript-eslint/no-unused-vars, which does not and is given argsIgnorePattern
+    // in eslint.config.js for exactly this.
     ])('passes %o - %s', (filters, _case) => {
         expect(amountRangeProblem(filters, READABLE)).toBeNull();
     });

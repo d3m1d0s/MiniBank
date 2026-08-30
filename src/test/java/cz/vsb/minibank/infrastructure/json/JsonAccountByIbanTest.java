@@ -55,8 +55,7 @@ class JsonAccountByIbanTest {
     @Test
     void anAccountWrittenByTheApplicationIsFoundHoweverTheQueryIsSpelled() {
         Bootstrap writer = new Bootstrap(storePath().toString());
-        writer.accounts.save(new Account(ACCOUNT_ID, new IBAN(NORMALIZED),
-                Money.czk(5_000), Money.czk(10_000)));
+        writer.accounts.save(new Account(ACCOUNT_ID, new IBAN(NORMALIZED), Money.czk(5_000)));
 
         // A second Bootstrap over the same file, so this reads the row that reached the disk
         // rather than anything the writing instance still holds.
