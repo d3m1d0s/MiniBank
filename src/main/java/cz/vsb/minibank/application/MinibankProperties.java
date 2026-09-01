@@ -1,10 +1,15 @@
 package cz.vsb.minibank.application;
 
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 /**
  * Every configuration key the application reads, with its default.
  * <p>
  * The REST API resolves these through the Spring environment and the console entry
  * points read them as plain system properties, so one {@code -D} works for all of them.
+ * {@link #LOG_FILE} is the exception and says why on itself.
  * Keeping the names and the defaults in one place is what stops the two paths from
  * drifting apart, which is how two different vocabularies for the same database
  * connection came to exist.
@@ -51,7 +56,15 @@ public final class MinibankProperties {
     public static final String DEMO_ENABLED = "minibank.demo.enabled";
 
     public static final String SQL_URL = "minibank.sql.url";
-    public static final String SQL_URL_DEFAULT = "jdbc:postgresql://localhost:5432/minibank";
+
+    /**
+     * The port is 55432, the one docker-compose.yml publishes, so a clone that has configured
+     * nothing reaches the database this project ships with and no command has to carry the url.
+     * PostgreSQL's own 5432 is deliberately not the default here: on a developer's machine that
+     * port usually belongs to a server of their own, and a default that reaches it silently would
+     * point the application at somebody else's data.
+     */
+    public static final String SQL_URL_DEFAULT = "jdbc:postgresql://localhost:55432/minibank";
 
     public static final String SQL_USER = "minibank.sql.user";
     public static final String SQL_USER_DEFAULT = "minibank";
@@ -59,13 +72,46 @@ public final class MinibankProperties {
     public static final String SQL_PASSWORD = "minibank.sql.password";
     public static final String SQL_PASSWORD_DEFAULT = "minibank";
 
-    /** Destination of the application log; the test run redirects it into target/. */
+    /**
+     * Destination of the application log; the test run redirects it into target/.
+     * <p>
+     * The odd one out among these keys: {@link AppLogger} is reached from places that have no
+     * Spring environment to ask, so it reads this as a system property and nothing else. The API
+     * hands it the value its own environment resolved, which is what lets the key also be set in
+     * application.properties or in a variable there. Everywhere else, only {@code -D} steers it.
+     * <p>
+     * The default is inside {@code storage/}, beside the JSON store, rather than at the root of
+     * the project. Running the application in a clone used to drop a log file next to the pom,
+     * where the only thing keeping it out of a commit was a line in .gitignore; under
+     * {@code storage/} it lands in the directory the documents already call runtime state.
+     */
     public static final String LOG_FILE = "minibank.log.file";
-    public static final String LOG_FILE_DEFAULT = "minibank.log";
+    public static final String LOG_FILE_DEFAULT = "storage/minibank.log";
 
     private static final String LEGACY_SQL_URL = "minibank.jdbcUrl";
     private static final String LEGACY_SQL_USER = "minibank.dbUser";
     private static final String LEGACY_SQL_PASSWORD = "minibank.dbPass";
+
+    /**
+     * The names these keys used to have, mapped to the names that replaced them.
+     * <p>
+     * Published because the two entry paths meet an old name at different moments and answer it
+     * differently. The console reads these keys through {@link #readRenamed} below and refuses to
+     * start; the API resolves them through placeholders that never reach this class, so it
+     * recognises an old name at startup and warns. Both need the same list, and a list that
+     * existed twice would let one of them stop recognising a name the other still refuses.
+     * <p>
+     * Insertion ordered so the warnings come out in the order the keys are declared above.
+     */
+    public static final Map<String, String> RENAMED_KEYS = renamedKeys();
+
+    private static Map<String, String> renamedKeys() {
+        Map<String, String> renamed = new LinkedHashMap<>();
+        renamed.put(LEGACY_SQL_URL, SQL_URL);
+        renamed.put(LEGACY_SQL_USER, SQL_USER);
+        renamed.put(LEGACY_SQL_PASSWORD, SQL_PASSWORD);
+        return Collections.unmodifiableMap(renamed);
+    }
 
     private MinibankProperties() {
     }

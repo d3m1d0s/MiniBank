@@ -9,7 +9,6 @@ import cz.vsb.minibank.domain.repository.UserRepository;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
-import jakarta.annotation.PostConstruct;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 
@@ -21,8 +20,10 @@ import org.springframework.stereotype.Component;
  * be tried without setup. They are not secrets and must not be reused. Guarded
  * by the {@code demo} profile, which is active by default.
  * <p>
- * The scenario is injected rather than looked up so that Spring is forced to
- * build it before this bean's {@code @PostConstruct} runs.
+ * Constructing this bean writes nothing. {@link StartupSequence} calls
+ * {@link #seedDemoData()} once the context is ready, so a database that refuses
+ * the first write is reported as a seed that failed rather than as a bean that
+ * could not be built.
  */
 @Component
 @Profile(MinibankApiConfig.DEMO_PROFILE)
@@ -43,8 +44,7 @@ public class DemoUsersInitializer {
         this.scenario = scenario;
     }
 
-    @PostConstruct
-    void initDemoData() {
+    void seedDemoData() {
         int customerId = scenario.seed();
         ensureDemoUsers(customerId);
         AppLogger.warn("api", "Demo profile is active: logins "

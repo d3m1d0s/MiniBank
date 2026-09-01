@@ -1,0 +1,43 @@
+{
+  /* How the tests in this directory are type checked, which is not with the applications.
+
+     There is no node_modules here and none above it, so `vitest` and `node:fs` cannot be resolved
+     from a file in this directory by walking up from it. The application programs include this
+     whole directory, which is how eight test files came to stop both builds at once with the same
+     twenty-nine errors: the modules they import do not exist as far as an application is concerned.
+     The applications now leave the tests out and keep the rest, and the tests are checked here
+     instead, against the one vitest install the whole tree has.
+
+     Run from minibank-web, whose node_modules this points at:
+     npx tsc -p ../frontend-shared/tsconfig.tests.json */
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "skipLibCheck": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+
+    /* The same strictness the applications are held to, so a test cannot be written in a dialect
+       the code it tests would not compile in. */
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+
+    /* Both borrowed from the one install. `node` is here because two of these files read the
+       fixture bodies off disk, which is the whole point of wire.test.ts: it asserts against bytes
+       the server actually sent rather than against an object the test author wrote. */
+    "typeRoots": ["../minibank-web/node_modules/@types"],
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "vitest": ["../minibank-web/node_modules/vitest"]
+    }
+  },
+  "include": ["*.test.ts"]
+}

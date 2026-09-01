@@ -1,0 +1,29 @@
+{
+  "items": [
+    {
+      "id": 14,
+      "toIban": "CZ2108000000192000145415",
+      "amount": {
+        "amount": "16000.00",
+        "currency": "CZK"
+      },
+      "createdAt": "2026-08-29T20:20:50.290980Z",
+      "authMethod": "CARD",
+      "status": "WAITING_AUTH"
+    },
+    {
+      "id": 12,
+      "toIban": "CZ9608000000192000145423",
+      "amount": {
+        "amount": "12000.00",
+        "currency": "CZK"
+      },
+      "createdAt": "2026-08-29T20:20:50.290980Z",
+      "authMethod": "CARD",
+      "status": "HELD_FOR_REVIEW"
+    }
+  ],
+  "page": 0,
+  "size": 10,
+  "total": 2
+}

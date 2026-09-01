@@ -6,7 +6,8 @@ import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 import cz.vsb.minibank.domain.FeePolicy;
-import jakarta.annotation.PostConstruct;
+import cz.vsb.minibank.domain.RuleBasedRiskService;
+import cz.vsb.minibank.domain.SimpleFeePolicy;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -40,12 +41,14 @@ public class MinibankApiConfig {
             @Value("${" + MinibankProperties.SQL_USER + ":" + MinibankProperties.SQL_USER_DEFAULT + "}") String dbUser,
             @Value("${" + MinibankProperties.SQL_PASSWORD + ":" + MinibankProperties.SQL_PASSWORD_DEFAULT + "}") String dbPassword
     ) {
-        if ("sql".equalsIgnoreCase(storage) || "postgres".equalsIgnoreCase(storage) || "postgresql".equalsIgnoreCase(storage)) {
+        if (ApiStartupCheck.namesSql(storage)) {
             return new Bootstrap(jdbcUrl, dbUser, dbPassword);
         }
-        if ("json".equalsIgnoreCase(storage)) {
+        if (ApiStartupCheck.namesJson(storage)) {
             return new Bootstrap(jsonPath);
         }
+        // Reached only when this configuration is used without ApiStartupCheck, which turns the
+        // same value away with a message. Kept so the class is safe on its own.
         throw new IllegalArgumentException("Unsupported " + MinibankProperties.STORAGE + " value: " + storage);
     }
 
@@ -58,18 +61,53 @@ public class MinibankApiConfig {
      * anything may construct any number of times.
      */
     @Bean
-    public BootstrapServices bootstrapServices(Bootstrap infra) {
+    public BootstrapServices bootstrapServices(Bootstrap infra, OtpValidator otp) {
         infra.events.register(new TransferAuditLogObserver());
         infra.events.register(new FraudAlertAuditLogObserver());
 
+        // The long constructor rather than the short one, so the one time password validator is
+        // chosen here, where the profile can be read, instead of being fixed inside
+        // BootstrapServices. The other three are what the short constructor would have built.
         return new BootstrapServices(
                 infra.customers,
                 infra.accounts,
                 infra.transfers,
                 infra.alerts,
-                infra.uowFactory,
-                false
+                new SimpleFeePolicy(),
+                new RuleBasedRiskService(),
+                otp,
+                new FakePaymentNetworkGateway(),
+                infra.uowFactory
         );
+    }
+
+    /**
+     * The fixed constant, under the profile that admits to being a demonstration.
+     *
+     * It accepts two compile-time codes and verifies nothing, so what keeps it honest is that it
+     * cannot be reached without the profile whose startup line says out loud that the one time
+     * password is a constant.
+     */
+    @Bean
+    @Profile(DEMO_PROFILE)
+    public OtpValidator demoOtpValidator() {
+        return new FixedOtpValidator();
+    }
+
+    /**
+     * And without that profile, a validator that refuses everything.
+     *
+     * Announced at startup rather than left to be discovered by a customer at the confirmation
+     * step: this run has no way to authorize a payment, and that is a property of how it was
+     * started, not a mistake the customer made.
+     */
+    @Bean
+    @Profile("!" + DEMO_PROFILE)
+    public OtpValidator otpValidator() {
+        AppLogger.warn("api", "No one time password provider is configured, so payment"
+                + " authorization refuses every code. The " + DEMO_PROFILE + " profile supplies a"
+                + " fixed constant for local use.");
+        return new RefusingOtpValidator();
     }
 
     /**
@@ -90,45 +128,14 @@ public class MinibankApiConfig {
     }
 
     /**
-     * Runs the startup sweep, after the demo data is in place.
-     *
-     * The ordering is not left to bean-creation luck. {@code DemoUsersInitializer} seeds from its
-     * own {@code @PostConstruct}, and the seed commits a settled payment out of this bank, which
-     * is precisely one of the rows the sweep exists to find. Resolving the initializer here is
-     * what puts the two in order: a bean handed out of an {@link ObjectProvider} is fully
-     * initialized, so its seeding has finished before this method returns and therefore before the
-     * returned bean's own {@code @PostConstruct} runs. An {@code ObjectProvider} rather than a
-     * plain parameter or {@code @DependsOn} because the initializer only exists under the demo
-     * profile, and without it there is simply nothing to wait for.
+     * Seeds the demo data and hands the payment network what this bank owes it, both once the
+     * context is ready. {@link StartupSequence} carries why neither happens during bean
+     * construction any more, and why the seed goes first.
      */
     @Bean
-    public PaymentDispatchSweep paymentDispatchSweep(PaymentDispatcher dispatcher,
-                                                     ObjectProvider<DemoUsersInitializer> demoData) {
-        demoData.getIfAvailable();
-        return new PaymentDispatchSweep(dispatcher);
-    }
-
-    /**
-     * The startup hook itself, following {@code DemoUsersInitializer} rather than inventing a
-     * second pattern: this project has no {@code ApplicationRunner} anywhere and does not need its
-     * first one to hand a handful of payments over.
-     *
-     * Nested in the configuration that builds the dispatcher so that the hook and the wiring that
-     * orders it are read together. It carries no state and no logic of its own; everything it
-     * knows is in {@link PaymentDispatcher#sweepPending()}.
-     */
-    public static final class PaymentDispatchSweep {
-
-        private final PaymentDispatcher dispatcher;
-
-        PaymentDispatchSweep(PaymentDispatcher dispatcher) {
-            this.dispatcher = dispatcher;
-        }
-
-        @PostConstruct
-        void sweep() {
-            dispatcher.sweepPending();
-        }
+    public StartupSequence startupSequence(PaymentDispatcher dispatcher,
+                                           ObjectProvider<DemoUsersInitializer> demoData) {
+        return new StartupSequence(dispatcher, demoData);
     }
 
     @Bean

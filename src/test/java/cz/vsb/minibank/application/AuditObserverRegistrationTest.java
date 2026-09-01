@@ -57,7 +57,7 @@ public class AuditObserverRegistrationTest {
 
     @Test
     void theApiCompositionRootAttachesEachObserverOnce() {
-        new MinibankApiConfig().bootstrapServices(infra);
+        new MinibankApiConfig().bootstrapServices(infra, new RefusingOtpValidator());
 
         assertEquals(2, infra.events.observerCount(),
                 "the services bean must attach the transfer observer and the fraud observer, one"
@@ -72,7 +72,7 @@ public class AuditObserverRegistrationTest {
     @Test
     void theApiCompositionRootAttachesThePaymentDispatcherOnce() {
         MinibankApiConfig config = new MinibankApiConfig();
-        BootstrapServices services = config.bootstrapServices(infra);
+        BootstrapServices services = config.bootstrapServices(infra, new RefusingOtpValidator());
 
         config.paymentDispatcher(infra, services);
 

@@ -285,7 +285,13 @@ export type {
     AlertFilters,
 } from '@shared/fraud';
 
+// The two that are not calls. `decisionAllowed` is the rule behind the three buttons and
+// `buildDecisionRequest` is the body they send, and both were written out by hand on each desk:
+// the copies agreed, and nothing made them agree. They come through here with the calls they
+// belong to so the desk still reaches everything from './api'.
 export {
+    buildDecisionRequest,
+    decisionAllowed,
     fetchAlerts,
     fetchAlertDetail,
     fetchAlertHistory,

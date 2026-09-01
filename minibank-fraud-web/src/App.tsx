@@ -1,6 +1,10 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import Login from './Login';
 import FraudDesk from './FraudDesk';
+import NavRail from './NavRail';
+import NewPaymentScreen from './NewPaymentScreen';
+import HistoryScreen from './HistoryScreen';
+import WaitingAuthorizationsScreen from './WaitingAuthorizationsScreen';
 import { fetchMe, logoutSession, setSessionExpiredHandler, type Me } from './api';
 /*
  * The one import in this window that does not go through the api barrel next door, and the line is
@@ -12,17 +16,22 @@ import { restoreSession } from '@shared/http';
 /* The alert code, spelled the way the queue card and the detail panel spell it. */
 import {
     NO_SCREENS_TITLE,
+    SESSION_IDLE_NOTE,
     SIGNED_OUT_WITH_LOSS,
     SIGN_IN_AS_SOMEONE_ELSE,
     noScreensNote,
     servedRole,
     type NavRole,
+    type NavView,
 } from '@shared/navigation';
+import { roleLabel } from '@shared/glossary';
 import {
     allowedForRole,
+    goTo,
     homeRoute,
     parseHash,
     replaceRoute,
+    routeFor,
     subscribeToHash,
     type Route,
 } from '@shared/route';
@@ -94,16 +103,17 @@ export default function App() {
     const [me, setMe] = useState<Me | null>(null);
 
     /**
-     * Whose column the address is allowed to be corrected against, which in this window is one
-     * role and nobody else.
+     * Whose column the address is allowed to be corrected against.
      *
-     * The correction below reads the navigation column of the role it is given, and that column
-     * belongs to the product rather than to this application: handed CUSTOMER it would rewrite the
-     * address bar of the workstation to `#/payments/new`, an address this origin does not serve,
-     * over a panel that says so in words. Null corrects nothing and writes nothing, which is the
-     * honest answer for somebody standing at a window that has no screen for them.
+     * Both served roles now, where it used to be the analyst alone: this window drew one screen, so
+     * a customer's `#/payments/new` was an address this origin did not serve and correcting towards
+     * it would have sent somebody to nothing. It serves that address, so the column of the role
+     * signed in is the right thing to correct against, whichever of the two it is.
+     *
+     * Null corrects nothing and writes nothing, which is the honest answer for somebody standing at
+     * a window that has no screen for them.
      */
-    const routingRole: NavRole | null = auth?.role === 'FRAUD_ANALYST' ? auth.role : null;
+    const routingRole: NavRole | null = auth?.role ?? null;
 
     /**
      * The address bar, as something this window can render from.
@@ -121,14 +131,19 @@ export default function App() {
     const hash = useSyncExternalStore(subscribeToHash, readHash);
 
     /**
-     * Which alert the address bar is pointing at.
+     * Which screen the address bar is pointing at, and for the desk, which alert.
      *
-     * This window has one screen, so the address carries only the selection, and that is worth
-     * having on its own: `#/alerts/12` is an alert one analyst can send another to, and a
-     * selection kept in component state is one a reload throws away. An address this application
-     * does not serve leaves the desk with nothing selected, which is what the fallback says.
+     * `#/alerts/12` is an alert one analyst can send another, and a selection kept in component
+     * state is one a reload throws away. The customer screens carry no selection in the address
+     * today, exactly as they carry none in the customer application, so for them the address is the
+     * screen and nothing else.
+     *
+     * The fallback is the first screen of whoever is signed in rather than a screen named here: a
+     * customer with an empty address bar would otherwise be handed the desk for the one render
+     * before the correction below runs.
      */
-    const route: Route = parseHash(hash) ?? { kind: 'fraud-desk', id: null };
+    const route: Route =
+        parseHash(hash) ?? (routingRole ? homeRoute(routingRole) : { kind: 'fraud-desk', id: null });
 
     /**
      * The address corrected where it says something this role cannot have, which is the one thing
@@ -273,17 +288,19 @@ export default function App() {
         );
     }
 
-    if (auth.role !== 'FRAUD_ANALYST') {
+    if (!auth.role) {
         /*
-         * Two different truths, and one sentence cannot carry both. A customer has screens in
-         * MiniBank and simply not in this workstation yet; a role this client cannot name has
-         * none anywhere. Neither line prints the role constant: for a customer the fact is
-         * stated in prose, and for the other case the client has narrowed its type on purpose
-         * so that it has no name to print, and inventing one would promise screens that do not
-         * exist. The window is the sign-in window, because this person is at the door and not
-         * inside: a full working window put two short lines in the corner of 700px of white.
+         * One truth left here, and it is the narrow one: a role this client cannot name has no
+         * screens anywhere in the product. The other case this branch used to carry, a signed in
+         * customer at the analyst's workstation, has stopped being true: the customer screens are
+         * drawn below, so the sentence saying this window is for fraud analysts would now be a
+         * false statement about a window that serves them.
+         *
+         * The line prints no role constant. The client narrowed its type on purpose so that it has
+         * no name to print, and inventing one would promise screens that do not exist. The window
+         * is the sign-in window, because this person is at the door and not inside: a full working
+         * window put two short lines in the corner of 700px of white.
          */
-        const customer = auth.role === 'CUSTOMER';
         return (
             <div className="shell">
                 <div className="window window--login">
@@ -302,21 +319,12 @@ export default function App() {
                     <div className="content">
                         <main className="panel">
                             {/*
-                              * The second branch is both applications' sentence and is read from
-                              * the shared module. The first is this window's alone: a signed in
-                              * customer at the analyst's workstation has screens in MiniBank and
-                              * simply not here, which is not what the other branch says.
+                              * Both applications' sentence, read from the shared module: one
+                              * product tells a role it has no screens for in one set of words,
+                              * whichever window that person happened to open.
                               */}
-                            <h2 className="panel-title">
-                                {customer
-                                    ? 'This workstation is for fraud analysts'
-                                    : NO_SCREENS_TITLE}
-                            </h2>
-                            <p>
-                                {customer
-                                    ? `You are signed in as ${auth.username}, a customer account. Customer screens are not part of this workstation.`
-                                    : noScreensNote(auth.username)}
-                            </p>
+                            <h2 className="panel-title">{NO_SCREENS_TITLE}</h2>
+                            <p>{noScreensNote(auth.username)}</p>
                             {/*
                               * The only control on the screen, so it may be the primary, and it
                               * is on the panel rather than in the chrome: a title bar exit here
@@ -350,6 +358,17 @@ export default function App() {
     const signedInAs =
         me && me.username === auth.username && me.name ? me.name : auth.username;
 
+    if (auth.role === 'CUSTOMER') {
+        return (
+            <CustomerWindow
+                signedInAs={signedInAs}
+                role={auth.role}
+                route={route}
+                onLogout={handleSignOut}
+            />
+        );
+    }
+
     return (
         <FraudDesk
             username={auth.username}
@@ -364,5 +383,135 @@ export default function App() {
             selectedId={route.kind === 'fraud-desk' ? route.id : null}
             onLogout={handleSignOut}
         />
+    );
+}
+
+/**
+ * What each customer screen is called in the band across the top of the window.
+ *
+ * Three names and not four: the desk names itself, in the file that draws it. The words are the
+ * customer application's own screen headings, because one screen is called one thing on both
+ * platforms; the rail beside them reads the shared column, which calls the middle one History &
+ * Statements, and the difference is the owner's, not a drift.
+ */
+const SCREEN_TITLE: Record<'new-payment' | 'history' | 'waiting-auth', string> = {
+    'new-payment': 'New payment',
+    history: 'Payment history',
+    'waiting-auth': 'Waiting authorizations',
+};
+
+/**
+ * THE WORKING WINDOW A CUSTOMER GETS, and it is the same window the analyst gets.
+ *
+ * The four parts of the desk, in the same order and out of the same classes: the band the bank is
+ * printed on, the rail of screens, and the working region or regions beside it. Owner decision 5
+ * says it stays a window, so nothing here reaches for the customer application's page shell.
+ *
+ * The content takes one of two shapes and the screen decides which. A payment form and a ledger are
+ * read from top to bottom and take .content--page, a rail and one region. The waiting list is a
+ * working cycle and takes the reversed split, where the list is the wide track and the chosen
+ * payment the bounded one.
+ *
+ * THE PAYMENT FORM IS BUILT ONCE and hidden while the address points elsewhere, where the other two
+ * are built and thrown away with each move. It is the one screen holding something a person would
+ * be sorry to lose: the confirmation of a payment they have just made, which carries the transfer
+ * number, the fee and the new balance and is the only place any of that is written down, and a half
+ * typed payment beside it. Hidden with display and not with a flag on the component, because a
+ * parked screen has to leave the accessibility tree and the tab order as well as the sight line.
+ *
+ * What that costs, said here rather than discovered later: the balances in the account picker are
+ * the ones its own last request brought back, so a payment authorized on the waiting screen is not
+ * in them until the form fetches again. The figure a customer reads after a payment is the one on
+ * the confirmation, and the server sent that one with the payment.
+ */
+function CustomerWindow({
+    signedInAs,
+    role,
+    route,
+    onLogout,
+}: {
+    signedInAs: string;
+    role: NavRole;
+    route: Route;
+    onLogout: () => void;
+}) {
+    /**
+     * Whether the rail is folded to its handle. It outlives the screen for the reason the desk
+     * gives: it is a posture the person takes towards the window, not a property of what is in it.
+     */
+    const [navFolded, setNavFolded] = useState(false);
+
+    /*
+     * The screen, as one of the three this window draws for a customer. The address is corrected
+     * against the role's own column one component up, so a fourth kind reaches this only for the
+     * single render before that correction lands, and the form is the honest thing to draw in it:
+     * it is the screen the correction is on its way to.
+     */
+    const view: NavView = route.kind === 'fraud-desk' ? 'new-payment' : route.kind;
+    const split = view === 'waiting-auth';
+
+    /**
+     * A move somebody made in the rail, written into the address.
+     *
+     * The restriction is kept and it is not the only one: the shell corrects the same address when
+     * it is typed by hand. The two answer different questions, this one refusing a press and that
+     * one correcting an address already in the bar.
+     */
+    const handleNavigate = (next: NavView) => {
+        const target = routeFor(next);
+        if (!allowedForRole(role, target)) return;
+        goTo(target);
+    };
+
+    return (
+        <div className="shell">
+            <div className="window">
+                <header className="titlebar">
+                    {/*
+                      One product name, qualified by the screen and not by the role, and the mark in
+                      front of it: one lockup on the door, on the desk and here, or on none of them.
+                    */}
+                    <div className="title">
+                        <span className="brand">
+                            <span className="brand-mark" aria-hidden="true" />
+                            <h1 className="brand-name">MiniBank</h1>
+                        </span>
+                        <span className="title-screen">{SCREEN_TITLE[view]}</span>
+                    </div>
+                    <div className="titlebar-right" title={SESSION_IDLE_NOTE}>
+                        {/* The word for the role comes from the table both applications read.
+                            There is no second role map in this product, and a header that prints
+                            CUSTOMER or invents its own wording is how there comes to be one. */}
+                        <div className="user">{signedInAs} · {roleLabel(role)}</div>
+                        {/* The action paired with "Sign in" is "Sign out". One product, one verb. */}
+                        <button className="btn" onClick={onLogout}>Sign out</button>
+                    </div>
+                </header>
+
+                <div
+                    className={
+                        split
+                            ? 'content content--split content--split--list-led'
+                            : 'content content--page'
+                    }
+                >
+                    <NavRail
+                        role={role}
+                        current={view}
+                        folded={navFolded}
+                        onToggle={() => setNavFolded((folded) => !folded)}
+                        onNavigate={handleNavigate}
+                    />
+
+                    {/* Kept mounted at every address, and drawing nothing at three of them. A
+                        parked screen is display: none, so it claims no track of the grid beside
+                        it and the screen that is on gets the room the rail leaves. */}
+                    <NewPaymentScreen parked={view !== 'new-payment'} />
+
+                    {view === 'history' && <HistoryScreen />}
+                    {view === 'waiting-auth' && <WaitingAuthorizationsScreen />}
+                </div>
+            </div>
+        </div>
     );
 }

@@ -13,20 +13,45 @@ import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 
 /**
- * Simple application wide logger that writes to stderr and a text file minibank.log.
+ * Simple application wide logger that writes to stderr and to a text file, storage/minibank.log
+ * unless {@link MinibankProperties#LOG_FILE} names another one.
  */
 public final class AppLogger {
+
+    /**
+     * The destination an entry point resolved for itself, used when no system property names one.
+     *
+     * Only the REST API sets it, and only because it can read the key from places a system
+     * property cannot come from: its application.properties and the environment. Everything else
+     * here, the console entry points and the test harness included, arrives by {@code -D}.
+     */
+    private static volatile String configuredLogFile;
 
     private AppLogger() {
     }
 
     /**
+     * Points the log at {@code path}, or back at the system property and the default when it is
+     * null. Called once, at startup, before anything worth logging has happened.
+     */
+    public static void useLogFile(String path) {
+        configuredLogFile = path;
+    }
+
+    /**
      * Resolves the log file on every write so the destination can be redirected
      * at runtime, which also keeps tests off the working directory.
+     *
+     * The system property first, because that is the one an operator can put on the command line
+     * of any entry point, and it must not be overruled by a file one of them happens to read.
      */
     private static Path logFile() {
-        return Paths.get(System.getProperty(
-                MinibankProperties.LOG_FILE, MinibankProperties.LOG_FILE_DEFAULT));
+        String fromCommandLine = System.getProperty(MinibankProperties.LOG_FILE);
+        if (fromCommandLine != null) {
+            return Paths.get(fromCommandLine);
+        }
+        String configured = configuredLogFile;
+        return Paths.get(configured != null ? configured : MinibankProperties.LOG_FILE_DEFAULT);
     }
 
     /**
@@ -65,22 +90,32 @@ public final class AppLogger {
         System.err.print(base);
 
         // 2) log file
-        try (BufferedWriter out = Files.newBufferedWriter(
-                logFile(),
-                StandardOpenOption.CREATE,
-                StandardOpenOption.APPEND
-        )) {
-            out.write(base);
-            if (t != null) {
-                StringWriter sw = new StringWriter();
-                t.printStackTrace(new PrintWriter(sw));
-                out.write(sw.toString());
+        try {
+            // The destination is resolved inside the try, not above it: the configured value can
+            // be something that is not a path at all, and Paths.get then throws the unchecked
+            // InvalidPathException that the catch below is half written for.
+            Path destination = logFile();
+            // The default destination lives in a directory that is runtime state and so is absent
+            // from a fresh clone. Created here rather than at startup because nothing owns the
+            // moment before the first line: the logger is reached from entry points that build no
+            // store of their own.
+            Path directory = destination.getParent();
+            if (directory != null) {
+                Files.createDirectories(directory);
+            }
+            try (BufferedWriter out = Files.newBufferedWriter(
+                    destination,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.APPEND
+            )) {
+                out.write(base);
+                if (t != null) {
+                    StringWriter sw = new StringWriter();
+                    t.printStackTrace(new PrintWriter(sw));
+                    out.write(sw.toString());
+                }
             }
         } catch (IOException | RuntimeException e) {
-            // The unchecked half is what covers resolving the destination: logFile() is evaluated
-            // in the resource specification, which the language nests inside this try, and it
-            // throws InvalidPathException when the configured value cannot be a path at all.
-            // Hoisting that call above the try would put it back outside the catch.
             e.printStackTrace();
         }
     }

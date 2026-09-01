@@ -48,22 +48,30 @@ const NAV_UNFOLD_LABEL = 'Show the navigation';
  * column of the rail on the word. A single component that took all three as options would be a
  * component with one caller per option.
  *
- * Nothing in the list is a control, and that is a statement about this window rather than about
- * navigation. It serves one screen, so the one entry that is not planned is the screen the reader
- * is standing on: a button leading there is the tab stop that does nothing when pressed, which is
- * the fault the shared list was written to end. The day the customer screens arrive at this
- * workstation the entries that lead somewhere become buttons and this comment goes with them.
+ * WHETHER AN ENTRY IS A CONTROL DEPENDS ON WHO IS LOOKING, and that is what the optional handler
+ * says. A customer at this workstation is offered three screens and moves between them from here,
+ * so their entries are buttons. An analyst is offered one, and the one entry that is not planned is
+ * the screen they are standing on: a button leading there would be a tab stop that does nothing
+ * when pressed, which is the fault the shared list was written to end. The desk therefore passes no
+ * handler and its rail stays what it has always been, words.
+ *
+ * The current entry is a button too where there is a handler, exactly as the customer application
+ * draws it: the two platforms owe one role the same column, and the stylesheet excludes the current
+ * and the planned entry from hover and press by name so that neither answers like a live control.
  */
 export function NavRail({
     role,
     current,
     folded,
     onToggle,
+    onNavigate,
 }: {
     role: NavRole;
     current: NavView;
     folded: boolean;
     onToggle: () => void;
+    /** Absent where the window serves this role one screen. See the block above. */
+    onNavigate?: (view: NavView) => void;
 }) {
     const entries = NAV_ENTRIES[role];
 
@@ -141,7 +149,20 @@ export function NavRail({
             <ul id={NAV_FOLD_ID} hidden={folded}>
                 {entries.map((entry) => (
                     <li key={entry.id}>
-                        {entry.kind === 'screen' ? (
+                        {entry.kind === 'screen' && onNavigate ? (
+                            <button
+                                type="button"
+                                className={
+                                    entry.view === current
+                                        ? 'nav-item nav-item--current'
+                                        : 'nav-item'
+                                }
+                                aria-current={entry.view === current ? 'page' : undefined}
+                                onClick={() => onNavigate(entry.view)}
+                            >
+                                {entry.label}
+                            </button>
+                        ) : entry.kind === 'screen' ? (
                             <span
                                 className={
                                     entry.view === current
