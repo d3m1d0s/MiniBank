@@ -13,7 +13,9 @@ an analyst can investigate the alert, leave notes and approve or decline the tra
 **Stack:** Java 17, Spring Boot, REST, PostgreSQL, JDBC, React, TypeScript, Vite, Maven, Docker,
 JUnit 5, Mockito, Vitest and ESLint.
 
-<!-- Add screenshots here: customer dashboard, payment review and fraud analyst desk. -->
+![Customer creating a bank transfer](docs/screenshots/customer-new-payment.png)
+
+*Customer payment creation with beneficiary selection, real-time fee calculation and daily-limit tracking.*
 
 ## Highlights
 
@@ -23,6 +25,41 @@ JUnit 5, Mockito, Vitest and ESLint.
 - JSON and PostgreSQL persistence adapters behind the same application services.
 - Optimistic locking for accounts, transfers and fraud alerts to prevent lost updates.
 - Parameterized JDBC queries, transactional writes and automated backend/frontend tests.
+
+## Product walkthrough
+
+### OTP payment authorization
+
+![Customer authorizing a pending payment using a one-time password](docs/screenshots/customer-otp-authorization.png)
+
+*Pending transfers require OTP confirmation and expose retry limits, expiration time and fraud-review status.*
+
+### Fraud review
+
+![Fraud analyst reviewing a risk alert](docs/screenshots/fraud-alert-review.png)
+
+*Rule-based alerts enter a dedicated analyst queue with assignment, customer history, case notes and approve/decline decisions.*
+
+<details>
+<summary><strong>View the complete fraud investigation workflow</strong></summary>
+
+<br>
+
+<p align="center">
+  <img
+    src="docs/screenshots/fraud-more-details.png"
+    alt="Full fraud analyst workflow with alert details, customer history, case notes and decision form"
+    width="760"
+  >
+</p>
+
+<p align="center">
+  <em>Complete analyst workspace with alert facts, transaction history, case notes and the final decision form.</em>
+</p>
+
+</details>
+
+> All accounts, transactions and credentials shown above are synthetic demo data.
 
 ## Architecture
 
@@ -83,7 +120,7 @@ For PostgreSQL mode, both frontends, console applications and detailed configura
 - Java 17 or newer. The build holds the code to the Java 17 API, so a current JDK works too.
 - Maven 3.9 or newer
 - Docker, for PostgreSQL mode and for the SQL tests
-- Node 20 or newer, for either front end
+- Node 20.19+ or 22.12+; Node 24 is recommended and used in CI
 
 ## Running it
 
