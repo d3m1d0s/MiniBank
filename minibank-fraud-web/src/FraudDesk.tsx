@@ -681,16 +681,19 @@ export default function FraudDesk(props: {
      * is what the requests in flight are checked against: an alert already being fetched must not
      * be fetched a second time by the hashchange that a click of our own produced.
      */
-    useEffect(() => {
-        const wanted = props.selectedId;
+    /*
+     * The address and nothing else, and now it can be said rather than asserted. Both functions
+     * this calls are redeclared on every render, so naming either would run this on every keystroke
+     * in a filter box; wrapped as an effect event they are always the latest version and never a
+     * dependency, which leaves the array holding the one thing this effect actually watches.
+     */
+    const applyAddress = useEffectEvent((wanted: number | null) => {
         if (wanted === openAlert.current) return;
         if (wanted === null) closeDetail();
         else void openDetail(wanted);
-        // The address and nothing else. Both functions are redeclared on every render, so listing
-        // them would run this on every keystroke in a filter box; what it does is guarded by
-        // openAlert above rather than by the dependency list.
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [props.selectedId]);
+    });
+
+    useEffect(() => { applyAddress(props.selectedId); }, [props.selectedId]);
 
     async function reloadList(keepSelection = false) {
         // Checked before the request, and the server checks it again. This half exists to name
