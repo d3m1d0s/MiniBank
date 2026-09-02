@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { fetchMyTransfers, formatMoney, type HistoryItem, type Page } from './api';
 import ErrorBox from './ErrorBox';
 import TableFrame from './TableFrame';
@@ -224,20 +224,20 @@ export default function HistoryScreen() {
        the loader below is called from the effect and from the retry beside its own error box. */
     const alive = useRef(true);
 
-    useEffect(() => {
-        alive.current = true;
-        void loadFirst();
-        return () => {
-            alive.current = false;
-        };
-    }, []);
-
     /**
      * The first page, and the way back from a first page that failed. The retry is the same call
      * rather than a reload of the browser tab: the screen is reached from the rail, and pressing
      * the entry somebody is already standing on mounts nothing.
+     *
+     * useCallback with an empty list, and the list is empty because it is true rather than to
+     * silence anything: everything this closes over is stable across renders - the state setters,
+     * the ref, the page size and the fetch - so the function never has to be rebuilt. That is what
+     * lets the effect below name it and still run once, which is the whole point. Declared above
+     * the effect and not below it: a name in a dependency array is read while the component
+     * renders, and a const read before its own line is a ReferenceError rather than a hoisted
+     * function.
      */
-    async function loadFirst() {
+    const loadFirst = useCallback(async () => {
         try {
             setLoading(true);
             setError(null);
@@ -251,7 +251,15 @@ export default function HistoryScreen() {
         } finally {
             if (alive.current) setLoading(false);
         }
-    }
+    }, []);
+
+    useEffect(() => {
+        alive.current = true;
+        void loadFirst();
+        return () => {
+            alive.current = false;
+        };
+    }, [loadFirst]);
 
     /**
      * The next page, appended under the rows already on screen.

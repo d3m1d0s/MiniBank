@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
     createPayment,
     fetchMyBeneficiaries,
@@ -176,14 +176,6 @@ export default function NewPaymentScreen({ parked }: { parked: boolean }) {
      */
     const quoteToken = useRef(0);
 
-    useEffect(() => {
-        alive.current = true;
-        void loadAccounts();
-        void loadBeneficiaries();
-        return () => {
-            alive.current = false;
-        };
-    }, []);
 
     /**
      * The accounts, without which there is no form at all.
@@ -191,7 +183,13 @@ export default function NewPaymentScreen({ parked }: { parked: boolean }) {
      * Its failure is the one on this screen that leaves nothing to do, and it is a read that costs
      * nothing to ask twice, which is exactly the case a retry is for.
      */
-    async function loadAccounts() {
+    /*
+     * useCallback with an empty list, and the list is empty because it is true rather than to
+     * silence anything: everything this closes over is stable across renders - the state setters,
+     * the ref and the fetch - so the function never has to be rebuilt, and the effect below can
+     * name it and still run once.
+     */
+    const loadAccounts = useCallback(async () => {
         try {
             setLoadingAccounts(true);
             setAccountsError(null);
@@ -210,7 +208,7 @@ export default function NewPaymentScreen({ parked }: { parked: boolean }) {
         } finally {
             if (alive.current) setLoadingAccounts(false);
         }
-    }
+    }, []);
 
     /**
      * The address book, fetched beside the accounts and gating nothing.
@@ -218,7 +216,7 @@ export default function NewPaymentScreen({ parked }: { parked: boolean }) {
      * A slow list of payees must not delay a payment, so this has no loading line of its own: the
      * row simply is not there until the names arrive.
      */
-    async function loadBeneficiaries() {
+    const loadBeneficiaries = useCallback(async () => {
         try {
             const saved = await fetchMyBeneficiaries();
             if (!alive.current) return;
@@ -229,7 +227,18 @@ export default function NewPaymentScreen({ parked }: { parked: boolean }) {
             setBeneficiaries([]);
             setBeneficiariesFailed(true);
         }
-    }
+    }, []);
+
+    /* Declared after both loaders and not before them: a name in a dependency array is read while
+       the component renders, and a const read before its own line is a ReferenceError. */
+    useEffect(() => {
+        alive.current = true;
+        void loadAccounts();
+        void loadBeneficiaries();
+        return () => {
+            alive.current = false;
+        };
+    }, [loadAccounts, loadBeneficiaries]);
 
     /**
      * A name was chosen, or the choice was given up.

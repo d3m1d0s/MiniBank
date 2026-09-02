@@ -283,6 +283,23 @@ export default function WaitingAuthorizationsScreen() {
 
     useEffect(() => {
         void loadList();
+    /*
+     * THE ONE EFFECT IN THIS WINDOW THAT IS SILENCED RATHER THAN ANSWERED, and the difference from
+     * the other three is in what the loader reads.
+     *
+     * The history screen, the payment form and the desk all wrap their loader in useCallback and
+     * name it here, honestly: two of them close over nothing that changes between renders, and the
+     * desk's closes over exactly the pair its effect already watched. loadList is not like them. It
+     * reads items.length, to ask for a page as large as the list already on screen, and selectedId,
+     * to drop a selection that has left it. An honest useCallback would therefore be rebuilt on
+     * every change to either, and an effect naming it would re-read the whole list every time a
+     * customer picked a payment.
+     *
+     * Keeping it mount-only through a callback means reading those two through refs instead, which
+     * is a second copy of two pieces of state kept in step by hand for the sake of a lint rule. The
+     * array is empty because the effect is a mount, and that is said here rather than worked around.
+     */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     /* The deadline of the payment on screen, which is what the tick below is started for. */
