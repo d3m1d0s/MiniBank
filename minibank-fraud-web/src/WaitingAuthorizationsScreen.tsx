@@ -12,7 +12,6 @@ import {
     type WaitingTransferItem,
 } from './api';
 import ErrorBox from './ErrorBox';
-import TableFrame from './TableFrame';
 import { describeApiFailure, type ApiFailure } from '@shared/apiErrors';
 import {
     REFRESH,
@@ -45,21 +44,35 @@ import {
 } from '@shared/paging';
 
 /**
- * The six headings of the waiting list, named once because each of them is written twice.
+ * The name each fact carries on its card.
  *
- * A heading heads a column while the list is a table; below the width where the columns stop
- * fitting, the same list is drawn as a record per payment, and there the heading is the name
- * standing beside its own value. Two spellings of one heading would be a table saying `Auth` and a
- * record saying `Authorization`, on the same screen at two window widths.
+ * A card is not a table and has no heading row, so a value with no word in front of it is a value
+ * nobody has been told the meaning of. `Card` on its own beside a date says nothing; `Auth  Card`
+ * says what was asked. The analyst's cards go without names because an analyst reads that queue
+ * every day and knows the shape of a row by heart; a customer opens this screen when a payment is
+ * waiting, which is rarely, and the queue is a few payments rather than a page of them, so the
+ * names cost room this card has to spare.
+ *
+ * Four and not six. The code and the amount are on the card's first line and take no name, because
+ * a payment code and a sum of money say what they are, and because that line is what the eye lands
+ * on when it is choosing between cards.
  */
-const WAITING_COLUMN = {
-    id: 'ID',
+const WAITING_FACT = {
     toIban: 'Beneficiary IBAN',
-    amount: 'Amount',
     createdAt: 'Created',
     authMethod: 'Auth',
     status: 'Status',
 } as const;
+
+/**
+ * What the tray says when it is holding nothing, and why it is holding nothing.
+ *
+ * Both stand inside the tray rather than above it, which is the analyst's queue's rule and the
+ * reason it exists: a failure drawn over the list left the list underneath still saying there was
+ * nothing waiting, so one question got two answers and the second one was wrong.
+ */
+const LIST_LOADING = 'Loading waiting transfers…';
+const LIST_EMPTY = 'No waiting transfers.';
 
 /**
  * How many waiting payments arrive at a time.
@@ -600,115 +613,93 @@ export default function WaitingAuthorizationsScreen() {
                 </div>
 
                 {/*
-                  One statement where the list goes, and only one. The order is the order of the
-                  reader's questions: rows outrank everything, because a reload in flight must not
-                  blank a table somebody is reading; then whether a request is on its way; then, on
-                  an empty screen, why. A page that failed while rows are already up is a different
-                  statement and is drawn at the foot, beside the button that asked for it.
-                */}
-                {items.length === 0 && loadingList ? (
-                    <p className="helper-text">Loading waiting transfers…</p>
-                ) : items.length === 0 && listError ? (
-                    <ErrorBox failure={listError} />
-                ) : items.length === 0 ? (
-                    <p className="helper-text">No waiting transfers.</p>
-                ) : (
-                    <>
-                        <TableFrame label="Waiting transfers">
-                            <table className="table table--record">
-                                {/* scope on every heading. A six column table read out cell by cell
-                                    says nothing about which column a value is in unless each
-                                    heading claims one, and below the width where the columns give
-                                    way these same words become the label beside each fact. */}
-                                <thead>
-                                    <tr>
-                                        <th scope="col">{WAITING_COLUMN.id}</th>
-                                        <th scope="col">{WAITING_COLUMN.toIban}</th>
-                                        <th scope="col" className="cell--amount">
-                                            {WAITING_COLUMN.amount}
-                                        </th>
-                                        <th scope="col">{WAITING_COLUMN.createdAt}</th>
-                                        <th scope="col">{WAITING_COLUMN.authMethod}</th>
-                                        <th scope="col">{WAITING_COLUMN.status}</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {items.map((it) => (
-                                        /*
-                                          A control, and not a row that happens to answer a click.
-                                          A row cannot BE a button without ceasing to be a row, so
-                                          it is given what a button has: the tab stop, the role, the
-                                          pressed state the tint already shows in colour, and the
-                                          two keys a reader will try. Space is caught on keydown as
-                                          well, because the page scrolls on the default and the list
-                                          would jump out from under the selection.
-                                        */
-                                        <tr
-                                            key={it.id}
-                                            tabIndex={0}
-                                            role="button"
-                                            aria-pressed={selectedId === it.id}
-                                            onClick={() => void handleSelect(it.id)}
-                                            onKeyDown={(e) => {
-                                                if (e.key !== 'Enter' && e.key !== ' ') return;
-                                                e.preventDefault();
-                                                void handleSelect(it.id);
-                                            }}
-                                            className={
-                                                selectedId === it.id ? 'table-row--selected' : ''
-                                            }
-                                        >
-                                            {/* Every cell carries the name of its own column, for
-                                                the width at which the row is drawn as a record.
-                                                Three of the six are also marked for what they do
-                                                there: the payment and its amount open the record on
-                                                one line, and the state follows them, because those
-                                                are the three a customer picks a payment by. */}
-                                            <td data-label={WAITING_COLUMN.id} className="cell--lead">
-                                                {formatTransferId(it.id)}
-                                            </td>
-                                            <td data-label={WAITING_COLUMN.toIban}>
-                                                {formatIban(it.toIban)}
-                                            </td>
-                                            <td
-                                                data-label={WAITING_COLUMN.amount}
-                                                className="cell--amount"
-                                            >
-                                                {formatMoney(it.amount)}
-                                            </td>
-                                            <td data-label={WAITING_COLUMN.createdAt}>
-                                                {formatDateTime(it.createdAt)}
-                                            </td>
-                                            {/* The words and not a dash: a payment waiting for its
-                                                code has no auth method yet, which is a fact about
-                                                the payment rather than a value this table failed to
-                                                fetch. The shared helper answers for the field
-                                                wherever it is drawn. */}
-                                            <td data-label={WAITING_COLUMN.authMethod}>
-                                                {authMethodText(it.authMethod)}
-                                            </td>
-                                            {/* The treatment comes with the word: a payment the
-                                                bank is holding and one waiting for a code are two
-                                                different things to a customer looking for what to
-                                                do next. */}
-                                            <td
-                                                data-label={WAITING_COLUMN.status}
-                                                className="cell--state"
-                                            >
-                                                <span
-                                                    className={`tone-${transferStatusTone(
-                                                        it.status,
-                                                    )}`}
-                                                >
-                                                    {transferStatusLabel(it.status, 'customer')}
-                                                </span>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </TableFrame>
+                  THE SAME TRAY THE ANALYST'S QUEUE IS, and for the same reasons.
 
+                  A bordered box that scrolls inside itself, holding one card per payment. The
+                  window keeps its height and the queue moves within it, so the chosen payment and
+                  the controls that act on it never leave the screen because the list grew; a table
+                  did the opposite, pushing the whole screen down a row at a time.
+
+                  What is on a card is the customer's own question and nothing else. The desk's
+                  cards carry a risk score, an assignee and the sentence that raised the alert
+                  because triage turns on those; none of them is a fact about a payment somebody is
+                  waiting to confirm, and none of them appears here. What is here is what the table
+                  before it showed: which payment, where the money is going, how much, when it was
+                  asked for and how it will be authorized.
+
+                  EVERYTHING THE LIST HAS TO SAY IS INSIDE THE TRAY, which is the desk's rule and
+                  not a new one: the rows, the reason there are none, and the failure to fetch them
+                  are three answers to one question, and putting the failure above the tray left the
+                  tray underneath still saying there was nothing waiting. Nothing is said at all
+                  while a re-read runs under rows already on screen: those rows are the list as it
+                  last answered, and blanking them to print "Loading" is how a refresh loses
+                  somebody their place.
+                */}
+                <div className="list">
+                    {items.map((it) => (
+                        /*
+                          A button, which is what the desk's cards are. The row it replaces had to
+                          be given a tab stop, a role and two key handlers to behave like one; a
+                          button is one already. aria-pressed stays, because which payment is open
+                          is a fact a reader cannot take from the marker down the card's edge.
+                        */
+                        <button
+                            key={it.id}
+                            type="button"
+                            className={
+                                selectedId === it.id
+                                    ? 'list-item list-item--active'
+                                    : 'list-item'
+                            }
+                            aria-pressed={selectedId === it.id}
+                            onClick={() => void handleSelect(it.id)}
+                        >
+                            {/* The first line of the card: what the payment is called and what it
+                                is worth, pushed to the two edges so that the codes and the amounts
+                                form two columns down the whole tray. Neither takes a name. */}
+                            <div className="li-top">
+                                <div className="li-code">{formatTransferId(it.id)}</div>
+                                <div className="li-amount">{formatMoney(it.amount)}</div>
+                            </div>
+
+                            {/* The rest of the card, each fact beside its own word. One grid for
+                                the four of them, so the words make a column and the values make a
+                                column, and the eye can run down either. */}
+                            <div className="li-facts">
+                                {/* The treatment comes with the word: a payment the bank is
+                                    holding and one waiting for a code are two different things to
+                                    a customer looking for what to do next. */}
+                                <span className="li-fact-name">{WAITING_FACT.status}</span>
+                                <span className={`tone-${transferStatusTone(it.status)}`}>
+                                    {transferStatusLabel(it.status, 'customer')}
+                                </span>
+
+                                <span className="li-fact-name">{WAITING_FACT.toIban}</span>
+                                <span>{formatIban(it.toIban)}</span>
+
+                                <span className="li-fact-name">{WAITING_FACT.createdAt}</span>
+                                <span>{formatDateTime(it.createdAt)}</span>
+
+                                {/* The words and not a dash: a payment waiting for its code has no
+                                    auth method yet, which is a fact about the payment rather than a
+                                    value this screen failed to fetch. */}
+                                <span className="li-fact-name">{WAITING_FACT.authMethod}</span>
+                                <span>{authMethodText(it.authMethod)}</span>
+                            </div>
+                        </button>
+                    ))}
+
+                    {items.length > 0 ? null : listError ? (
+                        <ErrorBox failure={listError} />
+                    ) : (
+                        <div className="hint">
+                            {loadingList ? LIST_LOADING : LIST_EMPTY}
+                        </div>
+                    )}
+                </div>
+
+                {items.length > 0 && (
+                    <>
                         {/*
                           Paging decides nothing, so the control carries no shape of its own, the
                           same rank as Refresh above it. Removed rather than disabled once the whole
@@ -727,8 +718,8 @@ export default function WaitingAuthorizationsScreen() {
                                 </button>
                             )}
                             {/* The zone rides the same line as the count, both being facts about
-                                the table rather than about any row in it. The deadline in the pane
-                                beside it is the sharpest of the times a customer reads here:
+                                the list rather than about any payment in it. The deadline in the
+                                pane beside it is the sharpest of the times a customer reads here:
                                 against their own zone they can believe they have an hour they do
                                 not. */}
                             <span className="list-count">
@@ -739,7 +730,7 @@ export default function WaitingAuthorizationsScreen() {
 
                         {/* The page that did not arrive, under the rows that did. It is about the
                             request rather than about the list, which is why it stands here and not
-                            where the table is. */}
+                            in the tray. */}
                         {listError && <ErrorBox failure={listError} />}
                     </>
                 )}

@@ -516,17 +516,6 @@ tr[role="button"]:focus-visible {
   flex: 1 1 auto;
   min-width: 0;
   /*
-   * THE reading column, and the only ceiling left on a working screen. Every block inside it
-   * is as wide as this and no wider - the form, the notices, the detail boxes and the tables
-   * alike - which is what makes their right edges line up instead of a table running to the
-   * window while the block under it stops 1400px short.
-   *
-   * The full bleed parts are deliberately outside it: the page surface, the header bar and
-   * the navigation column are furniture and run to the edges of the window. Only what is
-   * read is bounded.
-   */
-  max-width: var(--size-content-max);
-  /*
    * And the panel is what its own contents are measured against. A screen asks how much room it
    * has, not how wide the window is: the same panel is 1080px in a 1440 window, about 920 when
    * the reader has doubled their text, and 326 on a phone, and the answers differ in all three.
@@ -534,6 +523,40 @@ tr[role="button"]:focus-visible {
    * is held away from its contents.
    */
   container: panel / inline-size;
+}
+
+/*
+ * THE READING COLUMN, ON WHAT IS READ RATHER THAN ON THE REGION IT IS READ IN.
+ *
+ * It used to be the panel's own ceiling, and the panel is the wrong thing to carry it: the panel is
+ * the region a screen is drawn on, so a capped panel answers a window with room to spare by leaving
+ * that room empty and standing in the corner of it. What stops being readable past a width is a
+ * line of text, and lines of text are in the blocks, so the blocks are where the measure goes.
+ * Their right edges still line up, which is the whole of what the ceiling was for. The full bleed
+ * parts stay outside it: the page surface, the header band and the navigation column are furniture
+ * and run to the edges of the window.
+ *
+ * TWO KINDS OF BLOCK ARE EXEMPT, and for the same reason: what they hold has no measure of its own
+ * to be held to. A table is columns, and five of them read better wide and give up columns when
+ * they are cramped; that exemption was already here, keyed on the frame rather than on a screen so
+ * that it reaches every table in the application at once. A prose box is the other, and it is the
+ * one this pair was written for: it is the only control with no content width at all, it is typed
+ * into rather than read, and it should end where the room ends. Measured before this, the comment
+ * and the note on the desk and the message on a payment all stopped at 1080 with the pane around
+ * them 1100 and the window 1900.
+ *
+ * Only the box grows. A block let out of the measure holds its other children at whatever width
+ * they have of their own - an amount field, a date, a button are all sized by what they hold - so
+ * exempting the form does not stretch the row of short fields above the message box.
+ */
+.form-panel > *,
+.form-panel .section {
+  max-width: var(--size-content-max);
+}
+
+.form-panel :has(.table-frame),
+.form-panel :has(.textarea) {
+  max-width: none;
 }
 
 /*
@@ -658,13 +681,6 @@ tr[role="button"]:focus-visible {
  * alert, the case notes and the customer's own history screen. The payment form carries no table
  * and is left at the measure, which is where a form belongs.
  */
-.form-panel:has(.table-frame) {
-  max-width: none;
-}
-
-.form-panel:has(.table-frame) .section:not(:has(.table-frame)) {
-  max-width: var(--size-content-max);
-}
 
 /*
  * ====== THE OTHER SCREEN'S SPLIT, WHICH IS THE SAME CYCLE WITH THE SIDES REVERSED ======

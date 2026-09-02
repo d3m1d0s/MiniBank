@@ -878,6 +878,39 @@ button.nav-item {
 .li-code { font-weight: var(--weight-bold); }
 .li-state { font-size: var(--text-1); line-height: var(--leading-dense); color: var(--color-text-muted); }
 
+/* The other half of the first line where a card leads with a sum: the figures are tabular so that
+   a column of amounts down the tray can be read against each other. */
+.li-amount { font-variant-numeric: tabular-nums; }
+
+/*
+ * THE FACTS OF A CARD, EACH BESIDE ITS OWN WORD.
+ *
+ * The alert cards above go without names and are right to: an analyst reads that queue daily and
+ * knows a row by its shape. A card a customer meets a few times a year is a different reader, and a
+ * value with no word in front of it is a value nobody has been told the meaning of - `Card` on its
+ * own beside a date says nothing, where `Auth  Card` says what was asked. This is the naming the
+ * list had as a table and kept when the table was drawn as a record per payment; what changed is
+ * the box around it, not what a customer is told.
+ *
+ * One grid for the whole block rather than a row each, so the words make a column and the values
+ * make a column and the eye can run down either. max-content on the first track sizes it to the
+ * longest word present rather than to a number chosen here, so a name added or reworded moves the
+ * column by itself.
+ */
+.li-facts {
+    margin-top: var(--space-3);
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    column-gap: var(--space-5);
+    row-gap: var(--space-2);
+    font-size: var(--text-2);
+    line-height: var(--leading-dense);
+    /* The account numbers and the instants are read down the tray against one another. */
+    font-variant-numeric: tabular-nums;
+}
+
+.li-fact-name { color: var(--color-text-muted); }
+
 /*
  * A card is read down, so the nine fields of a queue entry land in four lines rather than in the
  * nine columns the web gives them. This line carries the two numbers, and it is split rather than
