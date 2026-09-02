@@ -13,6 +13,7 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -42,6 +43,9 @@ class AppLoggerTest {
         } else {
             System.setProperty(MinibankProperties.LOG_FILE, previousLogFile);
         }
+        // The resolved destination is process-wide and is normally set once at startup, so a test
+        // that sets it has to put it back or the rest of the suite writes wherever it pointed.
+        AppLogger.useLogFile(null);
     }
 
     @Test
@@ -105,6 +109,43 @@ class AppLoggerTest {
                 "Log should contain exception message");
     }
 
+    /**
+     * The default destination is inside the directory the project already treats as runtime
+     * state, and is not a file at the root of the repository.
+     *
+     * Running the application in a clone used to leave minibank.log beside the pom, where the
+     * only thing keeping it out of a commit was a line in .gitignore. Read off the constant
+     * rather than exercised: a test that took the default would have to write the file, which is
+     * exactly what this says must not happen in the working tree.
+     */
+    @Test
+    void theDefaultDestinationIsNotTheRepositoryRoot() {
+        Path directory = Paths.get(MinibankProperties.LOG_FILE_DEFAULT).getParent();
+
+        assertNotNull(directory, "the default log destination names no directory: "
+                + MinibankProperties.LOG_FILE_DEFAULT);
+        assertEquals(Paths.get(MinibankProperties.JSON_PATH_DEFAULT).getParent(), directory,
+                "and it is the directory the rest of the runtime state already lives in");
+    }
+
+    /**
+     * A destination whose directory does not exist yet is created rather than losing the line.
+     *
+     * This is what the default asks for on a fresh clone: storage/ is runtime state, so nothing
+     * has made it before the first line is logged, and in SQL mode no store ever will.
+     */
+    @Test
+    void aDestinationInsideAMissingDirectoryIsStillWritten() throws IOException {
+        Path inAMissingDirectory = tempDir.resolve("not-created-yet").resolve("minibank.log");
+        System.setProperty(MinibankProperties.LOG_FILE, inAMissingDirectory.toString());
+
+        AppLogger.info("test.category", "Hello from a directory that did not exist");
+
+        assertTrue(Files.exists(inAMissingDirectory), "the log file should have been created");
+        assertTrue(Files.readString(inAMissingDirectory)
+                .contains("Hello from a directory that did not exist"));
+    }
+
     @Test
     void survivesALogFileThatCannotBeAPath() {
         // The embedded NUL is what makes this value unusable: Windows rejects every control
@@ -128,5 +169,51 @@ class AppLoggerTest {
                 "The line should still reach stderr when the file cannot be opened");
         assertTrue(stderr.contains("InvalidPathException"),
                 "The broken configuration should be reported on stderr, not swallowed");
+    }
+
+    // -------------------------------------------------------------------------
+    // Where the destination is allowed to come from
+    // -------------------------------------------------------------------------
+
+    /**
+     * The REST API resolves this key the way it resolves every other one, through its own
+     * environment, and hands the answer over here. That is what lets minibank.log.file be set in
+     * application.properties or in a variable, which the documents have always claimed and which
+     * a system property alone cannot do.
+     *
+     * The console entry points have no such environment, so they keep arriving by {@code -D} and
+     * this stays empty for them.
+     */
+    @Test
+    void aDestinationResolvedByTheApiIsUsedWhenNoSystemPropertyNamesOne() throws IOException {
+        System.clearProperty(MinibankProperties.LOG_FILE);
+        Path resolved = tempDir.resolve("from-the-environment.log");
+
+        AppLogger.useLogFile(resolved.toString());
+        AppLogger.info("test.category", "Hello from the environment");
+
+        assertTrue(Files.exists(resolved), "the resolved destination should have been written to");
+        assertTrue(Files.readString(resolved).contains("Hello from the environment"));
+    }
+
+    /**
+     * And the command line still wins.
+     *
+     * It is the one place an operator can steer any entry point from, including the ones that
+     * never read a file, so a value the API happened to read out of its own configuration must not
+     * overrule it. This is the case that decides which of the two is a default and which is an
+     * override.
+     */
+    @Test
+    void theCommandLineWinsOverWhatTheApiResolved() throws IOException {
+        Path fromTheEnvironment = tempDir.resolve("from-the-environment.log");
+        System.setProperty(MinibankProperties.LOG_FILE, logPath.toString());
+
+        AppLogger.useLogFile(fromTheEnvironment.toString());
+        AppLogger.info("test.category", "Hello from the command line");
+
+        assertFalse(Files.exists(fromTheEnvironment),
+                "-D must not be overruled by a file one entry point happens to read");
+        assertTrue(Files.readString(logPath).contains("Hello from the command line"));
     }
 }

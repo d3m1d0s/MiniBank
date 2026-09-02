@@ -18,11 +18,24 @@ import java.util.Locale;
  * applies the schema to both, so no manual step is needed. Against a PostgreSQL of your
  * own, create it and apply {@code db/init/schema.sql} by hand. Without it the whole class
  * reports as skipped rather than failing.
+ * <p>
+ * There is no default address, and that is the point. A default meant an unconfigured
+ * {@code mvn test} went looking for a server on 5432, which on a developer's machine is
+ * where a PostgreSQL of their own usually is, and these tests TRUNCATE whatever answers.
+ * An address nobody typed is the one address this must never be pointed at, so an absent
+ * {@link #URL} skips the database tests and the skip message names the key.
  */
 final class TestDatabase {
 
     static final String URL = "minibank.test.sql.url";
-    static final String URL_DEFAULT = "jdbc:postgresql://localhost:5432/minibank_test";
+
+    /**
+     * What to point the tests at, an example and not a default: it appears only in the two
+     * messages that ask for an address and never in the code that reads one. Same server and same
+     * published port as the application's own default; the database name is the whole difference
+     * between them, and the name is the only part the guard below reads.
+     */
+    static final String URL_EXAMPLE = "jdbc:postgresql://localhost:55432/minibank_test";
 
     static final String USER = "minibank.test.sql.user";
     static final String USER_DEFAULT = "minibank";
@@ -37,8 +50,13 @@ final class TestDatabase {
     private TestDatabase() {
     }
 
+    /** The configured address, or null when there is none and the tests must skip. */
     static String url() {
-        return System.getProperty(URL, URL_DEFAULT);
+        return System.getProperty(URL);
+    }
+
+    static boolean isConfigured() {
+        return url() != null;
     }
 
     static String user() {
@@ -57,8 +75,14 @@ final class TestDatabase {
      * True when a connection can be opened. Anything else means the tests are skipped, so
      * the reason is deliberately not distinguished: a missing server, a missing database
      * and a wrong password all mean the same thing to a developer without one.
+     * <p>
+     * An unconfigured run never opens anything: there is nowhere to open it to, and guessing
+     * is what this class exists to stop.
      */
     static boolean isReachable() {
+        if (!isConfigured()) {
+            return false;
+        }
         int previousTimeout = DriverManager.getLoginTimeout();
         DriverManager.setLoginTimeout(PROBE_TIMEOUT_SECONDS);
         try (Connection ignored = connect()) {
@@ -70,7 +94,17 @@ final class TestDatabase {
         }
     }
 
+    /**
+     * Why the database tests are being skipped, in the words of whichever of the two reasons
+     * applies. An unconfigured run is the common one and the only one that is nobody's mistake,
+     * so it names the key and shows the value to give it rather than describing an absence.
+     */
     static String unreachableMessage() {
+        if (!isConfigured()) {
+            return "The SQL tests need a database of their own and none was named, so they are"
+                    + " skipped. Start the one this project ships with (docker compose up -d) and"
+                    + " run: mvn -B test -D" + URL + "=" + URL_EXAMPLE;
+        }
         return "No PostgreSQL test database at " + url() + ". Create it and apply db/init/schema.sql,"
                 + " or point the tests elsewhere with -D" + URL + "=...";
     }
@@ -79,8 +113,15 @@ final class TestDatabase {
      * The tests truncate everything they can reach, so running them against the database the
      * application is configured to use would destroy real data, including the demo logins
      * that {@code CASCADE} reaches through the foreign key on {@code users}.
+     * <p>
+     * An unconfigured run passes here and is stopped by {@link #isReachable()} instead. It is not
+     * pointed at anything, so there is nothing to compare and nothing to destroy; refusing it
+     * would turn a skip into a failed build on every clone that has no database.
      */
     static void requireSeparateFromApplicationDatabase() {
+        if (!isConfigured()) {
+            return;
+        }
         String testUrl = url();
         String applicationUrl = MinibankProperties.sqlUrl();
         if (mayBeTheSameDatabase(testUrl, applicationUrl)) {
@@ -89,7 +130,7 @@ final class TestDatabase {
                             + ", which cannot be told apart from the application database ("
                             + MinibankProperties.SQL_URL + " = " + applicationUrl + "). Point -D"
                             + URL + " at a database with a name of its own, such as "
-                            + URL_DEFAULT + ".");
+                            + URL_EXAMPLE + ".");
         }
     }
 
@@ -104,10 +145,10 @@ final class TestDatabase {
      * difference in case. Comparing host, port and name together reads as the stricter check
      * but is weaker exactly where this is used, because the application side of the comparison
      * is usually not the application's real url: the command line that starts the tests sets only
-     * the test keys, so {@link MinibankProperties#SQL_URL} falls back to the compile-time default
-     * on port 5432 while the documented compose setup publishes the server on 55432. Against that
-     * default a triple comparison calls {@code jdbc:postgresql://localhost:55432/minibank}
-     * separate and truncates the application database, which is the accident this guard exists for.
+     * the test keys, so {@link MinibankProperties#SQL_URL} falls back to its compile-time default.
+     * Every spelling of that one address other than the literal string it holds then reads as a
+     * different host or a different port, so a triple comparison calls the application database
+     * separate and truncates it, which is the accident this guard exists for.
      * <p>
      * The name carries it alone, then. Within a cluster the name is the database's identity, so
      * two urls naming different databases are never one database; and a database called

@@ -17,6 +17,11 @@ import {
 } from './api';
 import { formatMoney, readerLocale } from './money';
 import { parseAmount } from '@shared/money';
+import {
+    checkPaymentForm,
+    type PaymentField,
+    type PaymentProblems,
+} from '@shared/paymentForm';
 import ErrorBox from './ErrorBox';
 import { describeApiFailure, type ApiFailure } from '@shared/apiErrors';
 import { authorizationNote, transferStatusLabel, transferStatusTone } from '@shared/glossary';
@@ -59,27 +64,25 @@ type Stage =
     | { kind: 'form' }
     | { kind: 'review'; payload: NewPaymentRequest; amountCzech: string };
 
-/**
- * The three boxes this form can refuse on its own, named so that a refusal can be put in one.
+/*
+ * The three boxes this form can refuse on its own are named in @shared/paymentForm, together with
+ * the checks and the sentences, because the workstation's form asks the same three questions and
+ * asked them in its own copy of the same block.
  *
- * A refusal used to be a sentence in the box at the foot of the form, 441px under the first
- * control it was about and identical in shape to an answer from the bank. Nothing was asked of
- * the bank in these three cases, and the field that has to change is the one thing the sentence
- * knows: it belongs at that field, and the box keeps what it is for, which is what the bank said.
+ * What stays here is where a refusal is drawn: a sentence used to sit in the box at the foot of
+ * the form, 441px under the first control it was about and identical in shape to an answer from
+ * the bank. Nothing was asked of the bank in these three cases, and the field that has to change
+ * is the one thing the sentence knows, so it belongs at that field.
  */
-type FieldKey = 'source' | 'target' | 'amount';
-
-/** Every field problem this form found on the last press, and never only the first of them. */
-type FieldErrors = Partial<Record<FieldKey, string>>;
 
 /** The box a refusal is drawn under, and the sentence the box points at with aria-describedby. */
-const FIELD_ID: Record<FieldKey, string> = {
+const FIELD_ID: Record<PaymentField, string> = {
     source: 'payment-source',
     target: 'payment-target',
     amount: 'payment-amount',
 };
 
-function errorId(field: FieldKey): string {
+function errorId(field: PaymentField): string {
     return `${FIELD_ID[field]}-error`;
 }
 
@@ -144,7 +147,7 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
      * time. A box mends its own entry as soon as it is typed into, so nothing here outlives what
      * it is about.
      */
-    const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+    const [fieldErrors, setFieldErrors] = useState<PaymentProblems>({});
 
     /* The caret goes to the first box that has to change, which is also what reads the label and
        the sentence to anybody who is listening rather than looking. */
@@ -154,7 +157,7 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
 
     /* The same object back where there was nothing to clear, so typing in a box that was never
        refused does not put this screen through a render for it. */
-    function clearFieldError(field: FieldKey) {
+    function clearFieldError(field: PaymentField) {
         setFieldErrors((prev) => {
             if (prev[field] == null) return prev;
             const next = { ...prev };
@@ -374,57 +377,54 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
     /**
      * Everything that can be decided without asking the bank, and then a stop.
      *
-     * The three checks are the form's own and they say what they said before. What changed is that
-     * all three are run and the decision is taken after them, and that each answer is put at the
-     * box it is about rather than in one sentence at the foot of the form. What follows them is
-     * unchanged: the payload is built and put on screen to be read rather than posted, and the two
-     * things the blur used to do are done here, because the path that gets here need never have
-     * blurred anything.
+     * The three checks are not written here any more. They are checkPaymentForm, because the
+     * workstation's form carried the same block character for character, the three sentences
+     * included, and two copies of one rule agree only on the day they are written. What this
+     * function keeps is everything that is about this screen: which box the caret goes to, what
+     * is drawn under each one, and what happens once nothing is wrong.
+     *
+     * All three checks run and the decision is taken after them. The form used to stop at the
+     * first thing it found, so a customer with no account chosen and an unreadable amount fixed
+     * one, pressed again, and was refused for the other.
+     *
+     * What follows them is unchanged: the payload is built and put on screen to be read rather
+     * than posted, and the two things the blur used to do are done here, because the path that
+     * gets here need never have blurred anything.
      */
     function handleReviewClick() {
         setInfo({ type: 'none' });
 
-        const found: FieldErrors = {};
+        const check = checkPaymentForm(
+            {
+                selectedAccountId,
+                amount,
+                beneficiaryId,
+                targetIban,
+                hasSavedBeneficiaries: beneficiaries.length > 0,
+            },
+            readerLocale(),
+        );
 
-        // The source account.
-        if (selectedAccountId == null) {
-            found.source = 'Choose the account this payment leaves.';
-        }
-
-        // The amount. The parser's reason is shown as given: it names what is wrong with this
-        // string, which one generic "invalid amount" cannot, and the amounts people get wrong are
-        // the ones where the difference between two readings is a factor of a thousand.
-        const parsed = parseAmount(amount, readerLocale());
-        if (!parsed.ok) {
-            found.amount = parsed.reason;
-        }
-
-        // The destination, skipped explicitly rather than by luck when a saved payee names it
-        // instead. The two are never both sent: the server refuses a request that names both, and
-        // a request that named both would be this form having lost track of which destination the
-        // customer meant.
-        if (beneficiaryId == null && !targetIban.trim()) {
-            found.target = beneficiaries.length > 0
-                ? 'Enter the account number this payment goes to, or choose a saved beneficiary.'
-                : 'Enter the account number this payment goes to.';
-        }
-
-        setFieldErrors(found);
-        // The same three conditions again rather than a look at what was collected, and this is
-        // the reason: written against `found` the compiler learns nothing from the return, and
-        // the account id and the parsed amount below would both have to be asserted back into
-        // existence. Read this way, what the checks proved is what the rest of the function has.
-        if (selectedAccountId == null || !parsed.ok || found.target != null) {
-            // In the order the boxes stand in, so the caret lands in the first one a reader
-            // coming down the form would have reached.
-            const first = found.source
+        setFieldErrors(check.problems);
+        if (check.first != null) {
+            // The caret goes to the box the check named, which is the first one a reader coming
+            // down the form would have reached and not the first check that ran.
+            const box = check.first === 'source'
                 ? sourceBox
-                : found.target
+                : check.first === 'target'
                     ? targetBox
                     : amountBox;
-            first.current?.focus();
+            box.current?.focus();
             return;
         }
+
+        // The two conditions again rather than a look at what came back, and this is the reason:
+        // `check.first` being null proves nothing to the compiler, and the account id and the
+        // parsed amount below would both have to be asserted back into existence. Asked this way,
+        // what the checks found is what the rest of the function has. `check.first` is what the
+        // customer is answered with; this pair is what the types need, and they cannot disagree.
+        const parsed = check.amount;
+        if (selectedAccountId == null || !parsed.ok) return;
 
         const amountValue = parsed.value;
 

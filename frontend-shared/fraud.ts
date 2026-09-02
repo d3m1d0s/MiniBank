@@ -453,6 +453,69 @@ export async function fetchAlertHistory(
 }
 
 /**
+ * Whether this verdict may be taken at all, given the alert in front of the analyst.
+ *
+ * Written twice before this, once per desk, as three `disabled=` expressions each. The two copies
+ * happened to agree; nothing made them agree, and each of the three rules is a rule about money.
+ *
+ * APPROVE releases a held payment, so it is offered on an alert nobody has decided and on no
+ * other: pressed on a decided alert the server refuses it, and the refusal arrives as the general
+ * validation sentence, which does not say that somebody else got there first.
+ *
+ * DECLINE is refused on SUSPICIOUS because that state is already the recorded fraud, and it is
+ * refused on an empty comment because the comment is the sentence the customer is shown. There is
+ * no second chance to write it: the press cannot be taken back.
+ *
+ * ANNOTATE takes no verdict and changes no payment, so there is no state it is wrong in.
+ *
+ * The screen's own busy flag is deliberately not a parameter. A request in flight is not a fact
+ * about the alert, it is a fact about the screen, and folding the two together would let a slow
+ * network read as a decision already taken.
+ *
+ * @param comment the decision comment box as typed, trimmed here rather than by the caller
+ */
+export function decisionAllowed(
+    kind: FraudDecision,
+    alert: { state: string },
+    comment: string,
+): boolean {
+    switch (kind) {
+        case 'APPROVE':
+            return alert.state === 'NEW';
+        case 'DECLINE':
+            return alert.state !== 'SUSPICIOUS' && comment.trim() !== '';
+        case 'ANNOTATE':
+            return true;
+    }
+}
+
+/**
+ * Builds the body of a decision out of the two boxes on the desk.
+ *
+ * The point of it is the absent key. Both optional fields mean "leave what is there alone" when
+ * they are missing, and an empty string is not the same instruction: `note` writes an entry into
+ * the journal, so a blank one would file an empty paragraph on every press, and a blank `comment`
+ * would overwrite the sentence a colleague wrote about the verdict with nothing. Both desks got
+ * this right by writing `|| undefined`, which leaves the key present holding undefined and relies
+ * on JSON.stringify dropping it on the way out. That works, and it means the object a test can
+ * inspect and the bytes the server reads are two different things. Here the key is not set.
+ *
+ * The verdict itself is never omitted and is never trimmed: it is a token, not typing.
+ */
+export function buildDecisionRequest(
+    decision: FraudDecision,
+    comment: string,
+    note: string,
+): FraudDecisionRequest {
+    const body: FraudDecisionRequest = { decision };
+    const writtenComment = comment.trim();
+    if (writtenComment !== '') body.comment = writtenComment;
+    const writtenNote = note.trim();
+    if (writtenNote !== '') body.note = writtenNote;
+    return body;
+}
+
+/**
  * Records the verdict, and answers the whole alert back.
  *
  * The answer already carries the appended entry, so a panel that has just added a note must draw

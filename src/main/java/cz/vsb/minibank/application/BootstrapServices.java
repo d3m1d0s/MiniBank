@@ -76,6 +76,14 @@ public class BootstrapServices {
     }
 
     /**
+     * The demo defaults, and the one time password among them.
+     *
+     * {@link FixedOtpValidator} accepts two published constants, so what this constructor builds
+     * is a demonstration and nothing else. The three callers left on it are the console entry
+     * points and the demo runner, all of which exist to be demonstrated. The REST API does not
+     * use it: {@code MinibankApiConfig} passes a validator chosen by profile through the long
+     * constructor below, and outside the demo profile that validator refuses every code.
+     *
      * @param clock supplies "now" for transfer creation and for the banking-day totals. The
      *              only reason to pass anything but the system clock is a test that has to
      *              place payments on two different days without waiting for one to pass.

@@ -111,8 +111,11 @@ export const NAV_ENTRIES: Record<NavRole, readonly NavEntry[]> = {
     ],
     FRAUD_ANALYST: [
         { kind: 'planned', id: 'dashboard', label: 'Dashboard', title: PLANNED_TITLE },
-        { kind: 'planned', id: 'settings', label: 'Settings', title: PLANNED_TITLE },
+        // The desk before the settings, which is the order the customer's column already reads in:
+        // the place the work happens, then the place the account is configured. Settings sat above
+        // it and put the one screen this role has third of three.
         { kind: 'screen', id: 'fraud-desk', label: 'Fraud desk', view: 'fraud-desk' },
+        { kind: 'planned', id: 'settings', label: 'Settings', title: PLANNED_TITLE },
     ],
 };
 

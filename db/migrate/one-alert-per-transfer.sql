@@ -30,7 +30,15 @@ BEGIN
     ALTER TABLE fraud_alerts
         ADD CONSTRAINT fraud_alerts_one_per_transfer UNIQUE (transfer_id);
 EXCEPTION
-    WHEN duplicate_object THEN NULL;
+    -- Two codes, because there are two ways this constraint can already be there and they do
+    -- not report the same one. duplicate_object is a second run of this script against a
+    -- database that got the constraint from it. duplicate_table is a database built from
+    -- db/init/schema.sql, which creates the same constraint under the same name: a UNIQUE
+    -- constraint is backed by an index that carries its name, and PostgreSQL fails on the index
+    -- name first, with "relation fraud_alerts_one_per_transfer already exists", before it ever
+    -- compares constraint names. Only duplicate_object was caught, so scripts/migrate.sh died
+    -- here on every database that had not been built by these scripts in order.
+    WHEN duplicate_object OR duplicate_table THEN NULL;
 END $$;
 
 DROP INDEX IF EXISTS idx_fraud_alerts_transfer;

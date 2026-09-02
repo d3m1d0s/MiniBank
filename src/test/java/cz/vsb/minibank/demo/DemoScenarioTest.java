@@ -10,7 +10,12 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -174,6 +179,58 @@ class DemoScenarioTest {
         Instant oldest = settled.stream().map(Transfer::createdAt).min(Instant::compareTo).orElseThrow();
         assertTrue(oldest.isBefore(Instant.now().minus(Duration.ofDays(7))),
                 "The history must reach back beyond a week");
+    }
+
+    /**
+     * Each settled payment is dated the seeding date less its own number of days, at whatever hour
+     * of the day the seed is run.
+     *
+     * The test above cannot say this. It compares the rows with each other, so it only notices the
+     * defect while the clock is in the window that produces it: the hour used to be subtracted
+     * along with the days, which slid a row onto the day before whenever it exceeded the hour the
+     * seed ran at, and a suite started after 11:00 UTC saw a fortnight with the shape it was
+     * supposed to have. This restates the offsets, which is the price of an assertion that means
+     * the same thing at every hour, and in exchange it fails at any hour under the arithmetic that
+     * shipped rather than only in the morning.
+     */
+    @Test
+    void everySettledPaymentIsDatedItsOwnNumberOfDaysBeforeTheSeed() {
+        // Read on both sides of the seed, because a run that crosses midnight is dated by the day
+        // it began on and the assertion must fail on the data rather than on the clock.
+        LocalDate startedOn = LocalDate.now(ZoneOffset.UTC);
+        scenario.seed();
+        LocalDate finishedOn = LocalDate.now(ZoneOffset.UTC);
+
+        Account primary = infra.accounts.byIban(DemoScenario.PRIMARY_IBAN).orElseThrow();
+        Account savings = infra.accounts.byIban(DemoScenario.SECONDARY_IBAN).orElseThrow();
+        Set<LocalDate> dates = settledDates(primary, savings);
+
+        // Every day the seeded fortnight names, and the gaps are as much of the fixture as the
+        // days are: a history with a payment on each of fourteen days is a fixture nobody has.
+        Set<Integer> daysBack = Set.of(1, 2, 3, 4, 5, 6, 7, 8, 10, 12, 13);
+        assertTrue(
+                dates.equals(datesBefore(startedOn, daysBack))
+                        || dates.equals(datesBefore(finishedOn, daysBack)),
+                "The settled dates must be " + sorted(datesBefore(startedOn, daysBack))
+                        + ", but were " + sorted(dates));
+    }
+
+    /** The distinct dates, in UTC, of everything the given accounts have paid out and settled. */
+    private Set<LocalDate> settledDates(Account... payers) {
+        return Arrays.stream(payers)
+                .flatMap(payer -> infra.transfers.bySourceAccount(payer.id()).stream())
+                .filter(t -> t.status() == TransferStatus.SENT)
+                .map(t -> t.createdAt().atZone(ZoneOffset.UTC).toLocalDate())
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    private static Set<LocalDate> datesBefore(LocalDate anchor, Set<Integer> daysBack) {
+        return daysBack.stream().map(anchor::minusDays).collect(Collectors.toUnmodifiableSet());
+    }
+
+    /** Both sides of the message above are sets, and a set prints in no order a reader can use. */
+    private static List<LocalDate> sorted(Set<LocalDate> dates) {
+        return dates.stream().sorted().toList();
     }
 
     /**

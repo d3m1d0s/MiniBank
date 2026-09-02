@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
+    buildDecisionRequest,
+    decisionAllowed,
     fetchAlerts,
     fetchAlertDetail,
     fetchAlertHistory,
@@ -18,7 +20,7 @@ import {
     type HistoryItem,
     type Page,
 } from './api';
-import { amountRangeProblem } from '@shared/alertFilters';
+import { filterProblem } from '@shared/alertFilters';
 /*
  * Straight from the shared module rather than through ./api, because the barrel says what this
  * application asks of the API and a fee line is drawn from a value that already arrived.
@@ -28,11 +30,13 @@ import { formatFeeLine } from '@shared/money';
  * The address bar, which is where the selection lives. The shell reads it and hands the id down;
  * this desk writes it when the selection moves, and hears its own write back as that prop.
  */
-import { goTo, replaceRoute, routeFor } from '@shared/route';
+import { goTo, navigateToView, replaceRoute, routeFor } from '@shared/route';
 import { describeApiError, describeApiFailure } from '@shared/apiErrors';
 import type { ApiFailure } from '@shared/apiErrors';
 import ErrorBox from './ErrorBox';
 import NavRail from './NavRail';
+/* Read from a module of its own now that the payment form in this same window reads it too. */
+import { readerLocale } from './locale';
 import {
     ALERT_NOTE_FIELDS,
     ALERT_NOTE_LABEL,
@@ -434,18 +438,6 @@ function noteCells(n: AlertNote): AlertNoteRowCells<ReactNode> {
     };
 }
 
-/**
- * The locale an ambiguous amount is read in.
- *
- * Only `1,234` needs it: the one string that is a valid number under both the Czech and the
- * English convention and means two different things under them. It is read here rather than in
- * the parser because the shared modules are pure, so that their rules can be tested without a
- * browser, and this is the one thing in the reading that only a browser knows.
- */
-function readerLocale(): string {
-    return navigator.language || 'cs-CZ';
-}
-
 export default function FraudDesk(props: {
     /**
      * The login, which is what the assignment column holds and what the Mine filter matches on.
@@ -615,15 +607,14 @@ export default function FraudDesk(props: {
     const [busyAssign, setBusyAssign] = useState(false);
 
     const [decisionComment, setDecisionComment] = useState('');
-    /**
-     * Whether a refusal is refusable yet, read in the three places that need it.
-     *
-     * Trimmed, because a box holding a space is an empty box: the server trims it too and would
-     * store the refusal with a blank reason on it. The button, the sentence under it and the
-     * guard in the handler all read this one expression, so the rule cannot be tightened in one
-     * of them and left loose in the other two.
+    /*
+     * Whether a refusal is refusable yet was a local here, and it is decisionAllowed now, in
+     * frontend-shared/fraud.ts. It was one of three conditions written out on this desk and again
+     * on the customer application's, which is one rule kept in two places: the trim that makes a
+     * box holding a space an empty box could be tightened here and left loose there, and the two
+     * desks would then offer the same analyst the same verdict on the same alert and refuse it in
+     * one window only. The buttons and the handler below both ask that function.
      */
-    const declineNeedsComment = decisionComment.trim() === '';
     /**
      * The one entry about to be appended, and nothing that is already on the alert.
      *
@@ -710,7 +701,7 @@ export default function FraudDesk(props: {
         const problem =
             amountReason.min ??
             amountReason.max ??
-            amountRangeProblem(filters, { min: false, max: false });
+            filterProblem(filters, { min: false, max: false });
         if (problem) {
             setAlerts([]);
             setLastPage(null);
@@ -956,13 +947,18 @@ export default function FraudDesk(props: {
     }
 
     async function decide(kind: FraudDecision) {
-        if (!selectedId) return;
-        // The same rule as the disabled button above, and not a repetition of it: a control can be
-        // reached by a keyboard, by a press that lands as the box is being emptied, and by
-        // anything that calls this function later. The one decision here that cannot be undone is
-        // not left resting on a `disabled` attribute. Decline alone: the comment rides with all
-        // three verdicts, and only a refusal turns it into what the customer is told.
-        if (kind === 'DECLINE' && declineNeedsComment) return;
+        if (!selectedId || !detail) return;
+        // The same rule as the disabled buttons below, and not a repetition of it: a control can be
+        // reached by a keyboard, by a press that lands as the box is being emptied, and by anything
+        // that calls this function later. A decision that cannot be undone is not left resting on a
+        // `disabled` attribute. One call rather than three conditions written out a second time:
+        // what each verdict is offered on is stated once, in decisionAllowed.
+        if (!decisionAllowed(kind, detail.alert, decisionComment)) return;
+        // The body, shaped where both desks shape it. What an empty box means is a fact about the
+        // route rather than about this screen: see buildDecisionRequest for why a blank one leaves
+        // its key absent rather than present and empty. The comment rides with all three verdicts
+        // and the note is one entry to append, never the alert's journal echoed back.
+        const payload = buildDecisionRequest(kind, decisionComment, noteText);
         // Held for the whole call. Every landing below is checked against the alert the panel is
         // open on now, because a verdict takes longer than a click on the next card and its answer
         // carries the alert, the payment and the sentence that describes both.
@@ -971,17 +967,7 @@ export default function FraudDesk(props: {
             setPendingDecision(kind);
             setDecisionErr(null);
             setDecisionMsg(null);
-            const updated = await postFraudDecision(id, {
-                decision: kind,
-                // It rides with all three verdicts and is not the reason for a refusal, which is
-                // what the caption over the box now says. Nothing here may narrow it again.
-                comment: decisionComment.trim() || undefined,
-                // One entry, appended. Nothing is compared and nothing is echoed back: the field
-                // used to carry the whole of the alert's notes, so every press filed the box over
-                // whatever a colleague had written, and an emptied box erased it. Blank is the
-                // same as absent to the server, which is what lets the field ride on every press.
-                note: noteText.trim() || undefined,
-            });
+            const updated = await postFraudDecision(id, payload);
             if (openAlert.current !== id) return;
             // The answer carries the journal with the entry already in it, so the panel below is
             // current without a second read of the alert.
@@ -1131,7 +1117,7 @@ export default function FraudDesk(props: {
     const rangeBackwards =
         amountReason.min === null &&
         amountReason.max === null &&
-        amountRangeProblem(filters, { min: false, max: false }) !== null;
+        filterProblem(filters, { min: false, max: false }) !== null;
     const amountInvalid = {
         min: amountReason.min !== null || rangeBackwards,
         max: amountReason.max !== null || rangeBackwards,
@@ -1207,11 +1193,15 @@ export default function FraudDesk(props: {
                       * for it, and the screen names itself rather than being worked out from the
                       * address: this window serves one.
                       */}
+                    {/* The same handler the customer window passes, from the same place. The desk
+                        used to pass none, which drew its entries as words while the customer's were
+                        controls: one column, two behaviours, decided by who was reading. */}
                     <NavRail
                         role={props.role}
                         current="fraud-desk"
                         folded={navFolded}
                         onToggle={() => setNavFolded(folded => !folded)}
+                        onNavigate={(view) => navigateToView(props.role, view)}
                     />
 
                     {/* LEFT: queue */}
@@ -1559,7 +1549,7 @@ export default function FraudDesk(props: {
                             */}
                             <h2 className="panel-title">{ALERT_DETAILS_TITLE}</h2>
 
-                            <div className="panel-scroll">
+                            <div className="panel-scroll scroll-marked">
 
                                 {/*
                                   One statement here too, and the invitation is the last of them.
@@ -2209,7 +2199,7 @@ export default function FraudDesk(props: {
                                       the tree would throw that text away, silently, at the press
                                       of a plate whose whole promise is that nothing is lost.
                                     */}
-                                    <div className="decision-fold" id={DECISION_FOLD_ID} hidden={decisionFolded}>
+                                    <div className="decision-fold scroll-marked" id={DECISION_FOLD_ID} hidden={decisionFolded}>
                                         <h3 className="box-title">{DECISION_TITLE}</h3>
                                         {/*
                                           The caption is the shared one, and it says "this decision"
@@ -2302,10 +2292,19 @@ export default function FraudDesk(props: {
                                     {/* The buttons mirror the domain guards exactly, so
                                         a click the server would refuse - taking the
                                         typed notes down with it - is not reachable.
-                                        Approve only from a new alert; Decline from
-                                        anything not already recorded as fraud, which is
-                                        what lets fraud confirmed after the money left be
-                                        recorded on an alert that had already been cleared.
+                                        Each press asks the same question of the same
+                                        function, and what each verdict is offered on is
+                                        stated once, in decisionAllowed: Approve only
+                                        from a new alert; Decline from anything not
+                                        already recorded as fraud, which is what lets
+                                        fraud confirmed after the money left be recorded
+                                        on an alert that had already been cleared.
+
+                                        The busy flag stays in front of that call rather
+                                        than inside it. A request in flight is a fact
+                                        about this window and not about the alert, and
+                                        folding the two together would let a slow network
+                                        read as a decision already taken.
 
                                         The words are the glossary's. This desk said
                                         "release to customer" and "record fraud" where the
@@ -2325,7 +2324,10 @@ export default function FraudDesk(props: {
                                     <div className="actions">
                                         <button
                                             className="btn btn--primary"
-                                            disabled={busyDecision || detail.alert.state !== 'NEW'}
+                                            disabled={
+                                                busyDecision ||
+                                                !decisionAllowed('APPROVE', detail.alert, decisionComment)
+                                            }
                                             aria-busy={busyDecision || undefined}
                                             onClick={() => decide('APPROVE')}
                                         >
@@ -2333,15 +2335,18 @@ export default function FraudDesk(props: {
                                                 ? DECISION_BUSY
                                                 : decisionActionLabel('APPROVE')}
                                         </button>
-                                        {/* The third term is the comment box. Declining is the
-                                            one press on this desk that reaches the customer and
-                                            cannot be taken back, and what it sends them is the
-                                            sentence in that box, so an empty box is not a
-                                            decision this bank takes. The line under the row says
-                                            so while the button is dead. */}
+                                        {/* The comment box is the third thing this one asks
+                                            about. Declining is the one press on this desk that
+                                            reaches the customer and cannot be taken back, and
+                                            what it sends them is the sentence in that box, so an
+                                            empty box is not a decision this bank takes. The line
+                                            under the row says so while the button is dead. */}
                                         <button
                                             className="btn btn--danger"
-                                            disabled={busyDecision || detail.alert.state === 'SUSPICIOUS' || declineNeedsComment}
+                                            disabled={
+                                                busyDecision ||
+                                                !decisionAllowed('DECLINE', detail.alert, decisionComment)
+                                            }
                                             aria-busy={busyDecision || undefined}
                                             onClick={() => decide('DECLINE')}
                                         >
@@ -2352,9 +2357,16 @@ export default function FraudDesk(props: {
                                         {/* The token this posts was REQUEST_CONFIRMATION, which
                                             named something it has never done: it asks nobody for
                                             anything and takes no decision. */}
+                                        {/* The push is a utility now, so the control that wants
+                                            both the quiet ink and the far end of the row carries
+                                            both: the class it used to get this from is spent on
+                                            quiet controls that stand where the reading is. */}
                                         <button
-                                            className="btn btn--quiet"
-                                            disabled={busyDecision}
+                                            className="btn btn--quiet push-end"
+                                            disabled={
+                                                busyDecision ||
+                                                !decisionAllowed('ANNOTATE', detail.alert, decisionComment)
+                                            }
                                             aria-busy={busyDecision || undefined}
                                             onClick={() => decide('ANNOTATE')}
                                         >

@@ -12,6 +12,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -28,6 +29,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * run through to the application database destroys it; refusing the documented setup, or failing
  * a fresh clone that has configured nothing, breaks the build for everyone who never had a
  * database to protect.
+ * <p>
+ * The last two cases pin the guard in front of that one: a run that named no database at all
+ * connects to nothing, rather than to whatever is listening on the port a default used to name.
  */
 class TestDatabaseGuardTest {
 
@@ -64,12 +68,12 @@ class TestDatabaseGuardTest {
     /**
      * Every spelling of the application database that a string comparison used to wave through.
      *
-     * Each entry reaches the same database as {@code jdbc:postgresql://localhost:5432/minibank}
-     * or is indistinguishable from it, and each was written the way an operator would arrive at
-     * it: the loopback address instead of its name, an appended parameter, the host typed in
-     * another case, the machine's real name, and the port the documented compose setup publishes
-     * - which is the worst of them, because the application url this is compared against is
-     * usually the compile-time default rather than the url the application really uses.
+     * Each entry reaches the database called {@code minibank} or is indistinguishable from it,
+     * and each was written the way an operator would arrive at it: the loopback address instead
+     * of its name, an appended parameter, the host typed in another case, the machine's real
+     * name, the port left off, and PostgreSQL's own 5432 - which is the worst of them, because
+     * the application url this is compared against is usually the compile-time default rather
+     * than the url the application really uses, and the default publishes on another port.
      */
     @Test
     void anotherSpellingOfTheApplicationDatabaseIsNotASeparateDatabase() {
@@ -94,24 +98,23 @@ class TestDatabaseGuardTest {
     /**
      * And the setups the documentation tells people to create are left alone.
      *
-     * The second pair is the one the README describes end to end: both databases on the
-     * container's published port, told apart by nothing but their names.
+     * The first pair is the one the README describes end to end: both databases on the
+     * container's published port, told apart by nothing but their names. It is also the run with
+     * the application url left at its default, since the default now names that same server, so
+     * the documented setup and the unconfigured one are one case here rather than three.
      */
     @Test
     void aDatabaseWithANameOfItsOwnIsAllowed() {
-        assertFalse(TestDatabase.mayBeTheSameDatabase(TestDatabase.URL_DEFAULT, APPLICATION_DEFAULT),
-                "a fresh clone configures nothing and must still be able to run");
-        assertFalse(TestDatabase.mayBeTheSameDatabase(
-                        "jdbc:postgresql://localhost:55432/minibank_test",
-                        "jdbc:postgresql://localhost:55432/minibank"),
-                "the documented compose setup keeps both databases on one server");
-        assertFalse(TestDatabase.mayBeTheSameDatabase(
-                        "jdbc:postgresql://localhost:55432/minibank_test", APPLICATION_DEFAULT),
-                "and it is normally run with the application url left at its default");
+        assertFalse(TestDatabase.mayBeTheSameDatabase(TestDatabase.URL_EXAMPLE, APPLICATION_DEFAULT),
+                "the address the skip message asks for must be one the guard then lets through");
         assertFalse(TestDatabase.mayBeTheSameDatabase(
                         "jdbc:postgresql://127.0.0.1:55432/minibank_test?sslmode=disable",
                         APPLICATION_DEFAULT),
                 "a separate database stays separate however it is spelled");
+        assertFalse(TestDatabase.mayBeTheSameDatabase(
+                        "jdbc:postgresql://localhost:5432/minibank_test",
+                        APPLICATION_DEFAULT),
+                "and on a server that is not the one the default names either");
     }
 
     /**
@@ -135,7 +138,7 @@ class TestDatabaseGuardTest {
         for (String url : unreadable) {
             assertTrue(TestDatabase.mayBeTheSameDatabase(url, APPLICATION_DEFAULT),
                     "'" + url + "' names no database this can read, so it may be any of them");
-            assertTrue(TestDatabase.mayBeTheSameDatabase(TestDatabase.URL_DEFAULT, url),
+            assertTrue(TestDatabase.mayBeTheSameDatabase(TestDatabase.URL_EXAMPLE, url),
                     "and the application side of the comparison is no more trustworthy");
         }
     }
@@ -172,17 +175,46 @@ class TestDatabaseGuardTest {
                 "the setup the README describes has to keep running");
     }
 
+    // -------------------------------------------------------------------------
+    // A run that named no database at all
+    // -------------------------------------------------------------------------
+
     /**
-     * A clone with nothing configured must reach the reachability probe and be skipped there,
-     * rather than being stopped here. The two defaults differ by name, which is the whole reason
-     * they are two keys with two defaults.
+     * The accident this pair replaces: {@link TestDatabase#URL} used to carry a default on port
+     * 5432, so a plain {@code mvn test} went looking for a server there. On a developer's machine
+     * that is where their own PostgreSQL is, and these tests TRUNCATE whatever answers. An address
+     * nobody typed is the one address this must never connect to.
+     *
+     * So an unconfigured run has no url, opens nothing, and is skipped. It is skipped rather than
+     * failed because a clone with no database is not a broken build; the message is what turns the
+     * skip into an instruction.
      */
     @Test
-    void aCloneThatHasConfiguredNothingIsLeftToSkipOnItsOwn() {
-        assertEquals(TestDatabase.URL_DEFAULT, TestDatabase.url(),
+    void aRunThatNamedNoDatabaseConnectsToNothing() {
+        assertNull(TestDatabase.url(),
                 "the fixture must have cleared the command line, or this proves nothing");
-        assertEquals(APPLICATION_DEFAULT, MinibankProperties.sqlUrl());
+        assertFalse(TestDatabase.isConfigured());
+        assertFalse(TestDatabase.isReachable(),
+                "with nowhere to connect there is nothing to probe, whatever is listening on 5432");
+        assertDoesNotThrow(() -> TestDatabase.requireSeparateFromApplicationDatabase(),
+                "a run pointed at nothing cannot be pointed at the application database");
+    }
 
-        assertDoesNotThrow(() -> TestDatabase.requireSeparateFromApplicationDatabase());
+    /**
+     * And the skip says what to do about it, in enough detail to be typed.
+     *
+     * A skip nobody can act on is how a suite comes to report hundreds of green tests while its
+     * database half has silently not run for weeks.
+     */
+    @Test
+    void theSkipNamesTheKeyAndAnAddressToGiveIt() {
+        String message = TestDatabase.unreachableMessage();
+
+        assertTrue(message.contains(TestDatabase.URL),
+                "the skip must name the key that is missing: " + message);
+        assertTrue(message.contains(TestDatabase.URL_EXAMPLE),
+                "and an address to give it: " + message);
+        assertEquals(APPLICATION_DEFAULT, MinibankProperties.sqlUrl(),
+                "the application default is untouched by any of this");
     }
 }

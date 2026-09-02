@@ -204,6 +204,17 @@
 
   /* ---- shadow ---- */
   --shadow-shell: 0 10px 35px rgb(0 0 0 / 0.15);
+  /*
+   * A box pressed INTO the surface rather than standing on it, which is the one piece of depth a
+   * light window uses that a dark page has no equivalent for. Two layers: a shadow cast from the
+   * upper edge inwards, which is what reads as a lip above the sunken face, and a hairline of the
+   * same ink all round to close the well. Inset, so it is drawn inside the radius the box already
+   * has and nothing about the box's size or position changes when it is applied.
+   *
+   * It is a shadow and therefore not there at all under a forced palette; anything relying on it
+   * has to say the same thing a second way, and the rail's selected row does, with an edge.
+   */
+  --shadow-recessed: inset 0 1px 3px rgb(0 0 0 / 0.2), inset 0 0 0 1px rgb(0 0 0 / 0.05);
 
   /* ---- named fixed dimensions. Not on any scale. Named so the desktop customer
    *      screens reuse them rather than invent a second set. The content, form, prose,

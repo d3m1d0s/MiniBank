@@ -57,12 +57,17 @@ class MinibankPropertiesTest {
         saved.clear();
     }
 
+    /**
+     * The url names 55432 because that is the port docker-compose.yml publishes. The two used to
+     * disagree, and the cost was that every documented command starting against PostgreSQL had to
+     * carry the url to paper over a default that reached nothing.
+     */
     @Test
     void defaultsAreUsedWhenNothingIsSet() {
         assertEquals("json", MinibankProperties.storage());
         assertEquals("storage/data.json", MinibankProperties.jsonPath());
         assertEquals("storage/demo.json", MinibankProperties.demoPath());
-        assertEquals("jdbc:postgresql://localhost:5432/minibank", MinibankProperties.sqlUrl());
+        assertEquals("jdbc:postgresql://localhost:55432/minibank", MinibankProperties.sqlUrl());
         assertEquals("minibank", MinibankProperties.sqlUser());
         assertEquals("minibank", MinibankProperties.sqlPassword());
         assertFalse(MinibankProperties.demoReset());
@@ -74,7 +79,8 @@ class MinibankPropertiesTest {
         System.setProperty(MinibankProperties.STORAGE, "sql");
         System.setProperty(MinibankProperties.JSON_PATH, "/tmp/store.json");
         System.setProperty(MinibankProperties.DEMO_PATH, "/tmp/demo.json");
-        System.setProperty(MinibankProperties.SQL_URL, "jdbc:postgresql://localhost:55432/minibank");
+        // An address no default names, so this proves the key was read and not the default.
+        System.setProperty(MinibankProperties.SQL_URL, "jdbc:postgresql://elsewhere:5433/other");
         System.setProperty(MinibankProperties.SQL_USER, "someone");
         System.setProperty(MinibankProperties.SQL_PASSWORD, "secret");
         System.setProperty(MinibankProperties.DEMO_RESET, "true");
@@ -83,7 +89,7 @@ class MinibankPropertiesTest {
         assertEquals("sql", MinibankProperties.storage());
         assertEquals("/tmp/store.json", MinibankProperties.jsonPath());
         assertEquals("/tmp/demo.json", MinibankProperties.demoPath());
-        assertEquals("jdbc:postgresql://localhost:55432/minibank", MinibankProperties.sqlUrl());
+        assertEquals("jdbc:postgresql://elsewhere:5433/other", MinibankProperties.sqlUrl());
         assertEquals("someone", MinibankProperties.sqlUser());
         assertEquals("secret", MinibankProperties.sqlPassword());
         assertTrue(MinibankProperties.demoReset());
@@ -146,11 +152,45 @@ class MinibankPropertiesTest {
         assertThrows(IllegalStateException.class, MinibankProperties::sqlPassword);
     }
 
+    /**
+     * The published list of renamed keys is the same list the console refuses on.
+     *
+     * The two entry paths meet an old name at different moments: the console reads these keys
+     * here and stops, and the REST API resolves them through placeholders that never reach this
+     * class, so it recognises the old name at startup and warns instead. Both read
+     * {@link MinibankProperties#RENAMED_KEYS}, and this is what stops a name from being dropped
+     * out of one of them: setting each legacy name in turn must make the reader of the key it was
+     * renamed to refuse, one for one.
+     */
+    @Test
+    void everyPublishedRenamingIsOneTheConsoleRefusesOn() {
+        Map<String, Runnable> readers = Map.of(
+                MinibankProperties.SQL_URL, MinibankProperties::sqlUrl,
+                MinibankProperties.SQL_USER, MinibankProperties::sqlUser,
+                MinibankProperties.SQL_PASSWORD, MinibankProperties::sqlPassword);
+
+        MinibankProperties.RENAMED_KEYS.forEach((legacyKey, currentKey) -> {
+            Runnable read = readers.get(currentKey);
+            assertNotNull(read, currentKey + " is published as a renaming with nothing that reads it");
+
+            System.setProperty(legacyKey, "whatever");
+            try {
+                IllegalStateException refused = assertThrows(IllegalStateException.class, read::run,
+                        legacyKey + " is published as renamed but is silently ignored");
+                assertTrue(refused.getMessage().contains(currentKey), refused.getMessage());
+            } finally {
+                System.clearProperty(legacyKey);
+            }
+        });
+    }
+
     @Test
     void theCurrentKeyWinsWhenBothNamesArePresent() {
         System.setProperty(LEGACY_SQL_URL, "jdbc:postgresql://localhost:5432/minibank");
-        System.setProperty(MinibankProperties.SQL_URL, "jdbc:postgresql://localhost:55432/minibank");
+        // Neither the legacy value nor the default, so the assertion below can only be satisfied
+        // by the current key.
+        System.setProperty(MinibankProperties.SQL_URL, "jdbc:postgresql://elsewhere:5433/other");
 
-        assertEquals("jdbc:postgresql://localhost:55432/minibank", MinibankProperties.sqlUrl());
+        assertEquals("jdbc:postgresql://elsewhere:5433/other", MinibankProperties.sqlUrl());
     }
 }

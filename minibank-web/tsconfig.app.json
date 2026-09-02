@@ -29,5 +29,16 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src", "../frontend-shared"]
+  "include": ["src", "../frontend-shared"],
+
+  /* The shared cases are not part of this application's program, and they cannot be.
+     `frontend-shared` has no `node_modules` above it, so `vitest` and `node:fs` do not resolve
+     from a file sitting there; pulled in by the `include` above they cost this build 40 errors
+     that say nothing about the application. Everything that ships is still checked: every
+     non-test module in `frontend-shared` stays in, and so does every `*.test.ts` under `src`,
+     which resolves its imports from this directory's own install.
+
+     The cases are checked all the same, by `frontend-shared/tsconfig.tests.json` under the same
+     strictness, and `npm run build` here runs it. See the `typecheck:shared` script. */
+  "exclude": ["../frontend-shared/**/*.test.ts"]
 }
