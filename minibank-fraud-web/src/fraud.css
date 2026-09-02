@@ -3221,13 +3221,6 @@ button.nav-item {
      */
     --size-waiting-list-max: min(34rem, 58vh);
 
-    /*
-     * The width the two wrapping cells of the history may not pass. The status one is the wider of
-     * the two because what it carries is a whole sentence about why a payment stopped; the payer's
-     * message is usually a few words and a column sized for the exception would be mostly air.
-     */
-    --size-cell-status: 20rem;
-    --size-cell-message: 14rem;
 }
 
 /*
@@ -3370,35 +3363,187 @@ button.nav-item {
 }
 
 /*
- * THE TWO SENTENCES IN THE HISTORY TABLE ARE THE ONLY THINGS IN IT THAT WRAP.
+ * THE HISTORY TABLE IS LAID OUT FROM A STATED RATIO, NOT FROM ITS CONTENTS.
  *
- * A table laid out from its content gives width to whoever asks for most, and a sentence asks for
- * all of it: the status column with a refusal in it grew until the dates and the account numbers
- * beside it were folding their own headings onto two lines. Each of the two gets a measure it may
- * not pass and wraps inside it; everything else keeps its heading on one line and takes the width
- * its facts actually need.
+ * This replaces three attempts that were all the same mistake, and the mistake is worth writing
+ * down because the rules that caused it look reasonable one at a time. Every one of them was a
+ * constraint on a single column - nowrap here, a floor there, a ceiling on the one next to it -
+ * and a per-column constraint cannot express a relation BETWEEN columns. Under table-layout: auto
+ * the browser hands out the leftover width in proportion to what each column asks for, so pinning
+ * one column takes it out of the sharing and the remaining columns divide what is left. Each fix
+ * therefore moved the crush somewhere else rather than removing it: first the facts wrapped, then
+ * the status column went to 54px, then the facts wrapped again while the status column sat in a
+ * field of white. Three rounds, one shape of error.
  *
- * The cells and not only the headings, which is the half that was missing. A heading held on one
- * line while the rows under it wrapped simply moved the fold down: an amount and the fee under it,
- * and two IBANs above one another, are already two lines, and the columns holding them were pressed
- * narrow enough that each of those lines broke again. Three lines in a cell built for two is not a
- * cell that adapted, it is the width of the column being decided by the sentence next to it. The
- * facts are what they are, so they state their width and the sentences take what is left.
+ * So every column is given a share of the table and the algorithm that was deciding is turned off.
+ * Nothing here is pinned and nothing is exempt: what is stated is the RATIO between the six, and a
+ * ratio is the only kind of rule that cannot push its own cost onto the column beside it.
+ *
+ * WHAT THE SHARES ARE PROPORTIONAL TO. The aim is that every cell holding something long comes to
+ * the same number of rows as the others, so a column's share follows the number of characters it
+ * has to lay out. Three of the six are a pair of lines stacked, not one flowing run: created over
+ * finished, an amount over its fee, a from-account over a to-account. Those cells are always an
+ * even number of rows, because a width that folds the upper line folds the lower one with it, so
+ * reaching a given number of rows costs them twice the width per character. Their demand is
+ * therefore twice their longest single line, and that is the whole of the difference between them
+ * and the other three.
+ *
+ * WHERE EACH NUMBER COMES FROM. Every one is either a string this application produces or a limit
+ * it enforces. None is taken from the schema, which says VARCHAR(34) for an IBAN and NUMERIC(14,2)
+ * for an amount: that is room to store, not anything that can be written into it, and sized from
+ * the schema the account column would be half as wide again as any IBAN it will ever hold.
+ *
+ *                     demo      the objective limit
+ *   Payment             7   `TR-14`, under the heading, which is the wider of the two
+ *   Created/Finished   18   `31. 12. 2026 23:59`, the widest cs-CZ instant this formatter prints,
+ *                           and by coincidence the width of the heading as well
+ *   Full Amount        13   `40 000,00 CZK`; a payment cannot pass the customer's daily limit
+ *   Status             70   299   `Declined`, the separator, and the reason. A declined payment
+ *                           does NOT carry one of the four sentences the backend writes: it carries
+ *                           whatever the analyst typed, because the decision comment becomes the
+ *                           decline reason and describeDeclineReason returns an unmatched string
+ *                           unchanged. MAX_DECISION_COMMENT is 280.
+ *   From / To          39   an IBAN, which IBAN.CZ_LENGTH fixes at 24 and formatIban groups in
+ *                           fours, so 29 - and then `This bank` after it when the money never
+ *                           leaves, which is the longer case and so the one that sizes the column
+ *   Message for rec.   40   140   MAX_MESSAGE_LENGTH, refused above by the client and the service
+ *
+ * TWO BODIES OF DATA, AVERAGED. The table is read against what is in it today and against what it
+ * will hold when every field is used for what it allows, and sizing for either alone is wrong in a
+ * way anyone can see: on the demo shares a full 140-character message runs four rows against the
+ * refusal's one, and on the limit shares the status column stands two thirds empty on thirteen rows
+ * in fourteen. So each column takes the mean of its two shares. Shares and not ratios: the mean of
+ * two ratios depends on which way up they are written, while a share is symmetric and has only the
+ * one reading.
+ *
+ * Written as plain percentages because that is what the desk's own history table already uses, and
+ * because it was measured: as calc((100% - <the fixed columns>) * 0.66) the declaration was dropped
+ * and the columns fell back to auto, which in a fixed layout is an equal split - 281px each on the
+ * running window where the ratio asked for 387 and 200.
+ */
+.window--customer .table--static {
+    table-layout: fixed;
+}
+
+/*
+ * THE ANCHORED COLUMNS HOLD THEIR LINES; THE TWO SENTENCES SHARE WHAT IS LEFT.
+ *
+ * Two rules fix four of the six columns, and both are about rows rather than width. Created over
+ * finished, an amount over its fee and a from-account over a to-account are each two lines standing
+ * on top of one another, and each of those lines sits in one row, so the cell is two rows and not
+ * four. Every heading sits on one row as well. What is left after those four is divided between the
+ * status and the message in the ratio derived above.
+ *
+ * AND IT HOLDS AT EVERY WINDOW SHAPE, which is what a percentage could not do. Written as shares of
+ * the table those four columns were right on a 1440x900 window and wrong on a portrait one, because
+ * a narrower table hands a share proportionally less and the line it was sized for folds. What they
+ * need is their own content's width whatever the table is, which is a length and not a share.
+ *
+ * A <col> cannot say both. In table-layout: fixed the column widths are the whole of the layout, so
+ * a length there is a length forever and a share is a share forever, and it was measured twice that
+ * the two cannot even be combined in one value: width: calc((100% - <lengths>) * 0.66) and
+ * width: max(2%, 7ch) were each dropped whole, and the columns fell back to auto - an equal split,
+ * six columns of 194px.
+ *
+ * So the layout goes back to auto, where a column's minimum is its content and the browser is told
+ * which content may not fold. The four say so with white-space, which makes their width the width
+ * of what is in them at any size; the two sentences carry the ratio as a percentage, which auto
+ * layout honours as a preference once those minimums are met. Nothing is pinned to a pixel count
+ * and nothing is measured off one particular window.
+ *
+ * The ratio is 66 and 34, derived above from the demo against the limits. Where the table can no
+ * longer hold the four minimums and leave the sentences a readable share, it stops shrinking and
+ * the wrapper around it scrolls across, with the marks at its edges saying so: a table one move to
+ * the right of being whole is better than one that is all there and unreadable.
+ */
+.window--customer .table--static {
+    table-layout: auto;
+}
+
+/*
+ * The headings, and the three cells whose two lines are the reason this table has a shape at all.
+ * Not the status and not the message: those are prose, and prose is what is meant to wrap here.
+ *
+ * ASKED OF THE FRAME, because a promise to keep four columns unfolded is one the table can only
+ * keep while it has the room, and the alternative to folding them is pushing the table past its
+ * own frame and scrolling it sideways. A row read by scrolling across and back is worse than a
+ * date on two lines. So above the width where all six still fit the four hold their lines, and
+ * below it they fold with everything else and the table stays inside its frame.
+ *
+ * 42rem is where. The four minimums measure 464px unfolded, read off the running window, and the
+ * two sentences need the rest not to be a sliver: at 42rem they still have three tenths of the
+ * table between them. In rem because what pushes the columns together is the text growing.
+ */
+@container table-frame (min-width: 42rem) {
+    .window--customer .table--static th,
+    .window--customer .table--static td:not(.cell--status, .cell--message) {
+        white-space: nowrap;
+    }
+}
+
+/*
+ * The ratio, written as two lengths in that ratio rather than as two shares of the table.
+ *
+ * A share is the wrong instrument twice over here. It is a share of the whole table, not of what is
+ * left after the four unfolded columns, so the two numbers have to be restated every time those
+ * four change; and, worse, a share ADDS to the minimums instead of yielding to them. Measured on a
+ * portrait window: the four minimums came to 63 percent of the frame and the pair asked for 56 on
+ * top, so the table grew to 1105px inside a frame of 805 and scrolled sideways, which is the one
+ * thing this table must never do.
+ *
+ * Two lengths in auto layout are a preference and nothing more. The browser satisfies every
+ * column's minimum first and then divides what is genuinely spare in proportion to what was asked,
+ * so 66 against 34 is honoured while there is room to honour it and degrades in the same ratio when
+ * there is not. The unit is ch so that the preference grows with the text rather than against it.
+ */
+/*
+ * WHAT FOLDING MEANS FOR THE THREE, which is not the same as collapsing.
+ *
+ * Below the width where they hold their lines the three stacked columns fold - and left at that,
+ * they fold all the way to their own smallest piece, because every one of them is built out of
+ * pieces with spaces between: an IBAN grouped in fours breaks at any of the five, an instant breaks
+ * around its time, an amount before its unit. Measured at 150 percent text, the account column came
+ * down to a single group of four characters and the row became a set of narrow vertical strips with
+ * a field of white in the status column beside them. The columns had given up more than the table
+ * needed, and the sentence took what they dropped.
+ *
+ * So each of them says how far it may fold, and each floor is one piece rather than none:
+ *
+ *   12ch  `31. 12. 2026`, the date whole, with the time under it
+ *   13ch  `16 000,00 CZK` - the group separator is U+00A0 and does not break, so the amount is
+ *         already one piece and this only keeps its unit on the same line
+ *   20ch  half of an account line, so the IBAN breaks once and not five times
+ *
+ * None of them binds while the columns are unfolded: there they are 127, 101 and 213 pixels wide.
+ *
+ * They are not asked of the frame the way the unfolding above is. Gating them on a second and lower
+ * threshold was tried and reverted: it bought a table that fits under a 660px window and paid for it
+ * with the account column falling apart at widths that were not in trouble at all.
+ */
+.window--customer .cell--created { min-width: 12ch; }
+.window--customer .cell--amount { min-width: 13ch; }
+.window--customer .cell--route { min-width: 20ch; }
+
+.window--customer .col--status { width: 37%; }
+.window--customer .col--message { width: 19%; }
+
+/*
+ * AND NOTHING IN THIS TABLE IS BROKEN MID-WORD.
+ *
+ * .table td sets overflow-wrap: anywhere so that an ungrouped IBAN can break at all. Nothing in
+ * this table is ungrouped: formatIban puts a space every four characters, the instants and the
+ * amounts break at spaces of their own, and the two headings that are two words break between
+ * them. What the rule reaches here instead is `Payment`, which under a narrow column came back set
+ * one letter to a row. It is turned off for every cell except the one holding a string a customer
+ * typed, where there may genuinely be no space at all.
  */
 .window--customer .table--static th,
-.window--customer .table--static td:not(.cell--status, .cell--message) {
-    white-space: nowrap;
+.window--customer .table--static td {
+    overflow-wrap: normal;
 }
 
 .window--customer .cell--message {
-    max-width: var(--size-cell-message);
-    white-space: normal;
     overflow-wrap: anywhere;
-}
-
-.window--customer .cell--status {
-    max-width: var(--size-cell-status);
-    white-space: normal;
 }
 
 /*

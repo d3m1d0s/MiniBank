@@ -46,9 +46,17 @@ const PAGE_SIZE = 5;
  * gains a column.
  */
 const CELL_CLASS: Partial<Record<HistoryField, string>> = {
+    // The three stacked cells are named so the stylesheet can say how far each may fold: every one
+    // of them is built out of pieces with spaces between, so left unnamed they fold to one piece.
+    createdAt: 'cell--created',
     amount: 'cell--amount',
-    message: 'cell--message',
+    route: 'cell--route',
+    // The two prose cells are named so the stylesheet can EXCLUDE them: everything else in this
+    // table is held on one line while there is room for it, and these two are what wraps instead.
+    // Dropping either name silently hands that cell the same nowrap as the facts, and a status cell
+    // that will not wrap takes its whole sentence as a minimum and pushes the table out of frame.
     status: 'cell--status',
+    message: 'cell--message',
 };
 
 /**
@@ -305,6 +313,18 @@ export default function HistoryScreen() {
                             pointer and reads as a control. */}
                         <TableFrame label="All payments" className="gap-above-sm">
                             <table className="table table--static">
+                                {/*
+                                  The widths, one per column, so the stylesheet can say what share
+                                  of the table each gets instead of leaving it to be worked out from
+                                  the longest string in the column. Built from the same array the
+                                  headings and the cells are built from, so a column added here
+                                  cannot arrive without a width or a width without a column.
+                                */}
+                                <colgroup>
+                                    {COLUMN_FIELDS.map((f) => (
+                                        <col key={f} className={`col--${f}`} />
+                                    ))}
+                                </colgroup>
                                 <thead>
                                     <tr>
                                         {/* Each heading claims its column. Read out cell by cell, a
