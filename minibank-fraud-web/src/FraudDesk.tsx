@@ -30,7 +30,7 @@ import { formatFeeLine } from '@shared/money';
  * The address bar, which is where the selection lives. The shell reads it and hands the id down;
  * this desk writes it when the selection moves, and hears its own write back as that prop.
  */
-import { goTo, replaceRoute, routeFor } from '@shared/route';
+import { goTo, navigateToView, replaceRoute, routeFor } from '@shared/route';
 import { describeApiError, describeApiFailure } from '@shared/apiErrors';
 import type { ApiFailure } from '@shared/apiErrors';
 import ErrorBox from './ErrorBox';
@@ -1193,11 +1193,15 @@ export default function FraudDesk(props: {
                       * for it, and the screen names itself rather than being worked out from the
                       * address: this window serves one.
                       */}
+                    {/* The same handler the customer window passes, from the same place. The desk
+                        used to pass none, which drew its entries as words while the customer's were
+                        controls: one column, two behaviours, decided by who was reading. */}
                     <NavRail
                         role={props.role}
                         current="fraud-desk"
                         folded={navFolded}
                         onToggle={() => setNavFolded(folded => !folded)}
+                        onNavigate={(view) => navigateToView(props.role, view)}
                     />
 
                     {/* LEFT: queue */}
@@ -1545,7 +1549,7 @@ export default function FraudDesk(props: {
                             */}
                             <h2 className="panel-title">{ALERT_DETAILS_TITLE}</h2>
 
-                            <div className="panel-scroll">
+                            <div className="panel-scroll scroll-marked">
 
                                 {/*
                                   One statement here too, and the invitation is the last of them.
@@ -2195,7 +2199,7 @@ export default function FraudDesk(props: {
                                       the tree would throw that text away, silently, at the press
                                       of a plate whose whole promise is that nothing is lost.
                                     */}
-                                    <div className="decision-fold" id={DECISION_FOLD_ID} hidden={decisionFolded}>
+                                    <div className="decision-fold scroll-marked" id={DECISION_FOLD_ID} hidden={decisionFolded}>
                                         <h3 className="box-title">{DECISION_TITLE}</h3>
                                         {/*
                                           The caption is the shared one, and it says "this decision"

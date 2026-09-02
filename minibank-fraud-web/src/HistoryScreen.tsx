@@ -17,7 +17,6 @@ import {
     HISTORY_DECLINED_FIELD,
     HISTORY_FIELD_LABEL,
     HISTORY_SETTLED_FIELD,
-    HISTORY_UNDER_ROW_FIELDS,
     type HistoryField,
     type HistoryRowCells,
 } from '@shared/fields';
@@ -48,7 +47,24 @@ const PAGE_SIZE = 5;
  */
 const CELL_CLASS: Partial<Record<HistoryField, string>> = {
     amount: 'cell--amount',
+    message: 'cell--message',
+    status: 'cell--status',
 };
+
+/**
+ * The columns this table draws, which is the shared set plus the payer's own words.
+ *
+ * The shared set keeps the message out of the columns and under the row, and for the three tables
+ * it governs that is right: on a fraud desk the message is evidence read once, and a column of
+ * mostly empty prose would cost every row a width it needs for facts. Here the audience is the
+ * person who wrote the message, the table is five rows at a time rather than a queue, and every
+ * payment they sent had a box for it. Under the row it also cost a second row of table per payment,
+ * which is what made this screen read as twice as tall as it has anything to say.
+ *
+ * Local, and deliberately not a change to the shared list: the two fraud desks are not asking for
+ * this and would be worse for it.
+ */
+const COLUMN_FIELDS: readonly HistoryField[] = [...HISTORY_COLUMN_FIELDS, 'message'];
 
 /**
  * One payment as its own owner reads it.
@@ -80,6 +96,10 @@ function historyCells(h: HistoryItem): HistoryRowCells<ReactNode> {
     // accident.
     const endedLine = settledLine || declinedLine;
     const endedField = settledLine ? HISTORY_SETTLED_FIELD : HISTORY_DECLINED_FIELD;
+
+    // The bank's sentence for a payment it stopped, drawn beside the status word rather than under
+    // the row. The same function the analyst reads, so the two never say it differently.
+    const declineSentence = describeDeclineReason(h.declineReason);
 
     return {
         id: formatTransferId(h.id),
@@ -118,12 +138,24 @@ function historyCells(h: HistoryItem): HistoryRowCells<ReactNode> {
             </>
         ),
         fee: feeLine,
-        // The word, the colour and, for a refused payment, the sentence under the row. Set in one
-        // grey, nine settled rows and the tenth that was stopped read alike, which is what the tone
-        // is for.
+        // The word, the colour, and on a refused payment the sentence that says why, on the same
+        // line. Set in one grey, nine settled rows and the tenth that was stopped read alike, which
+        // is what the tone is for.
+        //
+        // The reason sits here rather than under the row because it answers the word beside it and
+        // nothing else: a reader whose eye stops on Declined has the next question already, and a
+        // sentence a row below is a second place to look for one answer. It also cost this table a
+        // whole extra row per refused payment. The separator is a middle dot, the same one the
+        // route and the queue card use to join two facts that belong to one line.
         status: (
             <span className={`tone-${transferStatusTone(h.status)}`}>
                 {transferStatusLabel(h.status, 'customer')}
+                {declineSentence && (
+                    // "Reason" and not the field's own name. The word beside it is already
+                    // Declined, so the field name would put Decline on the line twice to say one
+                    // thing, and the second one would be spending width on it.
+                    <span className="status-reason"> · Reason: {declineSentence}</span>
+                )}
             </span>
         ),
         // Where the money left, over where it went, and on the rare row where the money did not
@@ -138,11 +170,14 @@ function historyCells(h: HistoryItem): HistoryRowCells<ReactNode> {
                 </span>
             </>
         ),
-        // What the customer typed into the message box, read back in their own words. Prose, so it
-        // takes no column and stands under the row; absent where the box was left alone.
-        message: h.message ?? '',
-        // The same function, and therefore the same sentence, the analyst reads for this row.
-        declineReason: describeDeclineReason(h.declineReason),
+        // What the customer typed into the message box, read back in their own words, in a column
+        // of its own on this screen. The dash rather than an empty cell: a column of blanks with a
+        // heading over it reads as data that failed to arrive, and this is a box most people leave
+        // alone. The dash says nothing was written, which is the truth.
+        message: h.message || '—',
+        // Still built, because every field on the shared row has to be, and drawn beside the status
+        // word above rather than in a cell of its own.
+        declineReason: declineSentence,
     };
 }
 
@@ -238,7 +273,7 @@ export default function HistoryScreen() {
     }
 
     return (
-        <main className="form-panel">
+        <main className="panel form-panel">
             <section className="section">
                 {/* The screen names itself where the work begins, at the rung this window sets every
                     block name at. The rail above says History & Statements and this screen offers
@@ -275,7 +310,7 @@ export default function HistoryScreen() {
                                         {/* Each heading claims its column. Read out cell by cell, a
                                             table whose headings claim nothing is a run of values
                                             with no names on them. */}
-                                        {HISTORY_COLUMN_FIELDS.map((f) => (
+                                        {COLUMN_FIELDS.map((f) => (
                                             <th key={f} scope="col" className={CELL_CLASS[f]}>
                                                 {HISTORY_FIELD_LABEL[f]}
                                             </th>
@@ -285,30 +320,19 @@ export default function HistoryScreen() {
                                 {items.map((h) => {
                                     const cells = historyCells(h);
                                     return (
-                                        /* One row group per payment, so the two pieces of prose it
-                                           carries stay part of the row they belong to rather than
-                                           becoming two columns of sentences. The shared list is
-                                           what decides which fields those are and in what order:
-                                           the payer's words, then the bank's. */
+                                        /* One row per payment, and only one. Both sentences a
+                                           payment carries now have a place on that row, the payer's
+                                           in a column and the bank's beside the status word it
+                                           explains, so a table of five payments is five rows rather
+                                           than the eight or nine it used to be. */
                                         <tbody key={h.id}>
                                             <tr>
-                                                {HISTORY_COLUMN_FIELDS.map((f) => (
+                                                {COLUMN_FIELDS.map((f) => (
                                                     <td key={f} className={CELL_CLASS[f]}>
                                                         {cells[f]}
                                                     </td>
                                                 ))}
                                             </tr>
-                                            {HISTORY_UNDER_ROW_FIELDS.map((f) =>
-                                                cells[f] ? (
-                                                    <tr className="history-note" key={f}>
-                                                        <td
-                                                            colSpan={HISTORY_COLUMN_FIELDS.length}
-                                                        >
-                                                            {FIELD_LABEL[f]}: {cells[f]}
-                                                        </td>
-                                                    </tr>
-                                                ) : null,
-                                            )}
                                         </tbody>
                                     );
                                 })}

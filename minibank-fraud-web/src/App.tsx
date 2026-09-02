@@ -27,11 +27,10 @@ import {
 import { roleLabel } from '@shared/glossary';
 import {
     allowedForRole,
-    goTo,
     homeRoute,
+    navigateToView,
     parseHash,
     replaceRoute,
-    routeFor,
     subscribeToHash,
     type Route,
 } from '@shared/route';
@@ -453,19 +452,19 @@ function CustomerWindow({
     /**
      * A move somebody made in the rail, written into the address.
      *
-     * The restriction is kept and it is not the only one: the shell corrects the same address when
-     * it is typed by hand. The two answer different questions, this one refusing a press and that
-     * one correcting an address already in the bar.
+     * The guard is kept and it is not the only one: the shell corrects the same address when it is
+     * typed by hand. The two answer different questions, this one refusing a press and that one
+     * correcting an address already in the bar. Both windows call the same function for it now, so
+     * a rule about which role may reach which screen is written once.
      */
-    const handleNavigate = (next: NavView) => {
-        const target = routeFor(next);
-        if (!allowedForRole(role, target)) return;
-        goTo(target);
-    };
+    const handleNavigate = (next: NavView) => navigateToView(role, next);
 
     return (
         <div className="shell">
-            <div className="window">
+            {/* window--customer marks the half of this window the analyst never sees. Everything
+                scoped to it is a customer decision: the reading size, the rail that stays put while
+                a screen scrolls under it, and the shape of the split. The desk keeps its own. */}
+            <div className="window window--customer">
                 <header className="titlebar">
                     {/*
                       One product name, qualified by the screen and not by the role, and the mark in

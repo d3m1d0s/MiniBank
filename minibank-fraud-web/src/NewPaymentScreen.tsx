@@ -463,7 +463,11 @@ export default function NewPaymentScreen({ parked }: { parked: boolean }) {
     }
 
     return (
-        <main className={parked ? 'form-panel screen-parked' : 'form-panel'}>
+        // panel first, and it is the same class the desk's two regions wear: a customer screen is a
+        // sheet standing on the window's ground, not ink printed on it. Without it these screens
+        // were the dark application's page in a light palette, which is the one thing this skin is
+        // not.
+        <main className={parked ? 'panel form-panel screen-parked' : 'panel form-panel'}>
             <section className="section">
                 {/* The screen names itself where the work begins, at the rung this window sets
                     every block name at: told apart by weight and never by size, because the

@@ -580,7 +580,7 @@ export default function WaitingAuthorizationsScreen() {
               chosen payment that is short facts and prose. Named by its own heading rather than by
               a string written here, so the two can never come apart.
             */}
-            <section className="left section" aria-labelledby={LIST_TITLE_ID}>
+            <section className="panel left section" aria-labelledby={LIST_TITLE_ID}>
                 <h2 className="section-title" id={LIST_TITLE_ID}>
                     Waiting transfers
                 </h2>
@@ -747,7 +747,7 @@ export default function WaitingAuthorizationsScreen() {
 
             {/* THE CHOSEN PAYMENT, and what can still be done with it. The narrow pane: nine short
                 facts and two sentences, none of which may pass the reading measure. */}
-            <main className="right">
+            <main className="panel right">
                 <section className="section" aria-labelledby={DETAIL_TITLE_ID}>
                     <h2 className="section-title" id={DETAIL_TITLE_ID}>
                         Selected transfer details
@@ -822,8 +822,15 @@ export default function WaitingAuthorizationsScreen() {
                         {codeStillTaken && (
                             <>
                                 <div className="field-row">
-                                    <label className="field-label" htmlFor={OTP_FIELD_ID}>
-                                        Code:
+                                    {/*
+                                      Named for a screen reader and not for the eye. The box beside
+                                      it already says what goes in it, so the word was the same
+                                      instruction printed twice, and the second copy was taking a
+                                      column of the row to do it. The name still has to exist:
+                                      an unnamed box is announced as "edit text" and nothing more.
+                                    */}
+                                    <label className="visually-hidden" htmlFor={OTP_FIELD_ID}>
+                                        One-time code
                                     </label>
                                     <input
                                         id={OTP_FIELD_ID}
@@ -932,9 +939,6 @@ export default function WaitingAuthorizationsScreen() {
                         >
                             Cancel transfer
                         </button>
-                        <span className="helper-text">
-                            Refuses the payment for good. Nothing is taken from your account.
-                        </span>
                     </div>
 
                     {/*

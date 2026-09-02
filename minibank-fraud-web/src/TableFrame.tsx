@@ -99,7 +99,11 @@ export default function TableFrame({
             */}
             <div
                 ref={scrollerRef}
-                className="table-wrapper"
+                // scroll-marked draws the cut edge at the top and bottom of this box, and draws
+                // nothing at all unless the box can actually be scrolled that way. Every table
+                // wears it: which of them has a ceiling low enough to cut its rows is decided by
+                // the screen, and none of them should have to ask for the mark separately.
+                className="table-wrapper scroll-marked"
                 tabIndex={scrolls ? 0 : undefined}
                 role={scrolls ? 'region' : undefined}
                 aria-label={scrolls ? label : undefined}
