@@ -47,6 +47,7 @@ export async function fetchMe(): Promise<Me> {
 }
 
 export type { Money } from '@shared/money';
+import type { Money } from '@shared/money';
 /*
  * The reader as well as the writer now. parseAmount used to be the customer application's alone,
  * and this desk carried a second copy of it under the name readAmount because one application may
@@ -97,3 +98,194 @@ export {
     releaseAlert,
     takeAlert,
 } from '@shared/fraud';
+
+/*
+ * The two that ask nothing of the bank, listed here all the same because they are the rule the
+ * three decision buttons are dead by and the body those buttons send. Both were written out by
+ * hand on each desk, so the same verdict could be offered on one platform and refused on the
+ * other, and a blank box could mean two different things on the wire. They stand beside the call
+ * they belong to, which is postFraudDecision above.
+ */
+export { buildDecisionRequest, decisionAllowed } from '@shared/fraud';
+
+/* ============================ THE CUSTOMER'S OWN ROUTES ============================
+ *
+ * The shapes are read from @shared/customer, where they were put when the customer application was
+ * the only one drawing them, with the note that this window grows the same screens later. It has.
+ * What is written out here is the fetching, which that module says each application owns, and it is
+ * the same nine calls the customer application makes against the same nine addresses.
+ *
+ * Nine functions in two places is nine functions in two places, and the argument for sharing them
+ * is now the one @shared/customer makes about fetchMe in its own header: a call is shared when both
+ * platforms make it. Both platforms make these. Moving them is a change to a file this pass does
+ * not own, so it is handed over rather than done, and until it happens the wire description above
+ * is what keeps the two copies from meaning different things.
+ */
+
+export type {
+    AccountSummary,
+    Address,
+    DailyOutflow,
+    DispatchState,
+    MyAccountsResponse,
+    PaymentQuote,
+    TransferDetails,
+    UserRole,
+} from '@shared/customer';
+import type { MyAccountsResponse, PaymentQuote, TransferDetails } from '@shared/customer';
+
+/* The address book, and the page envelope a paged list arrives in. */
+export type { Beneficiary } from '@shared/paging';
+import type { Beneficiary, Page } from '@shared/paging';
+import { applyPaging } from '@shared/paging';
+/* The customer's own history row, which is the analyst's row read by the person who made it. */
+import type { HistoryItem } from '@shared/fraud';
+
+/* A payment as it is submitted, with exactly one of the two destinations set: the server refuses a
+   request that names both, because a caller that has named both has lost track of which it meant. */
+export interface NewPaymentRequest {
+    sourceAccountId: number;
+    targetIban?: string;
+    beneficiaryId?: number;
+    amountCzk: number;
+    message: string;
+}
+
+export interface NewPaymentResult {
+    transferId: number;
+    status: string;
+    chargedAmount: Money;
+    newBalance: Money;
+    feeAmount: Money;
+    authorizationRequired: boolean;
+}
+
+/** A row of `GET /api/me/waiting-transfers`, field for field as the server sends one. */
+export interface WaitingTransferItem {
+    id: number;
+    toIban: string;
+    amount: Money;
+    createdAt: string;
+    /** Null on a transfer with no authorization method recorded. */
+    authMethod: string | null;
+    /* WAITING_AUTH or HELD_FOR_REVIEW, left as a plain string like every other status on this wire
+       so an unrecognised value renders rather than failing to parse. */
+    status: string;
+}
+
+/** True while the bank is still reviewing this payment, so the customer cannot confirm it yet. */
+export function isUnderReview(status?: string | null): boolean {
+    return status === 'HELD_FOR_REVIEW';
+}
+
+export interface AuthorizePaymentRequest {
+    transferId: number;
+    otp: string;
+}
+
+export interface AuthorizePaymentResult {
+    transferId: number;
+    status: string;
+    /** Null where no funds were charged. */
+    chargedAmount: Money | null;
+    /** Always the current balance of the account, whatever the outcome was. */
+    newBalance: Money;
+    /** The reason on a DECLINED payment, and null otherwise. */
+    declineReason: string | null;
+}
+
+/** The customer's accounts, and the one day all of them share. */
+export async function getMyAccounts(): Promise<MyAccountsResponse> {
+    const res = await apiFetch(`${API_BASE}/me/accounts`);
+    return handle<MyAccountsResponse>(res);
+}
+
+/**
+ * What this payment would cost, priced by the bank before anything is sent.
+ *
+ * Asked rather than computed. The tariff is a step function, so a heller past a boundary is ten
+ * crowns, and a copy of it in the browser goes on quoting last month's price after the bank changes
+ * its mind. The answer also carries the bank's real decision about a one time code, which depends
+ * on where the money is going as well as on how much.
+ */
+export async function fetchPaymentQuote(
+    sourceAccountId: number,
+    amountCzk: number,
+    beneficiaryId?: number | null,
+): Promise<PaymentQuote> {
+    const params = new URLSearchParams();
+    params.set('sourceAccountId', String(sourceAccountId));
+    params.set('amountCzk', String(amountCzk));
+    if (beneficiaryId != null) {
+        params.set('beneficiaryId', String(beneficiaryId));
+    }
+
+    const res = await apiFetch(`${API_BASE}/payments/quote?${params.toString()}`);
+    return handle<PaymentQuote>(res);
+}
+
+/**
+ * The customer's saved payees, already ordered by name on the server.
+ *
+ * Three fields arrive and there is no fourth: the trusted flag that decides whether a payment to
+ * this payee is reviewed is deliberately not on this wire, so there is nothing here for a screen to
+ * leak. Not paged, because an address book is a handful of rows beside a form.
+ */
+export async function fetchMyBeneficiaries(): Promise<Beneficiary[]> {
+    const res = await apiFetch(`${API_BASE}/me/beneficiaries`);
+    return handle<Beneficiary[]>(res);
+}
+
+export async function createPayment(payload: NewPaymentRequest): Promise<NewPaymentResult> {
+    const res = await apiFetch(`${API_BASE}/payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    return handle<NewPaymentResult>(res);
+}
+
+/** One page of the transfers waiting on the customer or on the bank, newest first. */
+export async function fetchWaitingTransfers(
+    page: number,
+    size: number,
+): Promise<Page<WaitingTransferItem>> {
+    const qs = applyPaging(new URLSearchParams(), page, size);
+    const res = await apiFetch(`${API_BASE}/me/waiting-transfers?${qs.toString()}`);
+    return handle<Page<WaitingTransferItem>>(res);
+}
+
+/**
+ * One page of every payment the customer has made, from every account they hold, newest first.
+ *
+ * A row is a HistoryItem, the same shape this desk already reads beside an alert, because it is the
+ * same row read by its owner. What differs is who is being addressed, and that is settled by the
+ * glossary's audience parameter rather than by a second row type.
+ */
+export async function fetchMyTransfers(page: number, size: number): Promise<Page<HistoryItem>> {
+    const qs = applyPaging(new URLSearchParams(), page, size);
+    const res = await apiFetch(`${API_BASE}/me/transfers?${qs.toString()}`);
+    return handle<Page<HistoryItem>>(res);
+}
+
+export async function fetchTransferDetails(id: number): Promise<TransferDetails> {
+    const res = await apiFetch(`${API_BASE}/transfers/${id}`);
+    return handle<TransferDetails>(res);
+}
+
+export async function confirmAuthorization(
+    payload: AuthorizePaymentRequest,
+): Promise<AuthorizePaymentResult> {
+    const res = await apiFetch(`${API_BASE}/transfers/${payload.transferId}/authorize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        /* The id is in the address; the body carries the code and nothing else. */
+        body: JSON.stringify({ otp: payload.otp }),
+    });
+    return handle<AuthorizePaymentResult>(res);
+}
+
+export async function cancelTransfer(id: number): Promise<AuthorizePaymentResult> {
+    const res = await apiFetch(`${API_BASE}/transfers/${id}/cancel`, { method: 'POST' });
+    return handle<AuthorizePaymentResult>(res);
+}

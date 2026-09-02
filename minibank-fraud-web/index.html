@@ -11,6 +11,21 @@
     -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <!--
+      What makes this window installable: the browser then gives it a window of its own, named and
+      marked by the manifest instead of a tab strip and an address bar, which is the whole of what
+      packaging means here. It buys nothing else. There is no service worker, so nothing is cached
+      and none of these screens work away from a running API.
+
+      Its two colours are literals, because a manifest is strict JSON and cannot read a token; both
+      are the canvas this shell paints, so the strip the browser draws above the page is the grey
+      already under it. It names the icon above and no other: one the server does not have is worse
+      than no manifest at all, because the dev server answers a missing path with index.html rather
+      than 404, and the browser then refuses to install with nothing to see. One drawn SVG covers
+      every size that is asked for, and it is not offered as maskable, because the letter sits close
+      enough to the edge of its tile that a circular mask would cut it.
+    -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <!--
       The package name was on the tab. Both applications are MiniBank, so the one that has to
       tell them apart names the client rather than a role: this window carries the fraud desk
       today and the customer screens later, and a title with "Fraud" in it would be wrong then.

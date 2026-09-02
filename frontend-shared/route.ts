@@ -147,6 +147,21 @@ export function goTo(route: Route) {
 }
 
 /**
+ * A press in the navigation column, from whichever shell drew it.
+ *
+ * The three lines it replaces are the guard, the route and the move, and each shell was about to
+ * write its own copy of them. They are one decision, not three: an entry the role is not served may
+ * not become an address, whoever pressed it and whichever window they pressed it in. Kept here
+ * rather than in the navigation module because the guard and the address are both this module's,
+ * and it is the address that the press turns into.
+ */
+export function navigateToView(role: NavRole, view: NavView) {
+    const target = routeFor(view);
+    if (!allowedForRole(role, target)) return;
+    goTo(target);
+}
+
+/**
  * A correction the program made: a selection dropped because the payment left the list, an
  * address nobody can have.
  *

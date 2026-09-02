@@ -383,6 +383,42 @@ tr[role="button"]:focus-visible {
   border-right: var(--border-width-hairline) solid var(--color-border-container);
 }
 
+/*
+ * THE LIST OF SCREENS STAYS WHERE IT IS while a screen moves past it.
+ *
+ * The page is the scroller here - nothing on this application clips its own overflow - so a payment
+ * history of fourteen rows or a case pane of three thousand pixels carried the navigation up and
+ * out of the window with it, and getting to another screen meant scrolling back to the top first.
+ *
+ * The box INSIDE the column and not the column itself, which is the whole reason there is a box.
+ * The column is stretched to the height of the screen beside it, deliberately, so that the hairline
+ * down its right edge ends where the content ends rather than stopping in mid air a fifth of the
+ * way down; a box that is already as tall as everything has nothing left to slide within, and
+ * sticky on it does nothing at all. So the column keeps its height and its line, and what a reader
+ * actually uses stays in view.
+ *
+ * The header above is not sticky and scrolls away, so this comes to rest against the top of the
+ * window with one gutter of its own under it rather than against a band that is no longer there.
+ *
+ * The height and the overflow are for the case where the entries outlast the window: at 200 percent
+ * text the six of them plus their title measure more than a short window is tall, and without a
+ * ceiling the tail of the list would be pinned somewhere below the bottom edge with no way to
+ * reach it. Given the window's height it scrolls inside itself instead.
+ *
+ * One rule for both roles, and it is one rule because there is one navigation: the same component
+ * draws the customer's four entries and the analyst's, and both applications' pages put it in the
+ * same .layout beside the same panel.
+ */
+.nav-sticky {
+  position: sticky;
+  top: var(--space-9);
+  max-height: calc(100vh - var(--space-9) * 2);
+  overflow-y: auto;
+  /* A wheel over the entries moves the entries, and stops there rather than taking the page with
+     it once it reaches the end. */
+  overscroll-behavior: contain;
+}
+
 .nav-title {
   font-size: var(--text-1);
   letter-spacing: var(--tracking-widest);
@@ -480,17 +516,6 @@ tr[role="button"]:focus-visible {
   flex: 1 1 auto;
   min-width: 0;
   /*
-   * THE reading column, and the only ceiling left on a working screen. Every block inside it
-   * is as wide as this and no wider - the form, the notices, the detail boxes and the tables
-   * alike - which is what makes their right edges line up instead of a table running to the
-   * window while the block under it stops 1400px short.
-   *
-   * The full bleed parts are deliberately outside it: the page surface, the header bar and
-   * the navigation column are furniture and run to the edges of the window. Only what is
-   * read is bounded.
-   */
-  max-width: var(--size-content-max);
-  /*
    * And the panel is what its own contents are measured against. A screen asks how much room it
    * has, not how wide the window is: the same panel is 1080px in a 1440 window, about 920 when
    * the reader has doubled their text, and 326 on a phone, and the answers differ in all three.
@@ -498,6 +523,40 @@ tr[role="button"]:focus-visible {
    * is held away from its contents.
    */
   container: panel / inline-size;
+}
+
+/*
+ * THE READING COLUMN, ON WHAT IS READ RATHER THAN ON THE REGION IT IS READ IN.
+ *
+ * It used to be the panel's own ceiling, and the panel is the wrong thing to carry it: the panel is
+ * the region a screen is drawn on, so a capped panel answers a window with room to spare by leaving
+ * that room empty and standing in the corner of it. What stops being readable past a width is a
+ * line of text, and lines of text are in the blocks, so the blocks are where the measure goes.
+ * Their right edges still line up, which is the whole of what the ceiling was for. The full bleed
+ * parts stay outside it: the page surface, the header band and the navigation column are furniture
+ * and run to the edges of the window.
+ *
+ * TWO KINDS OF BLOCK ARE EXEMPT, and for the same reason: what they hold has no measure of its own
+ * to be held to. A table is columns, and five of them read better wide and give up columns when
+ * they are cramped; that exemption was already here, keyed on the frame rather than on a screen so
+ * that it reaches every table in the application at once. A prose box is the other, and it is the
+ * one this pair was written for: it is the only control with no content width at all, it is typed
+ * into rather than read, and it should end where the room ends. Measured before this, the comment
+ * and the note on the desk and the message on a payment all stopped at 1080 with the pane around
+ * them 1100 and the window 1900.
+ *
+ * Only the box grows. A block let out of the measure holds its other children at whatever width
+ * they have of their own - an amount field, a date, a button are all sized by what they hold - so
+ * exempting the form does not stretch the row of short fields above the message box.
+ */
+.form-panel > *,
+.form-panel .section {
+  max-width: var(--size-content-max);
+}
+
+.form-panel :has(.table-frame),
+.form-panel :has(.textarea) {
+  max-width: none;
 }
 
 /*
@@ -520,54 +579,94 @@ tr[role="button"]:focus-visible {
  * side has to hold is the customer's payment history, five columns of which the last is two full
  * IBANs: it needs about 790px, and under that the dates break over three lines, the sums break
  * over two and the two account numbers of a row stop standing under each other. This panel sits
- * 360px in from the window's edges and the split gives the detail eight twelfths, so 790px of
- * detail wants a 1600px window. Below it the split is worse than no split at all, and that is a
- * frame rather than an opinion: at 1440 the detail is 611px, the history table doubles in height
- * and the page ends up exactly as long as the single column it replaced.
+ * 360px in from the window's edges, the queue takes its 420 and the gap 24, so 790px of chosen
+ * alert wants a 1600px window and gets 796. Below it the split is worse than no split at all,
+ * and that is a frame rather than an opinion: at 1440 the chosen alert is 636px, the history
+ * table doubles in height and the page ends up as long as the single column it replaced.
  *
  * A media query and not a container query, because on this skin the shell IS the window: owner
  * decision 2.
  *
- * 4 and 8 of twelve rather than an even split, and the queue is the side that gives. A queue row
- * is a code, a state, a sum and one short reason, all of them short and all read down rather than
- * across; the chosen alert carries two tables and a page of facts. At the width this starts at
- * the queue column is 403px, which is what the workstation's own queue rail is capped at, and it
- * is a coincidence worth stating rather than a target: two skins measuring the same row arrived
- * at the same width for it.
+ * A bounded queue and a flexible alert rather than a share each, and the queue is the side that
+ * is bounded: the chosen alert carries two tables and a page of facts and can use everything it
+ * is handed, while a queue is read by running an eye down one column and gains nothing past the
+ * width of the columns a row is picked by. This is the arrangement the workstation's desk already
+ * had, out of the same three tokens.
  *
- * The panel's ceiling doubles rather than lifting. Two reading columns is what is being drawn,
- * so two is what it is allowed to be; and it applies only to a panel that holds a split, so the
- * payment form keeps the one column its prose and its fields are measured for.
+ * At 420 the queue's own frame scrolls, which is the answer that table already gives at every
+ * width too narrow for it: it stays a table rather than folding into a record per alert, because
+ * a queue is read by comparing one column across rows and a stack of records cannot be read that
+ * way. Its nine columns will not squeeze below 654px, so five of them stand, the reason begins,
+ * and the frame draws the fade that says the rest is this way. The four that go behind that edge
+ * are the reason, the risk score, the assignee and when the alert was raised, and all four are
+ * printed in full in the card at the top of the pane beside it for the row that is chosen. That
+ * is the whole of what putting the two side by side is for, and it is why this is the arrangement
+ * that can afford to send a column behind an edge where the single column could not.
+ *
+ * The panel needs no ceiling lifted for it. Both screens that hold a split hold a table as well,
+ * and the rule further down already gives such a panel the whole of the window; the payment form
+ * holds neither and keeps the one reading column its prose and its fields are measured for.
+ *
+ * The selector is narrowed against the modifier, and only because the other screen starts 360px
+ * later: left on the plain class the authorization screen would split at 1600 into the two tracks
+ * measured for this one, which is the arrangement the block further down was written to prevent.
  */
-.work-list {
-  margin-bottom: var(--space-9);
+/*
+ * A grid at every width, and what the window decides is only how many columns it has. Written
+ * this way rather than as a block that turns into a grid, because the two sides are one cycle
+ * whether or not there is room to stand them side by side: a narrow window gets the same grid
+ * with one track, and the gap that separates the two of them is then the one gap, declared once,
+ * instead of a margin under the list that a second rule has to take back.
+ */
+.work-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-9);
+  /* Each column starts at the top of the panel. Stretched, the shorter of the two would carry its
+     own background and its own hairline down to the depth of the longer one, so a queue of three
+     rows would be drawn as a frame with a screenful of nothing under the third. */
+  align-items: start;
+}
+
+@media (min-width: 1600px) {
+  /* The same two tracks the workstation's desk is built from, read out of the same three tokens:
+     the queue bounded between what its four lines cost and what they are worth, the chosen alert
+     taking the remainder over a floor under which a pane is not worth drawing. The tokens are
+     declared for both skins and each skin gives them its own numbers, which is where the two
+     desks are allowed to differ: 420px of queue here against 340 there, because this one is a
+     table of nine columns and that one is a rail of cards. At 1600 the queue is 420 and the alert
+     800, of which 772 is inside the frame, and 790 is what the history table was measured to
+     need before its dates start breaking. */
+  .work-split:not(.work-split--list-led) {
+    grid-template-columns:
+      minmax(var(--size-queue-min), var(--size-queue-max))
+      minmax(var(--size-detail-min), 1fr);
+  }
 }
 
 /*
- * The chosen side, and the second track of the split. min-width: 0 for the reason the panel above
- * has it and the tracks below say in one word: a grid item takes its min-content size as an
- * automatic minimum, so the customer's payment history inside would set this column's floor from
- * two IBANs rather than scrolling inside its own frame.
+ * The two tracks themselves, and both need the same thing said about them. A grid item takes its
+ * min-content size as an automatic minimum, so the queue's six columns and the customer's payment
+ * history would each set their own column's floor from their widest row rather than scrolling
+ * inside their own frame, and the panel would be pushed out from inside.
  */
+.work-list,
 .work-detail {
   min-width: 0;
 }
 
 /*
- * ====== ONE COLUMN, AND THE TABLE SPENDS THE WIDTH ======
+ * ====== THE WIDTH GOES TO THE THING THAT CAN USE IT ======
  *
- * Both of these screens were briefly split into two columns on a wide window, the list on one side
- * and the chosen record on the other. That is not what the width is for here, and it broke a rule
- * that holds on every size: what belongs under a table stays under it. Read at a wide window, the
- * facts of the chosen payment and the sentence about what can be done with it had climbed up beside
- * the list they were chosen from, so the same screen said one thing at 1900px and another at 2000,
- * and the reader had to find the detail in a different place depending on the window.
- *
- * So the screens stay one column at every width, and the width goes to the thing that can use it.
  * A table spends every pixel it is given: six columns of which one is a full IBAN read better wide
  * and give up columns when they are cramped. Prose does not: a sentence set to 2500px is unreadable
- * however much room is going spare. The ceiling therefore moves off the panel and onto the blocks
+ * however much room is going spare. So the ceiling comes off the panel and goes onto the blocks
  * that hold prose, which is the whole of the change.
+ *
+ * This is what pays for the split above rather than an argument against it. The two rules answer
+ * different questions: the ceiling decides how wide a block of words may be, the split decides
+ * which of two blocks stands beside which. What belongs under a table stays under it in both, and
+ * the split moves the chosen record out from under the list rather than into it.
  */
 /*
  * The rule is about tables and not about screens, so it is keyed on carrying one. Every screen that
@@ -582,13 +681,6 @@ tr[role="button"]:focus-visible {
  * alert, the case notes and the customer's own history screen. The payment form carries no table
  * and is left at the measure, which is where a form belongs.
  */
-.form-panel:has(.table-frame) {
-  max-width: none;
-}
-
-.form-panel:has(.table-frame) .section:not(:has(.table-frame)) {
-  max-width: var(--size-content-max);
-}
 
 /*
  * ====== THE OTHER SCREEN'S SPLIT, WHICH IS THE SAME CYCLE WITH THE SIDES REVERSED ======
@@ -610,13 +702,31 @@ tr[role="button"]:focus-visible {
  * given; what the queue holds is six columns of which one is a full IBAN, and columns spend every
  * pixel they are given.
  *
- * 1960px is where, and it is the width at which this arrangement first pays. The panel is the
- * window less 368px of furniture, capped at twice the reading column; the list is eight twelfths
- * of what is left after the gap. Solved for the 64em the table needs, that is a 1936px window, and
- * the extra 24px are the scrollbar a real window has and a screenshot does not. Below it the split
- * would hand the queue a width where it stops being a table, which is what this rule exists to
- * prevent, so below it the screen stays one column and the table keeps the whole of it.
+ * 2000px is where, and every term of it is measured on the live screen rather than chosen. The
+ * panel is the window less 356px of furniture and carries no ceiling, because it holds a table.
+ * The chosen payment takes 66ch, which is 569px at the default text size, and the gap takes 24,
+ * so the list is the window less 949. Solved for the 1024px the table needs to keep its columns,
+ * that is a 1974px window; the remaining 26 are the scrollbar a real window has and a screenshot
+ * does not. Below it the split would hand the list a width where it stops being a table, which is
+ * what this rule exists to prevent, so below it the screen stays one column and the table keeps
+ * the whole of it.
+ *
+ * 400px later than the desk starts, and that difference is why the rule above is written for the
+ * plain class alone. The desk can start earlier because the side that is bounded there is the
+ * queue, and the queue is allowed to scroll; here the bounded side is prose, which cannot be
+ * given less, so the list pays for it out of what is left.
  */
+@media (min-width: 2000px) {
+  /* The same two tracks reversed, and the reversal is in which one is bounded. The list takes the
+     remainder because six columns spend every pixel; the chosen payment is floored where a pane
+     stops being worth drawing and capped where prose stops being readable, so width past the cap
+     arrives as ground rather than as a line nobody can find the start of. */
+  .work-split--list-led {
+    grid-template-columns:
+      minmax(0, 1fr)
+      minmax(var(--size-detail-min), var(--size-prose-max));
+  }
+}
 
 /*
  * The name of the screen, and the top rung: it is the one place on a working screen where
@@ -2308,6 +2418,21 @@ tr[role="button"]:focus-visible {
     border-right: none;
     border-bottom: var(--border-width-hairline) solid var(--color-border-container);
     margin-bottom: var(--space-7);
+  }
+
+  /*
+   * And it stops staying put, because here it is not a column any more. Stacked, the navigation is
+   * a band across the top of the screen it names, and a band that stays put is a band drawn ON the
+   * page rather than in it: it would cover the first rows of whatever is under it, at exactly the
+   * width where the room is scarcest. In this shape it goes back to being part of what scrolls.
+   *
+   * The ceiling goes with it. It was there to keep a tall list reachable inside a short window, and
+   * a band that scrolls away is reachable by scrolling back.
+   */
+  .nav-sticky {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
   }
 }
 

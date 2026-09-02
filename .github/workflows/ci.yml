@@ -1,8 +1,17 @@
+# What has to still be true after a change: the backend compiles and its tests pass against a real
+# PostgreSQL, both front ends lint, test and build, and the two commands the README tells a reader
+# to type still bring the database up and still bring the migrations to both databases.
+#
+# The jobs run the scripts rather than repeating what the scripts do. A workflow that spelled the
+# steps out again would be a second copy of the setup instructions, free to drift from the ones a
+# reader follows, and drift is exactly what this is here to catch.
 name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,61 +22,63 @@ concurrency:
 
 jobs:
   backend:
-    name: Backend tests
+    name: backend
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
-    services:
-      postgres:
-        image: postgres:14
-        env:
-          POSTGRES_DB: minibank_test
-          POSTGRES_USER: minibank
-          POSTGRES_PASSWORD: minibank
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U minibank -d minibank_test"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
+    timeout-minutes: 20
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v6
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
+          # 17, which is what maven-compiler-plugin pins release to. Building on the version the
+          # project is held to is the configuration its tests are green on.
           java-version: '17'
           cache: maven
 
-      - name: Initialize test database schema
-        env:
-          PGPASSWORD: minibank
-        run: >-
-          psql --host localhost --username minibank --dbname minibank_test
-          --set ON_ERROR_STOP=1 --file db/init/schema.sql
+      # sh ./mvnw, not ./mvnw. The repository is worked on from Windows with core.filemode false,
+      # so a file added there carries mode 100644 and the wrapper is not executable in a clone
+      # made here. The ./ is not decoration: the wrapper reads its properties from
+      # ${0%/*}/.mvn/wrapper, and a bare mvnw has no slash to strip.
+      - name: Maven wrapper
+        run: sh ./mvnw -B -v
 
-      - name: Run Maven tests, including PostgreSQL integration tests
-        run: >-
-          mvn -B -ntp test
-          -Dminibank.test.sql.url=jdbc:postgresql://localhost:5432/minibank_test
-          -Dminibank.test.sql.user=minibank
-          -Dminibank.test.sql.password=minibank
+      # The stack the README describes, started by the script the README names. Deliberately not a
+      # service container: db/init is mounted by docker-compose.yml and runs only when compose
+      # starts PostgreSQL, and it is what creates minibank_test and applies the schema to it.
+      - name: Start PostgreSQL
+        run: sh scripts/up.sh
 
-  frontend:
-    name: Frontend quality checks
+      # Every migration, against both databases, on a volume built moments ago from
+      # db/init/schema.sql. All of them are written to be safe to run twice, and this is what keeps
+      # that claim true.
+      - name: Apply the migrations
+        run: sh scripts/migrate.sh
+
+      - name: Build the backend
+        run: sh ./mvnw -B -DskipTests package
+
+      # The test database is named in full, and that address is not optional. Without the property
+      # the SQL tests skip and the run goes green over untested code.
+      - name: Test the backend
+        run: sh ./mvnw -B test "-Dminibank.test.sql.url=jdbc:postgresql://localhost:55432/minibank_test"
+
+      - name: Keep the reports of a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: target/surefire-reports/
+          if-no-files-found: ignore
+
+  frontends:
+    name: front ends
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
+    timeout-minutes: 20
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v7
+      - uses: actions/checkout@v7
 
-      - name: Set up Node.js 24
-        uses: actions/setup-node@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -75,30 +86,36 @@ jobs:
             minibank-web/package-lock.json
             minibank-fraud-web/package-lock.json
 
-      - name: Install customer application dependencies
+      - name: Install the customer front end
         working-directory: minibank-web
         run: npm ci
 
-      - name: Install fraud application dependencies
+      # Installed even though nothing is run from this directory below: the test step reaches the
+      # workstation's sources through its own vite config, and that config imports the React plugin
+      # from here.
+      - name: Install the workstation
         working-directory: minibank-fraud-web
         run: npm ci
 
-      - name: Lint customer application and shared frontend code
+      - name: Lint the customer front end and the shared layer
         working-directory: minibank-web
         run: npm run lint
 
-      - name: Test shared frontend logic
+      - name: Lint the workstation
+        working-directory: minibank-fraud-web
+        run: npm run lint
+
+      # One runner for the whole tree. vitest is installed once, here, and reaches the workstation
+      # and frontend-shared through the projects list in minibank-web/vite.config.ts. That is why
+      # there is no second test step: the workstation has no test script to call, on purpose.
+      - name: Test
         working-directory: minibank-web
         run: npm test
 
-      - name: Build customer application
+      - name: Build the customer front end
         working-directory: minibank-web
         run: npm run build
 
-      - name: Lint fraud application
-        working-directory: minibank-fraud-web
-        run: npm run lint
-
-      - name: Build fraud application
+      - name: Build the workstation
         working-directory: minibank-fraud-web
         run: npm run build

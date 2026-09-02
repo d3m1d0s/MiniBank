@@ -1,0 +1,44 @@
+{
+  "alerts": {
+    "items": [
+      {
+        "id": 1,
+        "alertCode": "ALERT-1",
+        "transferCode": "TR-12",
+        "state": "NEW",
+        "transferStatus": "HELD_FOR_REVIEW",
+        "amount": {
+          "amount": "12000.00",
+          "currency": "CZK"
+        },
+        "shortReason": "New beneficiary + high amount",
+        "createdAt": "2026-08-29T20:20:50.290980Z",
+        "riskScore": 80,
+        "assignee": null
+      },
+      {
+        "id": 2,
+        "alertCode": "ALERT-2",
+        "transferCode": "TR-13",
+        "state": "OK",
+        "transferStatus": "DECLINED",
+        "amount": {
+          "amount": "11500.00",
+          "currency": "CZK"
+        },
+        "shortReason": "New beneficiary + high amount",
+        "createdAt": "2026-08-29T00:20:50.290980Z",
+        "riskScore": 65,
+        "assignee": "fraud"
+      }
+    ],
+    "page": 0,
+    "size": 5,
+    "total": 2
+  },
+  "counters": {
+    "newCount": 1,
+    "suspiciousCount": 0,
+    "okCount": 1
+  }
+}

@@ -13,6 +13,7 @@ import cz.vsb.minibank.infrastructure.uow.UowScope;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -85,14 +86,20 @@ public final class DemoScenario {
     private enum Payer { CURRENT, SAVINGS }
 
     /**
-     * One settled payment: how far back it was made, what it moved, from which account and to whom.
+     * One settled payment: how many days back it was made, at what hour of that day, what it
+     * moved, from which account and to whom.
      *
-     * The offsets are relative rather than absolute so that the dataset keeps its shape whenever
-     * it is seeded, instead of ageing into a fixture about a fortnight that has long passed.
+     * The day is relative rather than absolute so that the dataset keeps its shape whenever it is
+     * seeded, instead of ageing into a fixture about a fortnight that has long passed.
      *
-     * The hour is subtracted as well as the days, so the history does not print the same clock
-     * time on every line. Shifting back by less than a day can only move a payment later within
-     * its own day, never onto the day before, so no two rows here can land on one date.
+     * The hour is a time of day and not a second offset backwards, so that the history does not
+     * print the same clock time on every line. Subtracted, it moved a row onto the day before
+     * whenever it exceeded the hour the seed happened to run at: seeded at 09:20 UTC, the row
+     * three days back at hour six and the row two days back at hour eleven both landed on the
+     * same date, and nine settled payments on the current account had eight dates between them.
+     * Read as a time of day it cannot happen, because the date of a row is then the seeding date
+     * less its own days and nothing else. The hour is counted in UTC, which is the zone every
+     * reader of these rows compares their dates in.
      *
      * {@code message} is the payer's own reference, null on a payment they wrote none for, and
      * the null is as much of the fixture as the text is. Every screen that prints this field
@@ -102,11 +109,15 @@ public final class DemoScenario {
      * also what the field means: a box on the payment form that nobody is obliged to fill in.
      * Seven of the eleven have one.
      */
-    private record PastPayment(int daysAgo, int hoursAgo, Money amount, Payer from, Payee to,
+    private record PastPayment(int daysAgo, int atHour, Money amount, Payer from, Payee to,
                                String message) {
 
         Instant at(Instant seededAt) {
-            return seededAt.minus(Duration.ofDays(daysAgo)).minus(Duration.ofHours(hoursAgo));
+            return seededAt.atOffset(ZoneOffset.UTC)
+                    .toLocalDate()
+                    .minusDays(daysAgo)
+                    .atTime(atHour, 0)
+                    .toInstant(ZoneOffset.UTC);
         }
     }
 
@@ -137,17 +148,17 @@ public final class DemoScenario {
      * fortnight looks.
      */
     private static final List<PastPayment> HISTORY = List.of(
-            new PastPayment(13, 2, Money.czk(1_500), Payer.CURRENT, Payee.RISKY, null),
-            new PastPayment(12, 7, Money.czk(650), Payer.CURRENT, Payee.TRUSTED, "Share of the rent"),
-            new PastPayment(10, 5, Money.czk(150.50), Payer.CURRENT, Payee.TRUSTED, "Concert ticket"),
-            new PastPayment(8, 1, Money.czk(1_400), Payer.CURRENT, Payee.SAVINGS, "Putting aside for the deposit"),
-            new PastPayment(7, 9, Money.czk(890), Payer.CURRENT, Payee.TRUSTED, null),
-            new PastPayment(6, 8, Money.czk(420), Payer.SAVINGS, Payee.TRUSTED, "Dentist, second visit"),
-            new PastPayment(5, 3, Money.czk(1_200), Payer.CURRENT, Payee.TRUSTED, null),
-            new PastPayment(4, 10, Money.czk(2_500), Payer.SAVINGS, Payee.CURRENT, "Back to the current account for the rent"),
-            new PastPayment(3, 6, Money.czk(300), Payer.CURRENT, Payee.SAVINGS, null),
-            new PastPayment(2, 11, Money.czk(980), Payer.CURRENT, Payee.RISKY, "Deposit for the workshop"),
-            new PastPayment(1, 4, Money.czk(50), Payer.CURRENT, Payee.TRUSTED, "Coffee"));
+            new PastPayment(13, 8, Money.czk(1_500), Payer.CURRENT, Payee.RISKY, null),
+            new PastPayment(12, 13, Money.czk(650), Payer.CURRENT, Payee.TRUSTED, "Share of the rent"),
+            new PastPayment(10, 11, Money.czk(150.50), Payer.CURRENT, Payee.TRUSTED, "Concert ticket"),
+            new PastPayment(8, 7, Money.czk(1_400), Payer.CURRENT, Payee.SAVINGS, "Putting aside for the deposit"),
+            new PastPayment(7, 15, Money.czk(890), Payer.CURRENT, Payee.TRUSTED, null),
+            new PastPayment(6, 14, Money.czk(420), Payer.SAVINGS, Payee.TRUSTED, "Dentist, second visit"),
+            new PastPayment(5, 9, Money.czk(1_200), Payer.CURRENT, Payee.TRUSTED, null),
+            new PastPayment(4, 16, Money.czk(2_500), Payer.SAVINGS, Payee.CURRENT, "Back to the current account for the rent"),
+            new PastPayment(3, 12, Money.czk(300), Payer.CURRENT, Payee.SAVINGS, null),
+            new PastPayment(2, 17, Money.czk(980), Payer.CURRENT, Payee.RISKY, "Deposit for the workshop"),
+            new PastPayment(1, 10, Money.czk(50), Payer.CURRENT, Payee.TRUSTED, "Coffee"));
 
     /** Above the fraud-alert threshold, so it waits for authorization and raises an alert. */
     private static final Money FLAGGED_AMOUNT = Money.czk(12_000);

@@ -1,0 +1,256 @@
+{
+  "alert": {
+    "id": 1,
+    "state": "NEW",
+    "decision": null,
+    "decidedBy": null,
+    "resolvedAt": null,
+    "decisionComment": null,
+    "reason": "New beneficiary + high amount",
+    "riskScore": 80,
+    "createdAt": "2026-08-29T20:20:50.290980Z",
+    "assignee": null,
+    "tags": []
+  },
+  "transfer": {
+    "id": 12,
+    "code": "TR-12",
+    "status": "HELD_FOR_REVIEW",
+    "fromIban": "CZ6508000000192000145399",
+    "fromBalance": {
+      "amount": "45338.50",
+      "currency": "CZK"
+    },
+    "toIban": "CZ9608000000192000145423",
+    "toIbanInBank": false,
+    "dispatchState": null,
+    "amount": {
+      "amount": "12000.00",
+      "currency": "CZK"
+    },
+    "feeAmount": {
+      "amount": "145.00",
+      "currency": "CZK"
+    },
+    "createdAt": "2026-08-29T20:20:50.290980Z",
+    "settledAt": null,
+    "declinedAt": null,
+    "message": null,
+    "declineReason": null,
+    "authMethod": "CARD"
+  },
+  "history": [
+    {
+      "id": 14,
+      "createdAt": "2026-08-29T20:20:50.290980Z",
+      "settledAt": null,
+      "declinedAt": null,
+      "amount": {
+        "amount": "16000.00",
+        "currency": "CZK"
+      },
+      "fee": {
+        "amount": "185.00",
+        "currency": "CZK"
+      },
+      "status": "WAITING_AUTH",
+      "fromIban": "CZ6508000000192000145399",
+      "toIban": "CZ2108000000192000145415",
+      "toIbanInBank": false,
+      "message": null,
+      "declineReason": null
+    },
+    {
+      "id": 12,
+      "createdAt": "2026-08-29T20:20:50.290980Z",
+      "settledAt": null,
+      "declinedAt": null,
+      "amount": {
+        "amount": "12000.00",
+        "currency": "CZK"
+      },
+      "fee": {
+        "amount": "145.00",
+        "currency": "CZK"
+      },
+      "status": "HELD_FOR_REVIEW",
+      "fromIban": "CZ6508000000192000145399",
+      "toIban": "CZ9608000000192000145423",
+      "toIbanInBank": false,
+      "message": null,
+      "declineReason": null
+    },
+    {
+      "id": 13,
+      "createdAt": "2026-08-29T00:20:50.290980Z",
+      "settledAt": null,
+      "declinedAt": "2026-08-29T20:20:50.290980Z",
+      "amount": {
+        "amount": "11500.00",
+        "currency": "CZK"
+      },
+      "fee": {
+        "amount": "140.00",
+        "currency": "CZK"
+      },
+      "status": "DECLINED",
+      "fromIban": "CZ6508000000192000145399",
+      "toIban": "CZ9608000000192000145423",
+      "toIbanInBank": false,
+      "message": null,
+      "declineReason": "Withdrawn by the customer while the review was open"
+    },
+    {
+      "id": 11,
+      "createdAt": "2026-08-28T16:20:50.290980Z",
+      "settledAt": "2026-08-28T16:20:50.290980Z",
+      "declinedAt": null,
+      "amount": {
+        "amount": "50.00",
+        "currency": "CZK"
+      },
+      "fee": {
+        "amount": "0.00",
+        "currency": "CZK"
+      },
+      "status": "SENT",
+      "fromIban": "CZ6508000000192000145399",
+      "toIban": "CZ2108000000192000145415",
+      "toIbanInBank": false,
+      "message": "Coffee",
+      "declineReason": null
+    },
+    {
+      "id": 10,
+      "createdAt": "2026-08-27T09:20:50.290980Z",
+      "settledAt": "2026-08-27T09:20:50.290980Z",
+      "declinedAt": null,
+      "amount": {
+        "amount": "980.00",
+        "currency": "CZK"
+      },
+      "fee": {
+        "amount": "0.00",
+        "currency": "CZK"
+      },
+      "status": "SENT",
+      "fromIban": "CZ6508000000192000145399",
+      "toIban": "CZ9608000000192000145423",
+      "toIbanInBank": false,
+      "message": "Deposit for the workshop",
+      "declineReason": null
+    },
+    {
+      "id": 9,
+      "createdAt": "2026-08-26T14:20:50.290980Z",
+      "settledAt": "2026-08-26T14:20:50.290980Z",
+      "declinedAt": null,
+      "amount": {
+        "amount": "300.00",
+        "currency": "CZK"
+      },
+      "fee": {
+        "amount": "0.00",
+        "currency": "CZK"
+      },
+      "status": "SENT",
+      "fromIban": "CZ6508000000192000145399",
+      "toIban": "CZ4308000000192000145407",
+      "toIbanInBank": true,
+      "message": null,
+      "declineReason": null
+    },
+    {
+      "id": 8,
+      "createdAt": "2026-08-25T10:20:50.290980Z",
+      "settledAt": "2026-08-25T10:20:50.290980Z",
+      "declinedAt": null,
+      "amount": {
+        "amount": "2500.00",
+        "currency": "CZK"
+      },
+      "fee": {
+        "amount": "25.00",
+        "currency": "CZK"
+      },
+      "status": "SENT",
+      "fromIban": "CZ4308000000192000145407",
+      "toIban": "CZ6508000000192000145399",
+      "toIbanInBank": true,
+      "message": "Back to the current account for the rent",
+      "declineReason": null
+    },
+    {
+      "id": 7,
+      "createdAt": "2026-08-24T17:20:50.290980Z",
+      "settledAt": "2026-08-24T17:20:50.290980Z",
+      "declinedAt": null,
+      "amount": {
+        "amount": "1200.00",
+        "currency": "CZK"
+      },
+      "fee": {
+        "amount": "12.00",
+        "currency": "CZK"
+      },
+      "status": "SENT",
+      "fromIban": "CZ6508000000192000145399",
+      "toIban": "CZ2108000000192000145415",
+      "toIbanInBank": false,
+      "message": null,
+      "declineReason": null
+    },
+    {
+      "id": 6,
+      "createdAt": "2026-08-23T12:20:50.290980Z",
+      "settledAt": "2026-08-23T12:20:50.290980Z",
+      "declinedAt": null,
+      "amount": {
+        "amount": "420.00",
+        "currency": "CZK"
+      },
+      "fee": {
+        "amount": "0.00",
+        "currency": "CZK"
+      },
+      "status": "SENT",
+      "fromIban": "CZ4308000000192000145407",
+      "toIban": "CZ2108000000192000145415",
+      "toIbanInBank": false,
+      "message": "Dentist, second visit",
+      "declineReason": null
+    },
+    {
+      "id": 5,
+      "createdAt": "2026-08-22T11:20:50.290980Z",
+      "settledAt": "2026-08-22T11:20:50.290980Z",
+      "declinedAt": null,
+      "amount": {
+        "amount": "890.00",
+        "currency": "CZK"
+      },
+      "fee": {
+        "amount": "0.00",
+        "currency": "CZK"
+      },
+      "status": "SENT",
+      "fromIban": "CZ6508000000192000145399",
+      "toIban": "CZ2108000000192000145415",
+      "toIbanInBank": false,
+      "message": null,
+      "declineReason": null
+    }
+  ],
+  "notes": [
+    {
+      "author": "fraud",
+      "writtenAt": "2026-08-29T20:20:50.290980Z",
+      "text": "Payee was added this month and this is the largest amount the account has ever sent to it. Holding until the card scheme comes back on the merchant."
+    },
+    {
+      "author": "fraud",
+      "writtenAt": "2026-08-29T20:20:50.290980Z",
+      "text": "Called the number on file, no answer. Trying again this afternoon."
+    }
+  ]
+}

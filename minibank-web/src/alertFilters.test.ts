@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { amountRangeProblem } from '@shared/alertFilters';
+import { filterProblem } from '@shared/alertFilters';
 
 /**
  * An empty queue is how the alert endpoint reports "nothing matched". So a filter that cannot
@@ -11,7 +11,7 @@ const READABLE = { min: false, max: false };
 
 describe('ranges that can be sent', () => {
     it('passes when nothing is filtered', () => {
-        expect(amountRangeProblem({}, READABLE)).toBeNull();
+        expect(filterProblem({}, READABLE)).toBeNull();
     });
 
     it.each([
@@ -28,36 +28,36 @@ describe('ranges that can be sent', () => {
     // its own, and @typescript-eslint/no-unused-vars, which does not and is given argsIgnorePattern
     // in eslint.config.js for exactly this.
     ])('passes %o - %s', (filters, _case) => {
-        expect(amountRangeProblem(filters, READABLE)).toBeNull();
+        expect(filterProblem(filters, READABLE)).toBeNull();
     });
 
     it('ignores an empty box rather than treating it as a bound', () => {
-        expect(amountRangeProblem({ minAmount: '', maxAmount: '' }, READABLE)).toBeNull();
+        expect(filterProblem({ minAmount: '', maxAmount: '' }, READABLE)).toBeNull();
     });
 });
 
 describe('ranges that cannot match anything', () => {
     it('refuses a reversed range and names both numbers, which the server cannot', () => {
-        const problem = amountRangeProblem({ minAmount: '500', maxAmount: '100' }, READABLE);
+        const problem = filterProblem({ minAmount: '500', maxAmount: '100' }, READABLE);
         expect(problem).not.toBeNull();
         expect(problem).toContain('500');
         expect(problem).toContain('100');
     });
 
     it('refuses a negative floor', () => {
-        expect(amountRangeProblem({ minAmount: '-1' }, READABLE))
+        expect(filterProblem({ minAmount: '-1' }, READABLE))
             .toContain('smallest amount cannot be negative');
     });
 
     it('refuses a negative ceiling', () => {
-        expect(amountRangeProblem({ maxAmount: '-0.01' }, READABLE))
+        expect(filterProblem({ maxAmount: '-0.01' }, READABLE))
             .toContain('largest amount cannot be negative');
     });
 
     it('refuses a bound that is not a number at all', () => {
         // Not reachable through a number input, and the function is reachable without one.
-        expect(amountRangeProblem({ minAmount: 'abc' }, READABLE)).not.toBeNull();
-        expect(amountRangeProblem({ maxAmount: 'abc' }, READABLE)).not.toBeNull();
+        expect(filterProblem({ minAmount: 'abc' }, READABLE)).not.toBeNull();
+        expect(filterProblem({ maxAmount: 'abc' }, READABLE)).not.toBeNull();
     });
 });
 
@@ -70,13 +70,13 @@ describe('a box the browser could not read', () => {
         [{ min: false, max: true }, 'the ceiling'],
         [{ min: true, max: true }, 'both'],
     ])('refuses when %o could not be read - %s', (unreadable, _case) => {
-        expect(amountRangeProblem({}, unreadable)).toContain('could not be read');
+        expect(filterProblem({}, unreadable)).toContain('could not be read');
     });
 
     it('says so even when the values left behind look like a perfectly good range', () => {
         // The empty string an unreadable box reports is exactly what a cleared box reports, so
         // the filters alone cannot tell the two apart. Only the flag can.
-        const problem = amountRangeProblem(
+        const problem = filterProblem(
             { minAmount: '100', maxAmount: '500' },
             { min: false, max: true },
         );
@@ -84,7 +84,7 @@ describe('a box the browser could not read', () => {
     });
 
     it('is reported ahead of a reversed range, because it is the more basic complaint', () => {
-        const problem = amountRangeProblem(
+        const problem = filterProblem(
             { minAmount: '500', maxAmount: '100' },
             { min: true, max: false },
         );

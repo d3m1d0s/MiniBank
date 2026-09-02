@@ -8,9 +8,13 @@ services:
       POSTGRES_USER: minibank
       POSTGRES_PASSWORD: minibank
     ports:
-      # Overridable because 5432 is usually already taken by a local PostgreSQL:
-      #   MINIBANK_DB_PORT=55432 docker compose up -d
-      - "${MINIBANK_DB_PORT:-5432}:5432"
+      # 55432 rather than 5432, because 5432 is usually already taken by a PostgreSQL
+      # installed on the machine, and publishing onto an occupied port either fails or,
+      # worse, leaves the reader talking to the wrong server. This is the port every
+      # command in the README names, so a clone with no .env connects.
+      # Override it when 55432 is taken too:
+      #   MINIBANK_DB_PORT=55433 docker compose up -d
+      - "${MINIBANK_DB_PORT:-55432}:5432"
     volumes:
       # A directory, not a single file: on Windows, Docker Desktop creates a directory in
       # place of a missing bind mount source, and the container is then broken for good.

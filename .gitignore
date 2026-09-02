@@ -1,6 +1,5 @@
 ### Build output ###
 target/
-!.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
 build/
@@ -21,6 +20,9 @@ data/
 # Machine specific: docker compose reads MINIBANK_DB_PORT from .env
 .env
 .env.*
+# The one exception. .env.example holds no machine specific value, it lists what may be
+# set and what the defaults already are, so it has to be committable.
+!.env.example
 
 ### IntelliJ IDEA ###
 .idea/

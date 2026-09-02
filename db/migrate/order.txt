@@ -1,0 +1,38 @@
+# The order the scripts in this directory must run in, oldest first.
+#
+# Why a list and not a numeric prefix on each file: eleven of these thirteen names are already
+# quoted, by their own headers, by db/init/schema.sql and by the documentation, and renaming them
+# would have made every one of those quotations wrong to buy an ordering this file states in one
+# place. Two names do carry a date, and those two are left exactly as they are.
+#
+# The order is the order the scripts were written in, and it is also a working dependency order:
+# stored-fee-and-account-version.sql creates accounts.soft_daily_threshold_czk, which
+# 2026-08-24-daily-limit-on-the-customer.sql carries onto the customer and then drops, and it
+# creates transfers.settled_at, which transfer-daily-total-index.sql indexes. Anything appended
+# here goes at the bottom.
+#
+# There is still no table of applied migrations, so nothing here records what a given database has
+# already had. Every script is written to be safe to run twice: each guards its own change with
+# IF NOT EXISTS, a duplicate_object handler or an information_schema test, and each ends by
+# raising an exception if what it promised is not there. The two exceptions to read before
+# re-running are hold-alerted-transfers.sql and fraud-alert-comment-and-notes-journal.sql, which
+# change rows rather than shape; on a database the application has been running against, both
+# find nothing to change.
+#
+# scripts/migrate.sh and scripts/migrate.ps1 read this file, and refuse to run if it and the
+# directory have drifted apart in either direction. Blank lines and lines starting with # are
+# ignored.
+
+hold-alerted-transfers.sql
+stored-fee-and-account-version.sql
+transfer-version.sql
+one-alert-per-transfer.sql
+sequence-ownership.sql
+transfer-daily-total-index.sql
+currency-is-czk.sql
+fraud-alert-version.sql
+fee-sign-and-creation-instants.sql
+transfer-dispatch-state.sql
+fraud-alert-comment-and-notes-journal.sql
+2026-08-24-daily-limit-on-the-customer.sql
+2026-08-29-declined-at-on-the-transfer.sql

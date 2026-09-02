@@ -42,28 +42,30 @@ const NAV_UNFOLD_LABEL = 'Show the navigation';
  *
  * A renderer of its own rather than the customer application's component lifted into the shared
  * layer, and the reason is not the file it lives in. What the two platforms share is the list; what
- * they have never shared is the shape, and this one differs in three ways at once. It hangs in a
- * window rather than beside a page, it folds to a strip where the customer column folds into a
- * band, and the planned state it leaves in the colour and the title rather than spending a second
- * column of the rail on the word. A single component that took all three as options would be a
- * component with one caller per option.
+ * they have never shared is the shape. It hangs in a window rather than beside a page, and it folds
+ * to a strip where the customer column folds into a band.
  *
- * Nothing in the list is a control, and that is a statement about this window rather than about
- * navigation. It serves one screen, so the one entry that is not planned is the screen the reader
- * is standing on: a button leading there is the tab stop that does nothing when pressed, which is
- * the fault the shared list was written to end. The day the customer screens arrive at this
- * workstation the entries that lead somewhere become buttons and this comment goes with them.
+ * ONE RAIL, AND THE ROLE CHANGES ONLY WHAT IS ON IT. This used to draw two different things: the
+ * customer's entries were buttons because a handler was passed, and the analyst's were words
+ * because none was, on the argument that a button leading to the screen you are standing on is a
+ * tab stop that does nothing. The argument proves too much. The customer's current entry is a
+ * button on both platforms already, so the product had one column behaving two ways depending on
+ * who was reading it, which is the thing the shared list exists to prevent. An entry that names a
+ * screen is a control, on every screen and for every role; the stylesheet excludes the current and
+ * the planned entry from hover and press by name, so neither answers like a live one.
  */
 export function NavRail({
     role,
     current,
     folded,
     onToggle,
+    onNavigate,
 }: {
     role: NavRole;
     current: NavView;
     folded: boolean;
     onToggle: () => void;
+    onNavigate: (view: NavView) => void;
 }) {
     const entries = NAV_ENTRIES[role];
 
@@ -142,16 +144,26 @@ export function NavRail({
                 {entries.map((entry) => (
                     <li key={entry.id}>
                         {entry.kind === 'screen' ? (
-                            <span
+                            <button
+                                type="button"
                                 className={
                                     entry.view === current
                                         ? 'nav-item nav-item--current'
                                         : 'nav-item'
                                 }
                                 aria-current={entry.view === current ? 'page' : undefined}
+                                onClick={() => onNavigate(entry.view)}
                             >
-                                {entry.label}
-                            </span>
+                                {/* The word, and under it the same word at the weight the chosen
+                                    entry is set in, drawn at no height and hidden from sight and
+                                    from the accessibility tree alike. See .nav-label: the rail is
+                                    as wide as its longest entry, and this is what stops that width
+                                    depending on which entry is chosen. Nothing here is particular
+                                    to a label or to a rail - every entry reserves its own word. */}
+                                <span className="nav-label" data-label={entry.label}>
+                                    {entry.label}
+                                </span>
+                            </button>
                         ) : (
                             /*
                              * The state carried by the muting and by the title, and not by a word
@@ -160,7 +172,12 @@ export function NavRail({
                              * hover and the title were already saying three times over.
                              */
                             <span className="nav-item nav-item--planned" title={entry.title}>
-                                {entry.label}
+                                {/* The same reserve. A planned entry is never the chosen one, but
+                                    it is measured into the same column, and the column has to be
+                                    one width whichever entry is standing in it. */}
+                                <span className="nav-label" data-label={entry.label}>
+                                    {entry.label}
+                                </span>
                             </span>
                         )}
                     </li>

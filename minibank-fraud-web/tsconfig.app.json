@@ -29,5 +29,17 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src", "../frontend-shared"]
+  "include": ["src", "../frontend-shared"],
+
+  /* The shared cases are not part of this application's program, and they cannot be.
+     `frontend-shared` has no `node_modules` above it, so `vitest` and `node:fs` do not resolve
+     from a file sitting there; pulled in by the `include` above they cost this build 29 errors
+     that say nothing about this window. Everything that ships is still checked: every non-test
+     module in `frontend-shared` stays in.
+
+     The cases are checked all the same, by `frontend-shared/tsconfig.tests.json` under the same
+     strictness, and it is run from minibank-web, where the one vitest install lives. This
+     application has no test script and gets no second install, by the owner's decision for this
+     wave. */
+  "exclude": ["../frontend-shared/**/*.test.ts"]
 }

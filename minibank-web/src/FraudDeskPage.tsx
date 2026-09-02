@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import './App.css';
 import {
+    buildDecisionRequest,
+    decisionAllowed,
     fetchAlerts,
     fetchAlertDetail,
     fetchAlertHistory,
@@ -15,12 +17,11 @@ import {
     type AlertFilters,
     type AlertNote,
     type FraudDecision,
-    type FraudDecisionRequest,
     type AlertCounters,
     type HistoryItem,
     type Page,
 } from './api';
-import { amountRangeProblem } from '@shared/alertFilters';
+import { filterProblem } from '@shared/alertFilters';
 import { formatMoney, readerLocale } from './money';
 import { formatFeeLine, parseAmount } from '@shared/money';
 import ErrorBox from './ErrorBox';
@@ -592,7 +593,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
      */
     const rangeProblem =
         amountReason.min == null && amountReason.max == null
-            ? amountRangeProblem(filters, { min: false, max: false })
+            ? filterProblem(filters, { min: false, max: false })
             : null;
 
     /** Which sentences one amount box is answered by, its own and the one about the pair. */
@@ -618,7 +619,7 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
         const problem =
             amountReason.min ??
             amountReason.max ??
-            amountRangeProblem(filters, { min: false, max: false });
+            filterProblem(filters, { min: false, max: false });
         if (problem) {
             setAlerts([]);
             setLastPage(null);
@@ -914,35 +915,19 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
     async function handleDecision(kind: FraudDecision) {
         if (!selectedId || !detail) return;
 
-        // The same rule as the dead button above, repeated where the request is built, so it
-        // cannot be walked around one. The server refuses this too, and its refusal arrives as
-        // the general validation sentence, which says nothing about a comment box: the words that
-        // name what is missing are on this screen and nowhere else.
+        // The same rule as the dead buttons below, asked again where the request is built so it
+        // cannot be walked around one of them. One call rather than three conditions written out
+        // a second time: what the guard is stands in decisionAllowed and is stated once.
         //
-        // Decline alone. The comment rides with all three presses, and only this one turns what
-        // was typed into the sentence the customer is given.
-        if (kind === 'DECLINE' && decisionComment.trim() === '') return;
+        // The server refuses these too, and its refusal arrives as the general validation
+        // sentence, which says nothing about a comment box or about who decided first: the words
+        // that name what is missing are on this screen and nowhere else.
+        if (!decisionAllowed(kind, detail.alert, decisionComment)) return;
 
-        // Three fields, and the two that left are not coming back. `tags` went because nothing on
-        // either desk could produce one and the two spellings of an empty list read as opposite
-        // instructions on the server. `assignee` went because it has a route of its own: echoing
-        // back the name that was read is enough to resurrect an assignment a colleague cleared in
-        // the meantime. See FraudDecisionRequest, which carries the whole of it.
-        //
-        // A THIRD FIELD LEFT AND ONE ARRIVED IN ITS PLACE, and they are not the same field
-        // renamed. `notes` carried the whole of an alert's notes and the press wrote what it was
-        // given over what was there, which is why this desk had to work out whether the box had
-        // been touched before it dared send it. `note` carries ONE entry to append, so a box left
-        // alone is nothing to add and says so by being absent.
-        //
-        // `comment` is what the analyst concluded about THIS verdict, and it goes with all three
-        // presses rather than belonging to the refusal. It was called `reason`, which is how it
-        // came to be stored on the alert's own reason and printed as one line with it.
-        const payload: FraudDecisionRequest = {
-            decision: kind,
-            comment: decisionComment.trim() || undefined,
-            note: decisionNote.trim() || undefined,
-        };
+        // Three fields, and the shaping of them is shared: what the two boxes mean when they are
+        // empty is a fact about the route, not about this screen. See buildDecisionRequest for
+        // why a blank box leaves its key absent rather than present and empty.
+        const payload = buildDecisionRequest(kind, decisionComment, decisionNote);
 
         try {
             setLoadingDecision(true);
@@ -1018,20 +1003,6 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
     ) : hiddenTotal > 0 ? (
         <p className="helper-text queue-note gap-above-sm">{hiddenAlertsNote(hiddenTotal)}</p>
     ) : null;
-
-    /**
-     * Whether Decline is dead for want of a reason.
-     *
-     * A refusal is the one verdict on this desk that reaches the customer as words: the comment is
-     * written to the payment's decline reason, and that is the whole of what the payer is told
-     * about why their money did not move. Pressed with the box empty, this desk used to send
-     * nothing and the bank filled the gap in with "Declined by fraud analyst", so the customer was
-     * answered a question the analyst had been asked and had left blank.
-     *
-     * Approve and the third press are unaffected. The comment goes with all three, and only this
-     * one turns it into somebody's answer.
-     */
-    const declineNeedsComment = decisionComment.trim() === '';
 
     return (
         <div className="app-shell">
@@ -2248,13 +2219,25 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                             * {DECLINE_NEEDS_COMMENT}
                                         </p>
 
+                                        {/* Each press asks the same question of the same
+                                            function, and the busy flag stays in front of it here
+                                            rather than inside it: a request in flight is a fact
+                                            about this screen and not about the alert, and folding
+                                            the two together would let a slow network read as a
+                                            decision already taken. What each verdict is offered
+                                            on, and why a refusal needs the box filled in first,
+                                            is stated once in decisionAllowed. */}
                                         <div className="actions gap-above-lg">
                                             <button
                                                 type="button"
                                                 className="btn-primary"
                                                 disabled={
                                                     loadingDecision ||
-                                                    detail.alert.state !== 'NEW'
+                                                    !decisionAllowed(
+                                                        'APPROVE',
+                                                        detail.alert,
+                                                        decisionComment,
+                                                    )
                                                 }
                                                 aria-busy={
                                                     pressed === 'APPROVE' || undefined
@@ -2272,8 +2255,11 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                                 className="btn-secondary btn-secondary--danger"
                                                 disabled={
                                                     loadingDecision ||
-                                                    detail.alert.state === 'SUSPICIOUS' ||
-                                                    declineNeedsComment
+                                                    !decisionAllowed(
+                                                        'DECLINE',
+                                                        detail.alert,
+                                                        decisionComment,
+                                                    )
                                                 }
                                                 aria-busy={
                                                     pressed === 'DECLINE' || undefined
@@ -2292,7 +2278,14 @@ export default function FraudDeskPage({ role, username, brand, identity, onNavig
                                             <button
                                                 type="button"
                                                 className="btn-secondary push-end"
-                                                disabled={loadingDecision}
+                                                disabled={
+                                                    loadingDecision ||
+                                                    !decisionAllowed(
+                                                        'ANNOTATE',
+                                                        detail.alert,
+                                                        decisionComment,
+                                                    )
+                                                }
                                                 aria-busy={
                                                     pressed === 'ANNOTATE' || undefined
                                                 }
