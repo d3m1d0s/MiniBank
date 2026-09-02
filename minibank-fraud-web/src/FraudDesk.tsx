@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
 import {
     buildDecisionRequest,
     decisionAllowed,
@@ -663,10 +663,14 @@ export default function FraudDesk(props: {
         ? historyErr.failure
         : null;
 
+    const reloadListForFilterChange = useEffectEvent(() => {
+        void reloadList();
+    });
+
     // amountReason belongs in here beside filters. Typing something that cannot be read into an
     // already empty field leaves the filters untouched, so on filters alone nothing would re-run
     // and the analyst would be told nothing at all.
-    useEffect(() => { void reloadList(); }, [filters, amountReason]);
+    useEffect(() => { reloadListForFilterChange(); }, [filters, amountReason]);
 
     /*
      * The address, when it says something other than what is on screen.

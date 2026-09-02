@@ -89,10 +89,11 @@ class JsonStoreAtomicSaveTest {
     @Test
     void aPublishThatCannotCompleteCleansUpAfterItself() throws Exception {
         Path store = tempDir.resolve("data.json");
-        Files.createDirectories(store);
 
         JsonDataStore s = new JsonDataStore(store.toString());
         s.load();
+
+        Files.createDirectories(store);
 
         assertThrows(Exception.class, s::save, "renaming a file over a directory must fail");
 

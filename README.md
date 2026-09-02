@@ -1,14 +1,104 @@
 # MiniBank
 
-A small retail banking application written to show persistence patterns implemented by hand, with
-no ORM anywhere in it: a Unit of Work that defers every write to commit, an Identity Map that makes
-one transaction see one instance of a row, and Lazy Load behind the navigation properties. The
-domain layer has no framework in it at all, and the same domain runs against two different stores.
+[![CI](https://github.com/d3m1d0s/VIS_mini-bank/actions/workflows/ci.yml/badge.svg)](https://github.com/d3m1d0s/VIS_mini-bank/actions/workflows/ci.yml)
 
-What it does: a customer signs in, lists their accounts, sends a payment, confirms it with a one
-time password, or cancels it. A payment that looks risky is held for review, and a fraud analyst
-approves it, records confirmed fraud, or leaves notes.
+MiniBank is a full-stack retail banking application built to demonstrate production-style backend
+design without an ORM. It combines a Java 17 and Spring Boot REST API, PostgreSQL/JDBC persistence,
+and React/TypeScript clients with hand-written Unit of Work, Identity Map and Lazy Loading patterns.
 
+Customers can review accounts and payment history, create and confirm payments with a one-time
+password, and cancel pending transfers. Risky payments enter a separate fraud-review workflow where
+an analyst can investigate the alert, leave notes and approve or decline the transfer.
+
+**Stack:** Java 17, Spring Boot, REST, PostgreSQL, JDBC, React, TypeScript, Vite, Maven, Docker,
+JUnit 5, Mockito, Vitest and ESLint.
+
+![Customer creating a bank transfer](docs/screenshots/customer-new-payment.png)
+
+*Customer payment creation with beneficiary selection, real-time fee calculation and daily-limit tracking.*
+
+## Highlights
+
+- End-to-end payment flow with authentication, OTP authorization, cancellation and history.
+- Rule-based risk checks and a dedicated fraud analyst workflow.
+- Framework-independent domain model with repository and Unit of Work abstractions.
+- JSON and PostgreSQL persistence adapters behind the same application services.
+- Optimistic locking for accounts, transfers and fraud alerts to prevent lost updates.
+- Parameterized JDBC queries, transactional writes and automated backend/frontend tests.
+
+## Product walkthrough
+
+### OTP payment authorization
+
+![Customer authorizing a pending payment using a one-time password](docs/screenshots/customer-otp-authorization.png)
+
+*Pending transfers require OTP confirmation and expose retry limits, expiration time and fraud-review status.*
+
+### Fraud review
+
+![Fraud analyst reviewing a risk alert](docs/screenshots/fraud-alert-review.png)
+
+*Rule-based alerts enter a dedicated analyst queue with assignment, customer history, case notes and approve/decline decisions.*
+
+<details>
+<summary><strong>View the complete fraud investigation workflow</strong></summary>
+
+<br>
+
+<p align="center">
+  <img
+    src="docs/screenshots/fraud-more-details.png"
+    alt="Full fraud analyst workflow with alert details, customer history, case notes and decision form"
+    width="760"
+  >
+</p>
+
+<p align="center">
+  <em>Complete analyst workspace with alert facts, transaction history, case notes and the final decision form.</em>
+</p>
+
+</details>
+
+> All accounts, transactions and credentials shown above are synthetic demo data.
+
+## Architecture
+
+```mermaid
+flowchart TD
+    UI["React + TypeScript clients"] --> API["Spring Boot REST API"]
+    API --> APP["Application services"]
+    APP --> DOMAIN["Framework-free domain model"]
+    APP --> PORTS["Repository + Unit of Work interfaces"]
+    PORTS --> JSON["JSON adapter"]
+    PORTS --> JDBC["JDBC adapter"]
+    JDBC --> DB[(PostgreSQL)]
+```
+
+The domain and application layers do not depend on Spring or a persistence technology. Infrastructure
+adapters implement the repository and Unit of Work interfaces for either a local JSON store or
+PostgreSQL. See [`src/Project_structure.md`](src/Project_structure.md) for the complete package map.
+
+## Quick start
+
+The default demo uses the JSON store, so PostgreSQL and Docker are not required. Run these three
+commands, using a second terminal for the web client:
+
+```bash
+git clone https://github.com/d3m1d0s/VIS_mini-bank.git && cd VIS_mini-bank
+mvn -B spring-boot:run
+```
+
+```bash
+cd VIS_mini-bank/minibank-web && npm ci && npm run dev
+```
+
+Open `http://localhost:5173` and sign in as `alice / alice123` for the customer application or
+`fraud / fraud123` for the analyst desk. The demo one-time password is `0000`.
+
+For PostgreSQL mode, both frontends, console applications and detailed configuration, continue with
+[Running it](#running-it).
+
+## Design notes
 Every push to `main` and every pull request runs `.github/workflows/ci.yml`: the backend is built
 and tested against a real PostgreSQL started by docker compose, the migrations are applied to both
 databases, and both front ends are linted, tested and built.
@@ -30,14 +120,11 @@ databases, and both front ends are linted, tested and built.
   is ever concatenated into SQL text. The only plain `Statement`s are the constant-text `nextval`
   queries that allocate ids.
 
-`src/Project_structure.md` maps the tree.
-
 ## Requirements
 
 - Java 17 or newer. The build holds the code to the Java 17 API, so a current JDK works too.
 - Docker, for PostgreSQL mode and for the SQL tests
-- Node 20.19 or newer, or 22.12 or newer. That is the floor both `package.json` files declare, and
-  it is in turn the floor the installed Vite declares; the workflow runs 22.12.
+- Node 20.19+ or 22.12+; Node 24 is recommended and used in CI
 
 Maven is not on that list. The repository carries the Maven wrapper, `mvnw`, `mvnw.cmd` and
 `.mvn/`, which downloads Maven 3.9.6 on first use, so nothing has to be on `PATH`.
@@ -231,7 +318,7 @@ tables with `.\scripts\demo-reset.ps1`, then start the API again with the demo a
 them. JSON mode is untouched: its users live only in memory, so nothing hashed under the old
 parameters survives a restart.
 
-## Tests
+## Tests and quality checks
 
 ```
 .\mvnw.cmd -B test
@@ -255,8 +342,21 @@ There is one JavaScript test runner in the tree. vitest is installed only in `mi
 reaches the workstation and `frontend-shared` through the `projects` list in
 `minibank-web/vite.config.ts`:
 
+```bash
+cd minibank-web
+npm ci
+npm run lint
+npm test
+npm run build
 ```
-cd minibank-web; npm test
+
+The standalone fraud application has its own lint and production-build gates:
+
+```bash
+cd minibank-fraud-web
+npm ci
+npm run lint
+npm run build
 ```
 
 `minibank-fraud-web` has no `test` script and is not meant to get one, so `npm test` inside that

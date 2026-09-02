@@ -12,6 +12,7 @@ node_modules/
 
 ### Runtime artifacts ###
 *.log
+*.stackdump
 storage/
 data/
 
