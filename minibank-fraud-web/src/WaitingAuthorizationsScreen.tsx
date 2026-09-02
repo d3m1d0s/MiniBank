@@ -598,20 +598,6 @@ export default function WaitingAuthorizationsScreen() {
                     Waiting transfers
                 </h2>
 
-                {/* Refreshing decides nothing, so it carries no shape of its own. The two words are
-                    the glossary's: one wait has one word across this window and the other. */}
-                <div className="section-block inline">
-                    <button
-                        type="button"
-                        className="btn btn--quiet"
-                        onClick={() => void handleRefresh()}
-                        disabled={refreshing}
-                        aria-busy={refreshing || undefined}
-                    >
-                        {refreshing ? REFRESH_BUSY : REFRESH}
-                    </button>
-                </div>
-
                 {/*
                   THE SAME TRAY THE ANALYST'S QUEUE IS, and for the same reasons.
 
@@ -696,44 +682,58 @@ export default function WaitingAuthorizationsScreen() {
                             {loadingList ? LIST_LOADING : LIST_EMPTY}
                         </div>
                     )}
+
+                    {/* The way to lengthen the queue, drawn as the last thing IN the tray rather
+                        than under it: a control that says there is more belongs where the rows run
+                        out, which is where the eye is when they do. Removed rather than disabled
+                        once the whole list is on screen - a dead control still invites the press
+                        that proves it, and the count line under the tray says so in words. */}
+                    {hasMore(items.length, last?.total ?? 0) && (
+                        <button
+                            type="button"
+                            className="btn list-more"
+                            onClick={() => void loadMore()}
+                            disabled={loadingMore}
+                            aria-busy={loadingMore || undefined}
+                        >
+                            {loadingMore ? SHOW_MORE_BUSY : SHOW_MORE}
+                        </button>
+                    )}
                 </div>
 
-                {items.length > 0 && (
-                    <>
-                        {/*
-                          Paging decides nothing, so the control carries no shape of its own, the
-                          same rank as Refresh above it. Removed rather than disabled once the whole
-                          list is on screen: a dead control still invites the press that proves it.
-                        */}
-                        <div className="section-block inline gap-above-sm">
-                            {hasMore(items.length, last?.total ?? 0) && (
-                                <button
-                                    type="button"
-                                    className="btn btn--quiet"
-                                    onClick={() => void loadMore()}
-                                    disabled={loadingMore}
-                                    aria-busy={loadingMore || undefined}
-                                >
-                                    {loadingMore ? SHOW_MORE_BUSY : SHOW_MORE}
-                                </button>
-                            )}
-                            {/* The zone rides the same line as the count, both being facts about
-                                the list rather than about any payment in it. The deadline in the
-                                pane beside it is the sharpest of the times a customer reads here:
-                                against their own zone they can believe they have an hour they do
-                                not. */}
-                            <span className="list-count">
-                                {showingLine(items.length, last?.total ?? 0)}
-                                <span className="meta-sep">{TIMES_ZONE_NOTE}</span>
-                            </span>
-                        </div>
+                {/*
+                  THE FOOT OF THE QUEUE, and it is drawn at every moment.
 
-                        {/* The page that did not arrive, under the rows that did. It is about the
-                            request rather than about the list, which is why it stands here and not
-                            in the tray. */}
-                        {listError && <ErrorBox failure={listError} />}
-                    </>
-                )}
+                  What is on screen, and the way to ask again, on one line under the tray. Refreshing
+                  belongs here and not above the list: it and the count go stale together, and a
+                  control that asks the list again standing over the list reads as something to do
+                  before reading rather than after. The count is not always there - an empty tray
+                  says so in words inside itself - so the line is flex-end and the button holds the
+                  right whether or not anything is counted beside it.
+                */}
+                <div className="queue-line">
+                    {items.length > 0 && (
+                        <div className="hint">
+                            {showingLine(items.length, last?.total ?? 0)}
+                            {/* The zone rides the same line as the count, both being facts about
+                                the list rather than about any payment in it. */}
+                            <span className="meta-sep">{TIMES_ZONE_NOTE}</span>
+                        </div>
+                    )}
+                    <button
+                        type="button"
+                        className="btn"
+                        onClick={() => void handleRefresh()}
+                        disabled={refreshing}
+                        aria-busy={refreshing || undefined}
+                    >
+                        {refreshing ? REFRESH_BUSY : REFRESH}
+                    </button>
+                </div>
+
+                {/* The page that did not arrive, under the rows that did. It is about the request
+                    rather than about the list, which is why it stands here and not in the tray. */}
+                {items.length > 0 && listError && <ErrorBox failure={listError} />}
             </section>
 
             {/* THE CHOSEN PAYMENT, and what can still be done with it. The narrow pane: nine short

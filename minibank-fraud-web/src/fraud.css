@@ -443,6 +443,7 @@ textarea:focus-visible {
     width: 100%;
     text-align: start;
     padding: var(--space-3) var(--space-5);
+
     background: transparent;
     border-block: none;
     border-inline-end: none;
@@ -467,6 +468,46 @@ button.nav-item {
 }
 
 /*
+ * THE WORD, MEASURED AT THE WEIGHT IT WILL BE SET IN IF IT IS CHOSEN.
+ *
+ * The rail is a max-content track, so the column is exactly as wide as its longest entry - and the
+ * chosen entry is set one weight heavier, which is wider. The column therefore had one width while
+ * the longest entry rested and another while it was chosen, and only then: choosing a short entry
+ * moved nothing, because the widest was still the long one at rest.
+ *
+ * Nothing in the font can be leaned on here. Measured across every weight it offers at this rung,
+ * `Dashboard` runs 64.08px at 300, 67.48 at 400, 68.97 at 500 and 600 alike, 71.27 at 700 and 74.70
+ * at 800: every weight above the resting one is wider, so there is no heavier face that measures
+ * the same. What is measured has to be the heavy one whether or not the heavy one is drawn.
+ *
+ * So each entry carries its own word twice: once to be read, and once, at the chosen weight and
+ * with no height, to be measured. A flex column is as wide as its widest item, so the entry is
+ * always as wide as it would be if it were chosen, and the column cannot move when the choice does.
+ *
+ * NOTHING HERE IS PARTICULAR TO A LABEL OR TO A RAIL. Holding the difference open as padding was
+ * the alternative and it cannot be written down: the reserve has to equal the weight difference of
+ * THAT rail's longest label, which is 5.1px for the customer's `Waiting authorizations` and about 2
+ * for the analyst's `Fraud desk`, so no value serves both columns and every reworded entry moves
+ * the answer. Here the number is the word's own and there is no number in the stylesheet at all.
+ *
+ * The copy is hidden rather than transparent, so it is out of the accessibility tree and the entry
+ * is announced once.
+ */
+.nav-label {
+    display: inline-flex;
+    flex-direction: column;
+}
+
+.nav-label::after {
+    content: attr(data-label);
+    font-weight: var(--weight-semibold);
+    block-size: 0;
+    overflow: hidden;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+/*
  * The current entry is excluded by name, because hover and "you are here" write the same property
  * and without the exclusion the pointer passing over the current entry would take its fill away. A
  * planned entry is excluded because it is not a control and must not answer like one.
@@ -485,13 +526,72 @@ button.nav-item {
 }
 
 /*
- * A fill and a bar on the leading edge, the same pair the chosen card in the queue is drawn with,
- * because it is the same statement: this is the one you are looking at. The fill alone is a tint
- * and the bar is what carries the contrast.
+ * THE SELECTED ROW OF A WINDOW'S SIDEBAR, which is where this skin and the dark page part company.
+ *
+ * The two applications drew this identically - a tint and a bar on the leading edge - and there is
+ * no reason a window and a page should say "you are here" in the same words. The page keeps the
+ * pair it has, and it keeps it for a reason written down beside it: a ring was tried there and the
+ * first Tab stop wore the same outline at the same radius as the current page, so the fill carries
+ * a tint and the bar carries the contrast at 7.1:1. This is the skin with room to differ.
+ *
+ * THE ROW IS PRESSED INTO THE RAIL. The chrome tone for the face, which is what the titlebar is
+ * already painted in, so the well reads as the window's own material rather than as a fifth grey;
+ * and the inset shadow above it for the lip. Depth is the one device a light window has and a dark
+ * page does not, so it separates the two skins without either of them raising its voice.
+ *
+ * Quiet by construction, and that is the trade. The face is 1.21:1 against the shell, so what says
+ * "this one" is the shading rather than the colour: read in a glance it is a dent, not a mark. Two
+ * alternatives were drawn and measured against this one and both were worse HERE. A solid fill in
+ * the selection colour is 4.78:1 and unmissable, and on a shell this close to paper it takes more
+ * attention than a piece of furniture should. Tinting the well with the selection colour on top of
+ * the chrome is the darkest face of the three at 1.41:1, but a dent that is also blue reads as two
+ * statements about one row.
+ *
+ * NOTHING HERE CHANGES A METRIC, and on a rail sized by its longest entry that is the difference
+ * between a mark and a reflow. Everything this rule does is paint - a colour and a shadow - with
+ * the one exception of two pixels moved from the border into the padding beside it, which is a
+ * move rather than an addition. The weight the labels carry is set on every entry alike, up in the
+ * base rule, for reasons written there.
+ *
+ * THE MARKER'S GUTTER IS GIVEN BACK AS PADDING, and this is not tidying. Every entry carries two
+ * pixels of transparent border on its leading edge, which is where the bar used to be drawn. Emptied
+ * rather than removed, that border still divides this row against itself: a background is painted
+ * out to the border edge and an inset shadow is drawn from the padding edge, so the leftmost two
+ * pixels came out in the face colour with none of the shading over them, and the radius the fill
+ * turned was not the radius the well turned. A strip of flat colour down the open side of a dent,
+ * which is exactly where the eye checks whether a thing is sunk or not.
+ *
+ * So on this row the border is nothing at all and the same two pixels are added to the padding. The
+ * fill, the shadow and the radius then describe one rectangle, and the row is the width it was with
+ * its label where it was: nothing moves when the selection moves.
  */
 .nav-item--current {
-    background-color: var(--color-selected-surface);
-    border-inline-start-color: var(--color-selected-marker);
+    background-color: var(--color-surface-chrome);
+    border-inline-start-width: 0;
+    padding-inline-start: calc(var(--space-5) + var(--border-width-marker));
+    box-shadow: var(--shadow-recessed);
+    /*
+     * THE WEIGHT IS PAINTED, NOT SET, and that is the only way this rail can carry one at all.
+     *
+     * The track is max-content, so the column is exactly as wide as its longest entry - and a
+     * heavier font is a wider one, so setting font-weight here moved the whole rail whenever the
+     * longest entry was the chosen one. Choosing a short entry moved nothing, because the widest
+     * was still the long entry at rest; choosing the long one moved the rail by the weight.
+     *
+     * Three ways round it were tried and each fails for a reason of its own. Holding the difference
+     * open as padding on the resting entries needs a number equal to the weight difference of THIS
+     * rail's longest label, and the two rails have different longest labels - 5.1px for `Waiting
+     * authorizations` against about 2 for the analyst's `Fraud desk` - so no single value holds both
+     * columns still. Giving the rail a width outright holds it perfectly and hardcodes today's
+     * longest label: reword an entry or add one and the number is either tight or dead air. Setting
+     * every entry heavy removes the difference by removing the signal.
+     *
+     * A stroke is drawn over the glyphs and changes no advance, so the label is exactly as wide
+     * chosen as at rest, on either rail, at any text size, whatever the words are. 0.3px is about
+     * the step from regular to semibold at this rung and is deliberately shy of it: this is a rail
+     * in a window and the well under the row is doing the work.
+     */
+    -webkit-text-stroke: 0.3px currentColor;
 }
 
 .nav-item--planned {
@@ -3203,6 +3303,17 @@ button.nav-item {
  * what the screen says and not about how it is painted. prefers-contrast is untouched here too.
  */
 @media (forced-colors: active) {
+    /*
+     * The rail's selected row, which is a fill now and so is a row with nothing on it here: a
+     * forced palette drops author backgrounds. The mark comes back as the edge it used to be, in
+     * Highlight, which is the colour that palette keeps for the chosen thing, and at the marker
+     * width the base rule already reserves - so the row is told from the others without depending
+     * on a colour this display is not going to paint.
+     */
+    .nav-item.nav-item--current {
+        border-inline-start-color: Highlight;
+    }
+
     .list-item.list-item--active {
         border-color: Highlight;
         border-width: var(--border-width-marker);

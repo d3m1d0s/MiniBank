@@ -154,7 +154,15 @@ export function NavRail({
                                 aria-current={entry.view === current ? 'page' : undefined}
                                 onClick={() => onNavigate(entry.view)}
                             >
-                                {entry.label}
+                                {/* The word, and under it the same word at the weight the chosen
+                                    entry is set in, drawn at no height and hidden from sight and
+                                    from the accessibility tree alike. See .nav-label: the rail is
+                                    as wide as its longest entry, and this is what stops that width
+                                    depending on which entry is chosen. Nothing here is particular
+                                    to a label or to a rail - every entry reserves its own word. */}
+                                <span className="nav-label" data-label={entry.label}>
+                                    {entry.label}
+                                </span>
                             </button>
                         ) : (
                             /*
@@ -164,7 +172,12 @@ export function NavRail({
                              * hover and the title were already saying three times over.
                              */
                             <span className="nav-item nav-item--planned" title={entry.title}>
-                                {entry.label}
+                                {/* The same reserve. A planned entry is never the chosen one, but
+                                    it is measured into the same column, and the column has to be
+                                    one width whichever entry is standing in it. */}
+                                <span className="nav-label" data-label={entry.label}>
+                                    {entry.label}
+                                </span>
                             </span>
                         )}
                     </li>
