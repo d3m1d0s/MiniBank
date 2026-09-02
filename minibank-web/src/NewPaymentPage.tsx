@@ -1,6 +1,6 @@
 // src/NewPaymentPage.tsx
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
 import './App.css';
 import {
     getMyAccounts,
@@ -190,11 +190,15 @@ export default function NewPaymentPage({ role, brand, identity, onNavigate }: Pr
      */
     const quoteToken = useRef(0);
 
+    const loadInitialData = useEffectEvent(() => {
+        void loadAccounts();
+        void loadBeneficiaries();
+    });
+
     // Load accounts when the component is mounted
     useEffect(() => {
         alive.current = true;
-        void loadAccounts();
-        void loadBeneficiaries();
+        loadInitialData();
         return () => {
             alive.current = false;
         };

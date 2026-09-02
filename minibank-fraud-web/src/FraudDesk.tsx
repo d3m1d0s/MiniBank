@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
 import {
     buildDecisionRequest,
     decisionAllowed,
@@ -663,6 +663,15 @@ export default function FraudDesk(props: {
         ? historyErr.failure
         : null;
 
+    const reloadListForFilterChange = useEffectEvent(() => {
+        void reloadList();
+    });
+
+    // amountReason belongs in here beside filters. Typing something that cannot be read into an
+    // already empty field leaves the filters untouched, so on filters alone nothing would re-run
+    // and the analyst would be told nothing at all.
+    useEffect(() => { reloadListForFilterChange(); }, [filters, amountReason]);
+
     /*
      * The address, when it says something other than what is on screen.
      *
@@ -761,24 +770,6 @@ export default function FraudDesk(props: {
             setBusyList(false);
         }
     }
-
-    /*
-     * WATCHED BY HAND, and the rule is silenced rather than answered.
-     *
-     * The array names what should re-read the queue: the filters, and amountReason beside them,
-     * because typing something unreadable into an already empty field leaves the filters untouched
-     * and on filters alone nothing would re-run and the analyst would be told nothing at all.
-     *
-     * reloadList is left out, and the reason is what it closes over. Wrapping it in useCallback was
-     * tried and the rule answered with the rest of the list: it reads alerts.length, to ask for a
-     * page as large as the one on screen, and selectedId, to keep or drop the open case. An honest
-     * callback is therefore rebuilt whenever either changes, and an effect naming it would re-read
-     * the whole queue every time an analyst opened an alert. The history screen and the payment
-     * form ARE wrapped, because their loaders close over nothing that changes between renders;
-     * this one is not like them.
-     */
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    useEffect(() => { void reloadList(); }, [filters, amountReason]);
 
     /**
      * How many alerts the payment-status exclusion is keeping off the queue.

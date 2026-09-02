@@ -5,25 +5,19 @@
 # The jobs run the scripts rather than repeating what the scripts do. A workflow that spelled the
 # steps out again would be a second copy of the setup instructions, free to drift from the ones a
 # reader follows, and drift is exactly what this is here to catch.
-name: build
+name: CI
 
-# main and every pull request. A feature branch nobody has opened a pull request for is checked by
-# hand through workflow_dispatch; running on every push as well would mean two identical runs for
-# every branch that later becomes a pull request.
 on:
   push:
     branches: [main]
   pull_request:
   workflow_dispatch:
 
-# Nothing here writes anything back. Stated rather than left to the repository default, which an
-# organisation setting can widen without anyone touching this file.
 permissions:
   contents: read
 
-# A newer commit on the same branch makes the run in progress pointless.
 concurrency:
-  group: build-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -32,37 +26,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v6
         with:
           distribution: temurin
-          # 21 and not 17, because 21 is the JDK this project is developed and measured on.
-          # Nothing newer than 17 can slip into the sources anyway: maven-compiler-plugin pins
-          # release to 17, which bounds the API surface rather than only the bytecode version.
-          java-version: '21'
+          # 17, which is what maven-compiler-plugin pins release to. Building on the version the
+          # project is held to is the configuration its tests are green on.
+          java-version: '17'
           cache: maven
 
       # sh ./mvnw, not ./mvnw. The repository is worked on from Windows with core.filemode false,
       # so a file added there carries mode 100644 and the wrapper is not executable in a clone
-      # made here. Naming the interpreter costs nothing and does not depend on that mode. The
-      # ./ is not decoration: the wrapper reads its properties from ${0%/*}/.mvn/wrapper, and a
-      # bare mvnw has no slash to strip, so the path becomes mvnw/.mvn/wrapper and the read fails.
+      # made here. The ./ is not decoration: the wrapper reads its properties from
+      # ${0%/*}/.mvn/wrapper, and a bare mvnw has no slash to strip.
       - name: Maven wrapper
         run: sh ./mvnw -B -v
 
-      # The stack the README describes, started by the script the README names. Deliberately not
-      # a service container: db/init is mounted by docker-compose.yml and runs only when compose
-      # starts PostgreSQL, and it is what creates minibank_test and applies the schema to both
-      # databases. A service container would leave the second database missing and the SQL tests
-      # would report as skipped instead of failing.
+      # The stack the README describes, started by the script the README names. Deliberately not a
+      # service container: db/init is mounted by docker-compose.yml and runs only when compose
+      # starts PostgreSQL, and it is what creates minibank_test and applies the schema to it.
       - name: Start PostgreSQL
         run: sh scripts/up.sh
 
       # Every migration, against both databases, on a volume built moments ago from
-      # db/init/schema.sql. All of them are written to be safe to run twice, and this is what
-      # keeps that claim true: one that stopped being re-runnable fails here, rather than on the
-      # machine of whoever next resets a database.
+      # db/init/schema.sql. All of them are written to be safe to run twice, and this is what keeps
+      # that claim true.
       - name: Apply the migrations
         run: sh scripts/migrate.sh
 
@@ -70,14 +59,10 @@ jobs:
         run: sh ./mvnw -B -DskipTests package
 
       # The test database is named in full, and that address is not optional. Without the property
-      # the SQL tests skip and the run goes green over untested code; with an address that names
-      # some other database they TRUNCATE it, because that is what they do to the database they
-      # are given.
+      # the SQL tests skip and the run goes green over untested code.
       - name: Test the backend
         run: sh ./mvnw -B test "-Dminibank.test.sql.url=jdbc:postgresql://localhost:55432/minibank_test"
 
-      # Surefire redirects test output to files, so a failure prints a summary and keeps the
-      # detail on disk. On the runner that disk is discarded with the job unless it is collected.
       - name: Keep the reports of a failed run
         if: failure()
         uses: actions/upload-artifact@v4
@@ -91,14 +76,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          # The floor both package.json files declare, which is in turn the floor the installed
-          # Vite declares. Pinned to the minor rather than to '22' so that this file says which
-          # version the front ends were checked on.
-          node-version: '22.12'
+          node-version: '24'
           cache: npm
           cache-dependency-path: |
             minibank-web/package-lock.json
@@ -109,8 +91,8 @@ jobs:
         run: npm ci
 
       # Installed even though nothing is run from this directory below: the test step reaches the
-      # workstation's sources through its own vite config, and that config imports the React
-      # plugin from here.
+      # workstation's sources through its own vite config, and that config imports the React plugin
+      # from here.
       - name: Install the workstation
         working-directory: minibank-fraud-web
         run: npm ci

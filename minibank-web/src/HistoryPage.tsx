@@ -1,6 +1,6 @@
 // src/HistoryPage.tsx
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from 'react';
 import './App.css';
 import { fetchMyTransfers, type HistoryItem, type Page } from './api';
 import { formatMoney } from './money';
@@ -216,9 +216,13 @@ export default function HistoryPage({ role, brand, identity, onNavigate }: Props
        the loader below is called from the effect and from the retry beside its own error box. */
     const alive = useRef(true);
 
+    const loadFirstOnMount = useEffectEvent(() => {
+        void loadFirst();
+    });
+
     useEffect(() => {
         alive.current = true;
-        void loadFirst();
+        loadFirstOnMount();
         return () => {
             alive.current = false;
         };
