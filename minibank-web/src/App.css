@@ -383,6 +383,42 @@ tr[role="button"]:focus-visible {
   border-right: var(--border-width-hairline) solid var(--color-border-container);
 }
 
+/*
+ * THE LIST OF SCREENS STAYS WHERE IT IS while a screen moves past it.
+ *
+ * The page is the scroller here - nothing on this application clips its own overflow - so a payment
+ * history of fourteen rows or a case pane of three thousand pixels carried the navigation up and
+ * out of the window with it, and getting to another screen meant scrolling back to the top first.
+ *
+ * The box INSIDE the column and not the column itself, which is the whole reason there is a box.
+ * The column is stretched to the height of the screen beside it, deliberately, so that the hairline
+ * down its right edge ends where the content ends rather than stopping in mid air a fifth of the
+ * way down; a box that is already as tall as everything has nothing left to slide within, and
+ * sticky on it does nothing at all. So the column keeps its height and its line, and what a reader
+ * actually uses stays in view.
+ *
+ * The header above is not sticky and scrolls away, so this comes to rest against the top of the
+ * window with one gutter of its own under it rather than against a band that is no longer there.
+ *
+ * The height and the overflow are for the case where the entries outlast the window: at 200 percent
+ * text the six of them plus their title measure more than a short window is tall, and without a
+ * ceiling the tail of the list would be pinned somewhere below the bottom edge with no way to
+ * reach it. Given the window's height it scrolls inside itself instead.
+ *
+ * One rule for both roles, and it is one rule because there is one navigation: the same component
+ * draws the customer's four entries and the analyst's, and both applications' pages put it in the
+ * same .layout beside the same panel.
+ */
+.nav-sticky {
+  position: sticky;
+  top: var(--space-9);
+  max-height: calc(100vh - var(--space-9) * 2);
+  overflow-y: auto;
+  /* A wheel over the entries moves the entries, and stops there rather than taking the page with
+     it once it reaches the end. */
+  overscroll-behavior: contain;
+}
+
 .nav-title {
   font-size: var(--text-1);
   letter-spacing: var(--tracking-widest);
@@ -2366,6 +2402,21 @@ tr[role="button"]:focus-visible {
     border-right: none;
     border-bottom: var(--border-width-hairline) solid var(--color-border-container);
     margin-bottom: var(--space-7);
+  }
+
+  /*
+   * And it stops staying put, because here it is not a column any more. Stacked, the navigation is
+   * a band across the top of the screen it names, and a band that stays put is a band drawn ON the
+   * page rather than in it: it would cover the first rows of whatever is under it, at exactly the
+   * width where the room is scarcest. In this shape it goes back to being part of what scrolls.
+   *
+   * The ceiling goes with it. It was there to keep a tall list reachable inside a short window, and
+   * a band that scrolls away is reachable by scrolling back.
+   */
+  .nav-sticky {
+    position: static;
+    max-height: none;
+    overflow-y: visible;
   }
 }
 

@@ -20,24 +20,32 @@ export function Nav({ role, current, onNavigate }: NavProps) {
 
     return (
         <nav className="nav" aria-label={NAV_LANDMARK}>
-            <div className="nav-title">{NAV_TITLE}</div>
-            <ul>
-                {entries.map((entry) => (
-                    <li key={entry.id}>
-                        {entry.kind === 'screen' ? (
-                            <button
-                                type="button"
-                                className={
-                                    entry.view === current
-                                        ? 'nav-item nav-item--current'
-                                        : 'nav-item'
-                                }
-                                aria-current={entry.view === current ? 'page' : undefined}
-                                onClick={() => onNavigate(entry.view)}
-                            >
-                                {entry.label}
-                            </button>
-                        ) : (
+            {/*
+              A box around what the column holds, and the only reason for it is that the column
+              itself cannot be the thing that stays put: it is stretched to the height of the screen
+              beside it so that the hairline down its edge runs the whole way, and a box already as
+              tall as everything has nothing left to slide within. The entries stay; the line stays
+              full length. One element for both roles, because this component is both of them.
+            */}
+            <div className="nav-sticky">
+                <div className="nav-title">{NAV_TITLE}</div>
+                <ul>
+                    {entries.map((entry) => (
+                        <li key={entry.id}>
+                            {entry.kind === 'screen' ? (
+                                <button
+                                    type="button"
+                                    className={
+                                        entry.view === current
+                                            ? 'nav-item nav-item--current'
+                                            : 'nav-item'
+                                    }
+                                    aria-current={entry.view === current ? 'page' : undefined}
+                                    onClick={() => onNavigate(entry.view)}
+                                >
+                                    {entry.label}
+                                </button>
+                            ) : (
                             /*
                              * A span, not a disabled button. These entries were buttons with no
                              * handler, so four of the six tab stops did nothing when pressed, and
@@ -47,13 +55,14 @@ export function Nav({ role, current, onNavigate }: NavProps) {
                              * not. What they are is said under the pointer, in the title, and by
                              * the muted colour the rest of the time.
                              */
-                            <span className="nav-item nav-item--planned" title={entry.title}>
-                                {entry.label}
-                            </span>
-                        )}
-                    </li>
-                ))}
-            </ul>
+                                <span className="nav-item nav-item--planned" title={entry.title}>
+                                    {entry.label}
+                                </span>
+                            )}
+                        </li>
+                    ))}
+                </ul>
+            </div>
         </nav>
     );
 }
