@@ -1,6 +1,6 @@
 package cz.vsb.minibank.infrastructure.sql;
 
-import cz.vsb.minibank.domain.DomainEventBus;
+import cz.vsb.minibank.domain.event.DomainEventBus;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 

@@ -1,9 +1,9 @@
 package cz.vsb.minibank.application;
 
-import cz.vsb.minibank.domain.FraudAlert;
-import cz.vsb.minibank.domain.FraudAlertState;
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.fraud.FraudAlert;
+import cz.vsb.minibank.domain.fraud.FraudAlertState;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
 import cz.vsb.minibank.domain.value.Money;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,6 +18,11 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import cz.vsb.minibank.application.audit.FraudAlertAuditLogObserver;
+import cz.vsb.minibank.application.audit.TransferAuditLogObserver;
+import cz.vsb.minibank.application.auth.SecurityContext;
+import cz.vsb.minibank.application.config.MinibankProperties;
+import cz.vsb.minibank.application.audit.AppLogger;
 
 /**
  * What the two audit writers actually put in the log.

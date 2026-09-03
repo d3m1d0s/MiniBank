@@ -1,10 +1,10 @@
 package cz.vsb.minibank;
 
-import cz.vsb.minibank.application.BootstrapServices;
-import cz.vsb.minibank.application.FraudAlertAuditLogObserver;
-import cz.vsb.minibank.application.MinibankProperties;
-import cz.vsb.minibank.application.PaymentDispatcher;
-import cz.vsb.minibank.application.TransferAuditLogObserver;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.application.audit.FraudAlertAuditLogObserver;
+import cz.vsb.minibank.application.config.MinibankProperties;
+import cz.vsb.minibank.application.payment.PaymentDispatcher;
+import cz.vsb.minibank.application.audit.TransferAuditLogObserver;
 import cz.vsb.minibank.demo.DemoScenario;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.ui.console.ConsoleMenu;

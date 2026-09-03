@@ -1,7 +1,7 @@
 package cz.vsb.minibank.domain.repository;
 
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
 import cz.vsb.minibank.domain.value.Money;
 
 import java.time.Instant;
@@ -92,7 +92,7 @@ public interface TransferRepository {
      * in ascending id order.
      *
      * The dispatch state alone decides membership, and the status deliberately takes no part in
-     * it. {@link cz.vsb.minibank.domain.Transfer#send} is the only writer of a pending state and
+     * it. {@link cz.vsb.minibank.domain.transfer.Transfer#send} is the only writer of a pending state and
      * it assigns SENT in the same call, so a status predicate would say nothing this one does not
      * - and would silently narrow the answer the day the two disagreed, which on this query means
      * a payment nobody ever sends.
@@ -113,7 +113,7 @@ public interface TransferRepository {
      * of them.
      *
      * WHY THE EXCLUSION. This total is what the daily ceiling is measured against, and the
-     * ceiling is now a limit on a person - see {@link cz.vsb.minibank.domain.Customer#dailyLimit}.
+     * ceiling is now a limit on a person - see {@link cz.vsb.minibank.domain.customer.Customer#dailyLimit}.
      * Summing a customer's accounts without subtracting their internal moves would count one such
      * move twice, once as an outflow of the paying account and again as nothing at all on the
      * receiving side, so a customer could raise their own day total, or exhaust it, by shuffling
@@ -124,7 +124,7 @@ public interface TransferRepository {
      * customer as surely as one that goes out over the network. The predicate is membership of
      * the destination snapshot in the customer's own IBANs, and nothing wider.
      *
-     * "Actually left" is status SENT. {@link cz.vsb.minibank.domain.Transfer#send} is the only
+     * "Actually left" is status SENT. {@link cz.vsb.minibank.domain.transfer.Transfer#send} is the only
      * method that assigns it on the money path, it is the only method that debits, and it is
      * terminal, so no auxiliary flag is needed.
      *

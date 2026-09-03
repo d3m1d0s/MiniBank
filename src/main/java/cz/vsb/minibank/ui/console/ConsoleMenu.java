@@ -1,8 +1,10 @@
 package cz.vsb.minibank.ui.console;
 
-import cz.vsb.minibank.application.AuthService;
-import cz.vsb.minibank.application.BootstrapServices;
-import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.application.auth.AuthService;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.domain.customer.*;
+import cz.vsb.minibank.domain.fraud.*;
+import cz.vsb.minibank.domain.transfer.*;
 import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
 import cz.vsb.minibank.domain.exceptions.AuthenticationFailedException;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
@@ -14,9 +16,8 @@ import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.infrastructure.Bootstrap;
-import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
-import cz.vsb.minibank.application.AppLogger;
+import cz.vsb.minibank.application.audit.AppLogger;
 import cz.vsb.minibank.domain.exceptions.DomainException;
 
 import java.util.ArrayList;

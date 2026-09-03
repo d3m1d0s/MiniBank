@@ -1,7 +1,7 @@
 package cz.vsb.minibank.infrastructure.sql.repo;
 
-import cz.vsb.minibank.domain.FraudAlert;
-import cz.vsb.minibank.domain.FraudAlertState;
+import cz.vsb.minibank.domain.fraud.FraudAlert;
+import cz.vsb.minibank.domain.fraud.FraudAlertState;
 import cz.vsb.minibank.domain.exceptions.FraudAlertChangedException;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWork;
@@ -9,7 +9,7 @@ import cz.vsb.minibank.infrastructure.uow.UowContext;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.StoredValue;
 
-import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.value.Money;
 
@@ -22,6 +22,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import cz.vsb.minibank.domain.fraud.FraudAlertNote;
 
 /**
  * PostgreSQL implementation of {@link FraudAlertRepository}.
@@ -455,7 +456,7 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
      * the same moment are not in conflict.
      */
     @Override
-    public void appendNote(cz.vsb.minibank.domain.FraudAlertNote note) {
+    public void appendNote(cz.vsb.minibank.domain.fraud.FraudAlertNote note) {
         Objects.requireNonNull(note, "note");
 
         UnitOfWork uow = UowContext.current();
@@ -490,7 +491,7 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
      * same screen. The index fraud_alert_notes_by_alert is this statement's, in this order.
      */
     @Override
-    public List<cz.vsb.minibank.domain.FraudAlertNote> notesOf(int alertId) {
+    public List<cz.vsb.minibank.domain.fraud.FraudAlertNote> notesOf(int alertId) {
         String sql = """
             SELECT alert_id, author, written_at, text
               FROM fraud_alert_notes
@@ -499,12 +500,12 @@ public final class SqlFraudAlertRepository implements FraudAlertRepository {
             """;
 
         return onConnection("Failed to load the notes of fraud alert " + alertId, (conn, uow) -> {
-            List<cz.vsb.minibank.domain.FraudAlertNote> journal = new ArrayList<>();
+            List<cz.vsb.minibank.domain.fraud.FraudAlertNote> journal = new ArrayList<>();
             try (PreparedStatement ps = conn.prepareStatement(sql)) {
                 ps.setInt(1, alertId);
                 try (ResultSet rs = ps.executeQuery()) {
                     while (rs.next()) {
-                        journal.add(new cz.vsb.minibank.domain.FraudAlertNote(
+                        journal.add(new cz.vsb.minibank.domain.fraud.FraudAlertNote(
                                 rs.getInt("alert_id"),
                                 rs.getString("author"),
                                 rs.getTimestamp("written_at").toInstant(),

@@ -1,6 +1,6 @@
 package cz.vsb.minibank.uow;
 
-import cz.vsb.minibank.application.MinibankProperties;
+import cz.vsb.minibank.application.config.MinibankProperties;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

@@ -1,10 +1,9 @@
 package cz.vsb.minibank.infrastructure.json;
 
-import cz.vsb.minibank.domain.Beneficiary;
-import cz.vsb.minibank.domain.Customer;
+import cz.vsb.minibank.domain.customer.Beneficiary;
+import cz.vsb.minibank.domain.customer.Customer;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.infrastructure.Bootstrap;
-import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

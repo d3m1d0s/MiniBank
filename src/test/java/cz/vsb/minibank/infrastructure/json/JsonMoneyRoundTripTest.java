@@ -1,9 +1,8 @@
 package cz.vsb.minibank.infrastructure.json;
 
-import cz.vsb.minibank.domain.Account;
-import cz.vsb.minibank.domain.Address;
-import cz.vsb.minibank.domain.Customer;
-import cz.vsb.minibank.domain.Transfer;
+import cz.vsb.minibank.domain.customer.Account;
+import cz.vsb.minibank.domain.customer.Address;
+import cz.vsb.minibank.domain.customer.Customer;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;

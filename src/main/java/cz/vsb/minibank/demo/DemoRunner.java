@@ -1,11 +1,14 @@
 package cz.vsb.minibank.demo;
 
-import cz.vsb.minibank.application.BootstrapServices;
-import cz.vsb.minibank.application.FraudAlertAuditLogObserver;
-import cz.vsb.minibank.application.MinibankProperties;
-import cz.vsb.minibank.application.PaymentDispatcher;
-import cz.vsb.minibank.application.TransferAuditLogObserver;
-import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.application.audit.FraudAlertAuditLogObserver;
+import cz.vsb.minibank.application.config.MinibankProperties;
+import cz.vsb.minibank.application.payment.PaymentDispatcher;
+import cz.vsb.minibank.application.audit.TransferAuditLogObserver;
+import cz.vsb.minibank.domain.customer.*;
+import cz.vsb.minibank.domain.fee.*;
+import cz.vsb.minibank.domain.fraud.*;
+import cz.vsb.minibank.domain.transfer.*;
 import cz.vsb.minibank.domain.exceptions.TransferUnderReviewException;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;

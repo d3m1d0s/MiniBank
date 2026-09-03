@@ -10,6 +10,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import cz.vsb.minibank.domain.event.DomainEvent;
+import cz.vsb.minibank.domain.fraud.FraudAlert;
+import cz.vsb.minibank.domain.fraud.FraudAlertState;
+import cz.vsb.minibank.domain.fraud.FraudAlertStateChanged;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
+import cz.vsb.minibank.domain.transfer.TransferStatusChanged;
 
 /**
  * The aggregates record what happens to them, and the recording is what a transition produces.

@@ -1,7 +1,7 @@
 package cz.vsb.minibank.infrastructure.sql.repo;
 
-import cz.vsb.minibank.domain.User;
-import cz.vsb.minibank.domain.UserRole;
+import cz.vsb.minibank.domain.customer.User;
+import cz.vsb.minibank.domain.customer.UserRole;
 import cz.vsb.minibank.domain.repository.UserRepository;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowContext;

@@ -1,9 +1,9 @@
 package cz.vsb.minibank.api;
 
-import cz.vsb.minibank.application.FixedOtpValidator;
-import cz.vsb.minibank.application.MinibankProperties;
-import cz.vsb.minibank.application.OtpValidator;
-import cz.vsb.minibank.application.RefusingOtpValidator;
+import cz.vsb.minibank.application.auth.FixedOtpValidator;
+import cz.vsb.minibank.application.config.MinibankProperties;
+import cz.vsb.minibank.application.auth.OtpValidator;
+import cz.vsb.minibank.application.auth.RefusingOtpValidator;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
@@ -16,6 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import cz.vsb.minibank.api.config.MinibankApiConfig;
+import cz.vsb.minibank.api.config.DemoUsersInitializer;
 
 /**
  * Which one time password validator a run gets, decided by the profile and not by a constructor.

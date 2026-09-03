@@ -1,7 +1,8 @@
 // src/test/java/cz/vsb/minibank/uow/MinibankLazyLoadTests.java
 package cz.vsb.minibank.uow;
 
-import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.customer.*;
+import cz.vsb.minibank.domain.transfer.*;
 import cz.vsb.minibank.domain.lazy.LazyRef;
 import cz.vsb.minibank.domain.lazy.LazyList;
 import cz.vsb.minibank.domain.repository.*;

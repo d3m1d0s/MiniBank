@@ -1,15 +1,15 @@
 package cz.vsb.minibank.api;
 
-import cz.vsb.minibank.api.dto.MyAccountsResponseDto;
-import cz.vsb.minibank.api.dto.NewPaymentRequest;
-import cz.vsb.minibank.application.BootstrapServices;
-import cz.vsb.minibank.application.SecurityContext;
-import cz.vsb.minibank.domain.Account;
-import cz.vsb.minibank.domain.Address;
-import cz.vsb.minibank.domain.Beneficiary;
-import cz.vsb.minibank.domain.Customer;
-import cz.vsb.minibank.domain.User;
-import cz.vsb.minibank.domain.UserRole;
+import cz.vsb.minibank.api.dto.account.MyAccountsResponseDto;
+import cz.vsb.minibank.api.dto.payment.NewPaymentRequest;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.application.auth.SecurityContext;
+import cz.vsb.minibank.domain.customer.Account;
+import cz.vsb.minibank.domain.customer.Address;
+import cz.vsb.minibank.domain.customer.Beneficiary;
+import cz.vsb.minibank.domain.customer.Customer;
+import cz.vsb.minibank.domain.customer.User;
+import cz.vsb.minibank.domain.customer.UserRole;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
@@ -21,6 +21,8 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import cz.vsb.minibank.api.controller.PaymentController;
+import cz.vsb.minibank.api.dto.account.DailyOutflowDto;
 
 /**
  * GET /api/me/accounts answers one day for a customer holding two accounts, and it is the same
@@ -161,7 +163,7 @@ class MyAccountsDayIsOneCustomersTest {
                 sourceAccountId, null, beneficiaryId, amountCzk, "counts or does not"));
     }
 
-    private cz.vsb.minibank.api.dto.DailyOutflowDto today() {
+    private cz.vsb.minibank.api.dto.account.DailyOutflowDto today() {
         return paymentController.listMyAccounts().today();
     }
 

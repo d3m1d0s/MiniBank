@@ -1,13 +1,13 @@
 package cz.vsb.minibank.application;
 
-import cz.vsb.minibank.domain.Account;
-import cz.vsb.minibank.domain.Address;
-import cz.vsb.minibank.domain.Customer;
-import cz.vsb.minibank.domain.FraudAlert;
-import cz.vsb.minibank.domain.FraudAlertNote;
-import cz.vsb.minibank.domain.FraudAlertState;
-import cz.vsb.minibank.domain.RuleBasedRiskService;
-import cz.vsb.minibank.domain.ZeroFeePolicy;
+import cz.vsb.minibank.domain.customer.Account;
+import cz.vsb.minibank.domain.customer.Address;
+import cz.vsb.minibank.domain.customer.Customer;
+import cz.vsb.minibank.domain.fraud.FraudAlert;
+import cz.vsb.minibank.domain.fraud.FraudAlertNote;
+import cz.vsb.minibank.domain.fraud.FraudAlertState;
+import cz.vsb.minibank.domain.fraud.RuleBasedRiskService;
+import cz.vsb.minibank.domain.fee.ZeroFeePolicy;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
@@ -25,6 +25,11 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import cz.vsb.minibank.application.auth.FixedOtpValidator;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.application.payment.FakePaymentNetworkGateway;
+import cz.vsb.minibank.application.payment.TransferApplicationService;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
 
 /**
  * The rest of the alert lifecycle: an analyst's verdict, their name and the moment they gave it are recorded
@@ -225,7 +230,7 @@ class FraudDecisionRecordTest {
             assertNull(stored.decisionComment());
 
             var payment = infra.transfers.byId(transferId).orElseThrow();
-            assertEquals(cz.vsb.minibank.domain.TransferStatus.HELD_FOR_REVIEW, payment.status(),
+            assertEquals(cz.vsb.minibank.domain.transfer.TransferStatus.HELD_FOR_REVIEW, payment.status(),
                     "the payment stays where it was rather than being half refused");
             assertNull(payment.declineReason(),
                     "and the payer is told nothing, least of all a sentence the bank wrote for the"
@@ -410,7 +415,7 @@ class FraudDecisionRecordTest {
         FraudAlert claimed = alertFor(transferId);
         assertEquals(FraudAlertState.NEW, claimed.state(), "claiming an alert decides nothing");
         assertNull(claimed.decision());
-        assertEquals(cz.vsb.minibank.domain.TransferStatus.HELD_FOR_REVIEW,
+        assertEquals(cz.vsb.minibank.domain.transfer.TransferStatus.HELD_FOR_REVIEW,
                 infra.transfers.byId(transferId).orElseThrow().status(),
                 "and it leaves the payment where it was");
 

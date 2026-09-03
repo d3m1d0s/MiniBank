@@ -1,6 +1,6 @@
 package cz.vsb.minibank.infrastructure.sql.repo;
 
-import cz.vsb.minibank.domain.Account;
+import cz.vsb.minibank.domain.customer.Account;
 import cz.vsb.minibank.domain.exceptions.OptimisticLockException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.value.IBAN;

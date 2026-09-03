@@ -1,15 +1,15 @@
 package cz.vsb.minibank.application;
 
-import cz.vsb.minibank.domain.Account;
-import cz.vsb.minibank.domain.Address;
-import cz.vsb.minibank.domain.CardPayment;
-import cz.vsb.minibank.domain.Customer;
-import cz.vsb.minibank.domain.FraudAlert;
-import cz.vsb.minibank.domain.FraudAlertState;
-import cz.vsb.minibank.domain.RuleBasedRiskService;
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.TransferStatus;
-import cz.vsb.minibank.domain.ZeroFeePolicy;
+import cz.vsb.minibank.domain.customer.Account;
+import cz.vsb.minibank.domain.customer.Address;
+import cz.vsb.minibank.domain.transfer.CardPayment;
+import cz.vsb.minibank.domain.customer.Customer;
+import cz.vsb.minibank.domain.fraud.FraudAlert;
+import cz.vsb.minibank.domain.fraud.FraudAlertState;
+import cz.vsb.minibank.domain.fraud.RuleBasedRiskService;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
+import cz.vsb.minibank.domain.fee.ZeroFeePolicy;
 import cz.vsb.minibank.domain.exceptions.ConflictException;
 import cz.vsb.minibank.domain.exceptions.InvalidOtpException;
 import cz.vsb.minibank.domain.exceptions.InvalidStateTransitionException;
@@ -33,6 +33,11 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import cz.vsb.minibank.application.auth.FixedOtpValidator;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.application.fraud.FraudApplicationService;
+import cz.vsb.minibank.application.payment.FakePaymentNetworkGateway;
+import cz.vsb.minibank.application.payment.TransferApplicationService;
 
 /**
  * An open fraud alert blocks the customer's confirmation, and an analyst's APPROVE clears

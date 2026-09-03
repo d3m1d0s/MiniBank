@@ -1,6 +1,6 @@
 package cz.vsb.minibank.infrastructure.json;
 
-import cz.vsb.minibank.domain.Account;
+import cz.vsb.minibank.domain.customer.Account;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;

@@ -1,14 +1,14 @@
 package cz.vsb.minibank.api;
 
-import cz.vsb.minibank.application.BootstrapServices;
-import cz.vsb.minibank.application.SecurityContext;
-import cz.vsb.minibank.domain.Account;
-import cz.vsb.minibank.domain.Address;
-import cz.vsb.minibank.domain.Customer;
-import cz.vsb.minibank.domain.FraudAlert;
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.User;
-import cz.vsb.minibank.domain.UserRole;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.application.auth.SecurityContext;
+import cz.vsb.minibank.domain.customer.Account;
+import cz.vsb.minibank.domain.customer.Address;
+import cz.vsb.minibank.domain.customer.Customer;
+import cz.vsb.minibank.domain.fraud.FraudAlert;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.customer.User;
+import cz.vsb.minibank.domain.customer.UserRole;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
@@ -29,6 +29,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import cz.vsb.minibank.api.controller.FraudController;
+import cz.vsb.minibank.api.web.RestExceptionHandler;
 
 /**
  * The four fraud routes that only exist as paths, asserted on the wire rather than by calling the
@@ -175,7 +177,7 @@ class FraudRoutingOnTheWireTest {
      * A desk that has not been rebuilt keeps working.
      *
      * Both desks send an assignee and a list of tags on every decision, and both fields have left
-     * {@link cz.vsb.minibank.api.dto.FraudDecisionRequest}. A server that refused the extra
+     * {@link cz.vsb.minibank.api.dto.fraud.FraudDecisionRequest}. A server that refused the extra
      * properties would break the two screens the moment this deploys, so the case that matters is
      * not that the fields are gone but that sending them is harmless.
      *

@@ -1,7 +1,7 @@
 package cz.vsb.minibank.infrastructure.json;
 
-import cz.vsb.minibank.domain.FraudAlert;
-import cz.vsb.minibank.domain.FraudAlertState;
+import cz.vsb.minibank.domain.fraud.FraudAlert;
+import cz.vsb.minibank.domain.fraud.FraudAlertState;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.infrastructure.json.dto.JsonFraudAlert;
 import cz.vsb.minibank.infrastructure.json.mapping.JsonMapper;

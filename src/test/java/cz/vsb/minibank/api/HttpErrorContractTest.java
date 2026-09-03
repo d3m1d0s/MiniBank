@@ -1,19 +1,19 @@
 package cz.vsb.minibank.api;
 
-import cz.vsb.minibank.application.AuthService;
-import cz.vsb.minibank.application.BootstrapServices;
-import cz.vsb.minibank.application.LoginThrottle;
-import cz.vsb.minibank.application.Pbkdf2PasswordEncoder;
-import cz.vsb.minibank.application.SecurityContext;
-import cz.vsb.minibank.application.SessionStore;
+import cz.vsb.minibank.application.auth.AuthService;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.application.auth.LoginThrottle;
+import cz.vsb.minibank.application.auth.Pbkdf2PasswordEncoder;
+import cz.vsb.minibank.application.auth.SecurityContext;
+import cz.vsb.minibank.application.auth.SessionStore;
 import cz.vsb.minibank.application.TestClock;
-import cz.vsb.minibank.application.TransferApplicationService;
-import cz.vsb.minibank.domain.Account;
-import cz.vsb.minibank.domain.Address;
-import cz.vsb.minibank.domain.Customer;
-import cz.vsb.minibank.domain.TransferStatus;
-import cz.vsb.minibank.domain.User;
-import cz.vsb.minibank.domain.UserRole;
+import cz.vsb.minibank.application.payment.TransferApplicationService;
+import cz.vsb.minibank.domain.customer.Account;
+import cz.vsb.minibank.domain.customer.Address;
+import cz.vsb.minibank.domain.customer.Customer;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
+import cz.vsb.minibank.domain.customer.User;
+import cz.vsb.minibank.domain.customer.UserRole;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.TooManySessionsException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
@@ -48,6 +48,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import cz.vsb.minibank.api.controller.AuthController;
+import cz.vsb.minibank.api.controller.AuthorizationController;
+import cz.vsb.minibank.api.controller.FraudController;
+import cz.vsb.minibank.api.controller.PaymentController;
+import cz.vsb.minibank.api.dto.payment.NewPaymentRequest;
+import cz.vsb.minibank.api.web.RestExceptionHandler;
+import cz.vsb.minibank.api.web.SessionAuthInterceptor;
 
 /**
  * The HTTP error contract, asserted on the wire.
@@ -353,7 +360,7 @@ class HttpErrorContractTest {
 
     /** Creates a transfer above the authorization threshold, so it lands in WAITING_AUTH. */
     private int waitingTransfer() {
-        return paymentController.createPayment(new cz.vsb.minibank.api.dto.NewPaymentRequest(
+        return paymentController.createPayment(new cz.vsb.minibank.api.dto.payment.NewPaymentRequest(
                 ACCOUNT_ID, TARGET_IBAN, null, 6_000.0, "waiting")).getBody().transferId();
     }
 
@@ -363,7 +370,7 @@ class HttpErrorContractTest {
      * customer's 40 000 ceiling, so neither of those refusals fires first.
      */
     private int heldTransfer() {
-        return paymentController.createPayment(new cz.vsb.minibank.api.dto.NewPaymentRequest(
+        return paymentController.createPayment(new cz.vsb.minibank.api.dto.payment.NewPaymentRequest(
                 ACCOUNT_ID, TARGET_IBAN, null, OVER_THE_ALERT_THRESHOLD, "held")).getBody().transferId();
     }
 
@@ -798,7 +805,7 @@ class HttpErrorContractTest {
     @Test
     void cancellingASentTransferIs409Conflict() throws Exception {
         // Below the authorization threshold, so it is sent immediately.
-        int id = paymentController.createPayment(new cz.vsb.minibank.api.dto.NewPaymentRequest(
+        int id = paymentController.createPayment(new cz.vsb.minibank.api.dto.payment.NewPaymentRequest(
                 ACCOUNT_ID, TARGET_IBAN, null, 100.0, "sent")).getBody().transferId();
 
         assertResponse(api, post("/api/transfers/" + id + "/cancel"), 409, BODY_CONFLICT);

@@ -1,14 +1,14 @@
 package cz.vsb.minibank.application;
 
-import cz.vsb.minibank.domain.Account;
-import cz.vsb.minibank.domain.Address;
-import cz.vsb.minibank.domain.Customer;
-import cz.vsb.minibank.domain.FeePolicy;
-import cz.vsb.minibank.domain.RuleBasedRiskService;
-import cz.vsb.minibank.domain.SimpleFeePolicy;
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.TransferStatus;
-import cz.vsb.minibank.domain.ZeroFeePolicy;
+import cz.vsb.minibank.domain.customer.Account;
+import cz.vsb.minibank.domain.customer.Address;
+import cz.vsb.minibank.domain.customer.Customer;
+import cz.vsb.minibank.domain.fee.FeePolicy;
+import cz.vsb.minibank.domain.fraud.RuleBasedRiskService;
+import cz.vsb.minibank.domain.fee.SimpleFeePolicy;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
+import cz.vsb.minibank.domain.fee.ZeroFeePolicy;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
@@ -26,6 +26,12 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
+import cz.vsb.minibank.application.auth.FixedOtpValidator;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.application.fraud.FraudApplicationService;
+import cz.vsb.minibank.application.payment.FakePaymentNetworkGateway;
+import cz.vsb.minibank.application.payment.PaymentDispatcher;
+import cz.vsb.minibank.application.payment.TransferApplicationService;
 
 /**
  * A payment to an IBAN this bank holds credits that account in the same unit of work as

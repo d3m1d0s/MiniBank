@@ -1,6 +1,6 @@
 package cz.vsb.minibank;
 
-import cz.vsb.minibank.application.SecurityContext;
+import cz.vsb.minibank.application.auth.SecurityContext;
 import org.junit.jupiter.api.extension.AfterEachCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 
@@ -11,7 +11,7 @@ import org.junit.jupiter.api.extension.ExtensionContext;
  * in it outlives the test that put it there. Nothing sets it more quietly than
  * {@code AuthService.login}, which does it as a side effect of returning the user: a test that
  * only means to assert a successful sign-in signs the rest of the fork in as that user, and every
- * audit line {@link cz.vsb.minibank.application.AppLogger} writes afterwards is attributed to
+ * audit line {@link cz.vsb.minibank.application.audit.AppLogger} writes afterwards is attributed to
  * them.
  *
  * Registered for the whole suite rather than per class, through

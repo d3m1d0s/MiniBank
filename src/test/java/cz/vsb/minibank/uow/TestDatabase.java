@@ -1,6 +1,6 @@
 package cz.vsb.minibank.uow;
 
-import cz.vsb.minibank.application.MinibankProperties;
+import cz.vsb.minibank.application.config.MinibankProperties;
 
 import java.sql.Connection;
 import java.sql.DriverManager;

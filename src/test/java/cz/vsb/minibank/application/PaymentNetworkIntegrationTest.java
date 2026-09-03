@@ -1,6 +1,9 @@
 package cz.vsb.minibank.application;
 
-import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.customer.*;
+import cz.vsb.minibank.domain.fee.*;
+import cz.vsb.minibank.domain.fraud.*;
+import cz.vsb.minibank.domain.transfer.*;
 import cz.vsb.minibank.domain.exceptions.TransferChangedException;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
@@ -14,6 +17,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
+import cz.vsb.minibank.application.auth.OwnershipGuard;
+import cz.vsb.minibank.application.payment.FakePaymentNetworkGateway;
+import cz.vsb.minibank.application.payment.PaymentDispatcher;
+import cz.vsb.minibank.application.payment.TransferApplicationService;
 
 /**
  * When a payment reaches the network, and - the part this class exists for - when it must not.

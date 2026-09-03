@@ -1,8 +1,8 @@
 package cz.vsb.minibank.infrastructure.sql.repo;
 
-import cz.vsb.minibank.domain.Address;
-import cz.vsb.minibank.domain.Beneficiary;
-import cz.vsb.minibank.domain.Customer;
+import cz.vsb.minibank.domain.customer.Address;
+import cz.vsb.minibank.domain.customer.Beneficiary;
+import cz.vsb.minibank.domain.customer.Customer;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.value.IBAN;

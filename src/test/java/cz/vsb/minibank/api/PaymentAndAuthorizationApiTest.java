@@ -1,10 +1,12 @@
 package cz.vsb.minibank.api;
 
-import cz.vsb.minibank.api.dto.*;
-import cz.vsb.minibank.application.BootstrapServices;
-import cz.vsb.minibank.application.SecurityContext;
-import cz.vsb.minibank.application.TransferApplicationService;
-import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.api.dto.account.*;
+import cz.vsb.minibank.api.dto.payment.*;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.application.auth.SecurityContext;
+import cz.vsb.minibank.application.payment.TransferApplicationService;
+import cz.vsb.minibank.domain.customer.*;
+import cz.vsb.minibank.domain.transfer.*;
 import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
 import cz.vsb.minibank.domain.exceptions.ConflictException;
 import cz.vsb.minibank.domain.exceptions.DailyLimitExceededException;
@@ -27,6 +29,8 @@ import java.util.List;
 import java.util.Locale;
 
 import static org.junit.jupiter.api.Assertions.*;
+import cz.vsb.minibank.api.controller.AuthorizationController;
+import cz.vsb.minibank.api.controller.PaymentController;
 
 public class PaymentAndAuthorizationApiTest {
 

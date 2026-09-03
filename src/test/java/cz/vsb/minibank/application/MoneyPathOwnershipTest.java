@@ -1,12 +1,12 @@
 package cz.vsb.minibank.application;
 
-import cz.vsb.minibank.domain.Account;
-import cz.vsb.minibank.domain.Address;
-import cz.vsb.minibank.domain.Beneficiary;
-import cz.vsb.minibank.domain.Customer;
-import cz.vsb.minibank.domain.FeePolicy;
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.customer.Account;
+import cz.vsb.minibank.domain.customer.Address;
+import cz.vsb.minibank.domain.customer.Beneficiary;
+import cz.vsb.minibank.domain.customer.Customer;
+import cz.vsb.minibank.domain.fee.FeePolicy;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
 import cz.vsb.minibank.domain.exceptions.ConflictException;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
@@ -26,6 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.application.payment.TransferApplicationService;
 
 /**
  * No money-moving path may act on an object the caller does not own.

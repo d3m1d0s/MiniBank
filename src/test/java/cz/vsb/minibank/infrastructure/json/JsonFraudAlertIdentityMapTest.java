@@ -1,8 +1,8 @@
 package cz.vsb.minibank.infrastructure.json;
 
-import cz.vsb.minibank.domain.FraudAlert;
-import cz.vsb.minibank.domain.FraudAlertObserver;
-import cz.vsb.minibank.domain.FraudAlertState;
+import cz.vsb.minibank.domain.fraud.FraudAlert;
+import cz.vsb.minibank.domain.fraud.FraudAlertObserver;
+import cz.vsb.minibank.domain.fraud.FraudAlertState;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
 import org.junit.jupiter.api.Test;

@@ -1,9 +1,9 @@
 package cz.vsb.minibank.domain.repository;
 
-import cz.vsb.minibank.domain.FraudAlert;
-import cz.vsb.minibank.domain.FraudAlertNote;
-import cz.vsb.minibank.domain.FraudAlertState;
-import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.fraud.FraudAlert;
+import cz.vsb.minibank.domain.fraud.FraudAlertNote;
+import cz.vsb.minibank.domain.fraud.FraudAlertState;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
 import cz.vsb.minibank.domain.value.Money;
 
 import java.math.BigDecimal;

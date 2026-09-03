@@ -1,23 +1,22 @@
 package cz.vsb.minibank.api;
 
-import cz.vsb.minibank.api.dto.AlertDetailDto;
-import cz.vsb.minibank.api.dto.HistoryItemDto;
-import cz.vsb.minibank.api.dto.PageDto;
-import cz.vsb.minibank.application.SecurityContext;
-import cz.vsb.minibank.domain.Account;
-import cz.vsb.minibank.domain.Address;
-import cz.vsb.minibank.domain.Customer;
-import cz.vsb.minibank.domain.FraudAlert;
-import cz.vsb.minibank.domain.SimpleFeePolicy;
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.User;
-import cz.vsb.minibank.domain.UserRole;
+import cz.vsb.minibank.api.dto.fraud.AlertDetailDto;
+import cz.vsb.minibank.api.dto.payment.HistoryItemDto;
+import cz.vsb.minibank.api.dto.common.PageDto;
+import cz.vsb.minibank.application.auth.SecurityContext;
+import cz.vsb.minibank.domain.customer.Account;
+import cz.vsb.minibank.domain.customer.Address;
+import cz.vsb.minibank.domain.customer.Customer;
+import cz.vsb.minibank.domain.fraud.FraudAlert;
+import cz.vsb.minibank.domain.fee.SimpleFeePolicy;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.customer.User;
+import cz.vsb.minibank.domain.customer.UserRole;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;
 import cz.vsb.minibank.domain.exceptions.ValidationException;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
-import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -31,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import cz.vsb.minibank.api.controller.FraudController;
 
 /**
  * The order, the size and the reach of the payment history on the analyst's alert screen.

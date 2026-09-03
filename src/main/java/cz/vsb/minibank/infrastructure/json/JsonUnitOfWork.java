@@ -1,8 +1,8 @@
 package cz.vsb.minibank.infrastructure.json;
 
-import cz.vsb.minibank.domain.DomainEvent;
-import cz.vsb.minibank.domain.DomainEventBus;
-import cz.vsb.minibank.domain.RecordsDomainEvents;
+import cz.vsb.minibank.domain.event.DomainEvent;
+import cz.vsb.minibank.domain.event.DomainEventBus;
+import cz.vsb.minibank.domain.event.RecordsDomainEvents;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 
 import java.util.*;

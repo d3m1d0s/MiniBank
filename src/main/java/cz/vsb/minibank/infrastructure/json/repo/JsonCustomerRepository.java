@@ -1,9 +1,8 @@
 package cz.vsb.minibank.infrastructure.json.repo;
 
-import cz.vsb.minibank.domain.Beneficiary;
-import cz.vsb.minibank.domain.Customer;
+import cz.vsb.minibank.domain.customer.Beneficiary;
+import cz.vsb.minibank.domain.customer.Customer;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
-import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.dto.JsonBeneficiary;
 import cz.vsb.minibank.infrastructure.json.dto.JsonCustomer;

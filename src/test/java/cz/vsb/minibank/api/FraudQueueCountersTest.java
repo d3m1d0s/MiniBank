@@ -1,16 +1,16 @@
 package cz.vsb.minibank.api;
 
-import cz.vsb.minibank.api.dto.AlertQueueItemDto;
-import cz.vsb.minibank.api.dto.AlertQueueResponseDto;
-import cz.vsb.minibank.api.dto.PageDto;
-import cz.vsb.minibank.application.SecurityContext;
-import cz.vsb.minibank.domain.Account;
-import cz.vsb.minibank.domain.FraudAlert;
-import cz.vsb.minibank.domain.FraudAlertState;
-import cz.vsb.minibank.domain.SimpleFeePolicy;
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.User;
-import cz.vsb.minibank.domain.UserRole;
+import cz.vsb.minibank.api.dto.fraud.AlertQueueItemDto;
+import cz.vsb.minibank.api.dto.fraud.AlertQueueResponseDto;
+import cz.vsb.minibank.api.dto.common.PageDto;
+import cz.vsb.minibank.application.auth.SecurityContext;
+import cz.vsb.minibank.domain.customer.Account;
+import cz.vsb.minibank.domain.fraud.FraudAlert;
+import cz.vsb.minibank.domain.fraud.FraudAlertState;
+import cz.vsb.minibank.domain.fee.SimpleFeePolicy;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.customer.User;
+import cz.vsb.minibank.domain.customer.UserRole;
 import cz.vsb.minibank.domain.exceptions.ValidationException;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
@@ -28,6 +28,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import cz.vsb.minibank.api.controller.FraudController;
 
 /**
  * The queue counters describe the whole queue; the list beside them describes the filter and the
@@ -340,7 +341,7 @@ class FraudQueueCountersTest {
 
     private static List<Integer> idsOf(AlertQueueResponseDto response) {
         return response.alerts().items().stream()
-                .map(cz.vsb.minibank.api.dto.AlertQueueItemDto::id)
+                .map(cz.vsb.minibank.api.dto.fraud.AlertQueueItemDto::id)
                 .toList();
     }
 

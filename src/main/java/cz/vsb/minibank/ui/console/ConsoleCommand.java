@@ -1,6 +1,6 @@
 package cz.vsb.minibank.ui.console;
 
-import cz.vsb.minibank.domain.UserRole;
+import cz.vsb.minibank.domain.customer.UserRole;
 
 
 /**

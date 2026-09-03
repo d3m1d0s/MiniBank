@@ -1,10 +1,11 @@
 package cz.vsb.minibank.api;
 
-import cz.vsb.minibank.api.dto.AccountSummaryDto;
-import cz.vsb.minibank.application.OwnershipGuard;
-import cz.vsb.minibank.application.SecurityContext;
-import cz.vsb.minibank.application.TransferApplicationService;
-import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.api.dto.account.AccountSummaryDto;
+import cz.vsb.minibank.application.auth.OwnershipGuard;
+import cz.vsb.minibank.application.auth.SecurityContext;
+import cz.vsb.minibank.application.payment.TransferApplicationService;
+import cz.vsb.minibank.domain.customer.*;
+import cz.vsb.minibank.domain.fee.*;
 import cz.vsb.minibank.domain.exceptions.NotAuthenticatedException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -17,6 +18,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import cz.vsb.minibank.api.controller.PaymentController;
 
 class PaymentControllerAuthTest {
 

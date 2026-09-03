@@ -1,9 +1,8 @@
 package cz.vsb.minibank.infrastructure.json.repo;
 
-import cz.vsb.minibank.domain.Account;
+import cz.vsb.minibank.domain.customer.Account;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
-import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.dto.JsonAccount;

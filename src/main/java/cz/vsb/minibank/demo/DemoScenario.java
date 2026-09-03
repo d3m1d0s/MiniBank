@@ -1,6 +1,9 @@
 package cz.vsb.minibank.demo;
 
-import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.customer.*;
+import cz.vsb.minibank.domain.fee.*;
+import cz.vsb.minibank.domain.fraud.*;
+import cz.vsb.minibank.domain.transfer.*;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;

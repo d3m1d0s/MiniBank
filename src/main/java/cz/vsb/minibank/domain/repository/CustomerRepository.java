@@ -1,7 +1,7 @@
 package cz.vsb.minibank.domain.repository;
 
-import cz.vsb.minibank.domain.Beneficiary;
-import cz.vsb.minibank.domain.Customer;
+import cz.vsb.minibank.domain.customer.Beneficiary;
+import cz.vsb.minibank.domain.customer.Customer;
 
 import java.util.Optional;
 

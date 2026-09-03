@@ -1,10 +1,10 @@
 package cz.vsb.minibank.infrastructure.sql.repo;
 
-import cz.vsb.minibank.domain.CardPayment;
-import cz.vsb.minibank.domain.DispatchState;
-import cz.vsb.minibank.domain.Payment;
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.transfer.CardPayment;
+import cz.vsb.minibank.domain.transfer.DispatchState;
+import cz.vsb.minibank.domain.transfer.Payment;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
 import cz.vsb.minibank.domain.exceptions.TransferChangedException;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
@@ -838,7 +838,7 @@ public final class SqlTransferRepository implements TransferRepository {
      * aggregate reads the column without building a Transfer out of any row it counts.
      *
      * THE ACCOUNT PREDICATE IS A SET because the ceiling is a limit on a person: see
-     * {@link cz.vsb.minibank.domain.Customer#dailyLimit}. It is {@code = ANY (?)} over one bound
+     * {@link cz.vsb.minibank.domain.customer.Customer#dailyLimit}. It is {@code = ANY (?)} over one bound
      * array for the reasons {@link #sumSentToIbanWithConnection} gives in full and does not repeat
      * here - an IN list would put values in the statement text, generated placeholders would give
      * the query a different text per number of accounts.

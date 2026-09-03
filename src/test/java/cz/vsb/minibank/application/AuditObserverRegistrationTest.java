@@ -1,6 +1,6 @@
 package cz.vsb.minibank.application;
 
-import cz.vsb.minibank.api.MinibankApiConfig;
+import cz.vsb.minibank.api.config.MinibankApiConfig;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,6 +9,8 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import cz.vsb.minibank.application.auth.RefusingOtpValidator;
+import cz.vsb.minibank.application.config.BootstrapServices;
 
 /**
  * Pins where the observers are attached.

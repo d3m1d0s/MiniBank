@@ -1,6 +1,7 @@
 package cz.vsb.minibank.uow;
 
-import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.customer.*;
+import cz.vsb.minibank.domain.transfer.*;
 import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;

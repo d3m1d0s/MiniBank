@@ -4,7 +4,7 @@ package cz.vsb.minibank.infrastructure;
 import cz.vsb.minibank.infrastructure.json.JsonDataStore;
 import cz.vsb.minibank.infrastructure.json.JsonStoreGuard;
 import cz.vsb.minibank.infrastructure.json.repo.*;
-import cz.vsb.minibank.domain.DomainEventBus;
+import cz.vsb.minibank.domain.event.DomainEventBus;
 import cz.vsb.minibank.domain.repository.*;
 import cz.vsb.minibank.infrastructure.json.JsonUnitOfWorkFactory;
 import cz.vsb.minibank.infrastructure.sql.SqlUnitOfWorkFactory;

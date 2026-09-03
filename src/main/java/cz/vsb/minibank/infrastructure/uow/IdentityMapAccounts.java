@@ -1,6 +1,6 @@
 package cz.vsb.minibank.infrastructure.uow;
 
-import cz.vsb.minibank.domain.Account;
+import cz.vsb.minibank.domain.customer.Account;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.value.IBAN;
 

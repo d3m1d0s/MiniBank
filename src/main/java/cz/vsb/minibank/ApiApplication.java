@@ -1,6 +1,6 @@
 package cz.vsb.minibank;
 
-import cz.vsb.minibank.api.ApiStartupCheck;
+import cz.vsb.minibank.api.config.ApiStartupCheck;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 

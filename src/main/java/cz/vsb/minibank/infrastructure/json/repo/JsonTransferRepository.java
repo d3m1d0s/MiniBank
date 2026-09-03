@@ -1,10 +1,9 @@
 package cz.vsb.minibank.infrastructure.json.repo;
 
-import cz.vsb.minibank.domain.DispatchState;
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.transfer.DispatchState;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
-import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;

@@ -1,23 +1,23 @@
 package cz.vsb.minibank.api;
 
-import cz.vsb.minibank.api.dto.AlertDetailDto;
-import cz.vsb.minibank.api.dto.HistoryItemDto;
-import cz.vsb.minibank.api.dto.MoneyDto;
-import cz.vsb.minibank.api.dto.PageDto;
-import cz.vsb.minibank.api.dto.TransferDetailsDto;
-import cz.vsb.minibank.api.dto.TransferInfoDto;
-import cz.vsb.minibank.application.OwnershipGuard;
-import cz.vsb.minibank.application.SecurityContext;
-import cz.vsb.minibank.domain.Account;
-import cz.vsb.minibank.domain.Address;
-import cz.vsb.minibank.domain.Customer;
-import cz.vsb.minibank.domain.FeePolicy;
-import cz.vsb.minibank.domain.FraudAlert;
-import cz.vsb.minibank.domain.SimpleFeePolicy;
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.TransferStatus;
-import cz.vsb.minibank.domain.User;
-import cz.vsb.minibank.domain.UserRole;
+import cz.vsb.minibank.api.dto.fraud.AlertDetailDto;
+import cz.vsb.minibank.api.dto.payment.HistoryItemDto;
+import cz.vsb.minibank.api.dto.common.MoneyDto;
+import cz.vsb.minibank.api.dto.common.PageDto;
+import cz.vsb.minibank.api.dto.payment.TransferDetailsDto;
+import cz.vsb.minibank.api.dto.payment.TransferInfoDto;
+import cz.vsb.minibank.application.auth.OwnershipGuard;
+import cz.vsb.minibank.application.auth.SecurityContext;
+import cz.vsb.minibank.domain.customer.Account;
+import cz.vsb.minibank.domain.customer.Address;
+import cz.vsb.minibank.domain.customer.Customer;
+import cz.vsb.minibank.domain.fee.FeePolicy;
+import cz.vsb.minibank.domain.fraud.FraudAlert;
+import cz.vsb.minibank.domain.fee.SimpleFeePolicy;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
+import cz.vsb.minibank.domain.customer.User;
+import cz.vsb.minibank.domain.customer.UserRole;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
@@ -42,6 +42,8 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.fail;
+import cz.vsb.minibank.api.controller.AuthorizationController;
+import cz.vsb.minibank.api.controller.FraudController;
 
 /**
  * Which side of this bank's edge a payment ended up on, as the three screens that print it are

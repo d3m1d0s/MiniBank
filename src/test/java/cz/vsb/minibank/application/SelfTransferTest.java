@@ -1,9 +1,9 @@
 package cz.vsb.minibank.application;
 
-import cz.vsb.minibank.domain.Account;
-import cz.vsb.minibank.domain.Address;
-import cz.vsb.minibank.domain.Beneficiary;
-import cz.vsb.minibank.domain.Customer;
+import cz.vsb.minibank.domain.customer.Account;
+import cz.vsb.minibank.domain.customer.Address;
+import cz.vsb.minibank.domain.customer.Beneficiary;
+import cz.vsb.minibank.domain.customer.Customer;
 import cz.vsb.minibank.domain.exceptions.SelfTransferNotAllowedException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
@@ -18,6 +18,8 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.*;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.application.payment.TransferApplicationService;
 
 /**
  * A payment to the source account's own IBAN is refused.

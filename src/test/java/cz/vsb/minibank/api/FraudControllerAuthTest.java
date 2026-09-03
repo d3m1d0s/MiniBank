@@ -1,14 +1,16 @@
 package cz.vsb.minibank.api;
 
-import cz.vsb.minibank.application.FraudApplicationService;
-import cz.vsb.minibank.application.SecurityContext;
-import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.application.fraud.FraudApplicationService;
+import cz.vsb.minibank.application.auth.SecurityContext;
+import cz.vsb.minibank.domain.customer.*;
+import cz.vsb.minibank.domain.fee.*;
+import cz.vsb.minibank.domain.fraud.*;
+import cz.vsb.minibank.domain.transfer.*;
 import cz.vsb.minibank.domain.exceptions.AccessDeniedException;
 import cz.vsb.minibank.domain.repository.AccountRepository;
 import cz.vsb.minibank.domain.repository.CustomerRepository;
 import cz.vsb.minibank.domain.repository.FraudAlertRepository;
 import cz.vsb.minibank.domain.repository.TransferRepository;
-import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
@@ -21,6 +23,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
+import cz.vsb.minibank.api.controller.FraudController;
 
 class FraudControllerAuthTest {
 

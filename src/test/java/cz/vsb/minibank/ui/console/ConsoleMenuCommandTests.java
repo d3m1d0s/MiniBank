@@ -1,14 +1,14 @@
 package cz.vsb.minibank.ui.console;
 
-import cz.vsb.minibank.application.AuthService;
-import cz.vsb.minibank.application.BootstrapServices;
-import cz.vsb.minibank.application.MinibankProperties;
-import cz.vsb.minibank.application.Pbkdf2PasswordEncoder;
-import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.application.auth.AuthService;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.application.config.MinibankProperties;
+import cz.vsb.minibank.application.auth.Pbkdf2PasswordEncoder;
+import cz.vsb.minibank.domain.customer.*;
+import cz.vsb.minibank.domain.transfer.*;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
-import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UowScope;
 import org.junit.jupiter.api.*;
 

@@ -1,7 +1,7 @@
 package cz.vsb.minibank.infrastructure.json;
 
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
 import cz.vsb.minibank.infrastructure.json.dto.JsonTransfer;
 import cz.vsb.minibank.infrastructure.json.repo.JsonTransferRepository;
 import org.junit.jupiter.api.Test;

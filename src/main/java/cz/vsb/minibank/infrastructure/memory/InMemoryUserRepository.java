@@ -1,6 +1,6 @@
 package cz.vsb.minibank.infrastructure.memory;
 
-import cz.vsb.minibank.domain.User;
+import cz.vsb.minibank.domain.customer.User;
 import cz.vsb.minibank.domain.exceptions.ConflictException;
 import cz.vsb.minibank.domain.repository.UserRepository;
 

@@ -1,6 +1,6 @@
 package cz.vsb.minibank.domain.repository;
 
-import cz.vsb.minibank.domain.Account;
+import cz.vsb.minibank.domain.customer.Account;
 import cz.vsb.minibank.domain.exceptions.InvalidIbanException;
 import cz.vsb.minibank.domain.value.IBAN;
 

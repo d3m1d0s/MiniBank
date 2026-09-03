@@ -1,14 +1,14 @@
 package cz.vsb.minibank.uow;
 
-import cz.vsb.minibank.application.BootstrapServices;
-import cz.vsb.minibank.domain.Account;
-import cz.vsb.minibank.domain.Address;
-import cz.vsb.minibank.domain.Customer;
-import cz.vsb.minibank.domain.FraudAlert;
-import cz.vsb.minibank.domain.FraudAlertState;
-import cz.vsb.minibank.domain.SimpleFeePolicy;
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.domain.customer.Account;
+import cz.vsb.minibank.domain.customer.Address;
+import cz.vsb.minibank.domain.customer.Customer;
+import cz.vsb.minibank.domain.fraud.FraudAlert;
+import cz.vsb.minibank.domain.fraud.FraudAlertState;
+import cz.vsb.minibank.domain.fee.SimpleFeePolicy;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.FraudAlertChangedException;
 import cz.vsb.minibank.domain.exceptions.OptimisticLockException;
@@ -45,6 +45,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import cz.vsb.minibank.domain.fraud.FraudAlertNote;
 
 /**
  * The account version, the columns bundled with it, and the guards the transfers and
@@ -501,7 +502,7 @@ public class SqlSchemaPassTest {
                 "and the load brings the new one back, which is what lets the write after it be"
                         + " guarded in turn");
 
-        List<cz.vsb.minibank.domain.FraudAlertNote> journal =
+        List<cz.vsb.minibank.domain.fraud.FraudAlertNote> journal =
                 infra.alerts.notesOf(held.alertId());
         assertEquals(1, journal.size(), "the note written with the decision reached the journal");
         assertEquals("called the payee, all in order", journal.get(0).text());
@@ -538,18 +539,18 @@ public class SqlSchemaPassTest {
         Instant firstWrote = Instant.parse("2026-03-04T10:15:30Z");
 
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
-            infra.alerts.appendNote(new cz.vsb.minibank.domain.FraudAlertNote(
+            infra.alerts.appendNote(new cz.vsb.minibank.domain.fraud.FraudAlertNote(
                     held.alertId(), "anna.analyst", firstWrote, "called the payer, no answer"));
             scope.uow().commit();
         }
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
-            infra.alerts.appendNote(new cz.vsb.minibank.domain.FraudAlertNote(
+            infra.alerts.appendNote(new cz.vsb.minibank.domain.fraud.FraudAlertNote(
                     held.alertId(), "bob.analyst", firstWrote.plusSeconds(3600),
                     "payer called back, confirms the payment"));
             scope.uow().commit();
         }
 
-        List<cz.vsb.minibank.domain.FraudAlertNote> journal =
+        List<cz.vsb.minibank.domain.fraud.FraudAlertNote> journal =
                 infra.alerts.notesOf(held.alertId());
 
         assertEquals(2, journal.size(), "appending must never replace");
@@ -589,13 +590,13 @@ public class SqlSchemaPassTest {
         }
 
         try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
-            infra.alerts.appendNote(new cz.vsb.minibank.domain.FraudAlertNote(
+            infra.alerts.appendNote(new cz.vsb.minibank.domain.fraud.FraudAlertNote(
                     held.alertId(), "anna.analyst", Instant.now().plusSeconds(60),
                     "payer called back"));
             scope.uow().commit();
         }
 
-        List<cz.vsb.minibank.domain.FraudAlertNote> journal =
+        List<cz.vsb.minibank.domain.fraud.FraudAlertNote> journal =
                 infra.alerts.notesOf(held.alertId());
 
         assertEquals(2, journal.size(), "the carried entry must not be lost by a later one");
@@ -618,7 +619,7 @@ public class SqlSchemaPassTest {
     void aNoteOnAnAlertThatDoesNotExistIsRefused() {
         assertThrows(RuntimeException.class, () -> {
             try (UowScope scope = new UowScope(infra.uowFactory.begin())) {
-                infra.alerts.appendNote(new cz.vsb.minibank.domain.FraudAlertNote(
+                infra.alerts.appendNote(new cz.vsb.minibank.domain.fraud.FraudAlertNote(
                         4242, "anna.analyst", Instant.now(), "on nothing at all"));
                 scope.uow().commit();
             }
@@ -690,7 +691,7 @@ public class SqlSchemaPassTest {
      * The stored fee, which is the one number in the row that nothing re-checks on the way out.
      *
      * Raw SQL for the same reason as the two cases above. Every Java path takes its fee from a
-     * {@link cz.vsb.minibank.domain.FeePolicy}, whose contract is that a fee is never negative, so
+     * {@link cz.vsb.minibank.domain.fee.FeePolicy}, whose contract is that a fee is never negative, so
      * a test that went through the domain would prove that contract again and say nothing about
      * the column. Transfer.hydrateSettlement validates nothing on load, deliberately - a loader
      * that refused a legacy row would make the whole store unreadable - so a fee written by hand

@@ -1,7 +1,7 @@
 package cz.vsb.minibank.ui.console;
 
-import cz.vsb.minibank.application.BootstrapServices;
-import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.application.config.BootstrapServices;
+import cz.vsb.minibank.domain.customer.*;
 import cz.vsb.minibank.domain.value.IBAN;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;

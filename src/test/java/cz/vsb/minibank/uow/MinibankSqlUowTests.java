@@ -1,8 +1,10 @@
 package cz.vsb.minibank.uow;
 
-import cz.vsb.minibank.application.BootstrapServices;
+import cz.vsb.minibank.application.config.BootstrapServices;
 import cz.vsb.minibank.demo.DemoScenario;
-import cz.vsb.minibank.domain.*;
+import cz.vsb.minibank.domain.customer.*;
+import cz.vsb.minibank.domain.fraud.*;
+import cz.vsb.minibank.domain.transfer.*;
 import cz.vsb.minibank.domain.exceptions.ConflictException;
 import cz.vsb.minibank.domain.exceptions.DataIntegrityException;
 import cz.vsb.minibank.domain.exceptions.NotFoundException;

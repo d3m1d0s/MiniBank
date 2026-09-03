@@ -1,8 +1,6 @@
 package cz.vsb.minibank.infrastructure.json;
 
-import cz.vsb.minibank.domain.DomainEventBus;
-import cz.vsb.minibank.infrastructure.json.JsonDataStore;
-import cz.vsb.minibank.infrastructure.json.JsonUnitOfWork;
+import cz.vsb.minibank.domain.event.DomainEventBus;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWorkFactory;
 

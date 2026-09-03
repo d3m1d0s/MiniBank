@@ -1,8 +1,8 @@
 package cz.vsb.minibank.uow;
 
-import cz.vsb.minibank.domain.Transfer;
-import cz.vsb.minibank.domain.TransferObserver;
-import cz.vsb.minibank.domain.TransferStatus;
+import cz.vsb.minibank.domain.transfer.Transfer;
+import cz.vsb.minibank.domain.transfer.TransferObserver;
+import cz.vsb.minibank.domain.transfer.TransferStatus;
 import cz.vsb.minibank.domain.value.Money;
 import cz.vsb.minibank.infrastructure.Bootstrap;
 import cz.vsb.minibank.infrastructure.uow.UnitOfWork;
