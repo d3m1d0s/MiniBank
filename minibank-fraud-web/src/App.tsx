@@ -1,18 +1,18 @@
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import Login from './Login';
-import FraudDesk from './FraudDesk';
-import NavRail from './NavRail';
-import NewPaymentScreen from './NewPaymentScreen';
-import HistoryScreen from './HistoryScreen';
-import WaitingAuthorizationsScreen from './WaitingAuthorizationsScreen';
-import { fetchMe, logoutSession, setSessionExpiredHandler, type Me } from './api';
+import Login from './screens/Login';
+import FraudDesk from './screens/FraudDesk';
+import NavRail from './ui/NavRail';
+import NewPaymentScreen from './screens/NewPaymentScreen';
+import HistoryScreen from './screens/HistoryScreen';
+import WaitingAuthorizationsScreen from './screens/WaitingAuthorizationsScreen';
+import { fetchMe, logoutSession, setSessionExpiredHandler, type Me } from './lib/api';
 /*
  * The one import in this window that does not go through the api barrel next door, and the line is
  * where it is because of what the barrel is: everything this application asks of the bank. Reading
  * back the record this tab wrote for itself asks nothing of anybody, and every request that follows
  * still goes through ./api exactly as before.
  */
-import { restoreSession } from '@shared/http';
+import { restoreSession } from '@shared/wire/http';
 /* The alert code, spelled the way the queue card and the detail panel spell it. */
 import {
     NO_SCREENS_TITLE,
@@ -23,8 +23,8 @@ import {
     servedRole,
     type NavRole,
     type NavView,
-} from '@shared/navigation';
-import { roleLabel } from '@shared/glossary';
+} from '@shared/nav/navigation';
+import { roleLabel } from '@shared/text/glossary';
 import {
     allowedForRole,
     homeRoute,
@@ -33,7 +33,7 @@ import {
     replaceRoute,
     subscribeToHash,
     type Route,
-} from '@shared/route';
+} from '@shared/nav/route';
 
 /**
  * What useSyncExternalStore reads, kept out of the component so that the same function is handed

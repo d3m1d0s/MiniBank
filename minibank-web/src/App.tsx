@@ -1,14 +1,14 @@
 // src/App.tsx
 import { useEffect, useState, type ReactNode } from 'react';
-import './App.css';
-import { setSessionExpiredHandler, logoutSession, fetchMe, type Me } from './api';
+import './styles/App.css';
+import { setSessionExpiredHandler, logoutSession, fetchMe, type Me } from './lib/api';
 /*
  * The session this tab is holding, read from the module that keeps it. api.ts is this
  * application's list of calls, and restoring a session asks the server nothing: what it reads is
  * the record the tab wrote for itself at sign-in.
  */
-import { restoreSession } from '@shared/http';
-import type { NavRole, NavView } from '@shared/navigation';
+import { restoreSession } from '@shared/wire/http';
+import type { NavRole, NavView } from '@shared/nav/navigation';
 import {
     ACTIVITY_EVENTS,
     ACTIVITY_REFRESH_MS,
@@ -18,7 +18,7 @@ import {
     noScreensNote,
     servedRole,
     SIGNED_OUT_WITH_LOSS,
-} from '@shared/navigation';
+} from '@shared/nav/navigation';
 import {
     allowedForRole,
     currentRoute,
@@ -26,13 +26,13 @@ import {
     routeFor,
     subscribeToHash,
     type Route,
-} from '@shared/route';
-import { roleLabel } from '@shared/glossary';
-import NewPaymentPage from './NewPaymentPage';
-import HistoryPage from './HistoryPage';
-import { WaitingAuthorizationsPage } from './WaitingAuthorizationsPage';
-import FraudDeskPage from './FraudDeskPage';
-import LoginDialog from './LoginDialog.tsx';
+} from '@shared/nav/route';
+import { roleLabel } from '@shared/text/glossary';
+import NewPaymentPage from './screens/NewPaymentPage';
+import HistoryPage from './screens/HistoryPage';
+import { WaitingAuthorizationsPage } from './screens/WaitingAuthorizationsPage';
+import FraudDeskPage from './screens/FraudDeskPage';
+import LoginDialog from './screens/LoginDialog.tsx';
 
 interface AuthState {
     username: string;

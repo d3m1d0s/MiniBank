@@ -199,7 +199,7 @@ normal; the claim lives with the running process, so deleting the file frees not
 
 ```
 .\mvnw.cmd -B package
-java -jar target/VIS_project_minibank-1.0-SNAPSHOT.jar
+java -jar target/minibank-1.0-SNAPSHOT.jar
 ```
 
 `package` produces a runnable jar whose main class is the REST API.
@@ -300,7 +300,7 @@ The profile is active by default through `spring.profiles.default=demo` in
 `src/main/resources/application.properties`. Switch it off with any other profile:
 
 ```
-java -jar target/VIS_project_minibank-1.0-SNAPSHOT.jar --spring.profiles.active=plain
+java -jar target/minibank-1.0-SNAPSHOT.jar --spring.profiles.active=plain
 ```
 
 Under `plain` nothing is seeded and neither login exists, so the API serves only whatever data is

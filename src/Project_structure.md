@@ -5,7 +5,7 @@ files a reader has to find; it does not list all 156 source files, because a fil
 file is wrong the day the next one is added, which is what happened to the version this replaces.
 
 ```
-VIS_project_minibank/
+MiniBank/
 ├─ pom.xml                      Maven build; three entry points, one test phase
 ├─ mvnw, mvnw.cmd, .mvn/        the Maven wrapper, 3.9.6; script only, so there is no jar
 ├─ docker-compose.yml           PostgreSQL 14 only, published on ${MINIBANK_DB_PORT:-55432}

@@ -2,9 +2,9 @@ import '@shared/tokens/scale.css'
 import '@shared/tokens/theme-desktop.css'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { ErrorBoundary } from '@shared/ErrorBoundary'
+import { ErrorBoundary } from '@shared/ui/ErrorBoundary'
 import App from './App'
-import './fraud.css'
+import './styles/fraud.css'
 
 /*
  * The boundary is outside App and inside StrictMode, which is where it can do its job: a throw

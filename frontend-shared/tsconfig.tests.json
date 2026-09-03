@@ -39,5 +39,5 @@
       "vitest": ["../minibank-web/node_modules/vitest"]
     }
   },
-  "include": ["*.test.ts"]
+  "include": ["**/*.test.ts"]
 }
